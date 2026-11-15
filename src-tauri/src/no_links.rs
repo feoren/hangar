@@ -284,6 +284,56 @@ pub fn plain_folder(path: &Path) -> bool {
     metadata(path, Links::Refuse).is_ok_and(|meta| meta.is_dir())
 }
 
+/// Windows network shares (`\\host\share`, `\\?\UNC\...`) and device or verbatim namespaces
+/// (`\\.\...`, `\\?\...` other than a drive), by the text alone. Checked before a folder is
+/// touched at all: even asking a share whether a folder exists hands the user's credentials to
+/// its host.
+pub fn is_network_or_device(path: &Path) -> bool {
+    use std::path::Prefix;
+    matches!(
+        path.components().next(),
+        Some(Component::Prefix(prefix)) if matches!(
+            prefix.kind(),
+            Prefix::UNC(..) | Prefix::VerbatimUNC(..) | Prefix::DeviceNS(_) | Prefix::Verbatim(_)
+        )
+    )
+}
+
+/// Where a folder the user or a window named lies.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum FolderPlace {
+    /// A folder on this machine, also through local links, or on a mapped network drive named
+    /// directly (Windows authenticated against its host when the user mapped it, so asking it
+    /// hands over nothing new).
+    Local,
+    /// A share or device path, or a link on the way that leads off the fixed local drives (or
+    /// too many links). Nothing there was touched.
+    Remote,
+    /// Relative, missing, unreadable or not a folder.
+    NotAFolder,
+}
+
+/// [`FolderPlace`] of `path`, without a lookup ever reaching a host the user did not choose: the
+/// text first (share, device, relative), then a walk from the root down that follows only links
+/// to local fixed drives ([`Links::FollowLocal`]). `Path::is_dir` alone would follow a symlink or
+/// junction to a share and authenticate against its host. A path on a mapped drive (`Z:\work`)
+/// stays allowed: the user mapped that drive, and sessions there worked before.
+pub fn folder_place(path: &Path) -> FolderPlace {
+    if is_network_or_device(path) {
+        return FolderPlace::Remote;
+    }
+    if !path.is_absolute() {
+        return FolderPlace::NotAFolder;
+    }
+    match metadata(path, Links::FollowLocal) {
+        Ok(meta) if meta.is_dir() => FolderPlace::Local,
+        Ok(_) | Err(NoLinksError::Unreadable { .. }) | Err(NoLinksError::Link(_)) => {
+            FolderPlace::NotAFolder
+        }
+        Err(NoLinksError::Remote(_)) | Err(NoLinksError::TooManyLinks) => FolderPlace::Remote,
+    }
+}
+
 #[cfg(test)]
 pub(crate) mod tests {
     use super::*;
@@ -445,6 +495,45 @@ pub(crate) mod tests {
             Err(NoLinksError::Remote(_))
         ));
         // A name lookup or SMB connection attempt would take seconds.
+        assert!(started.elapsed() < std::time::Duration::from_secs(1));
+        assert_eq!(folder_place(&link), FolderPlace::Remote);
+        assert_eq!(folder_place(&link.join("project")), FolderPlace::Remote);
+        assert!(started.elapsed() < std::time::Duration::from_secs(1));
+    }
+
+    #[test]
+    fn folders_are_placed_without_leaving_the_machine() {
+        let tmp = TempDir::new("no-links-place");
+        let target = tmp.path().join("target");
+        fs::create_dir_all(&target).unwrap();
+        fs::write(target.join("marker.txt"), "marker").unwrap();
+        let link = tmp.path().join("linked");
+        folder_link(&link, &target);
+        assert_eq!(folder_place(&target), FolderPlace::Local);
+        assert_eq!(folder_place(&link), FolderPlace::Local);
+        assert_eq!(
+            folder_place(&target.join("marker.txt")),
+            FolderPlace::NotAFolder
+        );
+        assert_eq!(
+            folder_place(&target.join("missing")),
+            FolderPlace::NotAFolder
+        );
+        assert_eq!(folder_place(Path::new("relative")), FolderPlace::NotAFolder);
+        let started = std::time::Instant::now();
+        #[cfg(windows)]
+        for remote in [
+            r"\\hangar-test.invalid\share\project",
+            "//hangar-test.invalid/share/project",
+            r"\\?\UNC\hangar-test.invalid\share",
+            r"\\.\PhysicalDrive0",
+        ] {
+            assert_eq!(
+                folder_place(Path::new(remote)),
+                FolderPlace::Remote,
+                "{remote}"
+            );
+        }
         assert!(started.elapsed() < std::time::Duration::from_secs(1));
     }
 }

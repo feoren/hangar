@@ -149,6 +149,15 @@ fn commands_are_registered_allowed_and_wired() {
         "push_save",
         "push_test",
         "push_session",
+        // The panel and file viewer windows share the main window's localStorage; what they
+        // must not change or read lives in the backend for the main window alone.
+        "security_switches",
+        "save_security_switches",
+        "load_message_queue",
+        "save_message_queue",
+        "set_panel_session",
+        "take_update_results",
+        "claims_snapshot",
     ] {
         assert!(commands.iter().any(|c| c == command), "{command} missing");
         let permission = format!("allow-{}", command.replace('_', "-"));

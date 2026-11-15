@@ -555,6 +555,12 @@
           "markdownDescription": "Enables the list_trash command without any pre-configured scope."
         },
         {
+          "description": "Enables the load_message_queue command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-load-message-queue",
+          "markdownDescription": "Enables the load_message_queue command without any pre-configured scope."
+        },
+        {
           "description": "Enables the load_scrollback command without any pre-configured scope.",
           "type": "string",
           "const": "allow-load-scrollback",
@@ -777,6 +783,12 @@
           "markdownDescription": "Enables the reveal_session_folder command without any pre-configured scope."
         },
         {
+          "description": "Enables the save_message_queue command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-save-message-queue",
+          "markdownDescription": "Enables the save_message_queue command without any pre-configured scope."
+        },
+        {
           "description": "Enables the save_profile command without any pre-configured scope.",
           "type": "string",
           "const": "allow-save-profile",
@@ -787,6 +799,12 @@
           "type": "string",
           "const": "allow-save-scrollback",
           "markdownDescription": "Enables the save_scrollback command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the save_security_switches command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-save-security-switches",
+          "markdownDescription": "Enables the save_security_switches command without any pre-configured scope."
         },
         {
           "description": "Enables the save_workspace command without any pre-configured scope.",
@@ -801,6 +819,12 @@
           "markdownDescription": "Enables the search_notes command without any pre-configured scope."
         },
         {
+          "description": "Enables the security_switches command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-security-switches",
+          "markdownDescription": "Enables the security_switches command without any pre-configured scope."
+        },
+        {
           "description": "Enables the session_resources command without any pre-configured scope.",
           "type": "string",
           "const": "allow-session-resources",
@@ -811,6 +835,12 @@
           "type": "string",
           "const": "allow-set-panel-on-top",
           "markdownDescription": "Enables the set_panel_on_top command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the set_panel_session command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-set-panel-session",
+          "markdownDescription": "Enables the set_panel_session command without any pre-configured scope."
         },
         {
           "description": "Enables the set_profile_secret command without any pre-configured scope.",
@@ -871,6 +901,12 @@
           "type": "string",
           "const": "allow-system-usage",
           "markdownDescription": "Enables the system_usage command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the take_update_results command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-take-update-results",
+          "markdownDescription": "Enables the take_update_results command without any pre-configured scope."
         },
         {
           "description": "Enables the team_answer_release command without any pre-configured scope.",
@@ -1365,6 +1401,12 @@
           "markdownDescription": "Denies the list_trash command without any pre-configured scope."
         },
         {
+          "description": "Denies the load_message_queue command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-load-message-queue",
+          "markdownDescription": "Denies the load_message_queue command without any pre-configured scope."
+        },
+        {
           "description": "Denies the load_scrollback command without any pre-configured scope.",
           "type": "string",
           "const": "deny-load-scrollback",
@@ -1587,6 +1629,12 @@
           "markdownDescription": "Denies the reveal_session_folder command without any pre-configured scope."
         },
         {
+          "description": "Denies the save_message_queue command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-save-message-queue",
+          "markdownDescription": "Denies the save_message_queue command without any pre-configured scope."
+        },
+        {
           "description": "Denies the save_profile command without any pre-configured scope.",
           "type": "string",
           "const": "deny-save-profile",
@@ -1597,6 +1645,12 @@
           "type": "string",
           "const": "deny-save-scrollback",
           "markdownDescription": "Denies the save_scrollback command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the save_security_switches command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-save-security-switches",
+          "markdownDescription": "Denies the save_security_switches command without any pre-configured scope."
         },
         {
           "description": "Denies the save_workspace command without any pre-configured scope.",
@@ -1611,6 +1665,12 @@
           "markdownDescription": "Denies the search_notes command without any pre-configured scope."
         },
         {
+          "description": "Denies the security_switches command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-security-switches",
+          "markdownDescription": "Denies the security_switches command without any pre-configured scope."
+        },
+        {
           "description": "Denies the session_resources command without any pre-configured scope.",
           "type": "string",
           "const": "deny-session-resources",
@@ -1621,6 +1681,12 @@
           "type": "string",
           "const": "deny-set-panel-on-top",
           "markdownDescription": "Denies the set_panel_on_top command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the set_panel_session command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-set-panel-session",
+          "markdownDescription": "Denies the set_panel_session command without any pre-configured scope."
         },
         {
           "description": "Denies the set_profile_secret command without any pre-configured scope.",
@@ -1681,6 +1747,12 @@
           "type": "string",
           "const": "deny-system-usage",
           "markdownDescription": "Denies the system_usage command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the take_update_results command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-take-update-results",
+          "markdownDescription": "Denies the take_update_results command without any pre-configured scope."
         },
         {
           "description": "Denies the team_answer_release command without any pre-configured scope.",

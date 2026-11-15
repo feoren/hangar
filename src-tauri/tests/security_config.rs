@@ -124,3 +124,83 @@ fn git_reads_take_a_session_not_a_folder() {
         assert!(!signature.contains("cwd"), "{name}: {signature}");
     }
 }
+
+/// Ending a process kills a Job Object or waits on ConPTY, removing a gate rule writes a file,
+/// opening a page starts the browser, and linking a repository writes the team settings: none of
+/// that may run on the main thread, where synchronous commands run.
+#[test]
+fn blocking_commands_run_off_the_main_thread() {
+    let commands = read("src/commands.rs");
+    for name in [
+        "close_session",
+        "kill_session",
+        "account_open",
+        "delete_gate_rule",
+        "team_link_repo",
+    ] {
+        let body = command_body(&commands, name);
+        assert!(body.contains("spawn_blocking"), "{name} runs on the caller");
+    }
+}
+
+/// explorer.exe parses its own command line and splits a path at commas (`C:\Users\Doe, Jane`),
+/// so it may open another folder or file than the one meant. Folders and files open through
+/// `desktop::open_folder` and `desktop::open_text_file` (ShellExecute on Windows) instead.
+#[test]
+fn folders_and_files_never_open_through_explorer_arguments() {
+    for file in ["src/commands.rs", "src/notes.rs"] {
+        let source = read(file);
+        assert!(
+            !source.contains("desktop::open("),
+            "{file} opens a path through explorer.exe's command line"
+        );
+    }
+}
+
+/// Like the gate's: the claims and the update results name files, sessions and program paths, and
+/// the panel window may listen. Both events are bare signals; the main window reads
+/// `claims_snapshot` and `take_update_results`, which the panel's capability does not grant.
+#[test]
+fn claims_and_update_result_events_carry_no_data() {
+    let lib = read("src/lib.rs");
+    assert!(
+        lib.contains("emit_to(panel_window::MAIN_LABEL, claims_service::EVENT, ())"),
+        "claims-changed must be emitted without payload"
+    );
+    let commands = read("src/commands.rs");
+    assert!(commands.contains("emit_to(panel_window::MAIN_LABEL, UPDATE_RESULT_EVENT, ())"));
+    assert_eq!(commands.matches("UPDATE_RESULT_EVENT,").count(), 1);
+    let panel = read("capabilities/panel.json");
+    for permission in ["allow-claims-snapshot", "allow-take-update-results"] {
+        assert!(!panel.contains(permission), "{permission}");
+    }
+}
+
+/// Every command the panel window may call with a session id checks that it is the session the
+/// main window handed the panel (`PanelScope`).
+#[test]
+fn panel_session_commands_check_the_handed_session() {
+    let commands = read("src/commands.rs");
+    for name in [
+        "git_diff",
+        "git_log",
+        "git_commit_diff",
+        "list_session_folder",
+        "list_session_paths",
+        "reveal_session_folder",
+        "open_file_viewer",
+    ] {
+        let body = command_body(&commands, name);
+        assert!(
+            body.contains("in_scope(&window, &scope,") || body.contains("scope.allows("),
+            "{name} does not check the panel's session"
+        );
+    }
+    for name in ["git_stage", "git_unstage", "git_discard", "git_commit"] {
+        let body = command_body(&commands, name);
+        assert!(
+            body.contains("git_action(&window, &scope,"),
+            "{name} does not check the panel's session"
+        );
+    }
+}

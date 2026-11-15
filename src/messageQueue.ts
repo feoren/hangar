@@ -16,7 +16,7 @@ import type { AttentionReason, AttentionState } from "./attention";
 /** Longer text is cut; a prompt this long is pasted from a file anyway. */
 export const MAX_QUEUED_CHARS = 20_000;
 
-/** localStorage key of the queued texts per session key. */
+/** localStorage key older versions kept the queued texts under; migrated once (mainStore.ts). */
 export const QUEUE_STORAGE_KEY = "hangar.queuedMessages";
 
 export interface QueuedMessage {
@@ -175,21 +175,30 @@ export function storedQueue(
   return result;
 }
 
-export function loadStoredQueue(): Map<string, string> {
+/** A session key as the workspace makes them (`crypto.randomUUID`); the backend takes no other. */
+const SESSION_KEY = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/iu;
+
+/** What the backend accepts of `entries`: session keys only, texts as they are queued. */
+export function persistableQueue(entries: Record<string, string>): Record<string, string> {
+  const result: Record<string, string> = {};
+  for (const [key, text] of Object.entries(entries)) {
+    const clean = cleanQueuedText(text);
+    if (SESSION_KEY.test(key) && clean.trim() !== "") result[key] = clean;
+  }
+  return result;
+}
+
+/**
+ * The texts an older Hangar kept in localStorage, read once for the migration to the backend
+ * (mainStore.ts). The panel and file viewer windows share that storage, so nothing is read from
+ * there afterwards.
+ */
+export function loadLegacyQueue(storage: Pick<Storage, "getItem">): Map<string, string> {
   try {
-    const text = localStorage.getItem(QUEUE_STORAGE_KEY);
+    const text = storage.getItem(QUEUE_STORAGE_KEY);
     return text === null ? new Map<string, string>() : parseStoredQueue(JSON.parse(text));
   } catch {
     return new Map<string, string>();
-  }
-}
-
-export function saveStoredQueue(entries: Record<string, string>): void {
-  try {
-    if (Object.keys(entries).length === 0) localStorage.removeItem(QUEUE_STORAGE_KEY);
-    else localStorage.setItem(QUEUE_STORAGE_KEY, JSON.stringify(entries));
-  } catch {
-    // Storage full or blocked: the queue still works in this run.
   }
 }
 

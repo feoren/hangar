@@ -5,9 +5,10 @@ import {
   discardMessage,
   EMPTY_QUEUE,
   guardedEnd,
-  loadStoredQueue,
+  loadLegacyQueue,
   MAX_QUEUED_CHARS,
   parseStoredQueue,
+  persistableQueue,
   phaseEnd,
   phaseEnded,
   QUEUE_STORAGE_KEY,
@@ -15,7 +16,6 @@ import {
   queueMessage,
   restoredQueue,
   saveMessage,
-  saveStoredQueue,
   storedQueue,
   workStarted,
   type MessageQueue,
@@ -192,19 +192,23 @@ describe("text and storage", () => {
     expect([...stored]).toEqual([[KEY, "go"]]);
   });
 
-  it("stores only the sessions it is told to keep and round-trips", () => {
+  it("stores only the sessions it is told to keep, and only what the backend takes", () => {
     const queue = queueMessage(queueMessage(EMPTY_QUEUE, KEY, "go"), "gone", "old");
-    const entries = storedQueue(queue, (key) => key === KEY);
-    expect(entries).toEqual({ [KEY]: "go" });
-    saveStoredQueue(entries);
-    expect([...loadStoredQueue()]).toEqual([[KEY, "go"]]);
-    saveStoredQueue({});
-    expect(store.has(QUEUE_STORAGE_KEY)).toBe(false);
+    const entries = storedQueue(queue, (key) => key === KEY || key === "gone");
+    expect(entries).toEqual({ [KEY]: "go", gone: "old" });
+    // Only session keys (UUIDs) reach the backend.
+    expect(persistableQueue(entries)).toEqual({ [KEY]: "go" });
+    expect(persistableQueue({ [KEY]: " \n " })).toEqual({});
+  });
+
+  it("reads what an older version kept in localStorage, for the migration", () => {
+    store.set(QUEUE_STORAGE_KEY, JSON.stringify({ [KEY]: "go" }));
+    expect([...loadLegacyQueue(localStorage)]).toEqual([[KEY, "go"]]);
   });
 
   it("survives a broken stored value", () => {
     store.set(QUEUE_STORAGE_KEY, "{not json");
-    expect(loadStoredQueue().size).toBe(0);
+    expect(loadLegacyQueue(localStorage).size).toBe(0);
   });
 
   it("previews on one line", () => {

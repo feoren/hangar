@@ -4,9 +4,12 @@ import {
   CHIME_VOLUME,
   defaultSettings,
   gateActive,
+  legacySwitches,
   parseSettings,
   QUIET_SECONDS,
   SCROLLBACK_LINES,
+  SECURITY_SWITCH_KEYS,
+  withoutSwitches,
 } from "./settings";
 import { defaultSnippets } from "./snippets";
 import { DEFAULT_LOOKS } from "./stateLook";
@@ -72,6 +75,10 @@ describe("parseSettings", () => {
     };
     expect(parseSettings(JSON.stringify(stored), "de")).toEqual({
       ...stored,
+      // The security switches come from the backend only (mainStore.ts), never from storage.
+      claimsEnabled: true,
+      gateEnabled: true,
+      commandGuardEnabled: true,
       looks: { ...stored.looks, working: { ...stored.looks.working, color: "#8cc8ff" } },
     });
   });
@@ -307,16 +314,39 @@ describe("parseSettings", () => {
     );
   });
 
-  it("detects overlaps between sessions by default, also for older settings", () => {
+  it("never reads the security switches from localStorage", () => {
+    // The panel and file viewer windows share this storage: whatever stands there is ignored.
+    const stored = JSON.stringify({
+      claimsEnabled: false,
+      gateEnabled: false,
+      commandGuardEnabled: false,
+    });
+    const settings = parseSettings(stored, "de");
+    expect(settings.claimsEnabled).toBe(true);
+    expect(settings.gateEnabled).toBe(true);
+    expect(settings.commandGuardEnabled).toBe(true);
     expect(defaultSettings("de").claimsEnabled).toBe(true);
-    expect(parseSettings(JSON.stringify({ language: "en" }), "de").claimsEnabled).toBe(true);
-    expect(parseSettings(JSON.stringify({ claimsEnabled: false }), "de").claimsEnabled).toBe(false);
+    expect(defaultSettings("de").gateEnabled).toBe(true);
+    expect(defaultSettings("de").commandGuardEnabled).toBe(true);
   });
 
-  it("pauses agents before overlapping edits by default, also for older settings", () => {
-    expect(defaultSettings("de").gateEnabled).toBe(true);
-    expect(parseSettings(JSON.stringify({ language: "en" }), "de").gateEnabled).toBe(true);
-    expect(parseSettings(JSON.stringify({ gateEnabled: false }), "de").gateEnabled).toBe(false);
+  it("never writes the security switches to localStorage", () => {
+    const settings = { ...defaultSettings("de"), gateEnabled: false, commandGuardEnabled: false };
+    const stored = withoutSwitches(settings);
+    for (const key of SECURITY_SWITCH_KEYS) expect(key in stored).toBe(false);
+    expect(stored.language).toBe("de");
+  });
+
+  it("reads the switches an older version stored, once, for the migration", () => {
+    expect(legacySwitches(JSON.stringify({ gateEnabled: false, claimsEnabled: "no" }))).toEqual({
+      claimsEnabled: true,
+      gateEnabled: false,
+      commandGuardEnabled: true,
+    });
+    const on = { claimsEnabled: true, gateEnabled: true, commandGuardEnabled: true };
+    expect(legacySwitches(null)).toEqual(on);
+    expect(legacySwitches("{broken")).toEqual(on);
+    expect(legacySwitches("[false]")).toEqual(on);
   });
 
   it("turns the gate on only together with the overlap detection", () => {

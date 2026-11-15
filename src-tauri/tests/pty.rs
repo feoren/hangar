@@ -1087,6 +1087,73 @@ fn catalog_agent_does_not_search_programs_in_working_folder() {
     std::fs::remove_dir_all(&root).unwrap();
 }
 
+/// A user profile that starts an agent (`command = "claude"`, as the profile file suggests) is
+/// protected like the catalog entry: what counts is the program, not where the profile came from.
+/// The stand-in agent is a copy of cmd.exe under another name, so it runs `marker` through the
+/// same program search; cmd.exe itself, as a shell profile, still finds the planted file.
+#[cfg(windows)]
+#[test]
+fn user_profile_of_an_agent_does_not_search_programs_in_working_folder() {
+    // See update_session_does_not_search_programs_in_working_folder.
+    std::env::remove_var("NoDefaultCurrentDirectoryInExePath");
+    let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("..")
+        .join("tests")
+        .join(".tmp")
+        .join(format!("pty-user-agent-{}", std::process::id()));
+    let work = root.join("x");
+    let bin = root.join("bin");
+    let _ = std::fs::remove_dir_all(&root);
+    std::fs::create_dir_all(&work).unwrap();
+    std::fs::create_dir_all(&bin).unwrap();
+    let root = std::fs::canonicalize(&root).unwrap();
+    let root = std::path::PathBuf::from(root.to_string_lossy().trim_start_matches(r"\\?\"));
+    let work = root.join("x");
+    let system = std::env::var_os("SystemRoot").expect("SystemRoot is set on Windows");
+    let agent_exe = root.join("bin").join("agentlike.exe");
+    std::fs::copy(
+        std::path::Path::new(&system)
+            .join("System32")
+            .join("cmd.exe"),
+        &agent_exe,
+    )
+    .unwrap();
+    std::fs::write(
+        work.join("marker.bat"),
+        "@type nul > hangar-marker-ran.txt\r\n",
+    )
+    .unwrap();
+    let ran = work.join("hangar-marker-ran.txt");
+    let manager = SessionManager::new(
+        vec![
+            profile(
+                "agent",
+                agent_exe.to_str().unwrap(),
+                &["/d", "/c", "marker"],
+            ),
+            profile("shell", "cmd", &["/d", "/c", "marker"]),
+        ],
+        Vec::new(),
+        std::env::temp_dir(),
+    );
+    let run = |id: &str| {
+        let (tx, rx) = channel();
+        let info = manager
+            .create(id, Some(work.clone()), SIZE, move |e| {
+                tx.send(e).unwrap_or(())
+            })
+            .unwrap();
+        collect_until_exit(&manager, info.id, &rx)
+    };
+
+    let (output, _) = run("agent");
+    assert!(!ran.exists(), "planted marker.bat ran: {output:?}");
+
+    let (output, _) = run("shell");
+    assert!(ran.exists(), "counter check: {output:?}");
+    std::fs::remove_dir_all(&root).unwrap();
+}
+
 /// Closing a session ends its whole tree on Unix, also a program that ignores SIGHUP: after the
 /// grace period the rest gets SIGKILL.
 #[cfg(unix)]

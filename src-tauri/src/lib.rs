@@ -39,6 +39,7 @@ pub mod hook_recipes;
 pub mod icon;
 pub mod install_source;
 pub mod instructions;
+pub mod main_store;
 pub mod manager;
 pub mod no_links;
 pub mod notes;
@@ -277,7 +278,12 @@ pub fn run() -> tauri::Result<()> {
             let pruned = work_log.clone();
             std::thread::spawn(move || pruned.prune(work_log::now_ms()));
             app.manage(work_log);
+            // The security switches and queued messages: only the main window reads and writes
+            // them, unlike `localStorage`, which the panel and viewer windows share.
+            app.manage(main_store::MainStore::new(local_dir.clone()));
             app.manage(persist::Store::new(local_dir));
+            app.manage(panel_window::PanelScope::default());
+            app.manage(commands::UpdateResults::default());
             app.manage(worktree_cleanup::PendingWorktrees::default());
             // Local claims: the worker stays idle until the window turns the setting on.
             let claims = claims_service::ClaimsService::default();
@@ -285,9 +291,11 @@ pub fn run() -> tauri::Result<()> {
             let events = app.handle().clone();
             let started = claims.start(
                 move || claims_service::watched_sessions(&sessions.state::<SessionManager>()),
-                move |snapshot| {
-                    let _ =
-                        events.emit_to(panel_window::MAIN_LABEL, claims_service::EVENT, snapshot);
+                // Only a signal, as for the gate: the overlaps name files and sessions, and a
+                // listener in any window receives events emitted to the main one. The main
+                // window reads `claims_snapshot`, which only it may call.
+                move |_snapshot| {
+                    let _ = events.emit_to(panel_window::MAIN_LABEL, claims_service::EVENT, ());
                 },
             );
             if let Err(error) = started {
@@ -497,6 +505,12 @@ pub fn run() -> tauri::Result<()> {
             commands::team_release_task,
             commands::team_ask_release,
             commands::team_answer_release,
+            commands::security_switches,
+            commands::save_security_switches,
+            commands::load_message_queue,
+            commands::save_message_queue,
+            commands::set_panel_session,
+            commands::take_update_results,
         ])
         .build(tauri::generate_context!())?;
 

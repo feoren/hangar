@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-set-panel-session"
+description = "Enables the set_panel_session command without any pre-configured scope."
+commands.allow = ["set_panel_session"]
+
+[[permission]]
+identifier = "deny-set-panel-session"
+description = "Denies the set_panel_session command without any pre-configured scope."
+commands.deny = ["set_panel_session"]

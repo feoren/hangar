@@ -42,7 +42,10 @@ pub fn command_for(path: &Path, target: Target) -> (PathBuf, Vec<std::ffi::OsStr
     (program, args)
 }
 
-pub fn open(path: &Path, target: Target) -> io::Result<()> {
+/// Through the platform's opener with the path as its argument. Not on Windows, where
+/// explorer.exe would parse the path itself: callers use [`open_folder`] or [`open_text_file`].
+#[cfg_attr(windows, allow(dead_code))]
+fn open(path: &Path, target: Target) -> io::Result<()> {
     let (program, args) = command_for(path, target);
     let mut command = Command::new(program);
     command.args(args);
@@ -187,6 +190,32 @@ pub fn open_folder(path: &Path) -> io::Result<()> {
     }
 }
 
+/// Opens a text file of Hangar's own (profiles.toml, HANGAR.md) in the default editor. On Windows
+/// through `ShellExecuteW` like [`open_file`]; a file type without an associated program (a
+/// `.toml` on a fresh system) gets the "Open with" dialog instead, as Explorer would show.
+pub fn open_text_file(path: &Path) -> io::Result<()> {
+    #[cfg(windows)]
+    {
+        let text = path.to_str().ok_or_else(|| {
+            io::Error::new(io::ErrorKind::InvalidInput, "the path is not valid Unicode")
+        })?;
+        match shell_execute("open", text) {
+            Err(code) if needs_open_with(code) => shell_open_verb("openas", text),
+            other => other.map_err(shell_error),
+        }
+    }
+    #[cfg(not(windows))]
+    {
+        open(path, Target::TextFile)
+    }
+}
+
+/// `SE_ERR_NOASSOC` (31) of `ShellExecuteW`: no program is associated with the file type.
+#[cfg_attr(not(windows), allow(dead_code))]
+fn needs_open_with(code: isize) -> bool {
+    code == 31
+}
+
 /// UTF-16 with the terminating zero the Win32 API expects.
 #[cfg(windows)]
 fn wide(text: &str) -> Vec<u16> {
@@ -195,10 +224,28 @@ fn wide(text: &str) -> Vec<u16> {
 
 #[cfg(windows)]
 fn shell_open(address: &str) -> io::Result<()> {
+    shell_open_verb("open", address)
+}
+
+#[cfg(windows)]
+fn shell_open_verb(verb: &str, address: &str) -> io::Result<()> {
+    shell_execute(verb, address).map_err(shell_error)
+}
+
+#[cfg(windows)]
+fn shell_error(code: isize) -> io::Error {
+    io::Error::other(format!(
+        "the default program did not open (ShellExecute {code})"
+    ))
+}
+
+/// `ShellExecuteW` with `verb`; the error is its result code (32 or less).
+#[cfg(windows)]
+fn shell_execute(verb: &str, address: &str) -> Result<(), isize> {
     use windows_sys::Win32::UI::Shell::ShellExecuteW;
     use windows_sys::Win32::UI::WindowsAndMessaging::SW_SHOWNORMAL;
 
-    let verb = wide("open");
+    let verb = wide(verb);
     let file = wide(address);
     // SAFETY: both buffers are zero-terminated UTF-16 that live until the call returns; the
     // window handle, parameters and directory may be null according to the ShellExecuteW
@@ -214,13 +261,11 @@ fn shell_open(address: &str) -> io::Result<()> {
         )
     };
     // Values above 32 mean success; smaller ones are error codes.
-    if result as isize > 32 {
+    let code = result as isize;
+    if code > 32 {
         Ok(())
     } else {
-        Err(io::Error::other(format!(
-            "the default program did not open (ShellExecute {})",
-            result as isize
-        )))
+        Err(code)
     }
 }
 
@@ -354,6 +399,14 @@ mod tests {
         let text = wide("https://example.test/device?code=BCDF-GHJK");
         assert_eq!(text.last(), Some(&0));
         assert_eq!(text.iter().filter(|&&unit| unit == 0).count(), 1);
+    }
+
+    #[test]
+    fn only_a_missing_association_asks_for_a_program() {
+        assert!(needs_open_with(31));
+        for other in [0, 2, 3, 5, 8, 26, 27, 28, 30, 32] {
+            assert!(!needs_open_with(other), "{other}");
+        }
     }
 
     #[test]

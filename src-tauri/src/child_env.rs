@@ -106,24 +106,31 @@ const VSCODE_GIT_PREFIX: &str = "VSCODE_GIT_";
 /// forks): its git credential helper and IPC handles. A session would otherwise ask that editor
 /// for git credentials, or reach into it, and the editor need not even run any more. Exact names
 /// such as `VSCODE_IPC_HOOK_CLI` are in [`INHERITED_SESSION_MARKERS`]; this covers the prefix
-/// and `GIT_ASKPASS` when it points into the editor's git extension (the user's own helper stays).
+/// and `GIT_ASKPASS` or `SSH_ASKPASS` when it points to an editor's askpass helper (the user's
+/// own helper stays).
 pub fn ide_variables<'a>(inherited: impl IntoIterator<Item = (&'a str, &'a str)>) -> Vec<String> {
     inherited
         .into_iter()
         .filter(|(name, value)| {
             let upper = name.to_ascii_uppercase();
             upper.starts_with(VSCODE_GIT_PREFIX)
-                || (upper == "GIT_ASKPASS" && is_editor_askpass(value))
+                || (matches!(upper.as_str(), "GIT_ASKPASS" | "SSH_ASKPASS")
+                    && is_editor_askpass(value))
         })
         .map(|(name, _)| name.to_owned())
         .collect()
 }
 
-/// The askpass script of VS Code's built-in git extension, in any of its installations
-/// (`…/resources/app/extensions/git/dist/askpass.sh`, also in Cursor, VSCodium and the like).
+/// An editor's askpass helper: the script of VS Code's built-in git extension in any of its
+/// installations (`…/resources/app/extensions/git/dist/askpass.sh`, also in Cursor, VSCodium and
+/// the like), and the scripts JetBrains IDEs write into their temporary folder
+/// (`intellij-git-askpass-local.sh`, `intellij-ssh-askpass-local.sh`, `.bat` on Windows).
 fn is_editor_askpass(value: &str) -> bool {
     let normalized = value.replace('\\', "/").to_ascii_lowercase();
+    let file = normalized.rsplit('/').next().unwrap_or_default();
     normalized.contains("/extensions/git/dist/askpass")
+        || file.starts_with("intellij-git-askpass")
+        || file.starts_with("intellij-ssh-askpass")
 }
 
 pub fn apply(
@@ -229,6 +236,31 @@ mod tests {
             "/Applications/Cursor.app/Contents/Resources/app/extensions/git/dist/askpass.sh",
         )];
         assert_eq!(ide_variables(cursor), ["GIT_ASKPASS"]);
+    }
+
+    #[test]
+    fn jetbrains_askpass_helpers_are_found() {
+        let inherited = [
+            (
+                "GIT_ASKPASS",
+                r"C:\Users\x\AppData\Local\JetBrains\IntelliJIdea2025.2\tmp\intellij-git-askpass-local.bat",
+            ),
+            (
+                "SSH_ASKPASS",
+                "/home/x/.cache/JetBrains/PyCharm2025.2/tmp/intellij-ssh-askpass-local.sh",
+            ),
+            (
+                "Git_AskPass",
+                "/Applications/Cursor.app/x/extensions/git/dist/askpass.sh",
+            ),
+        ];
+        assert_eq!(
+            ide_variables(inherited),
+            ["GIT_ASKPASS", "SSH_ASKPASS", "Git_AskPass"]
+        );
+        // A helper of the user's own with a similar word in its folder stays.
+        let own = [("SSH_ASKPASS", "/opt/intellij-tools/bin/my-askpass")];
+        assert!(ide_variables(own).is_empty());
     }
 
     #[test]

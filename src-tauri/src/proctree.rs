@@ -51,6 +51,31 @@ pub fn usages(trees: &[std::sync::Arc<ProcTree>]) -> Vec<Option<TreeUsage>> {
     }
 }
 
+/// Ends every tree when the app quits, before it returns. Windows: each Job Object ends at once.
+/// Unix: SIGHUP to all trees, then at most [`KILL_GRACE`] in all for them to end, then SIGKILL
+/// to whatever is left, synchronously. [`ProcTree::terminate_tree`]'s grace runs on a thread of
+/// its own, which would die with the process before it sends SIGKILL.
+pub fn end_all(trees: &[std::sync::Arc<ProcTree>]) {
+    #[cfg(windows)]
+    for tree in trees {
+        let _ = tree.terminate();
+    }
+    #[cfg(unix)]
+    {
+        const POLL: Duration = Duration::from_millis(50);
+        for tree in trees {
+            let _ = tree.hang_up();
+        }
+        let deadline = std::time::Instant::now() + KILL_GRACE;
+        while trees.iter().any(|tree| tree.alive()) && std::time::Instant::now() < deadline {
+            std::thread::sleep(POLL);
+        }
+        for tree in trees {
+            tree.kill_rest();
+        }
+    }
+}
+
 #[cfg(windows)]
 mod windows {
     use std::ffi::c_void;
@@ -271,7 +296,7 @@ mod windows {
 #[cfg(unix)]
 mod unix {
     use std::io;
-    use std::sync::atomic::{AtomicBool, Ordering};
+    use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
     use std::sync::Arc;
 
     use super::KILL_GRACE;
@@ -282,6 +307,10 @@ mod unix {
         /// The child (the group's leader) was waited for. Its id may belong to another process
         /// group once the last member is gone, so the group is no longer signalled.
         reaped: AtomicBool,
+        /// Linux: when the child was reaped, in clock ticks since boot (the unit of
+        /// `/proc/<pid>/stat` field 22); 0 while it was not, or when the clock could not be read.
+        #[cfg_attr(not(target_os = "linux"), allow(dead_code))]
+        reaped_at: AtomicU64,
     }
 
     impl ProcTree {
@@ -304,11 +333,15 @@ mod unix {
             Ok(Self {
                 group,
                 reaped: AtomicBool::new(false),
+                reaped_at: AtomicU64::new(0),
             })
         }
 
         /// Called by whoever waited for the child, right after the wait returned.
         pub fn mark_reaped(&self) {
+            #[cfg(target_os = "linux")]
+            self.reaped_at
+                .store(super::linux::now_ticks().unwrap_or(0), Ordering::SeqCst);
             self.reaped.store(true, Ordering::SeqCst);
         }
 
@@ -318,28 +351,69 @@ mod unix {
             self.signal(libc::SIGHUP)
         }
 
-        /// [`Self::terminate`], then after [`KILL_GRACE`] SIGKILL to whatever is left: the group
-        /// while its leader was not reaped, and on Linux every process still in the child's
-        /// terminal session (an interactive shell puts each job into a group of its own, and a
-        /// program may ignore SIGHUP). The grace runs on a thread of its own; the caller does
-        /// not wait. Only for callers that report the reaping through [`Self::mark_reaped`].
-        pub fn terminate_tree(self: &Arc<Self>) -> io::Result<()> {
+        /// [`Self::terminate`], and on Linux SIGHUP to every process still in the child's
+        /// terminal session (an interactive shell puts each job into a group of its own).
+        pub fn hang_up(&self) -> io::Result<()> {
             let result = self.terminate();
             #[cfg(target_os = "linux")]
-            super::linux::signal_session(self.group, libc::SIGHUP);
+            self.signal_session(libc::SIGHUP);
+            result
+        }
+
+        /// SIGKILL to whatever is left: the group while its leader was not reaped, and on Linux
+        /// every process of the child's terminal session (a program may ignore SIGHUP).
+        pub fn kill_rest(&self) {
+            let _ = self.signal(libc::SIGKILL);
+            #[cfg(target_os = "linux")]
+            self.signal_session(libc::SIGKILL);
+        }
+
+        /// Whether a process of the tree may still run: the group while its leader was not
+        /// reaped, on Linux also a live (not zombie) process of the child's session.
+        pub fn alive(&self) -> bool {
+            let group = !self.reaped.load(Ordering::SeqCst)
+                // SAFETY: killpg with signal 0 only checks; no memory is accessed.
+                && (unsafe { libc::killpg(self.group, 0) } == 0
+                    || io::Error::last_os_error().raw_os_error() == Some(libc::EPERM));
+            #[cfg(target_os = "linux")]
+            let session = self.signal_session(0) > 0;
+            #[cfg(not(target_os = "linux"))]
+            let session = false;
+            group || session
+        }
+
+        /// [`Self::hang_up`], then after [`KILL_GRACE`] [`Self::kill_rest`]. The grace runs on a
+        /// thread of its own; the caller does not wait. Only for callers that report the reaping
+        /// through [`Self::mark_reaped`]. At the app's end [`super::end_all`] waits itself: a
+        /// grace thread would not outlive the process.
+        pub fn terminate_tree(self: &Arc<Self>) -> io::Result<()> {
+            let result = self.hang_up();
             let tree = Arc::clone(self);
             let spawned = std::thread::Builder::new()
                 .name(format!("proctree-kill-{}", self.group))
                 .spawn(move || {
                     std::thread::sleep(KILL_GRACE);
-                    let _ = tree.signal(libc::SIGKILL);
-                    #[cfg(target_os = "linux")]
-                    super::linux::signal_session(tree.group, libc::SIGKILL);
+                    tree.kill_rest();
                 });
             if let Err(error) = spawned {
                 eprintln!("hangar: no SIGKILL after the grace period: {error}");
             }
             result
+        }
+
+        /// Linux: `signal` to the child's session, with the reaping time so a session id that
+        /// may have been taken over is left alone ([`super::linux::signal_session`]). Returns
+        /// how many processes got it.
+        #[cfg(target_os = "linux")]
+        fn signal_session(&self, signal: libc::c_int) -> usize {
+            let reaped_at = self.reaped.load(Ordering::SeqCst).then(|| {
+                // An unknown reaping time counts as "now": strictly older members still pass.
+                match self.reaped_at.load(Ordering::SeqCst) {
+                    0 => super::linux::now_ticks().unwrap_or(0),
+                    at => at,
+                }
+            });
+            super::linux::signal_session(self.group, signal, reaped_at)
         }
 
         fn signal(&self, signal: libc::c_int) -> io::Result<()> {
@@ -390,6 +464,7 @@ mod unix {
             child.wait().unwrap();
             tree.mark_reaped();
             assert!(tree.terminate().is_ok());
+            assert!(!tree.alive());
             assert!(Arc::new(tree).terminate_tree().is_ok());
         }
 
@@ -413,6 +488,67 @@ mod unix {
             );
         }
 
+        /// A child in a group of its own whose waiter reports the reaping, as the session
+        /// manager's wait thread does.
+        fn watched(script: &str) -> (Arc<ProcTree>, std::sync::mpsc::Receiver<()>) {
+            let mut child = Command::new("sh")
+                .args(["-c", script])
+                .process_group(0)
+                .spawn()
+                .unwrap();
+            let tree = Arc::new(ProcTree::attach(child.id()).unwrap());
+            let (tx, rx) = std::sync::mpsc::channel();
+            let waiter = Arc::clone(&tree);
+            std::thread::spawn(move || {
+                let _ = child.wait();
+                waiter.mark_reaped();
+                let _ = tx.send(());
+            });
+            (tree, rx)
+        }
+
+        /// The app's end: every tree gets SIGHUP, the rest SIGKILL before `end_all` returns, and
+        /// the grace is waited for once for all trees, not per tree.
+        #[test]
+        fn shutdown_kills_every_stubborn_tree_before_it_returns() {
+            let stubborn = "trap '' HUP; sleep 1000 & wait";
+            let trees: Vec<_> = (0..3).map(|_| watched(stubborn)).collect();
+            std::thread::sleep(Duration::from_millis(300));
+            let started = Instant::now();
+            super::super::end_all(
+                &trees
+                    .iter()
+                    .map(|(tree, _)| Arc::clone(tree))
+                    .collect::<Vec<_>>(),
+            );
+            let took = started.elapsed();
+            assert!(took >= KILL_GRACE, "returned before the grace: {took:?}");
+            assert!(
+                took < KILL_GRACE + Duration::from_secs(1),
+                "waited per tree: {took:?}"
+            );
+            for (_, ended) in &trees {
+                assert!(
+                    ended.recv_timeout(Duration::from_secs(2)).is_ok(),
+                    "a tree outlived the shutdown"
+                );
+            }
+        }
+
+        #[test]
+        fn shutdown_does_not_wait_for_trees_that_end_on_sighup() {
+            let trees: Vec<_> = (0..2).map(|_| watched("sleep 1000")).collect();
+            std::thread::sleep(Duration::from_millis(200));
+            let started = Instant::now();
+            super::super::end_all(
+                &trees
+                    .iter()
+                    .map(|(tree, _)| Arc::clone(tree))
+                    .collect::<Vec<_>>(),
+            );
+            assert!(started.elapsed() < KILL_GRACE, "{:?}", started.elapsed());
+        }
+
         #[test]
         fn process_ids_zero_and_one_are_refused() {
             assert!(ProcTree::attach(0).is_err());
@@ -430,18 +566,50 @@ mod linux {
 
     use super::{stat, ProcTree, TreeUsage};
 
-    /// Sends `signal` to every process whose terminal session is `session`, the child's own
-    /// (it is the session leader, so its id names the session). A session id is not reused
-    /// while a process of that session lives, so a listed member is one of ours.
-    pub fn signal_session(session: libc::pid_t, signal: libc::c_int) {
+    /// Now, in clock ticks since boot: the clock and unit of `/proc/<pid>/stat` field 22
+    /// (`start_boottime`).
+    pub fn now_ticks() -> Option<u64> {
+        // SAFETY: sysconf only reads system configuration.
+        let ticks = u64::try_from(unsafe { libc::sysconf(libc::_SC_CLK_TCK) }).ok()?;
+        let mut now = libc::timespec {
+            tv_sec: 0,
+            tv_nsec: 0,
+        };
+        // SAFETY: `now` is a valid, writable timespec for the duration of the call.
+        if unsafe { libc::clock_gettime(libc::CLOCK_BOOTTIME, &mut now) } != 0 {
+            return None;
+        }
+        let secs = u64::try_from(now.tv_sec).ok()?;
+        let nanos = u64::try_from(now.tv_nsec).ok()?;
+        Some(
+            secs.saturating_mul(ticks)
+                .saturating_add(nanos.saturating_mul(ticks) / 1_000_000_000),
+        )
+    }
+
+    /// Sends `signal` (0: only counts) to every live process whose terminal session is
+    /// `session`, the child's own (it is the session leader, so its id names the session).
+    /// Returns how many there were.
+    ///
+    /// A session id is not reused while a process of that session lives. Once the child was
+    /// reaped (`reaped_at`, ticks since boot) and every member had ended, a new session could
+    /// carry the same id; its processes all started after the reaping. So after the reaping the
+    /// session is signalled only while one of its members started before it, which proves the
+    /// session is still ours ([`super::stat::still_ours`]).
+    pub fn signal_session(
+        session: libc::pid_t,
+        signal: libc::c_int,
+        reaped_at: Option<u64>,
+    ) -> usize {
         // SAFETY: getpid only reads the caller's own id.
         let own = unsafe { libc::getpid() };
         if session <= 1 || session == own {
-            return;
+            return 0;
         }
         let Ok(entries) = std::fs::read_dir("/proc") else {
-            return;
+            return 0;
         };
+        let mut members = Vec::new();
         for entry in entries.flatten() {
             let Ok(pid) = entry.file_name().to_string_lossy().parse::<libc::pid_t>() else {
                 continue;
@@ -452,12 +620,21 @@ mod linux {
             let Ok(text) = std::fs::read_to_string(entry.path().join("stat")) else {
                 continue;
             };
-            if stat::parse(&text).is_some_and(|fields| fields.session == i64::from(session)) {
-                // SAFETY: kill is a plain system call without memory access; a process that
-                // ended meanwhile only yields ESRCH.
-                unsafe { libc::kill(pid, signal) };
+            if let Some(fields) = stat::parse(&text) {
+                if fields.session == i64::from(session) && !fields.zombie {
+                    members.push((pid, fields.start_ticks));
+                }
             }
         }
+        if !stat::still_ours(reaped_at, members.iter().map(|(_, start)| *start)) {
+            return 0;
+        }
+        for (pid, _) in &members {
+            // SAFETY: kill is a plain system call without memory access; a process that ended
+            // meanwhile only yields ESRCH.
+            unsafe { libc::kill(*pid, signal) };
+        }
+        members.len()
     }
 
     pub fn usages(trees: &[std::sync::Arc<ProcTree>]) -> Vec<Option<TreeUsage>> {
@@ -508,10 +685,61 @@ mod linux {
             })
             .collect()
     }
+
+    #[cfg(test)]
+    mod tests {
+        use std::process::Command;
+        use std::time::{Duration, Instant};
+
+        use super::*;
+
+        /// A session leader of its own (`setsid` execs directly: its child is no group leader).
+        fn session_leader() -> std::process::Child {
+            Command::new("setsid")
+                .arg("sleep")
+                .arg("1000")
+                .spawn()
+                .unwrap()
+        }
+
+        fn start_of(pid: u32) -> u64 {
+            let text = std::fs::read_to_string(format!("/proc/{pid}/stat")).unwrap();
+            stat::parse(&text).unwrap().start_ticks
+        }
+
+        /// After the reaping, a session whose members all started later may be someone else's:
+        /// it gets nothing. A member older than the reaping proves it is still ours.
+        #[test]
+        fn a_session_id_that_may_be_reused_is_left_alone() {
+            let mut child = session_leader();
+            let pid = libc::pid_t::try_from(child.id()).unwrap();
+            let deadline = Instant::now() + Duration::from_secs(5);
+            while signal_session(pid, 0, None) == 0 && Instant::now() < deadline {
+                std::thread::sleep(Duration::from_millis(20));
+            }
+            let start = start_of(child.id());
+            // "Reaped" before this process started: it would belong to a reused session id.
+            assert_eq!(signal_session(pid, libc::SIGKILL, Some(start)), 0);
+            assert!(
+                child.try_wait().unwrap().is_none(),
+                "a foreign session was signalled"
+            );
+            // Reaped after it started: still ours.
+            assert_eq!(signal_session(pid, libc::SIGKILL, Some(start + 1)), 1);
+            let deadline = Instant::now() + Duration::from_secs(5);
+            while child.try_wait().unwrap().is_none() && Instant::now() < deadline {
+                std::thread::sleep(Duration::from_millis(20));
+            }
+            assert!(
+                child.try_wait().unwrap().is_some(),
+                "SIGKILL did not arrive"
+            );
+        }
+    }
 }
 
-/// The fields of `/proc/<pid>/stat` the resources need. Plain text parsing, so it is tested on
-/// every platform.
+/// The fields of `/proc/<pid>/stat` the resources and the session signals need. Plain text
+/// parsing, so it is tested on every platform.
 #[cfg_attr(not(target_os = "linux"), allow(dead_code))]
 mod stat {
     #[derive(Debug, PartialEq, Eq)]
@@ -521,6 +749,10 @@ mod stat {
         /// for, so a tree's total does not drop when one of its processes ends.
         pub cpu_ticks: u64,
         pub rss_pages: u64,
+        /// Field 22: when the process started, in clock ticks since boot.
+        pub start_ticks: u64,
+        /// State `Z`: ended, waiting for its parent; it runs nothing any more.
+        pub zombie: bool,
     }
 
     /// `None` for a line of another shape. The command name in parentheses may contain spaces
@@ -538,7 +770,20 @@ mod stat {
                 .saturating_add(ticks(16)?)
                 .saturating_add(ticks(17)?),
             rss_pages: ticks(24)?,
+            start_ticks: ticks(22)?,
+            zombie: *fields.first()? == "Z",
         })
+    }
+
+    /// Whether a session with members that started at `starts` is still the one whose leader
+    /// was reaped at `reaped_at` (`None`: not reaped yet, the leader itself holds the id). After
+    /// the reaping only a member that started strictly before it proves that; a member of the
+    /// same clock tick does not, which errs on leaving a process alone.
+    pub fn still_ours(reaped_at: Option<u64>, mut starts: impl Iterator<Item = u64>) -> bool {
+        match reaped_at {
+            None => true,
+            Some(reaped) => starts.any(|start| start < reaped),
+        }
     }
 
     #[cfg(test)]
@@ -555,8 +800,12 @@ mod stat {
                     session: 4242,
                     cpu_ticks: 215,
                     rss_pages: 2560,
+                    start_ticks: 12345,
+                    zombie: false,
                 })
             );
+            let zombie = line.replacen(") S ", ") Z ", 1);
+            assert!(parse(&zombie).unwrap().zombie);
         }
 
         #[test]
@@ -567,6 +816,15 @@ mod stat {
                 parse("12 (neg) S 1 2 3 4 5 6 7 8 9 10 -1 0 0 0 0 0 0 0 0 0 0"),
                 None
             );
+        }
+
+        #[test]
+        fn a_reaped_session_counts_only_with_an_older_member() {
+            assert!(still_ours(None, std::iter::empty()));
+            assert!(still_ours(None, [500].into_iter()));
+            assert!(still_ours(Some(100), [150, 99].into_iter()));
+            assert!(!still_ours(Some(100), [100, 150].into_iter()));
+            assert!(!still_ours(Some(100), std::iter::empty()));
         }
     }
 }

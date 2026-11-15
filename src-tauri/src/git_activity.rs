@@ -193,6 +193,20 @@ mod tests {
         assert!(parse_log(format!("{HASH_A} soon\n").as_bytes(), false).is_empty());
     }
 
+    #[cfg(windows)]
+    #[test]
+    fn share_folders_are_skipped_without_touching_them() {
+        let Some(git) = git() else { return };
+        let started = Instant::now();
+        let folders = [
+            PathBuf::from(r"\\hangar-test.invalid\share\project"),
+            PathBuf::from("//hangar-test.invalid/share/project"),
+        ];
+        let result = activity(&git, &folders).unwrap();
+        assert!(result.commits.is_empty());
+        assert!(started.elapsed() < std::time::Duration::from_secs(1));
+    }
+
     #[test]
     fn too_many_folders_are_refused() {
         let Some(git) = git() else { return };

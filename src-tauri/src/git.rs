@@ -20,6 +20,7 @@ use std::time::{Duration, Instant};
 
 use serde::{Serialize, Serializer};
 
+use crate::no_links::FolderPlace;
 use crate::persist::read_limited;
 use crate::proctree::ProcTree;
 
@@ -104,8 +105,9 @@ pub fn branches(paths: &[String]) -> Result<HashMap<String, Option<String>>, Git
 /// `ref: refs/heads/x` gives `x`, a detached HEAD the first 7 hex characters, no repository
 /// `None`. The walk up stops after `ceiling` (tests use it to stay inside their folder).
 pub fn branch_of(start: &Path, ceiling: Option<&Path>) -> Option<String> {
-    // A relative path would be resolved against Hangar's own working folder.
-    if !start.is_absolute() {
+    // A relative path would be resolved against Hangar's own working folder; a share is not
+    // even asked whether it holds a `.git`.
+    if !readable_start(start) {
         return None;
     }
     let git_dir = find_git_dir(start, ceiling)?;
@@ -224,7 +226,7 @@ pub fn repo_places(paths: &[String]) -> Result<HashMap<String, Option<RepoPlace>
 
 /// The repository place of `start`; the walk up stops after `ceiling` (tests stay in their folder).
 pub fn repo_place_of(start: &Path, ceiling: Option<&Path>) -> Option<RepoPlace> {
-    if !start.is_absolute() {
+    if !readable_start(start) {
         return None;
     }
     for dir in start.ancestors() {
@@ -747,13 +749,26 @@ pub fn check_work_tree(cwd: &Path, top: &Path, git_dirs: &[&Path]) -> Result<(),
 /// Folder argument from the frontend: absolute, an existing folder, and a repository whose git
 /// folder git may open ([`check_git_links`]).
 pub fn check_folder(path: &Path) -> Result<(), GitError> {
-    if !path.is_absolute() {
-        return Err(GitError::InvalidPath("not an absolute path"));
-    }
-    if !path.is_dir() {
-        return Err(GitError::InvalidPath("not a folder"));
+    // The place first: `is_dir` alone would follow a link to a share and contact its host.
+    match crate::no_links::folder_place(path) {
+        FolderPlace::Local => {}
+        FolderPlace::Remote => {
+            return Err(GitError::InvalidPath("a network share or device path"));
+        }
+        FolderPlace::NotAFolder if !path.is_absolute() => {
+            return Err(GitError::InvalidPath("not an absolute path"));
+        }
+        FolderPlace::NotAFolder => return Err(GitError::InvalidPath("not a folder")),
     }
     check_git_links(path)
+}
+
+/// A folder the window names for a read without a process (`branches`, `repo_places`): absolute
+/// and not a share or device path, by the text only (a mapped drive the user chose stays
+/// readable, like a session folder there); the reads themselves never follow `.git` files off
+/// the machine ([`gitdir_allowed`]).
+fn readable_start(start: &Path) -> bool {
+    start.is_absolute() && !is_remote(start)
 }
 
 /// The rule of [`gitdir_allowed`], applied before git runs: the `.git` file of a linked
@@ -1102,6 +1117,30 @@ pub fn parse_numstat(output: &[u8]) -> Vec<(String, u64, u64)> {
 pub(crate) mod tests {
     use super::*;
     use crate::test_support::TempDir;
+
+    /// Folders a window names on a share are refused by their text: no lookup, no git call.
+    #[cfg(windows)]
+    #[test]
+    fn share_folders_are_refused_before_they_are_touched() {
+        let started = Instant::now();
+        let shares = [
+            r"\\hangar-test.invalid\share\project".to_owned(),
+            "//hangar-test.invalid/share/project".to_owned(),
+        ];
+        for share in &shares {
+            let path = Path::new(share);
+            assert!(
+                matches!(check_folder(path), Err(GitError::InvalidPath(_))),
+                "{share}"
+            );
+            assert_eq!(branch_of(path, None), None, "{share}");
+            assert_eq!(repo_place_of(path, None), None, "{share}");
+        }
+        assert!(branches(&shares).unwrap().values().all(Option::is_none));
+        assert!(repo_places(&shares).unwrap().values().all(Option::is_none));
+        // A name lookup or SMB connection attempt would take seconds.
+        assert!(started.elapsed() < Duration::from_secs(1));
+    }
 
     #[test]
     fn head_contents() {

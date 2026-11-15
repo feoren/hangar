@@ -210,8 +210,8 @@ and timing: [[claims-rescan-measurement]].
   still names it. When the removal fails or keeps the worktree, `ClaimsService::unrelease` gives
   it back and its sessions keep their overlap warnings.
 - **Interface:** commands `configure_claims(enabled)` and `claims_snapshot()` (main window only),
-  event `claims-changed` with `ClaimsSnapshot { enabled, sessions: SessionClaims[], overlaps:
-  Overlap[] }`; each overlap is listed from both sides (`sessionId`, `otherId`), at most 200 per
+  the payload-free signal `claims-changed` (the main window then reads `claims_snapshot`, which
+  answers `ClaimsSnapshot { enabled, sessions: SessionClaims[], overlaps: Overlap[] }`); each overlap is listed from both sides (`sessionId`, `otherId`), at most 200 per
   session (worst first), with `overlapCount` and `overlapsTruncated` per session. Types mirror in
   `src/claims.ts`.
 - **UI:** a warm overlap icon in the session row and, in the collapsed rail, in the badge's top

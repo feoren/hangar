@@ -9,6 +9,7 @@ import { parseImagePaste, type ImagePaste } from "./clipboardPaste";
 import type { GateAnswer } from "./gate";
 import type { PanelBounds, PanelMessage } from "./panelBridge";
 import type { PushEvent, PushInput } from "./phonePush";
+import type { SecuritySwitches } from "./settings";
 import { backendErrorText } from "./backendError";
 import { InputStalled, inputQueue } from "./sessionInput";
 import type { SessionState } from "./team";
@@ -379,6 +380,29 @@ export const api = {
   setPanelOnTop: (onTop: boolean) => invoke<null>("set_panel_on_top", { onTop }),
   /** Panel window only: the one way to ask something of the main window (panelBridge.ts). */
   panelToMain: (message: PanelMessage) => invoke<null>("panel_to_main", { message }),
+  /**
+   * Main window only: the one session the panel window may address from now on (its git,
+   * file tree and viewer commands answer any other id as unknown); `null`: none. Called before
+   * the panel gets its context.
+   */
+  setPanelSession: (id: number | null) => invoke<null>("set_panel_session", { id }),
+
+  // Main window only, kept by the backend rather than in localStorage, which the panel and file
+  // viewer windows share (mainStore.ts).
+  /** The stored security switches, `null` before the first save; check with `parseSwitches`. */
+  securitySwitches: () => invoke<unknown>("security_switches"),
+  saveSecuritySwitches: (switches: SecuritySwitches) =>
+    invoke<null>("save_security_switches", { switches }),
+  /** Queued message texts per session key, `null` before the first save. */
+  loadMessageQueue: () => invoke<unknown>("load_message_queue"),
+  /** Replaces the stored queued messages; keys are session keys (UUIDs). */
+  saveMessageQueue: (entries: Record<string, string>) =>
+    invoke<null>("save_message_queue", { entries }),
+  /**
+   * The results of finished update sessions not taken yet, each once; the payload-free
+   * `program-update-result` says one waits. Check each with `parseUpdateOutcome`.
+   */
+  takeUpdateResults: () => invoke<unknown>("take_update_results"),
 
   /**
    * Saves a session's scrollback as a file. The backend opens the save dialog itself (the
@@ -571,7 +595,7 @@ export const api = {
     invoke<unknown>("prune_hangar_worktree", { path, repoRoot }),
   /**
    * Turns the observation of the sessions' changed files (local claims, claims.ts) on or off.
-   * While on, the backend emits `claims-changed` with every new snapshot.
+   * While on, the backend signals `claims-changed` (no payload) on every new snapshot.
    */
   configureClaims: (enabled: boolean) => invoke<null>("configure_claims", { enabled }),
   /** The newest claims snapshot; check with `parseClaimsSnapshot`. */
@@ -714,7 +738,10 @@ export const TRAY_QUIT = "tray-quit";
 export const CONTEXT_USAGE_CHANGED = "context-usage-changed";
 /** Event with the new power state, sent only on a change (`parsePowerState` in power.ts). */
 export const POWER_CHANGED = "power-changed";
-/** Event with the newest claims snapshot (`parseClaimsSnapshot` in claims.ts). */
+/**
+ * Signal without payload: the claims changed; the main window reads `claimsSnapshot` (any window
+ * could listen to a payload).
+ */
 export const CLAIMS_CHANGED = "claims-changed";
 /** Signal without a payload: the gate changed; read it with `api.gateSnapshot`. */
 export const GATE_CHANGED = "gate-changed";

@@ -735,11 +735,14 @@ impl ProjectNotes {
 
     // ----- Locating the project ------------------------------------------------------------
 
-    fn folder_path(folder: &NoteFolder) -> Result<&Path, ProjectNotesError> {
+    /// The folder a window named, refused before anything touches it when it is relative or a
+    /// share or device path: the panel window may name any folder, and git (which runs programs a
+    /// repository's config names) or a mere lookup on a share must never follow it there.
+    pub(crate) fn folder_path(folder: &NoteFolder) -> Result<&Path, ProjectNotesError> {
         folder
             .path
             .as_deref()
-            .filter(|path| path.is_absolute())
+            .filter(|path| path.is_absolute() && !crate::manager::is_network_or_device(path))
             .ok_or(ProjectNotesError::NotRepository)
     }
 
