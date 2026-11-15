@@ -562,10 +562,32 @@ impl Git {
         I: IntoIterator<Item = S>,
         S: AsRef<OsStr>,
     {
+        self.run_with_env(cwd, args, &[], input, deadline, limit)
+    }
+
+    /// Like [`Self::run_with_input`], with variables of Hangar's own set for this call only (a
+    /// temporary `GIT_INDEX_FILE`, for example). They are set after the inherited `GIT_*`
+    /// variables are removed, so only what the caller names reaches git.
+    pub fn run_with_env<I, S>(
+        &self,
+        cwd: &Path,
+        args: I,
+        env: &[(&str, &OsStr)],
+        input: Option<Vec<u8>>,
+        deadline: Instant,
+        limit: usize,
+    ) -> Result<Output, GitError>
+    where
+        I: IntoIterator<Item = S>,
+        S: AsRef<OsStr>,
+    {
         // Before git opens the repository: its config must not lead to another share, and the
         // hooks it names are switched off by name (guard.rs).
         let config = guard::check(self, cwd, deadline)?;
-        let command = self.command_with(cwd, args, input.is_some(), &config.hooks);
+        let mut command = self.command_with(cwd, args, input.is_some(), &config.hooks);
+        for (key, value) in env {
+            command.env(key, value);
+        }
         self.execute(command, input, deadline, limit)
     }
 

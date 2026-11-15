@@ -182,6 +182,9 @@ UI texts in `src/i18n.ts` are translated per language and are not bound by this 
 | Arbeitsphase                                    | working phase                     | one stretch of the state "working", logged when it ends                             |
 | Aktive Zeit                                     | active time                       | the union of the working phases; parallel sessions count once                       |
 | Commit-Verlauf (Änderungen)                     | commit history                    | `gitHistory.ts`, `CommitHistory.tsx`; "Commits" view of the changes panel           |
+| Zeitleiste (Änderungen)                         | timeline                          | `timeline.ts`, `TimelineView.tsx`; "Timeline" view of the changes panel             |
+| Zwischenstand, Schnappschuss                    | snapshot                          | silent commit of the work tree after an agent step; side repository                 |
+| Auf diesen Stand zurück                         | go back (restore)                 | work tree to a snapshot, the current state saved first; `snapshot_restore`          |
 | Stagen, Unstagen                                | stage, unstage                    | a file into or out of the index; stage box per file, `git_stage`, `git_unstage`     |
 | Verwerfen (Änderungen einer Datei)              | discard                           | back to HEAD, an untracked file is deleted; asks first; `git_discard`               |
 | Commit-Feld                                     | commit box                        | message and commit button above the uncommitted changes; `CommitBox.tsx`            |

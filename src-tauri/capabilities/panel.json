@@ -1,7 +1,7 @@
 {
   "$schema": "../gen/schemas/desktop-schema.json",
   "identifier": "panel",
-  "description": "Detached side panel window (Notes, Changes, Files): the note commands (private and shared project notes, including turning shared notes on and unlocking them), reading the changes and the commit history of a folder, staging, unstaging, discarding and committing the files of a session's repository (by session ID), listing a session's folder (one folder at a time, and a bounded index of its paths for the filter) and opening one of its files in a read-only viewer, listening to events, messages to the main window through the backend only, copying text, keeping itself on top and closing itself (its own commands only, close, then destroy once pending input is saved; no core:window permission, whose commands take any window's label). The git actions name a session by ID and change only that session's repository; no commands that start, write to, resize or end sessions, and text reaches only the session the main window handed it, as a validated paste through the main window (panel_to_main); shared notes only of that session's folder",
+  "description": "Detached side panel window (Notes, Changes, Files): the note commands (private and shared project notes, including turning shared notes on and unlocking them), reading the changes and the commit history of a folder, staging, unstaging, discarding and committing the files of a session's repository (by session ID), the timeline of a session's work tree (listing its snapshots, the changes of one step, going back to one after saving the current state; by session ID), listing a session's folder (one folder at a time, and a bounded index of its paths for the filter) and opening one of its files in a read-only viewer, listening to events, messages to the main window through the backend only, copying text, keeping itself on top and closing itself (its own commands only, close, then destroy once pending input is saved; no core:window permission, whose commands take any window's label). The git actions and the timeline name a session by ID and change only that session's repository; no commands that start, write to, resize or end sessions, and text reaches only the session the main window handed it, as a validated paste through the main window (panel_to_main); shared notes only of that session's folder",
   "windows": ["panel"],
   "permissions": [
     "core:event:allow-listen",
@@ -36,6 +36,9 @@
     "allow-git-unstage",
     "allow-git-discard",
     "allow-git-commit",
+    "allow-snapshot-list",
+    "allow-snapshot-diff",
+    "allow-snapshot-restore",
     "allow-list-session-folder",
     "allow-list-session-paths",
     "allow-reveal-session-folder",

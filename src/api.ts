@@ -570,6 +570,24 @@ export const api = {
   /** Commits what is staged; hooks run as configured. */
   gitCommit: (id: number, message: string) => invoke<null>("git_commit", { id, message }),
   /**
+   * Timeline of a session's work tree (git_snapshots.rs). The main window binds the session's
+   * workspace key once (`snapshotBind`), which names its snapshots across restarts; every other
+   * call names the session by ID only. `snapshotTake` saves the work tree after an agent step
+   * unless nothing changed; `prompt` is the agent's last prompt (`snapshotPrompt`).
+   */
+  snapshotBind: (id: number, key: string) => invoke<null>("snapshot_bind", { id, key }),
+  snapshotTake: (id: number, prompt: string | null) =>
+    invoke<unknown>("snapshot_take", { id, prompt }),
+  /** Newest first, why the newest step was not saved, and the other sessions in the work tree. */
+  snapshotList: (id: number) => invoke<unknown>("snapshot_list", { id }),
+  /** What one step changed, shaped like `git_diff`. Check with `parseGitDiff`. */
+  snapshotDiff: (id: number, number: number) => invoke<unknown>("snapshot_diff", { id, number }),
+  /** Back to a snapshot after saving the current state. Ask first; `parseRestoreOutcome`. */
+  snapshotRestore: (id: number, number: number) =>
+    invoke<unknown>("snapshot_restore", { id, number }),
+  /** Deletes the session's snapshots; call it once the session is closed. */
+  snapshotForget: (id: number) => invoke<null>("snapshot_forget", { id }),
+  /**
    * One folder of a session's file tree; `relative` is a `/` separated path below the session's
    * folder, empty for the folder itself. Links are listed but cannot be opened. Check with
    * `parseFolderListing`; rejects with a text for an unknown session or a refused path.

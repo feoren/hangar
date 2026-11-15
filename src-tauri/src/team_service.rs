@@ -391,6 +391,16 @@ impl TeamService {
         self.set_local(team_share::local_sessions(&worktrees, &labels, &states));
     }
 
+    /// The sessions the window last reported as working (the timeline refuses to go back while
+    /// one of them works in the same folder).
+    pub fn working_sessions(&self) -> std::collections::BTreeSet<SessionId> {
+        lock(&self.inner.states)
+            .iter()
+            .filter(|(_, state)| **state == SessionState::Working)
+            .map(|(id, _)| *id)
+            .collect()
+    }
+
     /// What the window's attention logic says each session is doing (working, waiting, idle).
     pub fn set_session_states(&self, states: BTreeMap<SessionId, SessionState>) {
         let changed = {

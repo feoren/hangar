@@ -32,6 +32,10 @@ use crate::git::{self, Git, GitDiff, GitError};
 use crate::git_actions::{self, ActionError};
 use crate::git_activity::{self, ActivityError, GitActivity};
 use crate::git_history::{self, GitCommitDiff, GitLog};
+use crate::git_snapshots::{
+    self, Neighbours, RestoreOutcome, SnapshotEnv, SnapshotError, SnapshotList, Snapshots,
+    TakeOutcome,
+};
 use crate::gpu::GpuMonitor;
 use crate::icon::{self, IconCache};
 use crate::install_source::{self, SystemProbe};
@@ -1990,6 +1994,170 @@ pub async fn git_commit(
         git_actions::commit(git, cwd, &message)
     })
     .await
+}
+
+// Timeline of a session's work tree (git_snapshots.rs). Windows name the session by ID only: its
+// folder comes from the session manager and its workspace key from the binding the main window
+// sets with `snapshot_bind`, so the panel window can reach no other session's snapshots.
+
+/// Emitted to every window with the session ID whenever its snapshots change.
+pub const SNAPSHOTS_CHANGED: &str = "snapshots-changed";
+
+/// Runs one snapshot call on a blocking thread, with the side repositories below Hangar's local
+/// data folder.
+async fn snapshot_call<T: Send + 'static>(
+    app: tauri::AppHandle,
+    work: impl FnOnce(&Snapshots, &SnapshotEnv<'_>) -> Result<T, SnapshotError> + Send + 'static,
+) -> Result<T, SnapshotError> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let folder = app
+            .path()
+            .app_local_data_dir()
+            .map_err(|error| SnapshotError::DataFolder(error.to_string()))?
+            .join(git_snapshots::FOLDER);
+        let git = Git::locate()?;
+        work(
+            app.state::<Snapshots>().inner(),
+            &SnapshotEnv::new(&git, &folder),
+        )
+    })
+    .await
+    .map_err(|error| SnapshotError::Task(error.to_string()))?
+}
+
+/// The running sessions with their folders, and which of them the window reports as working.
+fn snapshot_neighbours(manager: &SessionManager, team: &TeamService) -> Neighbours {
+    Neighbours {
+        sessions: manager
+            .list()
+            .into_iter()
+            .map(|info| (info.id, info.cwd))
+            .collect(),
+        working: team.working_sessions(),
+    }
+}
+
+fn snapshots_changed(app: &tauri::AppHandle, id: SessionId) {
+    // A window that misses it reads the timeline again on its next refresh.
+    let _ = app.emit(SNAPSHOTS_CHANGED, id);
+}
+
+/// Binds the session's workspace key, which names its snapshots across restarts; the main window
+/// calls it once it knows both. A session keeps its key, and a key of another running session is
+/// refused.
+#[tauri::command]
+pub fn snapshot_bind(
+    snapshots: State<'_, Snapshots>,
+    manager: Manager<'_>,
+    id: SessionId,
+    key: String,
+) -> Result<(), SnapshotError> {
+    let sessions = manager.list();
+    let cwd = sessions
+        .iter()
+        .find(|info| info.id == id)
+        .map(|info| info.cwd.clone())
+        .ok_or(SnapshotError::UnknownSession(id))?;
+    snapshots.bind(id, &key, &cwd, &|other| {
+        sessions.iter().any(|info| info.id == other)
+    })
+}
+
+/// Takes a snapshot of the session's work tree after an agent step (the window calls it when the
+/// session stops working). `prompt`: the agent's last prompt, kept cut with the snapshot.
+#[tauri::command]
+pub async fn snapshot_take(
+    app: tauri::AppHandle,
+    id: SessionId,
+    prompt: Option<String>,
+) -> Result<TakeOutcome, SnapshotError> {
+    let notify = app.clone();
+    let outcome = snapshot_call(app, move |snapshots, env| {
+        snapshots.take(env, id, prompt.as_deref().unwrap_or_default())
+    })
+    .await;
+    // A skipped or failed step changes the timeline's note too.
+    if !matches!(
+        outcome,
+        Ok(TakeOutcome::Unchanged | TakeOutcome::NotARepository)
+    ) {
+        snapshots_changed(&notify, id);
+    }
+    outcome
+}
+
+/// The session's snapshots, newest first, why its newest step was not saved, and the other
+/// sessions in its work tree.
+#[tauri::command]
+pub async fn snapshot_list(
+    window: tauri::Window,
+    scope: State<'_, PanelScope>,
+    app: tauri::AppHandle,
+    manager: Manager<'_>,
+    team: State<'_, TeamService>,
+    id: SessionId,
+) -> Result<SnapshotList, SnapshotError> {
+    if !in_scope(&window, &scope, id) {
+        return Err(SnapshotError::UnknownSession(id));
+    }
+    let neighbours = snapshot_neighbours(&manager, &team);
+    snapshot_call(app, move |snapshots, env| {
+        snapshots.list(env, id, &neighbours)
+    })
+    .await
+}
+
+/// What one step changed, in the shape of `git_diff`'s answer.
+#[tauri::command]
+pub async fn snapshot_diff(
+    window: tauri::Window,
+    scope: State<'_, PanelScope>,
+    app: tauri::AppHandle,
+    id: SessionId,
+    number: u64,
+) -> Result<GitDiff, SnapshotError> {
+    if !in_scope(&window, &scope, id) {
+        return Err(SnapshotError::UnknownSession(id));
+    }
+    snapshot_call(app, move |snapshots, env| snapshots.diff(env, id, number)).await
+}
+
+/// Makes the session's work tree match a snapshot after saving the current state; the window
+/// asks first. Refused while a session in the same work tree is working; paths through links,
+/// files that need a filter and folders in the way are refused, hooks and filters do not run.
+#[tauri::command]
+pub async fn snapshot_restore(
+    window: tauri::Window,
+    scope: State<'_, PanelScope>,
+    app: tauri::AppHandle,
+    manager: Manager<'_>,
+    team: State<'_, TeamService>,
+    id: SessionId,
+    number: u64,
+) -> Result<RestoreOutcome, SnapshotError> {
+    if !in_scope(&window, &scope, id) {
+        return Err(SnapshotError::UnknownSession(id));
+    }
+    let neighbours = snapshot_neighbours(&manager, &team);
+    let notify = app.clone();
+    let outcome = snapshot_call(app, move |snapshots, env| {
+        snapshots.restore(env, id, number, &neighbours)
+    })
+    .await;
+    // Even a failed jump may have saved the current state as its undo point.
+    snapshots_changed(&notify, id);
+    outcome
+}
+
+/// Deletes the session's snapshots and its key; the window calls it once the session is closed,
+/// or on quit when sessions are not restored. Works after the session ended: the binding keeps
+/// its folder.
+#[tauri::command]
+pub async fn snapshot_forget(app: tauri::AppHandle, id: SessionId) -> Result<(), SnapshotError> {
+    let notify = app.clone();
+    snapshot_call(app, move |snapshots, env| snapshots.forget(env, id)).await?;
+    snapshots_changed(&notify, id);
+    Ok(())
 }
 
 /// One folder of a session's file tree (file_tree.rs). The window names only the session and a

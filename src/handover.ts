@@ -71,6 +71,30 @@ export function handoverRequest(line: string): string | null {
   return cut(text, PROMPT_MAX_CHARS);
 }
 
+/**
+ * The lines a session's user submitted, fed from the one prompt line tracker of the terminal:
+ * `last` is the newest non-blank line of any session (kept with a timeline snapshot), `request`
+ * the newest one an agent session can hand over (`handoverRequest`); a shell's command line or a
+ * slash command never replaces it.
+ */
+export class SubmittedLines {
+  private lastLine: string | null = null;
+  private lastRequest: string | null = null;
+
+  record(line: string, agent: boolean): void {
+    if (line.trim() !== "") this.lastLine = line;
+    if (agent) this.lastRequest = handoverRequest(line) ?? this.lastRequest;
+  }
+
+  get last(): string | null {
+    return this.lastLine;
+  }
+
+  get request(): string | null {
+    return this.lastRequest;
+  }
+}
+
 /** The prompt for the new agent; see the bounds above. */
 export function buildHandover(input: HandoverInput, t: Translate): string {
   const head = t("handover.intro", { from: oneLine(input.from), folder: oneLine(input.folder) });

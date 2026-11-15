@@ -36,6 +36,7 @@ pub mod git;
 pub mod git_actions;
 pub mod git_activity;
 pub mod git_history;
+pub mod git_snapshots;
 pub mod gpu;
 pub mod hook_http;
 pub mod hook_recipes;
@@ -227,6 +228,7 @@ pub fn run() -> tauri::Result<()> {
                     app.handle().clone(),
                 )));
             app.manage(file_tree::FileTree::default());
+            app.manage(git_snapshots::Snapshots::default());
             app.manage(file_viewer::Viewers::default());
             app.manage(notify::Notifier::default());
             app.manage(resources::ResourceMonitor::default());
@@ -342,6 +344,21 @@ pub fn run() -> tauri::Result<()> {
             // The security switches and queued messages: only the main window reads and writes
             // them, unlike `localStorage`, which the panel and viewer windows share.
             app.manage(main_store::MainStore::new(local_dir.clone()));
+            // Snapshots of sessions that will not come back, side repositories of repositories
+            // that are gone, leftover temporary indexes (git_snapshots.rs). Other snapshot calls
+            // wait until this is done.
+            let keep = persist::Store::new(local_dir.clone()).workspace_keys();
+            let folder = local_dir.join(git_snapshots::FOLDER);
+            let upkeep = app.handle().clone();
+            std::thread::spawn(move || {
+                let Ok(git) = git::Git::locate() else {
+                    return;
+                };
+                let env = git_snapshots::SnapshotEnv::new(&git, &folder);
+                upkeep
+                    .state::<git_snapshots::Snapshots>()
+                    .clean_up(&env, keep.as_ref());
+            });
             app.manage(persist::Store::new(local_dir));
             app.manage(panel_window::PanelScope::default());
             app.manage(commands::UpdateResults::default());
@@ -504,6 +521,12 @@ pub fn run() -> tauri::Result<()> {
             commands::git_unstage,
             commands::git_discard,
             commands::git_commit,
+            commands::snapshot_bind,
+            commands::snapshot_take,
+            commands::snapshot_list,
+            commands::snapshot_diff,
+            commands::snapshot_restore,
+            commands::snapshot_forget,
             commands::list_session_folder,
             commands::list_session_paths,
             commands::reveal_session_folder,

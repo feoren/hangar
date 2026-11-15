@@ -949,3 +949,22 @@ Pages changed: [[local-dictation]], [[release-rollout]].
 ## [2026-11-15] update | Dictation security and acceptance review
 The dictation state and text go out as payload-free signals; the main window reads `dictation_status` and takes each transcript once through the new `dictation_take_text` (queue of 8). The level stays a number payload, with the reason on the page. Every dictation command checks the main window itself. Whether the key is on moved to the backend's `MainPrefs` with a one-time migration from localStorage; the model hash is checked once per run before the first load; a recording without stop ends after the cap plus 5 s and the window stops a stale one when it loads; the status names whether a microphone is there; repeated Space after an early Shift release no longer reaches the program; macOS gets the audio-input entitlement; licenses of whisper.cpp, ggml, whisper-rs and cpal listed.
 Pages changed: [[local-dictation]].
+
+## [2026-11-15] ingest | Work tree timeline
+Filed the contract of the timeline in the Changes tab: snapshots live in a side repository per
+repository below the app data folder (`GIT_OBJECT_DIRECTORY` plus the user's objects as an
+alternate), so nothing is written into the user's git folder (measured in `nothing_is_written_into_the_users_repository`).
+The key is bound to the session in the backend, steps above 50 MiB per file or 200 MiB together
+are skipped, going back is refused while a session in the same work tree works and checks links,
+filters, sparse entries, folders and ignored files in the way before the undo point is saved;
+snapshots go after a successful close, on quit without restore, and at start for keys not in the
+workspace.
+Pages changed: [[work-tree-timeline]] (new), index.
+
+## [2026-11-15] update | 0.8.0 integration of costs, handover, arena, dictation and timeline
+Merged the four features into one branch. The session start takes one prepared worktree for the
+handover and the arena (only the arena's fresh one is removed when its session fails), the
+protected main window preferences carry the daily budget, its warned day and the dictation key,
+and the terminal keeps the user's submitted lines in one `SubmittedLines` record that feeds both
+the handover's last request and the timeline's last prompt.
+Pages changed: [[costs-and-handover]].

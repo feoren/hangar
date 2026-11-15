@@ -7761,6 +7761,12 @@ body.resizing-horizontal * {
   font-size: 12px;
 }
 
+/* Timeline (TimelineView.tsx): the commit rows, plus going back from an open step. */
+.timeline-restore {
+  margin: 2px 6px 4px;
+  font-size: 12px;
+}
+
 .commit-note {
   margin: 2px 6px 4px;
   font-size: 12px;

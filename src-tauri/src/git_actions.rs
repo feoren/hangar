@@ -156,11 +156,34 @@ pub fn check_path(path: &str) -> Result<(), ActionError> {
         {
             return Err(ActionError::InvalidPath("leaves the repository"));
         }
-        if effective.eq_ignore_ascii_case(".git") {
+        if names_git_folder(effective) {
             return Err(ActionError::InvalidPath("inside a git folder"));
         }
     }
     Ok(())
+}
+
+/// Code points HFS+ ignores in file names (git's `next_hfs_char`): `.g\u{200c}it` opens `.git`
+/// there.
+fn hfs_ignored(c: char) -> bool {
+    matches!(
+        c,
+        '\u{200c}'..='\u{200f}' | '\u{202a}'..='\u{202e}' | '\u{206a}'..='\u{206f}' | '\u{feff}'
+    )
+}
+
+/// One path component that names a git folder on some file system: `.git` in any case, with the
+/// code points HFS+ ignores, or the NTFS short name `git~<n>`. Checked on every platform, since a
+/// work tree may live on any of them.
+fn names_git_folder(part: &str) -> bool {
+    let folded: String = part.chars().filter(|c| !hfs_ignored(*c)).collect();
+    if folded.eq_ignore_ascii_case(".git") {
+        return true;
+    }
+    let lower = part.to_ascii_lowercase();
+    lower
+        .strip_prefix("git~")
+        .is_some_and(|number| !number.is_empty() && number.bytes().all(|b| b.is_ascii_digit()))
 }
 
 fn check_paths(paths: &[String]) -> Result<(), ActionError> {
@@ -370,14 +393,35 @@ fn refuse_filtered<S: AsRef<str>>(git: &Git, repo: &Repo, paths: &[S]) -> Result
             return Err(ActionError::Filtered);
         }
     }
+    filter_attributes(git, &repo.root, repo.deadline, files)
+}
+
+/// Refuses when a filter driver would convert one of `files` (paths of files below `root`, `/`
+/// separated, as git lists them). The caller checks first whether any driver is configured.
+pub fn refuse_filtered_files(
+    git: &Git,
+    root: &Path,
+    deadline: Instant,
+    files: &[String],
+) -> Result<(), ActionError> {
+    filter_attributes(git, root, deadline, nul_list(files))
+}
+
+/// `git check-attr filter` for the NUL separated `files`; refused when one names a driver.
+fn filter_attributes(
+    git: &Git,
+    root: &Path,
+    deadline: Instant,
+    files: Vec<u8>,
+) -> Result<(), ActionError> {
     if files.is_empty() {
         return Ok(());
     }
     let attributes = git.run_with_input(
-        &repo.root,
+        root,
         ["check-attr", "-z", "--stdin", "filter"],
         Some(files),
-        repo.deadline,
+        deadline,
         git::MAX_LIST_BYTES,
     )?;
     if !attributes.success {
@@ -628,6 +672,8 @@ mod tests {
             "ünïcode/file.txt",
             ".github/workflows/ci.yml",
             ".gitignore",
+            "git~notes.txt",
+            "git~/x",
             "-n",
             ":(glob)*",
         ] {
@@ -647,6 +693,11 @@ mod tests {
             ".git/config",
             "sub/.GIT/hooks/pre-commit",
             "a\0b",
+            // The NTFS short name and the HFS+ spellings of `.git`.
+            "GIT~1/config",
+            "sub/git~12/hooks/pre-commit",
+            ".g\u{200c}it/config",
+            "\u{feff}.GIT/config",
         ] {
             assert!(check_path(bad).is_err(), "{bad:?}");
         }

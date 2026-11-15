@@ -29,7 +29,7 @@ import { FONT_SIZE } from "./layout";
 import type { ShellKind } from "./pathQuote";
 import { PathChecker } from "./pathCheck";
 import { PromptLineTracker } from "./promptTitle";
-import { handoverRequest } from "./handover";
+import { SubmittedLines } from "./handover";
 import { PtySizeSync } from "./ptySize";
 import { SCROLLBACK_LINES } from "./settings";
 import type { Activity } from "./statusLine";
@@ -176,9 +176,8 @@ export class SessionTerminal {
    */
   onPromptLine: ((line: string) => void) | null = null;
   private readonly promptLines = new PromptLineTracker();
-  /** Own tracker for the handover's last request: it runs for the whole session. */
-  private readonly requestLines = new PromptLineTracker();
-  private lastRequestText: string | null = null;
+  /** What the user submitted (handover.ts): the timeline's last prompt, the handover's request. */
+  private readonly submitted = new SubmittedLines();
   /**
    * The newest local dev server address in the current process's output changed (devServer.ts);
    * `null` when the process ended or started again. Called on changes only, never per chunk.
@@ -286,7 +285,6 @@ export class SessionTerminal {
       if (data === "\x03" || data === "\x1b") this.attention.interrupted();
       this.send(data);
       this.trackPrompt(data);
-      this.trackRequest(data);
     });
     // Real key presses only, not xterm's automatic replies (cursor position, focus).
     this.term.onKey(() => {
@@ -783,7 +781,6 @@ export class SessionTerminal {
     this.typedSinceTaken = true;
     this.send("\r");
     this.trackPrompt("\r");
-    this.trackRequest("\r");
   }
 
   /**
@@ -801,22 +798,27 @@ export class SessionTerminal {
     return this.typedSinceTaken;
   }
 
-  /** Only while the app listens; typed input is small, so this costs nothing measurable. */
+  /** Runs for the whole session; typed input is small, so this costs nothing measurable. */
   private trackPrompt(data: string): void {
-    if (this.onPromptLine === null) return;
-    for (const line of this.promptLines.feed(data)) this.emitPromptLine(line);
+    const lines = this.promptLines.feed(data);
+    if (lines.length === 0) return;
+    // A shell's command line is no request to hand over.
+    const agent = this.shellKind() === "agent";
+    for (const line of lines) {
+      this.submitted.record(line, agent);
+      this.emitPromptLine(line);
+    }
   }
 
-  /** Agent sessions only: a shell's command line is no request to hand over. */
-  private trackRequest(data: string): void {
-    const lines = this.requestLines.feed(data);
-    if (lines.length === 0 || this.shellKind() !== "agent") return;
-    for (const line of lines) this.lastRequestText = handoverRequest(line) ?? this.lastRequestText;
+  /** The last line the user submitted with Enter, kept with a snapshot (timeline.ts). */
+  lastPrompt(): { text: string } | null {
+    const text = this.submitted.last;
+    return text === null ? null : { text };
   }
 
   /** The user's last request in this agent session (handover.ts), `null` before one. */
   lastRequest(): string | null {
-    return this.lastRequestText;
+    return this.submitted.request;
   }
 
   /** Read anew per line: the listener may stop itself after the first one. */

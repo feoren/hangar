@@ -92,7 +92,8 @@ updated: 2026-11-15
 - The text (`src/handover.ts`): introduction with program and folder, the last request (at most
   1500 characters, quoted; the old terminal tracks the user's submitted lines in agent sessions,
   `SessionTerminal.lastRequest`, skipping slash commands and one-character answers, since the last
-  prompt bar it used to read is gone), the changed files from `git_diff` by session id (at most
+  prompt bar it used to read is gone; one `SubmittedLines` record per terminal feeds both this
+  request and the timeline's `lastPrompt`), the changed files from `git_diff` by session id (at most
   40, then a count), the
   project notes (at most 5 titles with excerpts of 160 characters), and the instruction to
   summarize first. At most 8000 characters: excerpts go first, then file lines.

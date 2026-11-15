@@ -1011,6 +1011,42 @@
           "markdownDescription": "Enables the shared_notes_unlock command without any pre-configured scope."
         },
         {
+          "description": "Enables the snapshot_bind command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-snapshot-bind",
+          "markdownDescription": "Enables the snapshot_bind command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the snapshot_diff command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-snapshot-diff",
+          "markdownDescription": "Enables the snapshot_diff command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the snapshot_forget command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-snapshot-forget",
+          "markdownDescription": "Enables the snapshot_forget command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the snapshot_list command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-snapshot-list",
+          "markdownDescription": "Enables the snapshot_list command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the snapshot_restore command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-snapshot-restore",
+          "markdownDescription": "Enables the snapshot_restore command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the snapshot_take command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-snapshot-take",
+          "markdownDescription": "Enables the snapshot_take command without any pre-configured scope."
+        },
+        {
           "description": "Enables the stat_paths command without any pre-configured scope.",
           "type": "string",
           "const": "allow-stat-paths",
@@ -1975,6 +2011,42 @@
           "type": "string",
           "const": "deny-shared-notes-unlock",
           "markdownDescription": "Denies the shared_notes_unlock command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the snapshot_bind command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-snapshot-bind",
+          "markdownDescription": "Denies the snapshot_bind command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the snapshot_diff command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-snapshot-diff",
+          "markdownDescription": "Denies the snapshot_diff command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the snapshot_forget command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-snapshot-forget",
+          "markdownDescription": "Denies the snapshot_forget command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the snapshot_list command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-snapshot-list",
+          "markdownDescription": "Denies the snapshot_list command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the snapshot_restore command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-snapshot-restore",
+          "markdownDescription": "Denies the snapshot_restore command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the snapshot_take command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-snapshot-take",
+          "markdownDescription": "Denies the snapshot_take command without any pre-configured scope."
         },
         {
           "description": "Denies the stat_paths command without any pre-configured scope.",

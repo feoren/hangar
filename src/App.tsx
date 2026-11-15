@@ -315,6 +315,7 @@ import { busySession, pasteForm } from "./dictation";
 import { DictationIndicator, type IndicatorMode } from "./DictationIndicator";
 import { useDictationKey, useDictationStatus, type DictationProblem } from "./useDictation";
 import { openLink } from "./terminalLinkOpen";
+import { snapshotPrompt } from "./timeline";
 import { fontStack, schemeColors, type TerminalLook } from "./terminalLook";
 import { osc8DecisionOf } from "./termSafety";
 import { EmptyPane, paneStyle, TerminalPane } from "./TerminalPane";
@@ -2065,6 +2066,21 @@ export function App() {
       .catch(() => undefined);
   }, []);
 
+  /**
+   * Saves the work tree of an agent session that just finished a step, silently, for its
+   * timeline (timeline.ts). The backend skips it when nothing changed or outside a repository.
+   */
+  const takeSnapshot = useCallback((id: number) => {
+    const session = stateRef.current.sessions.find((s) => s.id === id);
+    const terminal = terminals.get(id);
+    if (session === undefined || terminal === undefined || isPlaceholder(id)) return;
+    if (session.kind === "update") return;
+    const profile = profilesRef.current.find((p) => p.id === session.profileId);
+    if (profile === undefined || shellKind(profile.command) !== "agent") return;
+    // The backend remembers a skipped or failed step and shows it in the timeline.
+    api.snapshotTake(id, snapshotPrompt(terminal.lastPrompt())).catch(() => undefined);
+  }, []);
+
   /** Connects a terminal to its session ID: exit, attention, visibility. */
   const wire = useCallback(
     (terminal: SessionTerminal, id: number) => {
@@ -2198,8 +2214,10 @@ export function App() {
                 shown: shownRef.current.has(id),
               });
         // Only work the user asked for: a program's start-up output (also on restore) is no task.
-        if (finishedWork(previous, next, reason) && terminal.takeTyped() && !continues) {
-          offerDone(id);
+        // A step that goes on with a queued message is still a step worth a snapshot.
+        if (finishedWork(previous, next, reason) && terminal.takeTyped()) {
+          takeSnapshot(id);
+          if (!continues) offerDone(id);
         }
         // New work makes the session's done notice stale.
         if (next === "working") {
@@ -2254,8 +2272,11 @@ export function App() {
         });
       });
       terminals.set(id, terminal);
+      // The backend names the session's snapshots by this key from now on; windows name the
+      // session by ID only.
+      if (!isPlaceholder(id)) api.snapshotBind(id, terminal.key).catch(() => undefined);
     },
-    [flasher, chimes, pushes, offerDone, changeQueue, stallMonitor, confirmPaste],
+    [flasher, chimes, pushes, offerDone, takeSnapshot, changeQueue, stallMonitor, confirmPaste],
   );
 
   /**
@@ -2706,6 +2727,9 @@ export function App() {
           closed = false;
           showError(e);
         }
+        // Closed means: its timeline goes too. Only then: a session that still runs keeps it.
+        // Before the worktree goes, while its repository is still there.
+        if (closed) await api.snapshotForget(id).catch(() => undefined);
       }
       // Remove locally even on error: the backend no longer knows the session anyway.
       const terminal = terminals.get(id);
@@ -2909,7 +2933,10 @@ export function App() {
     await Promise.allSettled(
       orphaned.map(async ({ ids, worktree }) => {
         // A failed close rejects here, so the worktree of a still running program stays.
-        await Promise.all(ids.filter((id) => !isPlaceholder(id)).map((id) => api.close(id)));
+        const real = ids.filter((id) => !isPlaceholder(id));
+        await Promise.all(real.map((id) => api.close(id)));
+        // Nothing brings these sessions back, so neither does their timeline.
+        await Promise.allSettled(real.map((id) => api.snapshotForget(id)));
         await api.removeWorktree(worktree);
       }),
     );
@@ -2926,6 +2953,14 @@ export function App() {
       ]);
       await persistAll();
       await Promise.race([removeOrphanedWorktrees(), delay(QUIT_SAVE_TIMEOUT_MS)]);
+      if (!settingsRef.current.restoreSessions) {
+        // No session comes back, so no timeline does; the next start removes what is left.
+        const ids = stateRef.current.sessions.map((s) => s.id).filter((id) => !isPlaceholder(id));
+        await Promise.race([
+          Promise.allSettled(ids.map((id) => api.snapshotForget(id))),
+          delay(QUIT_SAVE_TIMEOUT_MS),
+        ]);
+      }
     } finally {
       // The waiting count must not stay on a Dock or launcher icon; bounded, quitting comes first.
       await Promise.race([badge.clear(), delay(BADGE_CLEAR_TIMEOUT_MS)]);
@@ -3715,6 +3750,15 @@ export function App() {
     void Promise.allSettled(ids.map((id) => api.close(id))).then((results) => {
       const failed = results.find((result) => result.status === "rejected");
       if (failed) showError(failed.reason);
+      // Without "Remember sessions" they do not come back, nor do their timelines; otherwise
+      // the saved state keeps them.
+      if (settingsRef.current.restoreSessions) return;
+      results.forEach((result, index) => {
+        const id = ids[index];
+        if (result.status === "fulfilled" && id !== undefined) {
+          api.snapshotForget(id).catch(() => undefined);
+        }
+      });
     });
     focusActive();
   };

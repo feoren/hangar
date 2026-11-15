@@ -17,6 +17,7 @@ import { revealInvisible } from "./invisible";
 import { Revealed } from "./Revealed";
 import { askFor, stillAsked, type SessionQuestion } from "./sessionQuestion";
 import type { TeammateOverlap } from "./team";
+import { TimelineView } from "./TimelineView";
 
 interface Props {
   /** Working folder of the active session; `null` without a session. */
@@ -54,6 +55,7 @@ interface Props {
 const VIEW_LABELS = {
   open: "changes.viewOpen",
   commits: "changes.viewCommits",
+  timeline: "changes.viewTimeline",
 } as const satisfies Record<ChangesView, MessageKey>;
 
 /** A text that belongs to one folder: a draft or an error of another folder is not shown. */
@@ -308,6 +310,18 @@ export function ChangesPanel(props: Props) {
         </>
       ) : cwd === null || props.sessionId === null ? (
         <p className="changes-message">{t("changes.noSession")}</p>
+      ) : view === "timeline" ? (
+        <TimelineView
+          key={props.sessionId}
+          sessionId={props.sessionId}
+          reload={reload}
+          language={props.language}
+          working={trigger === "working"}
+          onBusy={onHistoryBusy}
+          onRestored={() => {
+            setManual((value) => value + 1);
+          }}
+        />
       ) : (
         <CommitHistory
           key={`${cwd}\n${String(props.sessionId)}`}

@@ -227,6 +227,22 @@ impl Store {
         write_atomic(&path, &json).map_err(io_error(&path))
     }
 
+    /// The keys of the saved sessions, lower case: an empty list without a saved workspace,
+    /// `None` when one exists but cannot be read (what belongs to it is then unknown).
+    pub fn workspace_keys(&self) -> Option<std::collections::BTreeSet<String>> {
+        if !self.workspace_path().exists() {
+            return Some(std::collections::BTreeSet::new());
+        }
+        let workspace = self.load_workspace()?;
+        Some(
+            workspace
+                .sessions
+                .iter()
+                .filter_map(|session| normalize_key(&session.key).ok())
+                .collect(),
+        )
+    }
+
     /// `None` if there is no saved workspace or it is unusable. The
     /// reason goes to the log, the content never does (not even excerpts from parser errors).
     pub fn load_workspace(&self) -> Option<Workspace> {
@@ -989,6 +1005,28 @@ mod tests {
         let mut w = workspace();
         w.sessions[0].emoji = Some("\u{1F600}\u{1F600}\u{1F600}\u{1F600}".into());
         store.0.save_workspace(&w).unwrap();
+    }
+
+    #[test]
+    fn workspace_keys_tell_missing_from_unreadable() {
+        let store = TempStore::new("ws-keys");
+        assert_eq!(store.0.workspace_keys(), Some(Default::default()));
+        fs::create_dir_all(store.0.dir()).unwrap();
+        let path = store.0.dir().join(WORKSPACE_FILE);
+        fs::write(&path, "{").unwrap();
+        assert_eq!(store.0.workspace_keys(), None);
+        let key = "0F8FAD5B-D9CB-469F-A165-70867728950E";
+        fs::write(
+            &path,
+            format!(
+                r#"{{"version":1,"sessions":[{{"key":"{key}","profileId":"a","cwd":"c","title":"t","order":0}}]}}"#
+            ),
+        )
+        .unwrap();
+        assert_eq!(
+            store.0.workspace_keys(),
+            Some(std::collections::BTreeSet::from([key.to_ascii_lowercase()]))
+        );
     }
 
     #[test]
