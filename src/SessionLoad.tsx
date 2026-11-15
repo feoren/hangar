@@ -1,12 +1,14 @@
-// The third line of a session row: CPU, RAM and, where the machine gives GPU
-// numbers, GPU of the session's process tree, each value in a cell of fixed width (styles.css,
-// "Third line"). Pure: the row passes the formatted numbers (resources.ts).
+// The load of a session row: CPU, RAM and, where the machine gives GPU numbers, GPU of the
+// session's process tree, each value in a cell of fixed width (styles.css, "Third line"), as
+// plain values, outlined pills or labeled tiles (rowLayout.ts). Pure: the row passes the
+// formatted numbers (resources.ts).
 
 import { Fragment } from "react";
 
 import { useT } from "./i18n";
 import { CpuIcon, GpuIcon, MemoryIcon } from "./icons";
 import type { ResourceParts } from "./resources";
+import type { LoadForm } from "./rowLayout";
 
 const RESOURCE_ICONS = { cpu: CpuIcon, memory: MemoryIcon, gpu: GpuIcon } as const;
 
@@ -72,17 +74,17 @@ function ResourceFact({
 export function SessionLoad({
   usage,
   gpuColumn,
-  tiles = false,
+  form = "text",
 }: {
   usage: ResourceParts;
   gpuColumn: boolean;
-  /** Each value in a small tile with its name (row style "tiles", rowStyle.ts). */
-  tiles?: boolean;
+  /** Plain values, outlined pills, or each value in a small tile with its name. */
+  form?: LoadForm;
 }) {
   const t = useT();
-  const label = (name: string) => (tiles ? name : null);
+  const label = (name: string) => (form === "tiles" ? name : null);
   return (
-    <span className={tiles ? "session-load tiles" : "session-load"}>
+    <span className={form === "text" ? "session-load row-fact" : `session-load row-fact ${form}`}>
       <ResourceFact
         kind="cpu"
         name={t("system.cpu")}

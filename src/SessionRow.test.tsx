@@ -2,12 +2,21 @@ import type { ReactElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
 
-import { ContextLineCells, CONTEXT_SEGMENTS } from "./ContextLine";
+import { CONTEXT_SEGMENTS } from "./ContextLine";
 import { createTranslator, I18nContext } from "./i18n";
 import type { ResourceParts } from "./resources";
-import { ROW_STYLES, rowParts, type RowStyle } from "./rowStyle";
-import { RowStylePreview } from "./RowStyleSettings";
-import { GroupStateCounts, RowExpander, SessionRowBody, type RowBodyProps } from "./SessionRow";
+import {
+  DEFAULT_ROW_LAYOUT,
+  hideElement,
+  parseRowLayout,
+  planRow,
+  presetLayout,
+  ROW_PRESETS,
+  setFormByName,
+  type RowLayout,
+} from "./rowLayout";
+import { RowLayoutField, RowLayoutPreview } from "./RowLayoutSettings";
+import { SessionRowBody, type RowBodyProps } from "./SessionRow";
 import { SessionLoad } from "./SessionLoad";
 
 const english = createTranslator("en");
@@ -33,18 +42,20 @@ const USAGE: ResourceParts = {
   gpuMemory: null,
 };
 
-function row(style: RowStyle, extra: Partial<RowBodyProps> = {}): string {
+const PROGRAM = { kind: "letters", text: "C", color: "#d97757" } as const;
+
+function row(value: RowLayout, extra: Partial<RowBodyProps> = {}): string {
   return render(
     <SessionRowBody
-      parts={rowParts(style)}
+      plan={planRow(value)}
       name="hangar"
       badge={null}
-      program={{ kind: "letters", text: "C", color: "#d97757" }}
+      program={PROGRAM}
       marker={undefined}
       line={{ word: "working", full: "Claude Code is working" }}
       waiting={false}
       chip="working"
-      signs={null}
+      signs={<span className="session-signs">sign</span>}
       place="hangar"
       branch="main"
       team={false}
@@ -53,22 +64,34 @@ function row(style: RowStyle, extra: Partial<RowBodyProps> = {}): string {
       runtime="1 hr"
       context={{ used: 215_500, window: 1_000_000 }}
       language="en"
-      moreId="more-1"
       {...extra}
     />,
   );
 }
 
+/** The class lists of the row's lines, top to bottom. */
+function lineClasses(html: string): string[] {
+  return [...html.matchAll(/class="(row-line[^"]*)"/g)].map((match) => match[1] ?? "");
+}
+
 describe("the standard row", () => {
-  const html = row("standard");
+  const html = row(DEFAULT_ROW_LAYOUT);
 
   it("keeps its four lines: title and state, folder and branch, load, run time and context", () => {
+    expect(lineClasses(html)).toEqual([
+      "row-line session-title-row",
+      "row-line",
+      "row-line",
+      "row-line",
+    ]);
     for (const name of [
-      "session-title-row",
-      "session-meta",
-      "session-detail",
-      "session-context",
+      "session-title",
+      "session-path",
+      "session-branch",
+      "session-load",
+      "session-runtime",
       "session-context-bar",
+      "session-context-tokens",
       "state-dot",
       "session-status",
     ]) {
@@ -76,191 +99,186 @@ describe("the standard row", () => {
     }
   });
 
-  it("says its state in words and adds none of the other styles' parts", () => {
-    expect(html).toContain('<span class="session-status" aria-hidden="true">working</span>');
+  it("says its state in words and adds none of the other forms' parts", () => {
+    expect(html).toContain('<span class="session-status">working</span>');
     for (const name of [
       "status-chip",
       "session-avatar",
       "session-ring",
-      "session-more",
       "session-context-mini",
       "session-context-segments",
-      "session-columns",
       "session-shape",
       "session-resource-label",
+      "tag",
+      "has-lead",
     ]) {
       expect(count(html, name)).toBe(0);
     }
   });
 
-  it("is the same markup in the styles that are pure CSS", () => {
-    for (const style of ["pill", "tags", "edge", "band"] as const) {
-      expect(row(style)).toBe(html);
-    }
+  it("keeps title, state and signs in that order for screen readers, the signs drawn first", () => {
+    const title = html.indexOf('class="session-title"');
+    const full = html.indexOf("Claude Code is working");
+    const state = html.indexOf('class="session-state state-word"');
+    const signs = html.indexOf('class="row-before-title"');
+    expect(title).toBeGreaterThan(0);
+    expect(full).toBeGreaterThan(title);
+    expect(state).toBeGreaterThan(full);
+    expect(signs).toBeGreaterThan(state);
+    expect(html).toContain('<span class="row-before-title"><span class="session-signs">sign');
+  });
+
+  it("pushes the right part to the edge with one spacer per line that has one", () => {
+    expect(count(html, "row-push")).toBe(3);
+  });
+
+  it("shows the program's small icon only where the group does not name the program", () => {
+    expect(count(html, "badge")).toBe(0);
+    expect(count(row(DEFAULT_ROW_LAYOUT, { badge: PROGRAM }), "badge")).toBe(1);
+  });
+
+  it("drops a line without anything to show", () => {
+    const bare = row(DEFAULT_ROW_LAYOUT, { place: null, branch: null, usage: null });
+    expect(lineClasses(bare)).toHaveLength(2);
+    const quiet = row(DEFAULT_ROW_LAYOUT, { runtime: null, context: undefined, usage: null });
+    expect(count(quiet, "session-runtime")).toBe(0);
+  });
+
+  it("says the context's numbers once, also when the row hides the context", () => {
+    expect(html.match(/Context 22% full/g)).toHaveLength(1);
+    const hidden = row(hideElement(DEFAULT_ROW_LAYOUT, "context"));
+    expect(count(hidden, "session-context-bar")).toBe(0);
+    expect(hidden).toContain("Context 22% full");
   });
 });
 
-describe("the parts of each style", () => {
-  it("avatar: the program's badge with the state dot on its corner", () => {
-    const html = row("avatar");
-    expect(count(html, "session-avatar")).toBe(1);
-    expect(html).toMatch(
-      /class="session-avatar"[^>]*><span class="badge"[^>]*>C<\/span><span class="state-dot">/,
-    );
-  });
-
-  it("accordion: the details in a folding wrapper with the chevron's id, a small bar on top", () => {
-    const html = row("accordion");
-    expect(html).toContain(
-      '<span class="session-more" id="more-1"><span class="session-more-inner">',
-    );
-    expect(count(html, "session-context-mini")).toBe(1);
-    expect(html.indexOf("session-context-mini")).toBeLessThan(html.indexOf("session-more"));
-  });
-
-  it("ring: a ring with the share, the run time on the load line, no fourth line", () => {
-    const html = row("ring");
-    expect(count(html, "session-ring")).toBe(1);
-    expect(html).toContain('<span class="session-ring-value">22</span>');
-    expect(html).toMatch(/class="session-detail">.*class="session-runtime"/);
-    expect(count(html, "session-context")).toBe(0);
-    // The context still reaches screen readers.
-    expect(html).toContain("Context 22% full");
-  });
-
-  it("ring: a faint empty ring without numbers", () => {
-    const html = row("ring", { context: undefined });
-    expect(html).toContain('class="session-ring empty"');
-    expect(count(html, "session-ring-value")).toBe(0);
-  });
-
-  it("card: avatar without a dot, the ring at the end", () => {
-    const html = row("card");
-    expect(count(html, "session-avatar")).toBe(1);
-    expect(html).not.toMatch(/class="session-avatar"[^>]*>.*?<span class="state-dot">/);
-    expect(html.lastIndexOf("session-ring")).toBeGreaterThan(html.indexOf("session-meta"));
-  });
-
-  it("tiles: the load with names", () => {
-    const html = row("tiles");
-    expect(html).toContain('class="session-load tiles"');
-    expect(count(html, "session-resource-label")).toBe(2);
-  });
-
-  it("segments: ten cells instead of the striped bar", () => {
-    const html = row("segments");
-    expect(count(html, "session-context-segments")).toBe(1);
-    expect(count(html, "session-context-bar")).toBe(0);
-    expect(count(html, "segment-on")).toBe(2);
-  });
-
-  it("compact: two lines, the small bar with its share on the folder line", () => {
-    const html = row("compact");
-    expect(count(html, "session-detail")).toBe(0);
-    expect(count(html, "session-context")).toBe(0);
-    expect(html).toMatch(/class="session-meta">.*class="session-context-mini"/);
-    expect(html).toContain('<span class="session-context-share">22%</span>');
-  });
-
-  it("counters: the state as its shape, the run time where the word was", () => {
-    const html = row("counters");
-    expect(count(html, "session-status")).toBe(0);
-    expect(html).toContain('<span class="session-state-runtime" aria-hidden="true">1 hr</span>');
-    expect(html).toContain('class="session-shape"');
-    expect(html).toContain('class="status-chip working"');
-    // The run time is not repeated on the fourth line.
-    expect(count(html, "session-runtime")).toBe(0);
-    expect(html).toContain("Claude Code is working");
-  });
-
-  it("columns: CPU, share and run time in cells, no load or context line", () => {
-    const html = row("columns");
-    expect(html).toContain(
-      '<span class="session-column session-column-cpu" aria-hidden="true">12%</span>',
-    );
-    expect(html).toContain(
-      '<span class="session-column session-column-context" aria-hidden="true">22%</span>',
-    );
-    expect(html).toContain(
-      '<span class="session-column session-column-runtime" aria-hidden="true">1 hr</span>',
-    );
-    expect(count(html, "session-detail")).toBe(0);
-    expect(count(html, "session-context")).toBe(0);
-  });
-
-  it("shows a starting session's dot where no chip exists", () => {
-    expect(row("columns", { chip: null })).toContain(
+describe("the forms", () => {
+  it("state: a tinted pill, a solid band pill, a tint without the dot, or the bare symbol", () => {
+    const pill = row(presetLayout("pill"));
+    expect(pill).toContain('class="session-state state-pill"');
+    expect(count(pill, "state-dot")).toBe(1);
+    const band = row(presetLayout("band"));
+    expect(band).toContain('class="session-state state-band"');
+    expect(count(band, "state-dot")).toBe(0);
+    expect(count(row(presetLayout("edge")), "state-dot")).toBe(0);
+    const symbol = row(setFormByName(DEFAULT_ROW_LAYOUT, "state", "symbol"));
+    expect(symbol).toContain('class="status-chip working"');
+    expect(count(symbol, "session-status")).toBe(0);
+    expect(symbol).toContain("Claude Code is working");
+    expect(row(setFormByName(DEFAULT_ROW_LAYOUT, "state", "symbol"), { chip: null })).toContain(
       '<span class="session-shape" aria-hidden="true"><span class="state-dot"></span></span>',
     );
   });
-});
 
-describe("the chevron of a folding row", () => {
-  it("is a button that says whether the details show and which ones", () => {
-    const open = render(<RowExpander expanded controls="more-1" onToggle={() => undefined} />);
-    expect(open).toContain('aria-expanded="true"');
-    expect(open).toContain('aria-controls="more-1"');
-    expect(open).toContain('aria-label="Show or hide details"');
-    expect(open).toMatch(/^<button type="button" class="session-expander"/);
-    const folded = render(
-      <RowExpander expanded={false} controls="more-1" onToggle={() => undefined} />,
+  it("program: an avatar with the state dot on its corner, beside the first two lines", () => {
+    const html = row(presetLayout("avatar"));
+    expect(html).toMatch(
+      /class="row-span row-lead"><span class="session-avatar"[^>]*><span class="badge"[^>]*>C<\/span><span class="state-dot">/,
     );
-    expect(folded).toContain('aria-expanded="false"');
+    expect(html).toContain('class="session-text has-lead"');
+    expect(lineClasses(html)).toEqual([
+      "row-line session-title-row beside beside-1",
+      "row-line beside beside-2",
+      "row-line",
+      "row-line",
+    ]);
+    // The corner dot says the state; the word drops its own.
+    expect(count(html, "state-dot")).toBe(1);
   });
-});
 
-describe("the state counts on a group header", () => {
-  it("shows each state's shape with its number and says them in words", () => {
+  it("context: a ring beside the lines, a faint empty one without numbers", () => {
+    const html = row(presetLayout("ring"));
+    expect(html).toContain('<span class="session-ring-value">22</span>');
+    expect(html).toMatch(/class="row-span row-lead"><span class="session-ring/);
+    expect(row(presetLayout("ring"), { context: undefined })).toContain(
+      'class="session-ring empty"',
+    );
+  });
+
+  it("card: avatar at the start, ring at the end, the run time on the load line", () => {
+    const html = row(presetLayout("card"));
+    expect(html).toContain('class="session-text has-lead has-trail"');
+    expect(html.indexOf("row-trail")).toBeGreaterThan(html.indexOf("session-branch"));
+    expect(html).toMatch(/class="session-load row-fact".*class="row-push".*session-runtime/);
+  });
+
+  it("context: ten segments, a small bar or the share alone", () => {
+    const segments = row(presetLayout("segments"));
+    expect(count(segments, "session-context-segments")).toBe(1);
+    expect(count(segments, "session-context-bar")).toBe(0);
+    expect(count(segments, "segment-on")).toBe(2);
     const html = render(
-      <GroupStateCounts
-        counts={[
-          { kind: "working", count: 2 },
-          { kind: "asks", count: 1 },
-        ]}
+      <SessionRowBody
+        {...rowProps()}
+        plan={planRow(presetLayout("segments"))}
+        context={{ used: 215_500, window: 1_000_000 }}
       />,
     );
-    expect(count(html, "agent-group-state")).toBe(2);
-    expect(html).toContain('class="status-chip working"');
-    expect(html).toContain('class="status-chip asks"');
-    expect(html).toContain('<span class="agent-group-state-count">2</span>');
-    expect(html).toContain('<span class="sr-only">working: 2, question: 1</span>');
-  });
-
-  it("is gone without counts", () => {
-    expect(render(<GroupStateCounts counts={[]} />)).toBe("");
-  });
-});
-
-describe("the fourth line's meters", () => {
-  const context = { used: 215_500, window: 1_000_000 };
-
-  it("lights one segment per tenth", () => {
-    const html = render(
-      <ContextLineCells runtime="1 hr" context={context} language="en" meter="segments" />,
-    );
-    expect(count(html, "session-context-segments")).toBe(1);
     expect((html.match(/<span( class="segment-on")?><\/span>/g) ?? []).length).toBe(
       CONTEXT_SEGMENTS,
     );
+    const compact = row(presetLayout("compact"));
+    expect(lineClasses(compact)).toHaveLength(2);
+    expect(compact).toMatch(/class="session-branch row-where".*class="session-context-mini"/);
+    expect(compact).toContain('<span class="session-context-share">22%</span>');
+    const number = row(presetLayout("columns"));
+    expect(number).toContain('class="session-context row-fact"');
+    expect(count(number, "session-context-bar")).toBe(0);
   });
 
-  it("keeps only the words when another part shows the context and the run time", () => {
-    const html = render(
-      <ContextLineCells
-        runtime="1 hr"
-        context={context}
-        language="en"
-        meter="none"
-        runtimeCell={false}
-      />,
-    );
-    expect(html).toMatch(/^<span class="sr-only">Context 22% full[^<]*<\/span>$/);
+  it("load: outlined pills or tiles with names; folder and branch as tags", () => {
+    const tags = row(presetLayout("tags"));
+    expect(tags).toContain('class="session-load row-fact pills"');
+    expect(tags).toContain('class="session-path row-where tag"');
+    expect(tags).toContain('class="session-branch row-where tag"');
+    const tiles = row(presetLayout("tiles"));
+    expect(tiles).toContain('class="session-load row-fact tiles"');
+    expect(count(tiles, "session-resource-label")).toBe(2);
+  });
+
+  it("counters and columns: the state symbol before the title, the run time at its end", () => {
+    for (const preset of ["counters", "columns"] as const) {
+      const html = row(presetLayout(preset));
+      expect(html).toContain('class="session-shape"');
+      expect(html).toMatch(/class="row-push".*class="session-runtime row-fact"/);
+      expect(count(html, "session-runtime")).toBe(1);
+    }
+  });
+
+  it("puts what stands before the title in the title's part only", () => {
+    // The title at the right edge: everything keeps its order, nothing moves in front.
+    const value = parseRowLayout({ lines: [{ left: ["state"], right: ["signs", "title"] }] });
+    const html = row(value);
+    expect(count(html, "row-before-title")).toBe(0);
+    expect(html.indexOf("session-state")).toBeLessThan(html.indexOf("session-signs"));
   });
 });
 
+function rowProps(): RowBodyProps {
+  return {
+    plan: planRow(DEFAULT_ROW_LAYOUT),
+    name: "hangar",
+    badge: null,
+    program: PROGRAM,
+    marker: undefined,
+    line: { word: "working", full: "Claude Code is working" },
+    waiting: false,
+    chip: "working",
+    signs: null,
+    place: null,
+    branch: null,
+    team: false,
+    usage: null,
+    gpuColumn: false,
+    runtime: null,
+    context: undefined,
+    language: "en",
+  };
+}
+
 describe("tiles", () => {
   it("name each value", () => {
-    const html = render(<SessionLoad usage={USAGE} gpuColumn tiles />);
+    const html = render(<SessionLoad usage={USAGE} gpuColumn form="tiles" />);
     expect(html).toContain('<span class="session-resource-label" aria-hidden="true">CPU</span>');
     expect(html).toContain('<span class="session-resource-label" aria-hidden="true">RAM</span>');
     expect(html).toContain('<span class="session-resource-label" aria-hidden="true">GPU</span>');
@@ -268,10 +286,9 @@ describe("tiles", () => {
 });
 
 describe("the settings' preview", () => {
-  it("draws a group of two rows in every style, inert and hidden from screen readers", () => {
-    for (const style of ROW_STYLES) {
-      const html = render(<RowStylePreview style={style} language="en" />);
-      expect(html).toContain(`data-rows="${style}"`);
+  it("draws a group of two rows for every preset, inert and hidden from screen readers", () => {
+    for (const preset of ROW_PRESETS) {
+      const html = render(<RowLayoutPreview plan={planRow(presetLayout(preset))} language="en" />);
       expect(html).toContain('aria-hidden="true" inert=""');
       expect(count(html, "session")).toBe(2);
       expect(count(html, "agent-group")).toBe(1);
@@ -279,28 +296,45 @@ describe("the settings' preview", () => {
     }
   });
 
-  it("counts the states on the header only in the counters style", () => {
-    expect(
-      count(render(<RowStylePreview style="counters" language="en" />), "agent-group-state"),
-    ).toBe(2);
-    expect(
-      count(render(<RowStylePreview style="standard" language="en" />), "agent-group-state"),
-    ).toBe(0);
+  it("carries the row-wide looks as attributes", () => {
+    const html = render(<RowLayoutPreview plan={planRow(presetLayout("card"))} language="en" />);
+    expect(html).toContain('data-row-frame="card"');
+    expect(html).toContain('data-row-state="pill"');
+    expect(html).toContain('data-row-density="normal"');
+  });
+});
+
+describe("the builder", () => {
+  const html = render(
+    <RowLayoutField value={DEFAULT_ROW_LAYOUT} language="en" onChange={() => undefined} />,
+  );
+
+  it("shows four lines with a left and a right part each", () => {
+    expect(count(html, "row-builder-line")).toBe(4);
+    expect(count(html, "row-builder-slot")).toBe(8);
+    expect(html).toContain('aria-label="Line 1, left"');
+    expect(html).toContain('aria-label="Line 4, right"');
   });
 
-  it("names the columns once above the list in the columns style", () => {
-    expect(
-      count(render(<RowStylePreview style="columns" language="en" />), "session-columns-head"),
-    ).toBe(1);
-    expect(
-      count(render(<RowStylePreview style="pill" language="en" />), "session-columns-head"),
-    ).toBe(0);
+  it("gives every element a chip with its form and a way to hide it, the title none", () => {
+    expect(count(html, "row-chip")).toBe(10);
+    expect(html).toContain('aria-label="Form of Context"');
+    expect(html).toContain('aria-label="Hide State"');
+    expect(html).not.toContain('aria-label="Hide Title"');
+    expect(html).toContain("Everything is shown.");
   });
 
-  it("folds all but the active row in the accordion style", () => {
-    const html = render(<RowStylePreview style="accordion" language="en" />);
-    expect(html).toMatch(/class="session active[^"]* expanded"/);
-    expect(html).toMatch(/class="session attention[^"]* folded"/);
-    expect(count(html, "session-expander")).toBe(2);
+  it("offers hidden elements back and names the preset in use", () => {
+    const hidden = render(
+      <RowLayoutField
+        value={hideElement(DEFAULT_ROW_LAYOUT, "tokens")}
+        language="en"
+        onChange={() => undefined}
+      />,
+    );
+    expect(hidden).toContain('aria-label="Show Tokens"');
+    expect(hidden).toContain('<option value="" selected="">Your own layout</option>');
+    expect(html).toContain('<option value="standard" selected="">Standard</option>');
+    expect(html).toMatch(/<button type="button" class="secondary-button" disabled="">Reset/);
   });
 });

@@ -1,22 +1,22 @@
-// The inside of a session row in the sidebar: title line, folder line, load and context, laid out
-// as the chosen row style asks (rowStyle.ts). Pure: the row (Sidebar.tsx SessionItem) reads the
-// stores and passes the numbers, so the settings' preview draws the very same markup. The standard
-// style's markup is the row's long-standing one; the other styles add only the parts they need
-// and leave the rest to styles.css ("Row styles").
+// The inside of a session row in the sidebar, drawn from the row layout the user built
+// (rowLayout.ts): up to four lines, each with its elements from the left and those at its right
+// edge, every element in its chosen form. Pure: the row (Sidebar.tsx SessionItem) reads the stores
+// and passes the numbers, so the settings' preview draws the very same markup (styles.css,
+// "Row layout").
 
-import type { ReactNode } from "react";
+import { Fragment, type ReactNode } from "react";
 
 import { Badge } from "./Badge";
-import { ContextLineCells, ContextMini, ContextRing, RuntimeCell } from "./ContextLine";
-import { contextShare, formatShare, type SessionContext } from "./contextUsage";
-import { useT, type MessageKey } from "./i18n";
-import { BranchIcon, ChevronIcon, FolderIcon, TeamIcon } from "./icons";
+import { ContextFact, ContextRing, ContextTokens, RuntimeCell } from "./ContextLine";
+import { contextHint, type SessionContext } from "./contextUsage";
+import { useT } from "./i18n";
+import { BranchIcon, FolderIcon, TeamIcon } from "./icons";
 import { revealInvisible } from "./invisible";
 import type { Marker } from "./marker";
 import type { BadgeLook } from "./programPrefs";
 import type { ResourceParts } from "./resources";
 import { Revealed } from "./Revealed";
-import type { RowParts, StateCount } from "./rowStyle";
+import type { PlannedLine, RowElement, RowPlan } from "./rowLayout";
 import type { ChipKind } from "./sessionChip";
 import { SessionLoad } from "./SessionLoad";
 import { SessionMarker } from "./SessionMarker";
@@ -25,19 +25,19 @@ import { StatusChip } from "./StatusChip";
 import { shortBranch } from "./worktree";
 
 export interface RowBodyProps {
-  parts: RowParts;
+  plan: RowPlan;
   name: string;
   /** The program's badge before the title in a project group; `null` in a program group. */
   badge: BadgeLook | null;
-  /** The program's badge for the avatar styles. */
+  /** The program's badge for the avatar form, in every group. */
   program: BadgeLook;
   marker: Marker | undefined;
   line: StatusLine;
   waiting: boolean;
   chip: ChipKind | null;
-  /** The small signs before the title (problems, layout glyph, dev server, teammates). */
+  /** The small signs (problems, layout glyph, dev server, teammates); `null` or `false`: none. */
   signs: ReactNode;
-  /** The folder on the second line; `null`: none. */
+  /** The folder; `null`: none. */
   place: string | null;
   /** The git branch, the whole name; `null`: none. */
   branch: string | null;
@@ -49,301 +49,217 @@ export interface RowBodyProps {
   runtime: string | null;
   context: SessionContext | undefined;
   language: string;
-  /** Id of the folding details, for the chevron's aria-controls (accordion style). */
-  moreId?: string | undefined;
+}
+
+/** Whether an element has anything to show in this row; a line with none of them is left out. */
+function present(element: RowElement, props: RowBodyProps): boolean {
+  const { plan } = props;
+  switch (element) {
+    case "title":
+    case "state":
+      return true;
+    case "program":
+      // The small icon only where the group header does not name the program.
+      return plan.layout.forms.program === "avatar" || props.badge !== null;
+    case "signs":
+      return props.signs !== null && props.signs !== false && props.signs !== undefined;
+    case "folder":
+      return props.place !== null;
+    case "branch":
+      return props.branch !== null;
+    case "load":
+      return props.usage !== null;
+    case "runtime":
+      return props.runtime !== null;
+    case "context":
+      return plan.layout.forms.context === "ring" || props.context !== undefined;
+    case "tokens":
+      return props.context !== undefined;
+  }
 }
 
 export function SessionRowBody(props: RowBodyProps) {
-  const { parts, usage, runtime, context, language } = props;
-  const loadLine =
-    parts.load !== "none" && (usage !== null || (parts.runtime === "load" && runtime !== null));
-  const lines = (
-    <>
-      {/* Second line: where it runs, the folder at the start and the branch at the right
-          edge. The folder gives way first, then the branch, both with an ellipsis (styles.css,
-          "Second line"). The compact style adds its small context bar. */}
-      <span className="session-meta">
-        <RowWhere place={props.place} branch={props.branch} team={props.team} />
-        {parts.mini === "meta" && <ContextMini context={context} language={language} withShare />}
-      </span>
-      {/* Third line: the tree's load (while the setting is on), each value in a column of fixed
-          width; fourth line: run time and context window. Each line exists only with its
-          numbers, so a row never keeps an empty line (styles.css, "Third line"). */}
-      {loadLine && (
-        <span className="session-detail">
-          {usage !== null && (
-            <SessionLoad usage={usage} gpuColumn={props.gpuColumn} tiles={parts.load === "tiles"} />
-          )}
-          {parts.runtime === "load" && runtime !== null && <RuntimeCell runtime={runtime} />}
-        </span>
-      )}
-      <ContextLineCells
-        runtime={runtime}
-        context={context}
-        language={language}
-        meter={parts.meter}
-        runtimeCell={parts.runtime === "context"}
-      />
-    </>
-  );
+  const { plan, context, language } = props;
+  const t = useT();
+  const hint = context === undefined ? null : contextHint(context, language, t);
+  const className = [
+    "session-text",
+    plan.lead === null ? "" : "has-lead",
+    plan.trail === null ? "" : "has-trail",
+  ]
+    .filter(Boolean)
+    .join(" ");
   return (
-    <span className="session-text">
-      {parts.avatar !== null && (
-        <span className="session-avatar" aria-hidden="true">
-          <Badge look={props.program} />
-          {parts.avatar === "dot" && <span className="state-dot" />}
-        </span>
-      )}
-      {parts.ring === "start" && <ContextRing context={context} />}
-      <TitleLine {...props} />
-      {parts.expander ? (
-        <span className="session-more" id={props.moreId}>
-          <span className="session-more-inner">{lines}</span>
-        </span>
-      ) : (
-        lines
-      )}
-      {parts.ring === "end" && <ContextRing context={context} />}
+    <span className={className}>
+      {plan.lead !== null && <Spanning kind={plan.lead} end={false} {...props} />}
+      {plan.lines.map((line, index) => (
+        <RowLineView key={index} planned={line} {...props} />
+      ))}
+      {plan.trail !== null && <Spanning kind={plan.trail} end {...props} />}
+      {/* The context's exact numbers, once, wherever and however the row shows it. */}
+      {hint !== null && <span className="sr-only">{hint}</span>}
+    </span>
+  );
+}
+
+/** The avatar or ring beside the first two lines, at the row's start or its end. */
+function Spanning({
+  kind,
+  end,
+  ...props
+}: { kind: "avatar" | "ring"; end: boolean } & RowBodyProps) {
+  return (
+    <span className={end ? "row-span row-trail" : "row-span row-lead"}>
+      {kind === "ring" ? <ContextRing context={props.context} /> : <Avatar look={props.program} />}
+    </span>
+  );
+}
+
+function Avatar({ look }: { look: BadgeLook }) {
+  return (
+    <span className="session-avatar" aria-hidden="true">
+      <Badge look={look} />
+      <span className="state-dot" />
     </span>
   );
 }
 
 /**
- * First line: the title in the middle, its state as one word at the right edge (in line with the
- * branch below and the last value of the lines below), the small signs in front of the title. The
- * DOM keeps title, then state, then the signs, so screen readers hear them in that order; CSS
- * `order` puts the signs before the title (styles.css, "First line"). Only the title gives way.
+ * One line: its left elements, then a spacer that pushes the right ones to the edge. A line
+ * without anything to show is gone. On the title's line the DOM keeps the title, then what follows
+ * it, then what stands before it, so screen readers hear the title first; CSS `order` puts those
+ * elements back in front (styles.css, "First line"). A run time keeps its empty cell on a line
+ * that shows, so what follows it starts at the same place in every row.
  */
-function TitleLine({
-  parts,
-  name,
-  badge,
-  marker,
-  line,
-  waiting,
-  chip,
-  signs,
-  usage,
-  runtime,
-  context,
-  language,
-}: RowBodyProps) {
-  const t = useT();
+function RowLineView({ planned: line, ...props }: { planned: PlannedLine } & RowBodyProps) {
+  const shows = (element: RowElement) => element === "runtime" || present(element, props);
+  if (![...line.left, ...line.right].some((element) => present(element, props))) return null;
+  const left = line.left.filter(shows);
+  const right = line.right.filter(shows);
+  const titleAt = line.titleLeft ? left.indexOf("title") : -1;
+  const before = titleAt > 0 ? left.slice(0, titleAt) : [];
+  const after = titleAt >= 0 ? left.slice(titleAt) : left;
+  const className = [
+    "row-line",
+    line.title ? "session-title-row" : "",
+    line.beside === null ? "" : `beside beside-${String(line.beside)}`,
+  ]
+    .filter(Boolean)
+    .join(" ");
+  const element = (id: RowElement) => (
+    <Fragment key={id}>
+      <RowElementView element={id} {...props} />
+    </Fragment>
+  );
+  return (
+    <span className={className}>
+      {after.map(element)}
+      {right.length > 0 && <span className="row-push" aria-hidden="true" />}
+      {right.map(element)}
+      {before.length > 0 && <span className="row-before-title">{before.map(element)}</span>}
+    </span>
+  );
+}
+
+/** One element in its form. */
+function RowElementView({ element, ...props }: { element: RowElement } & RowBodyProps) {
+  const forms = props.plan.layout.forms;
+  switch (element) {
+    case "title":
+      return (
+        <>
+          <SessionMarker marker={props.marker} tooltip={false} />
+          <span className="session-title">{props.name}</span>
+          {/* The whole sentence with the program and how long ("Claude Code has been working
+              for 3 min"), whatever the state's form, also while it is hidden. */}
+          <span className="sr-only">{props.line.full}</span>
+        </>
+      );
+    case "state":
+      return <StateView {...props} />;
+    case "program":
+      if (forms.program === "avatar") return <Avatar look={props.program} />;
+      return props.badge === null ? null : <Badge look={props.badge} />;
+    case "signs":
+      return props.signs;
+    case "folder":
+      return props.place === null ? null : (
+        <RowFolder place={props.place} tag={forms.folder === "tag"} />
+      );
+    case "branch":
+      return props.branch === null ? null : (
+        <RowBranch branch={props.branch} team={props.team} tag={forms.branch === "tag"} />
+      );
+    case "load":
+      return props.usage === null ? null : (
+        <SessionLoad usage={props.usage} gpuColumn={props.gpuColumn} form={forms.load} />
+      );
+    case "runtime":
+      return <RuntimeCell runtime={props.runtime} />;
+    case "context":
+      return <ContextFact context={props.context} language={props.language} form={forms.context} />;
+    case "tokens":
+      return <ContextTokens context={props.context} />;
+  }
+}
+
+/**
+ * The state in its form. Decorative: the title's sentence says it in words. The word keeps a cell
+ * of fixed width, so what stands before it ends at the same place in every row.
+ */
+function StateView({ plan, line, waiting, chip }: RowBodyProps) {
+  const form = plan.state ?? "word";
+  if (form === "symbol") {
+    return (
+      <span className="session-shape" aria-hidden="true">
+        {chip === null ? <span className="state-dot" /> : <StatusChip kind={chip} />}
+      </span>
+    );
+  }
   const statusClass = waiting
     ? "session-status attention-text"
     : line.stalled === true
       ? "session-status stalled"
       : "session-status";
+  // The tint, the band and the avatar's corner dot already show the state's color.
+  const dot = (form === "word" || form === "pill") && !plan.avatar;
   return (
-    <span className="session-title-row">
-      {badge !== null && <Badge look={badge} />}
-      <SessionMarker marker={marker} tooltip={false} />
-      <span className="session-title">{name}</span>
-      {parts.mini === "title" && (
-        <ContextMini context={context} language={language} withShare={false} />
-      )}
-      {/* One word in a cell of fixed width; the whole sentence with the program and how long
-          ("Claude Code has been working for 3 min") is for screen readers here and for everyone
-          in the peek. Styles without the word say the state by shape before the title. */}
-      <span className="session-state">
-        {parts.end === "word" && (
-          <>
-            <span className="state-dot" aria-hidden="true" />
-            <span className={statusClass} aria-hidden="true">
-              {line.word}
-            </span>
-          </>
-        )}
-        {parts.end === "runtime" && runtime !== null && (
-          <>
-            <span className="session-state-runtime" aria-hidden="true">
-              {runtime}
-            </span>
-            <span className="sr-only">{t("session.runtime", { duration: runtime })}</span>
-          </>
-        )}
-        {parts.end === "columns" && (
-          <RowColumns
-            cpu={usage?.cpu ?? null}
-            context={context}
-            runtime={runtime}
-            language={language}
-          />
-        )}
-        <span className="sr-only">{line.full}</span>
-      </span>
-      {signs}
-      {parts.end !== "word" && (
-        <span className="session-shape" aria-hidden="true">
-          {chip === null ? <span className="state-dot" /> : <StatusChip kind={chip} />}
-        </span>
-      )}
+    <span className={`session-state state-${form}`} aria-hidden="true">
+      {dot && <span className="state-dot" />}
+      <span className={statusClass}>{line.word}</span>
     </span>
   );
 }
 
-/** Folder and branch of the second line; nothing without either. */
-export function RowWhere({
-  place,
-  branch,
-  team,
-}: {
-  place: string | null;
-  branch: string | null;
-  team: boolean;
-}) {
-  const t = useT();
-  if (place === null && branch === null) return null;
+function RowFolder({ place, tag }: { place: string; tag: boolean }) {
   return (
-    <span className="session-where">
-      {place !== null && (
-        <span className="session-path">
-          <span className="session-path-icon" aria-hidden="true">
-            <FolderIcon size={11} />
-          </span>
-          <span className="session-path-name">{place}</span>
-        </span>
-      )}
-      {branch !== null &&
-        (team ? (
-          <span className="session-branch worktree">
-            <TeamIcon size={11} />
-            <span className="sr-only">
-              {t("worktree.sessionHint", { branch: revealInvisible(branch) })}
-            </span>
-            {/* The icon already says "team session"; the "hangar/" prefix would only repeat it. */}
-            <span className="session-branch-name" aria-hidden="true">
-              <Revealed text={shortBranch(branch)} />
-            </span>
-          </span>
-        ) : (
-          <span className="session-branch">
-            <BranchIcon size={11} />
-            <span className="sr-only">
-              {t("session.branch", { branch: revealInvisible(branch) })}
-            </span>
-            <span className="session-branch-name" aria-hidden="true">
-              <Revealed text={branch} />
-            </span>
-          </span>
-        ))}
+    <span className={tag ? "session-path row-where tag" : "session-path row-where"}>
+      <span className="session-path-icon" aria-hidden="true">
+        <FolderIcon size={11} />
+      </span>
+      <span className="session-path-name">{place}</span>
     </span>
   );
 }
 
-/**
- * The columns of the "columns" style at the title line's end: CPU, context share and run time,
- * each in a cell of fixed width, named once above the list (RowColumnsHead).
- */
-function RowColumns({
-  cpu,
-  context,
-  runtime,
-  language,
-}: {
-  cpu: string | null;
-  context: SessionContext | undefined;
-  runtime: string | null;
-  language: string;
-}) {
+function RowBranch({ branch, team, tag }: { branch: string; team: boolean; tag: boolean }) {
   const t = useT();
+  const className = ["session-branch", "row-where", team ? "worktree" : "", tag ? "tag" : ""]
+    .filter(Boolean)
+    .join(" ");
   return (
-    <span className="session-columns">
-      <span className="session-column session-column-cpu" aria-hidden="true">
-        {cpu}
+    <span className={className}>
+      {team ? <TeamIcon size={11} /> : <BranchIcon size={11} />}
+      <span className="sr-only">
+        {team
+          ? t("worktree.sessionHint", { branch: revealInvisible(branch) })
+          : t("session.branch", { branch: revealInvisible(branch) })}
       </span>
-      <span className="session-column session-column-context" aria-hidden="true">
-        {context === undefined ? null : formatShare(contextShare(context), language)}
+      {/* A team session's icon already says "team session"; the "hangar/" prefix would only
+          repeat it. */}
+      <span className="session-branch-name" aria-hidden="true">
+        <Revealed text={team ? shortBranch(branch) : branch} />
       </span>
-      <span className="session-column session-column-runtime" aria-hidden="true">
-        {runtime}
-      </span>
-      {cpu !== null && <span className="sr-only">{`${t("system.cpu")} ${cpu}`}</span>}
-      {runtime !== null && (
-        <span className="sr-only">{t("session.runtime", { duration: runtime })}</span>
-      )}
-    </span>
-  );
-}
-
-/**
- * The column names of the "columns" style, once above the session list. Decorative: every row
- * says its values to screen readers with their names.
- */
-export function RowColumnsHead() {
-  const t = useT();
-  return (
-    <div className="session-columns-head" aria-hidden="true">
-      <span className="session-columns-head-name">{t("sidebar.sessions")}</span>
-      <span className="session-column session-column-cpu">{t("system.cpu")}</span>
-      <span className="session-column session-column-context">{t("rowStyle.columnContext")}</span>
-      <span className="session-column session-column-runtime">{t("rowStyle.columnTime")}</span>
-    </div>
-  );
-}
-
-/**
- * The chevron of a folding row (accordion style): shows or hides its other lines. A button of its
- * own beside the row's main button, as buttons do not nest.
- */
-export function RowExpander({
-  expanded,
-  controls,
-  onToggle,
-}: {
-  expanded: boolean;
-  controls: string;
-  onToggle: () => void;
-}) {
-  const t = useT();
-  return (
-    <button
-      type="button"
-      className="session-expander"
-      aria-expanded={expanded}
-      aria-controls={controls}
-      aria-label={t("rowStyle.details")}
-      title={t("rowStyle.details")}
-      onClick={onToggle}
-    >
-      <ChevronIcon size={10} />
-    </button>
-  );
-}
-
-/** One word per state, for the counts' screen reader text and tooltip. */
-const CHIP_WORDS: Record<ChipKind, MessageKey> = {
-  working: "status.short.working",
-  asks: "status.short.asks",
-  done: "status.short.attention",
-  failed: "status.short.failed",
-  paused: "status.short.idle",
-  ended: "status.short.exited",
-};
-
-/** "working: 2, question: 1" for the group header's tooltip and screen readers. */
-export function stateCountsText(counts: readonly StateCount[], t: ReturnType<typeof useT>): string {
-  return counts
-    .map(({ kind, count }) => t("rowStyle.stateCount", { state: t(CHIP_WORDS[kind]), count }))
-    .join(", ");
-}
-
-/**
- * The counts per state beside a group header's session count ("counters" style): each state's
- * shape with its number, so the shape and not the color alone says which state it counts.
- */
-export function GroupStateCounts({ counts }: { counts: readonly StateCount[] }) {
-  const t = useT();
-  if (counts.length === 0) return null;
-  return (
-    <span className="agent-group-states">
-      {counts.map(({ kind, count }) => (
-        <span key={kind} className={`agent-group-state ${kind}`} aria-hidden="true">
-          <StatusChip kind={kind} />
-          <span className="agent-group-state-count">{count}</span>
-        </span>
-      ))}
-      <span className="sr-only">{stateCountsText(counts, t)}</span>
     </span>
   );
 }

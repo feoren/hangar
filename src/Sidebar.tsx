@@ -1,4 +1,4 @@
-import { Fragment, useEffect, useId, useRef, useState } from "react";
+import { Fragment, useEffect, useId, useMemo, useRef, useState } from "react";
 
 import type { AgentCommand, Profile } from "./api";
 import { AppMenu, type MenuGroup } from "./AppMenu";
@@ -96,22 +96,8 @@ import type { UpdateState } from "./useUpdater";
 import { useWaitingEdges } from "./useWaitingEdges";
 import { resourceParts } from "./resources";
 import { contextHint } from "./contextUsage";
-import {
-  loadSummary,
-  rowExpanded,
-  rowParts,
-  stateCounts,
-  toggleRow,
-  type RowStyle,
-  type StateCount,
-} from "./rowStyle";
-import {
-  GroupStateCounts,
-  RowColumnsHead,
-  RowExpander,
-  SessionRowBody,
-  stateCountsText,
-} from "./SessionRow";
+import { loadSummary, planRow, rowAttributes, type RowLayout, type RowPlan } from "./rowLayout";
+import { SessionRowBody } from "./SessionRow";
 import { useSessionContext } from "./useContextUsage";
 import { CompactAction } from "./CompactAction";
 import { commandBusy, sessionCommands } from "./agentCommands";
@@ -281,8 +267,8 @@ interface Props {
    * opens it again. If the row is not in the list (a folded group), the session is shown instead.
    */
   peekRequest: { id: number; token: number } | null;
-  /** How a session row lays out its facts (rowStyle.ts). */
-  rowStyle: RowStyle;
+  /** How a session row lays out its facts (rowLayout.ts). */
+  rowLayout: RowLayout;
 }
 
 /** The peek's line about a queued message: when it goes out, then the text. */
@@ -370,12 +356,8 @@ export function Sidebar(props: Props) {
   /** The peeked session's numbers, for its outlier note; the row itself shows CPU, RAM and GPU. */
   const peekResources = useSessionResources(peekSession?.id ?? -1);
   const peekContext = useSessionContext(peekSession?.id ?? -1);
-  const parts = rowParts(props.rowStyle);
-  /** Rows of the accordion style folded or unfolded by hand; in memory only. */
-  const [folds, setFolds] = useState<ReadonlyMap<number, boolean>>(() => new Map());
-  const onToggleExpanded = (id: number, active: boolean) => {
-    setFolds((current) => toggleRow(current, id, active));
-  };
+  // Once per layout, not per row and render.
+  const plan = useMemo(() => planRow(props.rowLayout), [props.rowLayout]);
   /** Mouse handlers of a session row for the peek. */
   const peekHandlers = (id: number): PeekEvents => ({
     onMouseEnter: (event: React.MouseEvent<HTMLElement>) => {
@@ -560,8 +542,8 @@ export function Sidebar(props: Props) {
           exit: exitDetail(peekSession, t),
           queued: queuedNote(props.queued.get(peekSession.id), chipOf(peekSession) === "asks", t),
           outlier: peekResources?.outlier === true ? t("session.outlier") : null,
-          // Styles that leave load and tokens off the row spell them out here.
-          ...(parts.peekFacts
+          // Load and context the row leaves out are spelled out here.
+          ...(plan.peekLoad
             ? {
                 load:
                   peekResources === undefined || peekSession.status === "exited"
@@ -571,6 +553,10 @@ export function Sidebar(props: Props) {
                         memory: t("system.memory"),
                         gpu: t("system.gpu"),
                       }),
+              }
+            : {}),
+          ...(plan.peekContext
+            ? {
                 context:
                   peekContext === undefined ? null : contextHint(peekContext, props.language, t),
               }
@@ -917,7 +903,6 @@ export function Sidebar(props: Props) {
           hasRows={groupRows.length > 0}
           hiddenWaiting={hiddenWaiting}
           holdsActive={!open && agents.sessions.some((s) => s.id === activeId)}
-          counts={parts.counters ? stateCounts(agents.sessions.map(chipOf)) : []}
           onToggle={props.onToggleAgentGroup}
           onMenu={openGroupingMenu}
         >
@@ -950,8 +935,7 @@ export function Sidebar(props: Props) {
                   onRestart={onRestart}
                   onRenameStart={onRename}
                   onRowKey={onRowKey}
-                  expanded={rowExpanded(folds, session.id, session.id === activeId)}
-                  onToggleExpanded={onToggleExpanded}
+                  plan={plan}
                 />
                 {/* The tree belongs to the row above it; as its own item, the row's layout stays.
                     Below a middle row, the program group's guide line runs on past it. */}
@@ -1004,8 +988,7 @@ export function Sidebar(props: Props) {
 
       {/* One group per program or project folder, top to bottom; together they take the free
           height and scroll. */}
-      <div className="session-groups" data-rows={props.rowStyle}>
-        {parts.runtime === "columns" && sessions.length > 0 && <RowColumnsHead />}
+      <div className="session-groups" {...rowAttributes(plan)}>
         <WaitingEdge edge="above" hint={edgeHints.above} onReveal={revealRow} />
         <ul
           className="session-list"
@@ -1302,7 +1285,6 @@ export function AgentGroupSection({
   hasRows,
   hiddenWaiting,
   holdsActive,
-  counts,
   onToggle,
   onMenu,
   children,
@@ -1320,8 +1302,6 @@ export function AgentGroupSection({
   hiddenWaiting: number;
   /** Folded with the active session inside: the header stands in for its row. */
   holdsActive: boolean;
-  /** Sessions per state (counters style); empty in the other styles. */
-  counts: readonly StateCount[];
   onToggle: (key: string) => void;
   onMenu: (event: React.MouseEvent<HTMLElement>) => void;
   children: React.ReactNode;
@@ -1348,7 +1328,6 @@ export function AgentGroupSection({
             path ?? "",
             holdsActive ? activeText : "",
             hiddenWaiting > 0 ? waitingText : "",
-            stateCountsText(counts, t),
           ]
             .filter(Boolean)
             .join("\n")}
@@ -1370,7 +1349,6 @@ export function AgentGroupSection({
             {count}
           </span>
           <span className="sr-only">{countText}</span>
-          <GroupStateCounts counts={counts} />
           {holdsActive && <span className="sr-only">{activeText}</span>}
           {hiddenWaiting > 0 && (
             <span className="group-waiting agent-group-waiting">
@@ -1567,10 +1545,8 @@ interface ItemProps extends Props {
   /** Where the session is shown in a split layout; `null` in single view or when hidden. */
   placement: PanePlacement | null;
   onRowKey: (event: React.KeyboardEvent<HTMLElement>, id: number) => void;
-  /** A folding row (accordion style) shows its details. */
-  expanded: boolean;
-  /** The chevron of a folding row: shows or hides its details. */
-  onToggleExpanded: (id: number, active: boolean) => void;
+  /** The row layout, made ready once for every row (rowLayout.ts planRow). */
+  plan: RowPlan;
 }
 
 function SessionItem({
@@ -1607,14 +1583,10 @@ function SessionItem({
   profiles,
   reasons,
   onAgentCommand,
-  rowStyle,
+  plan,
   badgeFor,
-  expanded,
-  onToggleExpanded,
 }: ItemProps) {
   const t = useT();
-  const parts = rowParts(rowStyle);
-  const moreId = useId();
   // Read here rather than in the context line: the ring and the small bars show it too. Only this
   // row re-renders when this session's numbers change.
   const context = useSessionContext(session.id);
@@ -1650,7 +1622,6 @@ function SessionItem({
     lookClass(rowLook(session, state, chip)),
     edgeClass(rowEdge(session, state, chip)),
     last ? "tree-last" : "",
-    parts.expander ? (expanded ? "expanded" : "folded") : "",
     dragClass,
   ]
     .filter(Boolean)
@@ -1712,7 +1683,7 @@ function SessionItem({
           }}
         >
           <SessionRowBody
-            parts={parts}
+            plan={plan}
             name={name}
             badge={badge}
             program={badgeFor(session.profileId)}
@@ -1728,7 +1699,6 @@ function SessionItem({
             runtime={where.runtime}
             context={context}
             language={language}
-            moreId={moreId}
             signs={
               (gateOff !== null ||
                 overlap !== undefined ||
@@ -1779,15 +1749,6 @@ function SessionItem({
             }
           />
         </button>
-      )}
-      {parts.expander && !editing && (
-        <RowExpander
-          expanded={expanded}
-          controls={moreId}
-          onToggle={() => {
-            onToggleExpanded(session.id, active);
-          }}
-        />
       )}
       <div className="session-actions">
         {!editing && (

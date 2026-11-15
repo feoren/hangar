@@ -144,18 +144,18 @@
         "zh": "侧边栏将每个会话的信息对齐到固定宽度的列中，树线绘制均匀，已完成的子智能体可用文字按钮关闭。"
       },
       {
-        "de": "Unter Darstellung wählst du, wie die Seitenleiste jede Session zeigt: 14 Stile, etwa Pill, Ring, Kacheln oder aufklappbar. Gruppen und Baumlinien bleiben.",
-        "en": "Under Appearance you choose how the sidebar shows each session: 14 styles such as pill, ring, tiles or expandable. Groups and tree lines stay.",
-        "el": "Στην Εμφάνιση επιλέγεις πώς δείχνει η πλαϊνή στήλη κάθε συνεδρία: 14 στυλ, όπως pill, δακτύλιος, πλακίδια ή αναπτυσσόμενο. Ομάδες και γραμμές δέντρου μένουν.",
-        "es": "En Apariencia eliges cómo muestra la barra lateral cada sesión: 14 estilos, como píldora, anillo, mosaicos o desplegable. Grupos y líneas de árbol se mantienen.",
-        "fr": "Dans Apparence, choisis comment la barre latérale affiche chaque session : 14 styles, dont pastille, anneau ou tuiles. Groupes et arborescence restent.",
-        "it": "In Aspetto scegli come la barra laterale mostra ogni sessione: 14 stili, come pillola, anello, riquadri o espandibile. Gruppi e linee dell’albero restano.",
-        "ja": "「外観」で、サイドバーの各セッションの表示を14種類のスタイル（ピル、リング、タイル、折りたたみなど）から選べます。グループとツリー線はそのままです。",
-        "pl": "W sekcji Wygląd wybierasz, jak pasek boczny pokazuje sesje: 14 stylów, np. pigułka, pierścień, kafelki lub rozwijane. Grupy i linie drzewa zostają.",
-        "pt": "Em Aparência você escolhe como a barra lateral mostra cada sessão: 14 estilos, como pílula, anel, blocos ou expansível. Grupos e linhas da árvore continuam.",
-        "ru": "В разделе «Оформление» можно выбрать вид сеансов на боковой панели: 14 стилей, например плашка, кольцо, плитки или раскрывающийся. Группы и дерево остаются.",
-        "tr": "Görünüm bölümünde kenar çubuğunun her oturumu nasıl göstereceğini seçersin: hap, halka, kutucuk veya açılır gibi 14 stil. Gruplar ve ağaç çizgileri kalır.",
-        "zh": "在“外观”中可选择侧边栏显示每个会话的方式：共 14 种样式，如胶囊、圆环、磁贴或可展开。分组和树状线保持不变。"
+        "de": "Unter Darstellung baust du deine Session-Zeile selbst: Teile per Ziehen anordnen, je eine Form wählen, Unnötiges ausblenden. Die 14 Stile sind jetzt Vorlagen.",
+        "en": "Under Appearance you build your own session row: drag its parts into place, pick a form for each, hide what you don't need. The 14 styles are now templates.",
+        "el": "Στην Εμφάνιση φτιάχνεις μόνος σου τη γραμμή συνεδρίας: σύρε τα μέρη της, διάλεξε μορφή για το καθένα, κρύψε ό,τι περισσεύει. Τα 14 στυλ είναι πια πρότυπα.",
+        "es": "En Apariencia montas tu propia fila de sesión: arrastra sus partes, elige una forma para cada una y oculta lo que sobra. Los 14 estilos ahora son plantillas.",
+        "fr": "Dans Apparence, tu composes ta ligne de session : glisse ses éléments, choisis une forme pour chacun, masque le superflu. Les 14 styles deviennent des modèles.",
+        "it": "In Aspetto componi tu la riga della sessione: trascina le parti, scegli una forma per ognuna, nascondi il superfluo. I 14 stili ora sono modelli.",
+        "ja": "「外観」でセッション行を自分で組み立てられます。要素をドラッグで並べ、形を選び、不要なものは非表示に。14種類のスタイルはテンプレートになりました。",
+        "pl": "W sekcji Wygląd sam układasz wiersz sesji: przeciągasz elementy, wybierasz ich formę i ukrywasz zbędne. 14 stylów to teraz szablony.",
+        "pt": "Em Aparência você monta a própria linha da sessão: arraste as partes, escolha uma forma para cada uma e oculte o que sobra. Os 14 estilos agora são modelos.",
+        "ru": "В разделе «Оформление» строку сеанса теперь собираешь сам: перетаскивай элементы, выбирай их вид, скрывай лишнее. 14 стилей стали шаблонами.",
+        "tr": "Görünüm bölümünde oturum satırını kendin kurarsın: parçaları sürükle, her biri için bir biçim seç, gereksizleri gizle. 14 stil artık şablon.",
+        "zh": "在“外观”中可自己搭建会话行：拖动各部分排列，为每个部分选择形式，隐藏不需要的。原有 14 种样式现在是模板。"
       },
       {
         "de": "Sicherer: Terminal-Links öffnen nur lokale Ziele, neue Worktrees führen keine Repository-Hooks aus, und das Team-Relay nimmt einfaches ws nur lokal an.",

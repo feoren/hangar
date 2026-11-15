@@ -14,6 +14,7 @@ import {
   SECURITY_SWITCH_KEYS,
   withoutBackendKeys,
 } from "./settings";
+import { DEFAULT_ROW_LAYOUT, presetLayout, ROW_PRESETS } from "./rowLayout";
 import { defaultSnippets } from "./snippets";
 import { DEFAULT_LOOKS } from "./stateLook";
 
@@ -43,7 +44,7 @@ describe("parseSettings", () => {
         failed: { color: "#f5a3c7", pulse: "subtle", seconds: 1.6 },
       },
       dotAnimation: "wave",
-      rowStyle: "ring",
+      rowLayout: presetLayout("ring"),
       quietSeconds: 10,
       stallMinutes: 12,
       taskbarFlash: false,
@@ -116,6 +117,7 @@ describe("parseSettings", () => {
       warnMultilinePaste: "no",
       dotAnimation: "spin",
       rowStyle: "fancy",
+      rowLayout: "grid",
       sessionGrouping: "folder",
     };
     expect(parseSettings(JSON.stringify(stored), "de")).toEqual(defaultSettings("de"));
@@ -427,7 +429,18 @@ describe("parseSettings", () => {
     expect(parsed.looks.working.color).toBe("#8cc8ff");
     expect(parsed.looks.failed).toEqual(DEFAULT_LOOKS.failed);
     expect(parsed.dotAnimation).toBe("bounce");
-    expect(parsed.rowStyle).toBe("standard");
+    expect(parsed.rowLayout).toEqual(DEFAULT_ROW_LAYOUT);
+  });
+
+  it("turns a row style of an earlier version into its layout once", () => {
+    for (const preset of ROW_PRESETS) {
+      const parsed = parseSettings(JSON.stringify({ rowStyle: preset }), "de");
+      expect(parsed.rowLayout).toEqual(presetLayout(preset));
+      // Saved again, only the layout is stored.
+      const saved = withoutBackendKeys(parsed);
+      expect(saved).not.toHaveProperty("rowStyle");
+      expect(parseSettings(JSON.stringify(saved), "de").rowLayout).toEqual(presetLayout(preset));
+    }
   });
 
   it("drops invalid looks", () => {

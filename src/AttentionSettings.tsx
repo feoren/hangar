@@ -455,8 +455,9 @@ function LookCard({
               <Badge look={PREVIEW_BADGE} />
               <span className="session-text">
                 {/* Like a session row's first line: the title, its state at the right edge. */}
-                <span className="session-title-row">
+                <span className="row-line session-title-row">
                   <span className="session-title">{t("settings.preview")}</span>
+                  <span className="row-push" />
                   <span className="session-state">
                     <span className="state-dot" aria-hidden="true" />
                     <span className={waits ? "session-status attention-text" : "session-status"}>

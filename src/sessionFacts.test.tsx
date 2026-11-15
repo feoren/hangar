@@ -2,10 +2,12 @@ import type { ReactElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
 
-import { ContextLineCells } from "./ContextLine";
+import type { SessionContext } from "./contextUsage";
 import { createTranslator, I18nContext } from "./i18n";
 import type { ResourceParts } from "./resources";
+import { DEFAULT_ROW_LAYOUT, planRow } from "./rowLayout";
 import { SessionLoad } from "./SessionLoad";
+import { SessionRowBody } from "./SessionRow";
 
 const BUSY: ResourceParts = {
   cpu: "12%",
@@ -90,13 +92,41 @@ describe("the load group of the third line", () => {
 
 describe("the fourth line: run time and context", () => {
   const context = { used: 215_500, window: 1_000_000 };
+  const plan = planRow(DEFAULT_ROW_LAYOUT);
+
+  /** The standard row's fourth line, or "" when the row leaves it out. */
+  function fourth(runtime: string | null, shown: SessionContext | undefined): string {
+    const html = render(
+      <SessionRowBody
+        plan={plan}
+        name="hangar"
+        badge={null}
+        program={{ kind: "letters", text: "C", color: "#d97757" }}
+        marker={undefined}
+        line={{ word: "working", full: "Claude Code is working" }}
+        waiting={false}
+        chip="working"
+        signs={null}
+        place={null}
+        branch={null}
+        team={false}
+        usage={null}
+        gpuColumn={false}
+        runtime={runtime}
+        context={shown}
+        language="en"
+      />,
+    );
+    const lines = html.split('<span class="row-line').slice(1);
+    return lines.find((line) => line.includes("session-runtime")) ?? "";
+  }
 
   it("is gone without a run time and context numbers, so no empty line", () => {
-    expect(render(<ContextLineCells runtime={null} context={undefined} language="en" />)).toBe("");
+    expect(fourth(null, undefined)).toBe("");
   });
 
   it("shows the run time, bar, share and tokens in their cells", () => {
-    const html = render(<ContextLineCells runtime="1 hr" context={context} language="en" />);
+    const html = fourth("1 hr", context);
     for (const name of [
       "session-runtime",
       "session-context-bar",
@@ -108,31 +138,25 @@ describe("the fourth line: run time and context", () => {
     }
     expect(html).toContain('<span class="session-context-share" aria-hidden="true">22%</span>');
     expect(html).toContain(
-      '<span class="session-context-tokens" aria-hidden="true">215.5k / 1M</span>',
+      '<span class="session-context-tokens row-fact" aria-hidden="true">215.5k / 1M</span>',
     );
     expect(html).toContain('style="width:22%"');
     expect(html).toContain("running for 1 hr");
   });
 
   it("keeps the run time alone, in the same place, before the agent answered", () => {
-    const html = render(<ContextLineCells runtime="3 min" context={undefined} language="en" />);
+    const html = fourth("3 min", undefined);
     expect(cells(html, "session-runtime")).toHaveLength(1);
     expect(cells(html, "session-context-bar")).toEqual([]);
   });
 
   it("keeps the run time's cell empty below a minute, so the bar starts in the same place", () => {
-    const html = render(<ContextLineCells runtime={null} context={context} language="en" />);
-    expect(html).toContain('<span class="session-runtime"></span>');
+    expect(fourth(null, context)).toContain('<span class="session-runtime row-fact"></span>');
   });
 
   it("warns from a high share", () => {
-    const html = render(
-      <ContextLineCells
-        runtime="1 hr"
-        context={{ used: 900_000, window: 1_000_000 }}
-        language="en"
-      />,
-    );
-    expect(cells(html, "session-context")).toEqual(["session-context high"]);
+    const html = fourth("1 hr", { used: 900_000, window: 1_000_000 });
+    expect(cells(html, "session-context")).toEqual(["session-context row-fact grows high"]);
+    expect(cells(html, "session-context-tokens")).toEqual(["session-context-tokens row-fact high"]);
   });
 });
