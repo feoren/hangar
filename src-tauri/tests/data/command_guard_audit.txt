@@ -927,3 +927,211 @@ ASK	C	bash.exe -c "git push --force"
 ASK	C	wsl -e sh -c "rm -r /mnt/c/work/marker"
 ASK	C	wsl rm -r /mnt/c/work/marker
 ASK	C	wsl rm -r ../../../marker
+
+## Fourth audit (ADR 0010, round 4). Bypasses now asked about and false positives now passed:
+## cmd @-prefix and for-set literals, find -exec reaching .git, program launchers and
+## container exec, writes into the config parent, Claude hook settings, dotglob, and the
+## dry-run and literal-loop false positives. Measured at cwd c:/work/proj/sub/deep.
+ASK	C	@rd /s /q ..\..\..\marker
+ASK	C	@git push --force
+ASK	C	if exist ..\..\..\marker @rd /s /q ..\..\..\marker
+ASK	C	for /d %d in (..\..\..\marker) do @rd /s /q "%d"
+ASK	C	for /d /r ..\.. %d in (.git) do @if exist "%d" rd /s /q "%d"
+ASK	C	for /d /r ..\.. %d in (.git) do if exist "%d" rd /s /q "%d"
+ASK	C	for /d /r ..\.. %d in (.git) do @rd /s /q "%d"
+ASK	C	@echo off & git push --force
+ASK	C	@del /s /q ..\..\..\marker
+ASK	C	@git reset --hard
+ASK	C	cmd /c @git push --force
+ASK	P	cmd /c 'for /d %d in (..\..\..\marker) do @rd /s /q "%d"'
+ASK	P	cmd /c "if exist ..\..\..\marker @rd /s /q ..\..\..\marker"
+ASK	C	for %b in (main) do @git push --force origin %b
+ASK	C	if not errorlevel 1 @git push --force
+ASK	C	for %f in (C:\temp\x) do @del /s /q C:\temp\x
+ASK	C	for /d /r C:\temp %d in (x) do rd /s /q "%d"
+ASK	C	for /d /r ..\..\.. %d in (node_modules) do rd /s /q "%d"
+ASK	C	for %f in (C:\temp\x) do rd /s /q %f
+PASS	C	for %d in (build dist) do if exist %d rd /s /q %d
+PASS	C	for /d /r . %d in (node_modules) do @if exist "%d" rd /s /q "%d"
+PASS	C	for /d /r . %d in (bin obj) do if exist "%d" rd /s /q "%d"
+ASK	B	find ../.. -name .git -type d -exec rm -rf {} +
+ASK	B	find ../.. -name .git -prune -exec rm -rf {} \;
+ASK	B	find ../.. -path '*/.git' -prune -o -exec rm -rf {} +
+ASK	B	find ../.. -mindepth 1 -exec rm -rf {} +
+ASK	B	find ../.. -regex '.*' -exec rm -rf {} +
+PASS	B	find . -type d -name __pycache__ -exec rm -rf {} +
+PASS	B	find . -type d -name node_modules -prune -exec rm -rf {} +
+PASS	B	find src -name '*.bak' -exec rm -f {} \;
+ASK	B	docker exec db psql -U postgres -c "DROP TABLE users"
+PASS	B	docker exec db psql -c "SELECT 1"
+PASS	B	docker run --rm -it app sh
+ASK	B	docker compose exec db git push --force
+ASK	B	docker compose run --rm db git push --force
+ASK	B	docker run --rm postgres:16 psql -c "DROP TABLE users"
+ASK	B	podman exec db psql -c "DROP TABLE users"
+ASK	B	kubectl exec -it pg-0 -- psql -c "DROP TABLE users"
+ASK	B	su -c "git push --force"
+ASK	B	su - postgres -c "dropdb app"
+ASK	B	runuser -u postgres -- dropdb app
+ASK	B	gsudo git push --force
+ASK	B	npx git push --force
+ASK	B	pnpm exec git push --force
+ASK	B	pnpm dlx git push --force
+ASK	B	yarn exec git push --force
+ASK	B	bunx git push --force
+ASK	B	uvx git push --force
+ASK	B	uv run git push --force
+ASK	B	poetry run git push --force
+ASK	B	pipenv run git push --force
+ASK	B	conda run -n x git push --force
+ASK	B	mise exec -- git push --force
+ASK	B	direnv exec . git push --force
+ASK	B	dotenv -- git push --force
+ASK	B	cross-env A=1 git push --force
+ASK	B	op run -- git push --force
+ASK	B	doppler run -- git push --force
+ASK	B	infisical run -- git push --force
+ASK	B	aws-vault exec x -- git push --force
+ASK	B	nix-shell --run "git push --force"
+ASK	B	nix develop -c "git push --force"
+ASK	B	systemd-run --user git push --force
+ASK	B	xvfb-run git push --force
+ASK	B	strace -f git push --force
+ASK	B	gtimeout 10 git push --force
+ASK	P	New-Item -Path $env:APPDATA -Name com.example.hangar\command-guard.toml -ItemType File -Force -Value x
+ASK	P	Copy-Item -Recurse .\backup\com.example.hangar $env:APPDATA -Force
+ASK	P	Expand-Archive .\cfg.zip -DestinationPath $env:APPDATA -Force
+ASK	B	cp -r backup/com.example.hangar ~/AppData/Roaming/
+ASK	B	cp -r backup/com.example.hangar "$APPDATA"
+ASK	B	tar -C ~/AppData/Roaming -xf cfg.tar
+ASK	B	unzip -o cfg.zip -d ~/AppData/Roaming
+ASK	B	rsync -a backup/ ~/AppData/Roaming/
+ASK	C	robocopy backup %APPDATA% /e
+PASS	P	Get-ChildItem $env:APPDATA
+ASK	B	echo x > .claude/settings.json
+ASK	B	printf x > .claude/settings.local.json
+ASK	B	echo x > ~/.claude/settings.json
+ASK	P	Set-Content .claude\settings.local.json -Value x
+ASK	C	echo x > .claude\settings.json
+ASK	B	shopt -s dotglob && rm -rf ../../*
+ASK	B	shopt -s dotglob; cd ../.. && rm -rf *
+PASS	B	for d in build dist; do rm -rf "$d"; done
+PASS	B	for d in build dist; do rm -rf "./$d"; done
+PASS	P	'build','dist' | ForEach-Object { Remove-Item $_ -Recurse -Force -ErrorAction SilentlyContinue }
+PASS	P	foreach ($d in 'build','dist') { if (Test-Path $d) { Remove-Item $d -Recurse -Force } }
+PASS	B	git push --dry-run --force
+PASS	B	git push -nf origin main
+PASS	B	for f in src/*.ts; do echo "$f"; done
+
+## Acceptance review of round 4: a dry-run flag that is an option's value or switched back off,
+## a cmd for-set with quotes or other delimiters, find operators and case, a shell with a script
+## in a container, and dotglob spelled another way still ask.
+ASK	B	git push -o -n --force origin main
+ASK	B	git push --push-option -n --force origin main
+ASK	B	git push --push-o -n --force origin main
+ASK	B	git push --repo -n --force origin main
+ASK	B	git push -on --force origin main
+ASK	B	git push -n --no-dry-run --force origin main
+ASK	B	git push --dry-run --no-dry --force origin main
+ASK	B	git push -n --no-dry-run origin :main
+ASK	B	git -C -n push --force
+ASK	B	git clean -e -n -f
+ASK	B	git clean -n --no-dry-run -f
+PASS	B	git push -n -o ci.skip --force origin main
+PASS	B	git push --force --dry-run origin main
+PASS	B	git clean -n -f
+ASK	C	for %d in ("..\..\..\marker") do rd /s /q %d
+ASK	C	for %d in (build,..\..\..\marker) do rd /s /q %d
+ASK	C	for %d in (build;..\..\..\marker) do rd /s /q %d
+ASK	C	for %d in (build=..\..\..\marker) do rd /s /q %d
+ASK	C	for %d in (bu^ild ..\..\..\marker) do rd /s /q %d
+PASS	C	for %d in (build,dist) do rd /s /q %d
+ASK	B	find ../.. -iname .GIT -exec rm -rf {} +
+ASK	B	find ../.. -not -name x -exec rm -rf {} +
+ASK	B	find ../.. ! -name x -exec rm -rf {} +
+ASK	B	find ../.. -name x -o -type d -exec rm -rf {} +
+ASK	B	docker exec db bash -lc "git push --force"
+ASK	B	docker exec db sh -ec "git push --force"
+PASS	B	docker exec -it db bash -l
+ASK	B	GLOBIGNORE=x; rm -rf ../../*
+ASK	B	setopt GLOBDOTS; rm -rf ../../*
+ASK	B	setopt GlobDots; rm -rf ../../*
+
+## Fourth audit, rework. Loop variables bound only when written once and no inline script
+## runs; Claude settings through streams, short and wildcard names and a split source/dir;
+## extractors by cwd, old-style tar, glued targets and wildcards; launchers read at every
+## offset with their global options understood. Measured at cwd c:/work/proj/sub/deep.
+ASK	B	for d in build; do :; done; for d in ../../../x; do rm -rf "$d"; done
+ASK	B	for d in build; do :; done; d=../../../x; rm -rf "$d"
+ASK	B	for d in build; do :; done; export d=../../../x; rm -rf "$d"
+ASK	B	for d in build; do :; done; d+=../../../x; rm -rf "$d"
+ASK	B	for d in build; do :; done; read d; rm -rf "$d"
+ASK	B	for d in build; do :; done; printf -v d ../../../x; rm -rf "$d"
+ASK	B	for d in build; do :; done; mapfile d; rm -rf "$d"
+ASK	B	for d in build; do :; done; getopts ab d; rm -rf "$d"
+ASK	B	for d in build; do rm -rf "$d"; done; sh -c "echo hi"
+PASS	B	for d in build dist; do rm -rf "$d"; done
+ASK	P	foreach ($d in 'build') { } ; $d = '..\..\..\x' ; Remove-Item $d -Recurse -Force
+ASK	P	foreach ($d in 'build') { } ; Set-Variable d ..\..\..\x ; Remove-Item $d -Recurse -Force
+PASS	P	foreach ($d in 'build','dist') { Remove-Item $d -Recurse -Force }
+ASK	B	echo x > .claude/settings.json
+ASK	B	printf x > .claude/settings.local.json
+ASK	B	echo x > ~/.claude/settings.json
+ASK	B	echo x > .claude/settings.json::$DATA
+ASK	P	Set-Content .claude\settings.json:stream x
+ASK	B	cp settings.json .claude/
+ASK	P	Copy-Item settings.json .claude
+ASK	B	cat .claude/settings.json
+ASK	C	type .claude\CLAUD~1
+ASK	P	Remove-Item .claude\settings*.json
+PASS	B	cat .claude/config.json
+ASK	B	tar xf cfg.tar -C ~/AppData/Roaming
+ASK	B	tar -C~/AppData/Roaming -xf cfg.tar
+ASK	B	unzip cfg.zip -d~/AppData/Roaming
+ASK	P	Expand-Archive cfg.zip -DestinationPath $env:APPDATA
+ASK	C	xcopy /e /y backup %APPDATA%\com.example.hangar\
+ASK	B	cp -r backup/* ~/AppData/Roaming/
+ASK	P	Copy-Item -Recurse backup\* $env:APPDATA
+PASS	B	tar czf /tmp/backup.tgz src
+PASS	B	unzip -o archive.zip -d vendor/
+ASK	B	docker run --platform x img git push --force
+ASK	B	docker exec --detach-keys x db git push --force
+ASK	B	docker -H host exec db git push --force
+ASK	B	docker --context x exec db git push --force
+ASK	B	docker container exec db git push --force
+ASK	B	kubectl -n x exec pod -- git push --force
+ASK	B	uv run --with-requirements r.txt git push --force
+ASK	B	conda run --cwd x git push --force
+ASK	B	pnpm -C x exec git push --force
+ASK	B	poetry -C x run git push --force
+ASK	B	su --command="git push --force"
+ASK	B	su -c"git push --force"
+ASK	B	gsudo -u x git push --force
+ASK	B	strace -o log git push --force
+ASK	B	docker compose -f c.yml exec db git push --force
+ASK	B	echo "git push --force" | docker exec -i db sh
+PASS	B	docker run --rm -it app sh
+PASS	B	docker exec -it db bash -l
+PASS	B	docker ps -a
+
+## Final acceptance review of round 4: a loop variable written after a reserved word, through a
+## bash name reference, in another case, scope or braces in PowerShell, by a list assignment, a
+## cmdlet's variable option or a dot-sourced script is not bound; a wildcard inside .claude and
+## a glued target folder still ask.
+ASK	B	for d in build; do d=../../..; rm -rf "$d"; done
+ASK	B	for d in build; do if true; then d=../../..; fi; rm -rf "$d"; done
+ASK	B	for d in build; do ! d=../../..; rm -rf "$d"; done
+ASK	B	declare -n r=d; for d in build; do r=../../..; rm -rf "$d"; done
+ASK	P	foreach ($d in 'build') { $D = '..\..\..'; Remove-Item $d -Recurse -Force }
+ASK	P	foreach ($d in 'build') { $global:d = '..\..\..'; Remove-Item $d -Recurse -Force }
+ASK	P	foreach ($d in 'build') { $script:d = '..\..\..'; Remove-Item $d -Recurse -Force }
+ASK	P	foreach ($d in 'build') { ${d} = '..\..\..'; Remove-Item $d -Recurse -Force }
+ASK	P	foreach ($d in 'build') { . .\x.ps1; Remove-Item $d -Recurse -Force }
+ASK	P	foreach ($d in 'build') { Set-Variable -Name D -Value '..\..\..'; Remove-Item $d -Recurse -Force }
+ASK	P	foreach ($d in 'build') { Get-Item x -OutVariable d; Remove-Item $d -Recurse -Force }
+ASK	P	foreach ($d in 'build') { $d, $e = '..\..\..', 1; Remove-Item $d -Recurse -Force }
+ASK	B	cp x .claude/s*
+ASK	B	cp x .claude/*
+ASK	B	cp --target-directory=.claude settings.json
+PASS	B	for d in build dist; do if [ -d "$d" ]; then rm -rf "$d"; fi; done
+PASS	P	foreach ($d in 'build','dist') { if (Test-Path $d) { Remove-Item $d -Recurse -Force } }

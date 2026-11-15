@@ -720,8 +720,10 @@ fn place(arg: &str, cwd: Option<&str>, home: Option<&str>, style: Style) -> Opti
 /// Whether a wildcard part right in the project may match its `.git` folder. A leading `*`
 /// does not match a leading dot (POSIX shells; PowerShell's `*` skips the hidden `.git`
 /// without `-Force`), so `./*` and `*.log` stay inside; `.*`, `.g*`, `?git` and `[.]git` do not.
-fn may_name_git(pattern: &str, fold_case: bool) -> bool {
-    if pattern.starts_with('*') {
+/// With `dotglob` (bash `shopt -s dotglob`, zsh `setopt globdots`) a leading `*` matches a leading
+/// dot as well, so `*` can then reach `.git`.
+fn may_name_git(pattern: &str, fold_case: bool, dotglob: bool) -> bool {
+    if pattern.starts_with('*') && !dotglob {
         return false;
     }
     let pattern = if fold_case {
@@ -792,7 +794,7 @@ fn split_root(text: &str, style: Style) -> Option<(Option<String>, String)> {
 /// Whether `target` lies strictly inside `project` and not in its `.git`. A wildcard right in
 /// the project folder (`./*`) names its contents, which counts as inside, unless it may match
 /// `.git` (`.g*`); on Windows a short name right in it (`GIT~1`) may be `.git` too.
-fn inside(target: &Target, project: &str, style: Style) -> bool {
+fn inside(target: &Target, project: &str, style: Style, dotglob: bool) -> bool {
     let project = if style.fold_case {
         project.to_lowercase()
     } else {
@@ -806,7 +808,7 @@ fn inside(target: &Target, project: &str, style: Style) -> bool {
             && !target
                 .pattern
                 .as_deref()
-                .is_some_and(|pattern| may_name_git(pattern, style.fold_case));
+                .is_some_and(|pattern| may_name_git(pattern, style.fold_case, dotglob));
     }
     let rest = &target.key[project.len()..];
     let first = rest.trim_start_matches('/').split('/').next().unwrap_or("");
@@ -840,8 +842,9 @@ pub fn builtin_description(id: &str) -> Option<&'static str> {
             "the command is longer than 64 KiB or holds a NUL character, so Hangar cannot check it"
         }
         RULE_HANGAR_CONFIG => {
-            "the command or edit touches Hangar's own settings: its config folder, \
-             command-guard.toml or gate-rules.json"
+            "the command or edit touches Hangar's own settings or the hook settings it relies on: \
+             its config folder, command-guard.toml, gate-rules.json, the folder that holds them, \
+             or a Claude Code .claude/settings.json or settings.local.json"
         }
         _ => return None,
     })
@@ -981,7 +984,7 @@ fn glob_tokens(pattern: &str) -> Vec<GlobToken> {
 }
 
 /// Whether `name` matches the wildcard `pattern` (`*`, `?`, `[...]`).
-fn glob_match(pattern: &str, name: &str) -> bool {
+pub(crate) fn glob_match(pattern: &str, name: &str) -> bool {
     let pattern = glob_tokens(pattern);
     let name: Vec<char> = name.chars().collect();
     let (mut p, mut n) = (0, 0);
@@ -1143,6 +1146,19 @@ impl Flag {
             }
         }
     }
+
+    /// Whether `option` definitely gives this flag: a literal or fully expanded match, never a
+    /// wildcard (`-?`) or an unexpandable brace (`--{a..z}`) that merely could be it. Used for a
+    /// rule's `none`, which must not be lifted by an option that only might be the forbidden flag.
+    fn definitely_given_by(&self, option: &str) -> bool {
+        if option_glob(option) {
+            return false;
+        }
+        if option.contains('{') {
+            return matches!(brace_variants(option), Ok(variants) if variants.iter().any(|variant| self.given_by(variant)));
+        }
+        self.given_by(option)
+    }
 }
 
 /// What a call reads besides its arguments, for [`GuardRule::matches`].
@@ -1159,6 +1175,9 @@ struct Input<'a> {
     items: Option<Option<&'a [String]>>,
     /// cmd reads `$` as a plain character (`"$(pwd)/dist"` is a folder of that name).
     plain_dollar: bool,
+    /// The command turns on dotglob (`shopt -s dotglob`, zsh `globdots`), so a leading `*` may
+    /// match the project's `.git`.
+    dotglob: bool,
 }
 
 /// Programs whose output lists items at or below the paths they are given, so a delete fed
@@ -1194,6 +1213,162 @@ fn listed<'a>(rule: &GuardRule, call: &'a [String]) -> Option<(Vec<String>, Vec<
         })
         .collect();
     Some((below, options))
+}
+
+/// The paths a `ForEach-Object` block's `$_` stands for: the items the call before it lists
+/// ([`listed`]), or, when that call is a literal array (`'build','dist'`), its elements.
+fn item_sources<'a>(rule: &GuardRule, up: &'a [String]) -> Option<(Vec<String>, Vec<&'a str>)> {
+    listed(rule, up).or_else(|| literal_array(up).map(|paths| (paths, Vec::new())))
+}
+
+/// A PowerShell literal array written as one word (`'build','dist'`, which the lexer joins with
+/// commas), as its elements; `None` for anything else (a program call, a single word, an element
+/// that is not a plain literal).
+fn literal_array(call: &[String]) -> Option<Vec<String>> {
+    let [word] = call else {
+        return None;
+    };
+    if !word.contains(',') {
+        return None;
+    }
+    let parts: Vec<&str> = word.split(',').filter(|part| !part.is_empty()).collect();
+    if parts.is_empty() || parts.iter().any(|part| part.contains(['$', '`', '*', '?'])) {
+        return None;
+    }
+    Some(parts.into_iter().map(str::to_owned).collect())
+}
+
+/// A literal `for`/`foreach` loop variable and the words it runs over, so the loop body's reads of
+/// the variable can be placed. Only literal items (no variable, substitution or wildcard) bind;
+/// otherwise the body keeps the variable (unplaceable, asked about). bash `for NAME in a b`,
+/// PowerShell `foreach ($x in 'a','b')` (the lexer gives `$x in a,b`).
+fn literal_loop_binding(call: &[String], dialect: Dialect) -> Option<(String, Vec<String>)> {
+    let safe = |item: &String| {
+        !item.is_empty()
+            && !item
+                .chars()
+                .any(|c| matches!(c, '$' | '`' | '*' | '?' | '[' | ']' | '{' | '}'))
+    };
+    let identifier = |name: &str| {
+        !name.is_empty() && name.chars().all(|c| c.is_ascii_alphanumeric() || c == '_')
+    };
+    match dialect {
+        Dialect::Posix => {
+            if call.first().map(String::as_str) != Some("for")
+                || call.get(2).map(String::as_str) != Some("in")
+            {
+                return None;
+            }
+            let name = call.get(1).filter(|n| identifier(n))?;
+            let items = call.get(3..).filter(|items| !items.is_empty())?;
+            items
+                .iter()
+                .all(safe)
+                .then(|| (name.clone(), items.to_vec()))
+        }
+        Dialect::PowerShell => {
+            if call.get(1).is_none_or(|w| !w.eq_ignore_ascii_case("in")) {
+                return None;
+            }
+            let name = call.first()?.strip_prefix('$').filter(|n| identifier(n))?;
+            let items: Vec<String> = call
+                .get(2)?
+                .split(',')
+                .filter(|part| !part.is_empty())
+                .map(str::to_owned)
+                .collect();
+            (!items.is_empty() && items.iter().all(safe)).then(|| (name.to_owned(), items))
+        }
+        Dialect::Cmd => None,
+    }
+}
+
+/// Whether `word` reads the variable `name`: `$name` at a word boundary, or (POSIX) `${name}`.
+fn mentions_var(word: &str, name: &str, dialect: Dialect) -> bool {
+    substitute_var(word, name, "\u{0}", dialect) != word
+}
+
+/// `word` with every read of the variable `name` replaced by `value`: `$name` at a word boundary,
+/// and in POSIX `${name}` too.
+fn substitute_var(word: &str, name: &str, value: &str, dialect: Dialect) -> String {
+    let chars: Vec<char> = word.chars().collect();
+    let name: Vec<char> = name.chars().collect();
+    let mut out = String::new();
+    let mut i = 0;
+    while i < chars.len() {
+        if chars[i] == '$' {
+            if dialect == Dialect::Posix && chars.get(i + 1) == Some(&'{') {
+                let body_end = i + 2 + name.len();
+                if chars.get(i + 2..body_end) == Some(&name[..])
+                    && chars.get(body_end) == Some(&'}')
+                {
+                    out.push_str(value);
+                    i = body_end + 1;
+                    continue;
+                }
+            }
+            let after = i + 1 + name.len();
+            if chars.get(i + 1..after) == Some(&name[..])
+                && chars
+                    .get(after)
+                    .is_none_or(|c| !(c.is_ascii_alphanumeric() || *c == '_'))
+            {
+                out.push_str(value);
+                i = after;
+                continue;
+            }
+        }
+        out.push(chars[i]);
+        i += 1;
+    }
+    out
+}
+
+/// The call read once per bound loop variable it mentions (`rm -rf "$d"` with `d` bound to
+/// `build dist` becomes `rm -rf build` and `rm -rf dist`), so each reading is placed on its own.
+/// The call as written when it mentions no bound variable.
+fn expand_loop_vars(
+    call: &[String],
+    loops: &[(String, Vec<String>)],
+    dialect: Dialect,
+) -> Vec<Vec<String>> {
+    let mut result = vec![call.to_vec()];
+    for (name, items) in loops {
+        if !result.iter().any(|candidate| {
+            candidate
+                .iter()
+                .any(|word| mentions_var(word, name, dialect))
+        }) {
+            continue;
+        }
+        let mut next = Vec::new();
+        for candidate in &result {
+            if candidate
+                .iter()
+                .any(|word| mentions_var(word, name, dialect))
+            {
+                for item in items {
+                    next.push(
+                        candidate
+                            .iter()
+                            .map(|word| substitute_var(word, name, item, dialect))
+                            .collect(),
+                    );
+                    if next.len() >= MAX_CWDS {
+                        break;
+                    }
+                }
+            } else {
+                next.push(candidate.clone());
+            }
+        }
+        result = next;
+        if result.len() >= MAX_CWDS {
+            result.truncate(MAX_CWDS);
+            break;
+        }
+    }
+    result
 }
 
 /// `$_`, `$PSItem` and their `.FullName`: the item a `ForEach-Object` block is run for.
@@ -1253,6 +1428,98 @@ impl GuardRule {
         (options, positionals)
     }
 
+    /// Whether one of the rule's `none` options lifts it: definitely given (a wildcard option
+    /// such as `git push -?` could be the risky flag too), as an option of its own and not as the
+    /// value of the option before it (`git push -o -n` sends the push option "-n"), not after a
+    /// value-taking letter of a short group (`-on`), and not switched back off by a negation
+    /// anywhere (`git push -n --no-dry-run`, where the last one wins). Fails closed: anything
+    /// doubtful keeps the rule.
+    fn none_lifts(&self, args: &[String]) -> bool {
+        if self.none.is_empty() {
+            return false;
+        }
+        // A long option takes a value when it is one of `value_options`, git's own or
+        // [`LIFT_VALUE_OPTIONS`], or an abbreviation of one (`--push-o`), as git's parser reads
+        // it. The extra ones count only here: for the risky flags an option word that may be a
+        // value still counts as given (`git push -o -f` is asked about).
+        let takes_value = |word: &str| {
+            !word.contains('=')
+                && self
+                    .value_options
+                    .iter()
+                    .map(String::as_str)
+                    .chain(GIT_VALUE_OPTIONS.iter().copied())
+                    .chain(LIFT_VALUE_OPTIONS.iter().copied())
+                    .any(|value| {
+                        value == word
+                            || (word.starts_with("--")
+                                && word.len() >= 4
+                                && value.starts_with(word))
+                    })
+        };
+        let value_letters: Vec<char> = self
+            .value_options
+            .iter()
+            .map(String::as_str)
+            .chain(GIT_VALUE_OPTIONS.iter().copied())
+            .chain(LIFT_VALUE_OPTIONS.iter().copied())
+            .filter_map(|value| {
+                let mut letters = value.strip_prefix('-')?.chars();
+                let letter = letters.next()?;
+                (letter != '-' && letters.next().is_none()).then_some(letter)
+            })
+            .collect();
+        let negates = |word: &str| {
+            word.len() > "--no-".len()
+                && word.starts_with("--no-")
+                && self.none.iter().any(|flag| match flag {
+                    Flag::Long(long) => {
+                        let name = word.split_once('=').map_or(word, |(name, _)| name);
+                        format!("--no-{}", long.trim_start_matches('-')).starts_with(name)
+                    }
+                    _ => false,
+                })
+        };
+        let mut lifted = false;
+        let mut i = 0;
+        while let Some(arg) = args.get(i) {
+            i += 1;
+            if arg == "--" {
+                break;
+            }
+            if negates(arg) {
+                return false;
+            }
+            if takes_value(arg) {
+                i += 1;
+                continue;
+            }
+            let word = match arg.strip_prefix('-') {
+                // A short group counts up to its first value-taking letter; that letter takes
+                // the rest of the group, or the next word when it ends the group.
+                Some(group) if !group.starts_with('-') => {
+                    match group
+                        .char_indices()
+                        .find(|(_, c)| value_letters.contains(c))
+                    {
+                        Some((at, letter)) => {
+                            if at + letter.len_utf8() == group.len() {
+                                i += 1;
+                            }
+                            format!("-{}", &group[..at])
+                        }
+                        None => arg.clone(),
+                    }
+                }
+                _ => arg.clone(),
+            };
+            if word.len() > 1 && self.none.iter().any(|flag| flag.definitely_given_by(&word)) {
+                lifted = true;
+            }
+        }
+        lifted
+    }
+
     fn matches(
         &self,
         call: &[String],
@@ -1302,7 +1569,7 @@ impl GuardRule {
             // Unknown items stay `$_`, which cannot be placed.
             if let Some(Some((up_paths, up_options))) = input
                 .items
-                .map(|items| items.and_then(|up| listed(self, up)))
+                .map(|items| items.and_then(|up| item_sources(self, up)))
             {
                 if paths.iter().any(|path| is_item(path)) && !up_paths.is_empty() {
                     paths.retain(|path| !is_item(path));
@@ -1315,7 +1582,7 @@ impl GuardRule {
         if !self.any.is_empty() && !self.any.iter().any(given) {
             return false;
         }
-        if !self.all.iter().all(given) || self.none.iter().any(given) {
+        if !self.all.iter().all(given) || self.none_lifts(&call[1..]) {
             return false;
         }
         if !self.words.is_empty() {
@@ -1351,7 +1618,9 @@ impl GuardRule {
                     place(&arg, cwd, place_of.home.as_deref(), style),
                     &place_of.project,
                 ) {
-                    (Some(target), Some(project)) => !inside(&target, project, style),
+                    (Some(target), Some(project)) => {
+                        !inside(&target, project, style, input.dotglob)
+                    }
                     _ => true,
                 }
             });
@@ -1375,6 +1644,20 @@ fn texts_with_glued_values<'a>(
         .filter_map(|arg| arg.get(2..).filter(|value| !value.is_empty()));
     args.iter().chain(fed).map(String::as_str).chain(glued)
 }
+
+/// Options of the commands with a `none` flag in the default rules that take the next word as
+/// their value (`git push -o`, `--push-option`, `--repo`, `--receive-pack`, `--exec`;
+/// `git clean -e`, `--exclude`): a dry-run flag right after one of them is that value, so it does
+/// not lift the rule (`git push -o -n --force` pushes with force).
+const LIFT_VALUE_OPTIONS: &[&str] = &[
+    "-o",
+    "--push-option",
+    "--repo",
+    "--receive-pack",
+    "--exec",
+    "-e",
+    "--exclude",
+];
 
 /// git's own options that take the next word as their value (`git -C x push`); after the
 /// subcommand, rules name their options in `value_options`.
@@ -1471,6 +1754,235 @@ fn component_names(component: &str, name: &str) -> bool {
     squeezed.starts_with(stem) || whole.starts_with(stem)
 }
 
+/// Names of Claude Code's hook settings files. A `.claude/settings.local.json` or
+/// `settings.json` next to a `.claude` folder carries `disableAllHooks` and `allowedHttpHookUrls`,
+/// which switch Hangar's gate hook off (docs/wiki/raw/2026-11-09-claude-hooks-reference.md).
+const CLAUDE_SETTINGS_FILES: &[&str] = &["settings.json", "settings.local.json"];
+
+/// An NTFS data stream suffix removed from a path component (`settings.json::$DATA`,
+/// `settings.json:x` both open the file itself): the part before the first `:`.
+fn without_stream(component: &str) -> &str {
+    component.split(':').next().unwrap_or(component)
+}
+
+/// Whether a path component may name a `.claude` folder: it is `.claude`, a Windows 8.3 short
+/// name (`CLAUD~1`), or a wildcard with enough letters of its own to point at it (`.claude*`),
+/// never a bare `*` that matches everything.
+fn names_claude_dir(component: &str) -> bool {
+    let component = without_stream(component);
+    component == ".claude"
+        || short_name(component)
+        || (is_wildcard(component)
+            && own_letters(component) >= 5
+            && glob_match(component, ".claude"))
+}
+
+/// Whether a path component may name a Claude Code hook settings file (`settings.json`,
+/// `settings.local.json`), also through a short name or a wildcard with letters of its own
+/// (`settings*.json`).
+fn names_settings_file(component: &str) -> bool {
+    let component = without_stream(component);
+    CLAUDE_SETTINGS_FILES.contains(&component)
+        || short_name(component)
+        || (is_wildcard(component)
+            && own_letters(component) >= 5
+            && CLAUDE_SETTINGS_FILES
+                .iter()
+                .any(|file| glob_match(component, file)))
+}
+
+/// Whether a path (a placed key or a raw argument, lowercase, `/` separators) ends in a Claude
+/// Code hook settings file inside a `.claude` folder, through a stream, wildcard or short name too.
+fn is_claude_settings(path: &str) -> bool {
+    let parts: Vec<&str> = path.split('/').filter(|p| !p.is_empty()).collect();
+    // Inside a `.claude` folder, which holds only a few files, any wildcard that can match a
+    // settings file counts (`.claude/*`, `.claude/s*`).
+    parts.windows(2).any(|pair| {
+        names_claude_dir(pair[0])
+            && (names_settings_file(pair[1])
+                || (is_wildcard(without_stream(pair[1]))
+                    && CLAUDE_SETTINGS_FILES
+                        .iter()
+                        .any(|file| glob_match(without_stream(pair[1]), file))))
+    })
+}
+
+/// Whether a call names a `.claude` folder in one argument and a settings file in another, so it
+/// writes or reads such a settings file through two paths (`cp settings.json .claude/`,
+/// `Copy-Item settings.json .claude`).
+fn claude_settings_split(call: &[String]) -> bool {
+    // An option's glued value counts as the path (`--target-directory=.claude`).
+    let last_component = |arg: &str| {
+        let arg = match arg.split_once('=') {
+            Some((option, value)) if option.starts_with('-') => value,
+            _ => arg,
+        };
+        arg.replace('\\', "/")
+            .to_lowercase()
+            .rsplit('/')
+            .find(|c| !c.is_empty())
+            .unwrap_or("")
+            .to_owned()
+    };
+    let dir = call[1..]
+        .iter()
+        .position(|arg| names_claude_dir(&last_component(arg)));
+    let file = call[1..]
+        .iter()
+        .position(|arg| names_settings_file(&last_component(arg)));
+    // Two different arguments, one a `.claude` folder, the other a settings file.
+    matches!((dir, file), (Some(d), Some(f)) if d != f)
+}
+
+/// Whether `arg` names the folder that holds Hangar's own settings folder: the parent of a
+/// protected folder, or one of the app-data roots ([`APP_FOLDERS`]) that a path cannot be placed
+/// from. A write into this folder can create or replace Hangar's own settings folder below it.
+fn is_config_parent(arg: &str, cwds: &[Option<String>], place_of: &Place, style: Style) -> bool {
+    let bare = arg.replace('\\', "/").to_lowercase();
+    let bare = bare.trim_end_matches('/');
+    if !bare.is_empty() && APP_FOLDERS.contains(&bare) {
+        return true;
+    }
+    let parents: Vec<&str> = place_of
+        .protected
+        .iter()
+        .filter_map(|folder| parent_key(folder))
+        .collect();
+    if parents.is_empty() {
+        return false;
+    }
+    cwds.iter().any(|cwd| {
+        place(arg, cwd.as_deref(), place_of.home.as_deref(), style).is_some_and(|target| {
+            if target.glob {
+                return false;
+            }
+            let key = if style.fold_case {
+                target.key.to_lowercase()
+            } else {
+                target.key
+            };
+            parents.contains(&key.as_str())
+        })
+    })
+}
+
+/// Programs that write files or folders from an archive or from a mirror of another folder: run
+/// against the folder that holds Hangar's own settings folder, they can drop a same-named folder
+/// in (an archive's `com.example.hangar/`), so they are asked about whenever they are pointed at
+/// that parent. `tar` only when it extracts, old style (`tar xf`) too.
+fn extracts_or_mirrors(program: &str, call: &[String]) -> bool {
+    match program {
+        "unzip" | "robocopy" | "xcopy" | "rsync" | "expand-archive" | "ditto" | "7z" | "7za"
+        | "7zr" => true,
+        "tar" | "bsdtar" => call[1..].iter().any(|arg| {
+            arg == "--extract"
+                || (arg.starts_with('-') && !arg.starts_with("--") && arg.contains('x'))
+                // Old style without a dash: a mode bundle of tar flag letters that holds `x`.
+                || (!arg.starts_with('-')
+                    && arg.contains('x')
+                    && arg
+                        .chars()
+                        .all(|c| "xctrudfvzjJZkpPmoC".contains(c) || c.is_ascii_digit()))
+        }),
+        _ => false,
+    }
+}
+
+/// The destination folder of an extractor option glued to its name (`-C<dir>`, `-o<dir>`,
+/// `-d<dir>`, `--directory=<dir>`); the argument itself otherwise, so a plain destination path is
+/// checked unchanged.
+fn extractor_target(arg: &str) -> &str {
+    for prefix in ["--directory=", "-C", "-o", "-d"] {
+        if let Some(rest) = arg.strip_prefix(prefix) {
+            if !rest.is_empty() {
+                return rest;
+            }
+        }
+    }
+    arg
+}
+
+/// Whether a working folder key is the parent of a protected folder (the folder that holds
+/// Hangar's settings folder), so an extractor run there drops its archive beside Hangar's own.
+fn cwd_is_config_parent(cwd: Option<&str>, place_of: &Place, style: Style) -> bool {
+    let Some(cwd) = cwd else {
+        return false;
+    };
+    let key = if style.fold_case {
+        cwd.to_lowercase()
+    } else {
+        cwd.to_owned()
+    };
+    place_of
+        .protected
+        .iter()
+        .filter_map(|folder| parent_key(folder))
+        .any(|parent| parent == key)
+}
+
+/// Whether a path component of `arg` names Hangar's identifier or one of its settings files, so a
+/// write naming it is aimed at Hangar's own (`backup\com.example.hangar`, a `-Name` of
+/// `com.example.hangar\command-guard.toml`). Counts inside the project too.
+fn names_hangar_component(arg: &str, place_of: &Place) -> bool {
+    arg.to_lowercase().split(['/', '\\']).any(|component| {
+        place_of
+            .protected_names
+            .iter()
+            .any(|name| component_names(component, name))
+            || PROTECTED_FILES
+                .iter()
+                .any(|file| component_names(component, file))
+    })
+}
+
+/// Whether a call writes into the folder that holds Hangar's own settings folder in a way that can
+/// create or replace it: an extractor or mirror tool pointed at that parent, or any call that both
+/// names the parent and, in another argument, Hangar's identifier or a settings file. A plain
+/// listing of the parent (`Get-ChildItem $env:APPDATA`) names nothing of Hangar's and is left be.
+fn writes_hangar_via_parent(
+    call: &[String],
+    program: &str,
+    cwds: &[Option<String>],
+    place_of: &Place,
+    style: Style,
+) -> bool {
+    if place_of.protected.is_empty() {
+        return false;
+    }
+    let args = &call[1..];
+    let extractor = extracts_or_mirrors(program, call);
+    let is_parent = |arg: &str| {
+        is_config_parent(arg, cwds, place_of, style)
+            || (extractor && is_config_parent(extractor_target(arg), cwds, place_of, style))
+    };
+    let parent_at: Vec<usize> = args
+        .iter()
+        .enumerate()
+        .filter(|(_, arg)| is_parent(arg))
+        .map(|(index, _)| index)
+        .collect();
+    // An extractor run in the parent folder writes its archive there even without naming it.
+    if extractor
+        && cwds
+            .iter()
+            .any(|cwd| cwd_is_config_parent(cwd.as_deref(), place_of, style))
+    {
+        return true;
+    }
+    if parent_at.is_empty() {
+        return false;
+    }
+    if extractor {
+        return true;
+    }
+    // Another argument names Hangar's identifier or settings file, or is a wildcard that could
+    // drop a `.hangar` folder into the parent (`cp -r backup/* $env:APPDATA`).
+    args.iter().enumerate().any(|(index, arg)| {
+        !parent_at.contains(&index)
+            && (names_hangar_component(arg, place_of) || arg.contains(['*', '?']))
+    })
+}
+
 /// Whether `arg` names one of Hangar's protected folders or files. A path inside the session's
 /// project never counts by name, only by where it lies: Hangar's own worktrees live in its data
 /// folder and its sources name the settings files.
@@ -1483,6 +1995,16 @@ fn protected_path(arg: &str, cwd: Option<&str>, place_of: &Place, style: Style) 
         }
     };
     let target = place(arg, cwd, place_of.home.as_deref(), style);
+    // Claude Code's own hook settings, in the project or in the home folder: writing them can
+    // turn Hangar's gate hook off (`disableAllHooks`, `allowedHttpHookUrls`). Protected wherever
+    // they lie, the project's own too, so this comes before the inside-project exception below.
+    if target
+        .as_ref()
+        .is_some_and(|target| is_claude_settings(&target.key))
+        || is_claude_settings(&arg.replace('\\', "/").to_lowercase())
+    {
+        return true;
+    }
     if let Some(target) = &target {
         let in_folder = place_of
             .protected
@@ -1496,7 +2018,7 @@ fn protected_path(arg: &str, cwd: Option<&str>, place_of: &Place, style: Style) 
             return true;
         }
         if let Some(project) = &place_of.project {
-            if inside(target, project, style) {
+            if inside(target, project, style, false) {
                 return false;
             }
         }
@@ -1597,6 +2119,15 @@ pub fn check(
     let no_info = CallInfo::default();
     for dialect in dialects {
         let analysis = split(command, *dialect);
+        // bash `shopt -s dotglob` or zsh `setopt globdots` (zsh ignores case and underscores in
+        // option names): a leading `*` then also matches dot names, so `rm -rf *` may reach
+        // `.git`. Setting bash's `GLOBIGNORE` turns dotglob on as well.
+        let dotglob = *dialect == Dialect::Posix && {
+            let squeezed = command.to_ascii_lowercase().replace('_', "");
+            ["dotglob", "globdots", "globignore"]
+                .iter()
+                .any(|flag| squeezed.contains(flag))
+        };
         if analysis.truncated || analysis.unclosed {
             add(Hit::builtin(RULE_TOO_COMPLEX, String::new()));
         }
@@ -1613,6 +2144,18 @@ pub fn check(
         {
             cwds.push(None);
         }
+        // Literal `for`/`foreach` loop variables bound so far, so the body's reads of them are
+        // placed (`for d in build dist; do rm -rf "$d"; done`). A variable is bound only when the
+        // whole command writes it exactly once (its own header) and runs no inline script, so a
+        // later write cannot hide behind a safe-looking loop.
+        let mut loops: Vec<(String, Vec<String>)> = Vec::new();
+        let mut write_counts: std::collections::HashMap<&str, usize> =
+            std::collections::HashMap::new();
+        if !analysis.has_inline_script {
+            for name in &analysis.writes {
+                *write_counts.entry(name.as_str()).or_insert(0) += 1;
+            }
+        }
         let mut redirects = analysis.redirects.iter().peekable();
         for (index, call) in analysis.calls.iter().enumerate() {
             while let Some((_, target)) = redirects.next_if(|(at, _)| *at <= index) {
@@ -1623,7 +2166,37 @@ pub fn check(
             let info = analysis.info.get(index).unwrap_or(&no_info);
             let program = call.first().map(|word| program_name(word));
             let program = program.as_deref().unwrap_or_default();
-            let (variants, too_complex) = call_variants(call, info);
+            if !analysis.has_inline_script {
+                if let Some(binding) = literal_loop_binding(call, info.dialect) {
+                    // Only when the loop header is the sole write of the variable, and nothing
+                    // may write variables Hangar cannot name. PowerShell names ignore case.
+                    let key = if info.dialect == Dialect::PowerShell {
+                        binding.0.to_ascii_lowercase()
+                    } else {
+                        binding.0.clone()
+                    };
+                    if !write_counts.contains_key(crate::command_split::ANY_WRITE)
+                        && write_counts.get(key.as_str()) == Some(&1)
+                        && !loops.iter().any(|(name, _)| *name == binding.0)
+                    {
+                        loops.push(binding);
+                    }
+                }
+            }
+            // A loop body is read once per bound item (`rm -rf "$d"` for each of `build dist`), so
+            // each reading of the variable is placed on its own.
+            let sources = expand_loop_vars(call, &loops, info.dialect);
+            let mut variants: Vec<Vec<String>> = Vec::new();
+            let mut too_complex = false;
+            for source in &sources {
+                let (source_variants, source_complex) = call_variants(source, info);
+                too_complex |= source_complex;
+                for variant in source_variants {
+                    if !variants.contains(&variant) {
+                        variants.push(variant);
+                    }
+                }
+            }
             if too_complex {
                 add(Hit::builtin(RULE_TOO_COMPLEX, join(call)));
             }
@@ -1651,7 +2224,10 @@ pub fn check(
                 continue;
             }
             let shown_call = join(call);
-            if call.iter().skip(1).any(|arg| protected_from(arg, &cwds)) {
+            if call.iter().skip(1).any(|arg| protected_from(arg, &cwds))
+                || writes_hangar_via_parent(call, program, &cwds, place_of, style)
+                || claude_settings_split(call)
+            {
                 add(Hit::builtin(RULE_HANGAR_CONFIG, shown_call.clone()));
             }
             if unreadable_call(program, call, info) {
@@ -1678,6 +2254,7 @@ pub fn check(
                         .map(Vec::as_slice)
                 }),
                 plain_dollar: info.dialect == Dialect::Cmd,
+                dotglob,
             };
             for rule in rules {
                 // Only a rule about paths depends on the working folder.
@@ -4958,5 +5535,263 @@ program = ["x"]
                 r#"Start-Process pwsh -ArgumentList "-NoProfile","-File","build.ps1" -Wait"#,
             ],
         );
+    }
+
+    #[test]
+    fn cmd_at_prefix_and_for_set_items_are_read() {
+        let cmd = |command: &str| hits_as(command, Dialect::Cmd);
+        // `@` turns off echo and is no part of the program name, also after `do`/`if`/`else`.
+        assert!(cmd("@git push --force").contains(&"git-push-force".to_owned()));
+        assert!(cmd("@git reset --hard").contains(&"git-reset-hard".to_owned()));
+        assert!(
+            cmd(r"for /d %d in (.git) do @rd /s /q %d").contains(&"del-outside-project".to_owned())
+        );
+        assert!(cmd(r"for %f in (..\..\x) do @del /s /q %f")
+            .contains(&"del-outside-project".to_owned()));
+        // A loop over folders that cannot be `.git`, inside the project, is left alone.
+        assert!(cmd(r"for /d /r . %d in (node_modules) do @if exist %d rd /s /q %d").is_empty());
+        assert!(cmd("for %d in (build dist) do rd /s /q %d").is_empty());
+    }
+
+    #[test]
+    fn launchers_and_container_exec_are_unwrapped() {
+        assert!(hits("su -c \"git push --force\"").contains(&"git-push-force".to_owned()));
+        assert!(hits("runuser -u postgres -- dropdb app").contains(&"dropdb".to_owned()));
+        assert!(hits("npx git push --force").contains(&"git-push-force".to_owned()));
+        assert!(hits("uv run git push --force").contains(&"git-push-force".to_owned()));
+        assert!(hits("conda run -n x git reset --hard").contains(&"git-reset-hard".to_owned()));
+        assert!(
+            hits("kubectl exec -it pod -- git push --force").contains(&"git-push-force".to_owned())
+        );
+        assert!(hits("docker exec db psql -c \"DROP TABLE t\"").contains(&"sql-drop".to_owned()));
+        assert!(hits("docker compose run --rm db dropdb app").contains(&"dropdb".to_owned()));
+        // A query and an interactive shell in a container are not asked about.
+        assert_eq!(
+            hits("docker exec db psql -c \"SELECT 1\""),
+            Vec::<String>::new()
+        );
+        assert_eq!(hits("docker run --rm -it app sh"), Vec::<String>::new());
+    }
+
+    #[test]
+    fn find_exec_reaches_the_projects_git() {
+        assert!(hits("find . -name .git -type d -exec rm -rf {} +")
+            .contains(&"rm-outside-project".to_owned()));
+        assert!(
+            hits("find . -mindepth 1 -exec rm -rf {} +").contains(&"rm-outside-project".to_owned())
+        );
+        // A name test that cannot match `.git` stays inside the project.
+        assert_eq!(
+            hits("find . -type d -name node_modules -prune -exec rm -rf {} +"),
+            Vec::<String>::new()
+        );
+    }
+
+    #[test]
+    fn writes_into_the_config_parent_are_asked_about() {
+        let hangar = RULE_HANGAR_CONFIG.to_owned();
+        // The identifier named next to the parent.
+        assert!(hits_in(
+            r"Copy-Item -Recurse .\backup\com.example.hangar $env:APPDATA -Force",
+            "PowerShell"
+        )
+        .contains(&hangar));
+        assert!(
+            hits_in(
+                "New-Item -Path $env:APPDATA -Name com.example.hangar\\command-guard.toml -ItemType File -Force",
+                "PowerShell"
+            )
+            .contains(&hangar)
+        );
+        assert!(
+            hits_in("cp -r backup/com.example.hangar ~/AppData/Roaming/", "Bash").contains(&hangar)
+        );
+        // Extractors and mirror tools pointed at the parent always ask.
+        assert!(hits_in(
+            "Expand-Archive .\\cfg.zip -DestinationPath $env:APPDATA -Force",
+            "PowerShell"
+        )
+        .contains(&hangar));
+        assert!(hits_in("tar -C ~/AppData/Roaming -xf cfg.tar", "Bash").contains(&hangar));
+        assert!(hits_in("robocopy backup %APPDATA% /e", "Cmd").contains(&hangar));
+        // Listing the parent names nothing of Hangar's.
+        assert_eq!(
+            hits_in("Get-ChildItem $env:APPDATA", "PowerShell"),
+            Vec::<String>::new()
+        );
+    }
+
+    #[test]
+    fn claude_hook_settings_are_protected() {
+        let hangar = RULE_HANGAR_CONFIG.to_owned();
+        // A shell command writing them, in the project or in the home folder.
+        assert!(hits("echo x > .claude/settings.json").contains(&hangar));
+        assert!(hits("printf x > .claude/settings.local.json").contains(&hangar));
+        assert!(hits("echo x > ~/.claude/settings.json").contains(&hangar));
+        // And an edit of them.
+        let place = unix_place();
+        assert!(edit_touches_hangar(".claude/settings.json", &place, UNIX));
+        assert!(edit_touches_hangar(
+            ".claude/settings.local.json",
+            &place,
+            UNIX
+        ));
+        assert!(edit_touches_hangar("~/.claude/settings.json", &place, UNIX));
+        assert!(edit_touches_hangar(
+            "/home/me/.claude/settings.json",
+            &place,
+            UNIX
+        ));
+        // Not a different file in `.claude`, nor a `settings.json` elsewhere.
+        assert!(!edit_touches_hangar(".claude/config.json", &place, UNIX));
+        assert!(!edit_touches_hangar("src/settings.json", &place, UNIX));
+    }
+
+    #[test]
+    fn dotglob_lets_a_star_reach_git() {
+        assert!(hits("shopt -s dotglob && rm -rf ./*").contains(&"rm-outside-project".to_owned()));
+        assert!(hits("setopt globdots; rm -rf *").contains(&"rm-outside-project".to_owned()));
+        // Without dotglob a leading `*` does not match the dot of `.git`.
+        assert_eq!(hits("rm -rf ./*"), Vec::<String>::new());
+        assert_eq!(hits("rm -rf *"), Vec::<String>::new());
+    }
+
+    #[test]
+    fn literal_loop_bodies_place_the_variable() {
+        // bash and PowerShell loops over literal folder names inside the project do not ask.
+        assert_eq!(
+            hits(r#"for d in build dist; do rm -rf "$d"; done"#),
+            Vec::<String>::new()
+        );
+        assert_eq!(
+            hits_in(
+                "foreach ($d in 'build','dist') { Remove-Item $d -Recurse -Force }",
+                "PowerShell"
+            ),
+            Vec::<String>::new()
+        );
+        assert_eq!(
+            hits_in(
+                "'build','dist' | ForEach-Object { Remove-Item $_ -Recurse -Force }",
+                "PowerShell"
+            ),
+            Vec::<String>::new()
+        );
+        // A literal item outside the project still asks.
+        assert!(hits(r#"for d in ../../x; do rm -rf "$d"; done"#)
+            .contains(&"rm-outside-project".to_owned()));
+    }
+
+    #[test]
+    fn dry_run_force_pushes_pass() {
+        assert_eq!(hits("git push --dry-run --force"), Vec::<String>::new());
+        assert_eq!(hits("git push -nf origin main"), Vec::<String>::new());
+        // A wildcard option that could be the force flag is still asked about.
+        assert!(hits("git push -?").contains(&"git-push-force".to_owned()));
+    }
+
+    #[test]
+    fn a_loop_variable_is_bound_only_when_written_once_and_no_inline_script_runs() {
+        // One safe loop: the body is placed.
+        assert_eq!(
+            hits(r#"for d in build dist; do rm -rf "$d"; done"#),
+            Vec::<String>::new()
+        );
+        // A second write to the variable (another loop, an assignment, a builtin): not bound.
+        let rewritten = [
+            r#"for d in build; do :; done; for d in ../../..; do rm -rf "$d"; done"#,
+            r#"for d in build; do :; done; d=../../..; rm -rf "$d""#,
+            r#"for d in build; do :; done; export d=../../..; rm -rf "$d""#,
+            r#"for d in build; do :; done; read d; rm -rf "$d""#,
+            r#"for d in build; do :; done; printf -v d ../../..; rm -rf "$d""#,
+        ];
+        for command in rewritten {
+            assert!(
+                hits(command).contains(&"rm-outside-project".to_owned()),
+                "{command}"
+            );
+        }
+        // An inline script could write the variable unseen: not bound.
+        assert!(
+            hits(r#"for d in build; do rm -rf "$d"; done; sh -c 'echo hi'"#)
+                .contains(&"rm-outside-project".to_owned())
+        );
+    }
+
+    #[test]
+    fn launchers_are_read_at_every_offset() {
+        // An unknown option before the command (no fixed list) does not hide it.
+        for command in [
+            "docker run --platform x img git push --force",
+            "docker exec --detach-keys x db git push --force",
+            "docker -H host exec db git push --force",
+            "docker container exec db git push --force",
+            "kubectl -n x exec pod -- git push --force",
+            "uv run --with-requirements r.txt git push --force",
+            "pnpm -C x exec git push --force",
+            "gsudo -u x git push --force",
+            "strace -o log git push --force",
+            "su --command=\"git push --force\"",
+            "su -c\"git push --force\"",
+        ] {
+            assert!(
+                hits(command).contains(&"git-push-force".to_owned()),
+                "{command}"
+            );
+        }
+        // A pipe into a container shell is read as a script from stdin.
+        assert!(hits("echo x | docker exec -i db sh").contains(&RULE_STDIN_SCRIPT.to_owned()));
+        // An interactive shell in a container, not piped, is left alone.
+        assert_eq!(hits("docker run --rm -it app sh"), Vec::<String>::new());
+        assert_eq!(hits("docker exec -it db bash -l"), Vec::<String>::new());
+    }
+
+    #[test]
+    fn claude_settings_through_streams_shortnames_and_split_paths() {
+        let hangar = RULE_HANGAR_CONFIG.to_owned();
+        assert!(hits("echo x > .claude/settings.json::$DATA").contains(&hangar));
+        assert!(hits("cp settings.json .claude/").contains(&hangar));
+        assert!(hits_as("Copy-Item settings.json .claude", Dialect::PowerShell).contains(&hangar));
+        assert!(hits_as(r"type .claude\CLAUD~1", Dialect::Cmd).contains(&hangar));
+        // A different file in `.claude`, or two unrelated paths, do not count.
+        assert!(!hits("cat .claude/config.json").contains(&hangar));
+        assert!(!hits("cp a.json dist/").contains(&hangar));
+    }
+
+    #[test]
+    fn extractors_into_the_config_parent_ask() {
+        let hangar = RULE_HANGAR_CONFIG.to_owned();
+        // Old-style tar, glued targets.
+        assert!(hits_in("tar xf cfg.tar -C ~/AppData/Roaming", "Bash").contains(&hangar));
+        assert!(hits_in("tar -C~/AppData/Roaming -xf cfg.tar", "Bash").contains(&hangar));
+        assert!(hits_in("unzip cfg.zip -d~/AppData/Roaming", "Bash").contains(&hangar));
+        // A wildcard beside the parent.
+        assert!(hits_in("cp -r backup/* ~/AppData/Roaming/", "Bash").contains(&hangar));
+        // A plain backup elsewhere is left be.
+        assert_eq!(
+            hits_in("tar czf /tmp/backup.tgz src", "Bash"),
+            Vec::<String>::new()
+        );
+    }
+
+    #[test]
+    fn an_extractor_run_in_the_config_parent_asks() {
+        let config = "c:/users/me/appdata/roaming/com.example.hangar";
+        let place = Place {
+            cwd: Some("c:/users/me/appdata/roaming".into()),
+            project: Some("c:/work/proj".into()),
+            home: Some("c:/users/me".into()),
+            protected: vec![config.into()],
+            protected_files: Vec::new(),
+            protected_names: protected_names(&[config]),
+        };
+        let hits = check(
+            &defaults(),
+            "tar -xf cfg.tar",
+            &[Dialect::Posix],
+            &place,
+            WINDOWS,
+        );
+        assert!(hits.iter().any(|h| h.rule_id == RULE_HANGAR_CONFIG));
     }
 }

@@ -45,6 +45,9 @@ program = ["git"]
 value_options = ["-C", "-c", "--git-dir", "--work-tree", "--namespace", "--config-env", "--attr-source"]
 subcommand = ["push"]
 any = ["--force", "-f"]
+# "--dry-run" (also "-n") only shows what would happen, so it is not asked about; not when it
+# is the value of an option ("-o -n") or switched back off ("--no-dry-run").
+none = ["-n", "--dry-run"]
 
 [[rule]]
 id = "git-push-delete"
@@ -54,6 +57,9 @@ value_options = ["-C", "-c", "--git-dir", "--work-tree", "--namespace", "--confi
 subcommand = ["push"]
 # A refspec "+main" counts as --force and ":main" as --delete.
 any = ["--delete", "-d", "--mirror", "--prune"]
+# "--dry-run" (also "-n") only shows what would happen, so it is not asked about; not when it
+# is the value of an option ("-o -n") or switched back off ("--no-dry-run").
+none = ["-n", "--dry-run"]
 
 [[rule]]
 id = "git-reset-hard"
