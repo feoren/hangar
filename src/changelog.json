@@ -212,6 +212,20 @@
         "ru": "Безопаснее: изменённый злоумышленником репозиторий больше не запускает свои программы и не обращается к другим машинам через Hangar, а обманные ссылки видны.",
         "tr": "Güvenlik: kurcalanmış bir depo artık Hangar üzerinden kendi programlarını çalıştıramaz veya başka makinelere ulaşamaz; yanıltıcı bağlantı metinleri yakalanır.",
         "zh": "更安全：被篡改的仓库无法再通过 Hangar 运行自己的程序或连接其他机器，隐藏真实目标的链接文字也会被发现。"
+      },
+      {
+        "de": "Sicherer: Hangar liest Befehle wie die Shell und blockt, wenn es nicht prüfen kann; Nebenfenster und wichtige Einstellungen sind besser geschützt.",
+        "en": "Safer: Hangar reads commands as the shells do and blocks when it cannot check them; side windows and key settings are better protected.",
+        "el": "Ασφάλεια: η προστασία εντολών τις διαβάζει όπως το κέλυφος και μπλοκάρει όταν το Hangar δεν μπορεί να ελέγξει· βοηθητικά παράθυρα και ρυθμίσεις προστατεύονται.",
+        "es": "Más seguro: la protección de comandos los lee como la shell y bloquea si Hangar no puede comprobar; ventanas auxiliares y ajustes clave, mejor protegidos.",
+        "fr": "Plus sûr : la garde de commandes les lit comme le shell et bloque si Hangar ne peut pas vérifier ; fenêtres annexes et réglages clés mieux protégés.",
+        "it": "Più sicuro: la protezione comandi li legge come la shell e blocca se Hangar non può verificare; finestre secondarie e impostazioni chiave più protette.",
+        "ja": "安全性向上: コマンド保護がシェルと同じようにコマンドを読み、Hangar が確認できないときはブロックします。サブウィンドウと重要な設定もより保護されます。",
+        "pl": "Bezpieczniej: ochrona poleceń czyta je jak powłoka i blokuje, gdy Hangar nie może sprawdzić; okna pomocnicze i ważne ustawienia są lepiej chronione.",
+        "pt": "Mais seguro: a proteção de comandos os lê como o shell e bloqueia quando o Hangar não pode verificar; janelas auxiliares e ajustes-chave mais protegidos.",
+        "ru": "Безопаснее: защита команд читает их как оболочка и блокирует, если Hangar не может проверить; вспомогательные окна и важные настройки защищены лучше.",
+        "tr": "Güvenlik: komut koruması komutları kabuk gibi okur ve Hangar denetleyemediğinde engeller; yan pencereler ve önemli ayarlar daha iyi korunur.",
+        "zh": "更安全：命令防护像 shell 一样解读命令，Hangar 无法检查时直接拦截；附属窗口和关键设置也得到更好保护。"
       }
     ]
   },
