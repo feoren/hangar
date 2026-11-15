@@ -96,8 +96,8 @@ through that folder and still ran (verified with git 2.56), so every call also p
 include targets name (so a hook for an event git adds later stays off too; measured with git
 2.56: both the event and the friendly name switch a config hook off); older git ignores these
 keys. Only a commit from the Changes panel opts in
-(`Git::with_repo_hooks`). Files below `.git` (`HEAD`, a `.git` file, `commondir`) are read
-only as regular files of at most 4 KiB, without following a link at the last component and
+(`Git::with_repo_hooks`). Files below `.git` (`HEAD` up to 4 KiB, a `.git` file and `commondir`
+up to 1 MiB) are read only as regular files, without following a link at the last component and
 without blocking on a FIFO (`persist::read_regular_capped`). Every inherited
 `GIT_*` variable is removed from git's environment before Hangar sets its own. If the process tree
 cannot be put into a Job Object, git is killed and the call fails. `status` and `diff` run without
@@ -118,15 +118,27 @@ Repository config guard (`src-tauri/src/git/guard.rs`), before every git call th
 user's NTLM credentials on every claims scan, and an `[includeIf "onbranch:hangar/**"]` could
 name a smudge filter that only applies once a worktree's HEAD is `hangar/<slug>` (both
 measured). The guard takes every git folder git could open from the call's folder (lexical and
-resolved): each `.git` folder or `.git` file target on the way up and each folder that looks
-like a bare repository, with its `commondir`. For each it reads `config` and `config.worktree`
+resolved): each `.git` folder or `.git` file target on the way up, and each folder with a `HEAD`
+entry whose common folder (after its `commondir`) holds `objects` and `refs` entries of any kind,
+as git's `is_git_directory` decides (Windows ignores `X_OK`, so plain files named `objects` and
+`refs` pass; an embedded folder whose `commondir` names another one was reachable through
+`git clone`, both measured in round 3). A `.git` file or `commondir` is read up to 1 MiB (git's
+own cap for `.git` files; `commondir` git reads whole) and taken whole with only trailing CR and
+LF removed, as git does; one that exists but is larger, unreadable, no regular file, not UTF-8
+or holds a line break or NUL inside refuses the call instead of being skipped (also in
+`check_git_links`; the sidebar reads the same way but shows nothing then). Every file the guard
+opens is looked up by a walk from the root that follows only links to local fixed drives
+(`no_links::metadata`), so a folder linked to a share in the middle of a path is refused before
+any lookup passes it. For each git folder it reads `config` and `config.worktree`
 with `git config --file <f> --no-includes -z --get-regexp`, started in the git program's own
 folder with `GIT_CEILING_DIRECTORIES` set to its parent (outside every repository, so git's
 parser is used and no repository is opened), and follows every `include.path` and
 `includeIf.<any condition>.path` itself (relative to the including file, `~/` from `HOME`, then
 `USERPROFILE`; up to 10 levels, at most 64 files). Any include target, `core.excludesFile`,
 `core.attributesFile`, `core.worktree`, `mailmap.file`, `diff.orderFile`, entry of
-`objects/info/alternates` (also nested, 5 levels, C-quoted lines), `.git` entry, git folder or
+`objects/info/alternates` (also nested: the files at depth 0 to 5 are read, as git reads them
+and opens every folder the depth-5 file lists; at most 256 entries in all; C-quoted lines),
+`.git` entry, git folder or
 config file that is a link leading to another share or device (also `/\host`, `//host`,
 `\\?\UNC\`, `\??\UNC\`) refuses the call with "The repository's git folder lies on another
 network share or device" before git starts there. An include target that exists but is no
@@ -137,11 +149,15 @@ are the union over all those files, whatever the include's condition: `filter_ov
 them to what `git config --get-regexp` reports now, so overrides read on `main` still cover a
 call that runs on `hangar/<slug>`. Results are cached per git folder (256 entries) and reused
 while size, modification time and link state of every file read are unchanged (a link's target
-is only looked at while the link itself is unchanged). Cost: a few `stat` calls per git call on a
-cache hit; one `git config` process per config file on a change. The cache key holds the common
+is only looked at while the link itself is unchanged). Cost: only `stat` calls per git call on a
+cache hit (the walk up to the root is not cached; measured in round 3 on Windows: 0.3 to 4 ms on a
+local drive, 20 to 50 ms for a repository on a share reached through `\\localhost`); one
+`git config` process per config file on a change. The cache key holds the common
 folder, so a changed `commondir` is scanned again. Check and call are two steps: a config file
 rewritten in between, or within the timestamp resolution at the same size, is read by git
-unchecked; that needs write access to the git folder, which already allows far more.
+unchecked. The cache compares each file's own entry (and a link's target) only, so a folder on the
+way that becomes a link later is noticed only once the file itself changes. Both need write
+access to the git folder, which already allows far more.
 - `git_branches(paths: string[]) -> Record<string, string | null>`: branch per folder. Reads
   `HEAD` from the `.git` directory or follows a `.git` file (`gitdir: ...`, worktrees,
   submodules) walking up from the folder; no process. `ref: refs/heads/x` gives `x`, a detached
@@ -749,7 +765,24 @@ menu paste uses the clipboard plugin.
       `/workflows/`, `/triggers/`) and Discord (`discord.com` or `discordapp.com`
       `/api/webhooks/`) webhook URLs. An unquoted value after `name:` with a secret name other
       than the bare loose ones runs to the end of the line or the closing quote of a
-      surrounding argument (`password: two words`). The
+      surrounding argument (`password: two words`). Since round 3 also: the unquoted value of a
+      `.env` line (`NAME=value` with only spaces, `export ` or a list's `- ` before it) runs to
+      the next whitespace, `&`, `;`, `)`, `}` and quotes included (a trailing `;` or `,` stays
+      outside); the separators `=>`, `:=`, `<-`, a subscript name (`os.environ['API_TOKEN'] =`),
+      the second argument of `SetEnvironmentVariable(` or `setenv(` with a secret first
+      argument; `setx NAME value`, fish `set -x NAME value` (plain `set` only for a variable
+      spelling, so `set password reset` stays), Dockerfile `ENV NAME value` (to the line end); a
+      line of just a secret name and a token (`X-Api-Key <v>`, `token<TAB><v>`: at least 16
+      token characters, or 8 with letters and digits for a name that is not loose); a YAML
+      `password:` whose scalar stands alone on the next, deeper indented line; the `value`
+      attribute of a tag whose `key` or `name` attribute or own name is a secret name
+      (`<add key="ApiKey" value="..."/>`, `<secret value="..."/>`); `Your API key is <v>` when the
+      value has 16 token characters with letters and digits; the prefixes `xoxc-`, `xoxd-`,
+      `xoxe-`, `xoxe.` and `ASIA` (`AKIA` and `ASIA` only with 16 upper case letters or digits);
+      Teams webhook paths (`webhook.office.com/webhookb2/`, `outlook.office.com/webhook/`, `@`
+      included); key blocks with four or more dashes and spaces around the label
+      (`---- BEGIN SSH2 ENCRYPTED PRIVATE KEY ----`); the lines after `Private-Lines: <n>` of a
+      PuTTY `.ppk` file. The
       description and every log text (task, text, tool argument, result) are masked the same
       way. Every pass is linear in the text length (a skipped value is passed over as a whole),
       checked by a test with 1 MB lines such as `key:` repeated. Known limits: names written
