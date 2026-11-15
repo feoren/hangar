@@ -812,3 +812,7 @@ Pages changed: [[process-launch-hardening]].
 ## [2026-11-15] decision | Command guard hardening after an audit
 The command guard reads POSIX here-documents and PowerShell here-strings, brace expansion in every word, `$IFS` and default values, cmd substring expansions, abbreviated long options, `.`/`source` and `/dev/stdin` scripts, PowerShell `-Path:` values and pipelines into `Remove-Item`, more wrappers, `find -exec` and `trap`, and keeps the working folder before a `cd`. Claude Code's hook matcher is `*`; any tool with a command that is no edit is checked. An unreadable edit path asks instead of failing open; links into Hangar's folder are resolved; the extensions block a shell command they cannot ask about; silent connections cannot crowd out hooks, a burst of parallel hooks is never cut, and a session over its 32 connections is denied unread instead of left unanswered. A quote or `)` in a here-document inside `$(...)` no longer ends the substitution.
 Pages changed: [[0010-command-guard]].
+
+## [2026-11-15] lint | Payload-free team and account signals after the security merge
+The process launch review still listed `team-changed` and `account-changed` as carrying a payload, and the account and team interface notes still named them as carrying their views; since the team security review both are payload-free signals and the main window reads `account_status` and `team_snapshot`.
+Pages changed: [[process-launch-hardening]], [[hangar-account-api]], [[team-service-v1]].

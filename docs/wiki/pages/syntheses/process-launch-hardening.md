@@ -54,8 +54,10 @@ job and survives the session. Not changed, because:
   - The file viewer windows lost `core:event:allow-listen` and `allow-unlisten`; they never listen.
   - `gate-changed` carries no payload any more; the main window reads `gate_snapshot` (main window
     only) on each signal, and only the answer to the newest read counts (`src/useGate.ts`).
-  - Still with payload and readable by the panel window: `team-changed`, `account-changed`,
-    `claims-changed`, `context-usage-changed`. Their emitters and hooks belong to other work; the same
+  - `team-changed` and `account-changed` are payload-free signals as well since the team security
+    review; the main window reads `team_snapshot` and `account_status`.
+  - Still with payload and readable by the panel window: `claims-changed` and
+    `context-usage-changed`. Their emitters and hooks belong to other work; the same
     change (signal plus a main-only snapshot command) applies to them.
 - **Git reads name a session.** `git_diff`, `git_changed_count`, `git_log` (with `root` for the
   repository's main folder, as the project overview needs) and `git_commit_diff` take a `SessionId`;

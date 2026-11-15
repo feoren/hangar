@@ -769,7 +769,7 @@ compare claims with the protocol crate's `ClaimBoard` and decide reservations wi
   network folders or, on Windows, drives that are not fixed, such as a mapped `Z:`; the lookup runs before the gate's lock is taken), else in the teammate's spelling cut to 200 characters (`literal` cuts further
   and marks control, invisible and reordering characters, also in the names).
 - **Interface:** commands `team_session_states(states: {sessionId, state}[])` and
-  `team_link_repo(projectId, root, folder or null, on)` (main window only); `team-changed` adds per team
+  `team_link_repo(projectId, root, folder or null, on)` (main window only); `team_snapshot` adds per team
   `activity { linked: {root, folder or null, name}[], peers: PeerView[], overlaps:
   TeammateOverlap[], divergent: {member, device, name}[] }` and `repos: {root, folder, name}[]` (the running sessions' repository
   folders). `PeerView { member, device, name, own, presence, sessions: {key, agent, title, state,

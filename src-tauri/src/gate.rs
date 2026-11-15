@@ -1167,7 +1167,7 @@ impl Answer {
     }
 }
 
-/// One edit waiting for the person (event `gate-changed`).
+/// One edit waiting for the person (part of `gate_snapshot`).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct PendingDecision {

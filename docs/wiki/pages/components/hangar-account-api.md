@@ -200,7 +200,8 @@ app has no upload path).
 - **Interface:** commands `account_status`, `account_sign_in`, `account_cancel_sign_in`,
   `account_sign_out`, `account_projects`, `account_avatar` (the picture as a `data:` URL or
   `null`), `account_set_base_url(baseUrl | null)`,
-  `account_open(page)` (main window only); event `account-changed` with `AccountView { baseUrl,
+  `account_open(page)` (main window only); the payload-free event `account-changed`, after
+  which the window reads `account_status() -> AccountView { baseUrl,
   official, devicesUrl, state, otherSignIns, revision }` (`user` in `signedIn`: `id`, `email`,
   `name`, `locale`, `seatsAccountTotal`, `seatsAccountUsed`, `avatarVersion`); errors as `{ kind, detail }`. `relay_ticket` is a typed client
   function, not a command yet.

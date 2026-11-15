@@ -2541,7 +2541,7 @@ pub fn team_session_states(team: State<'_, TeamService>, states: Vec<SessionStat
     );
 }
 
-/// Links or unlinks a repository folder (its root commit and clone folder, from `team-changed`'s
+/// Links or unlinks a repository folder (its root commit and clone folder, from `team_snapshot`'s
 /// `repos`) to a shared project: its sessions' presence and changed files go to the team from
 /// now on. `folder: null` names a link from before folders were bound, which can only be
 /// removed (`on: false`).
@@ -2580,7 +2580,7 @@ pub async fn team_reserve_task(
 }
 
 /// Releases a task this device holds, or gives up an attempt someone else's hold blocks. `task`
-/// is the task's keyed hash from `team-changed`.
+/// is the task's keyed hash from `team_snapshot`.
 #[tauri::command]
 pub async fn team_release_task(
     team: State<'_, TeamService>,
