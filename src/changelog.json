@@ -2,7 +2,22 @@
   {
     "version": "0.9.0",
     "date": null,
-    "items": []
+    "items": [
+      {
+        "de": "Über dem Terminal eines Agenten steht wieder dein letzter Prompt. Ein Klick springt zu der Zeile, in der du ihn abgeschickt hast.",
+        "en": "Your last prompt is back above an agent's terminal. A click jumps to the line you sent it from.",
+        "el": "Το τελευταίο σου prompt εμφανίζεται ξανά πάνω από το τερματικό ενός agent. Ένα κλικ σε μεταφέρει στη γραμμή από την οποία το έστειλες.",
+        "es": "Tu último prompt vuelve a aparecer encima del terminal de un agente. Un clic salta a la línea desde la que lo enviaste.",
+        "fr": "Ton dernier prompt réapparaît au-dessus du terminal d’un agent. Un clic te ramène à la ligne d’où tu l’as envoyé.",
+        "it": "Il tuo ultimo prompt torna sopra il terminale di un agente. Un clic salta alla riga da cui l’hai inviato.",
+        "ja": "エージェントのターミナルの上に、最後のプロンプトが再び表示されます。クリックすると、送信した行へ移動します。",
+        "pl": "Twój ostatni prompt znów widać nad terminalem agenta. Kliknięcie przenosi do wiersza, z którego go wysłałeś.",
+        "pt": "Seu último prompt volta a aparecer acima do terminal de um agente. Um clique leva à linha de onde você o enviou.",
+        "ru": "Твой последний промпт снова виден над терминалом агента. Щелчок переносит к строке, из которой ты его отправил.",
+        "tr": "Son istemin yeniden bir ajanın terminalinin üstünde görünüyor. Tıklayınca onu gönderdiğin satıra atlarsın.",
+        "zh": "智能体终端上方再次显示你的上一个提示。点击即可跳到你发送它的那一行。"
+      }
+    ]
   },
   {
     "version": "0.8.0",
