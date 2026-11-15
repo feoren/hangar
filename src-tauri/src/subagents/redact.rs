@@ -10,8 +10,13 @@
 //! `os.environ['NAME'] = ...`, `SetEnvironmentVariable('NAME', ...)`), variables set without `=`
 //! (`setx`, fish `set -x`, Dockerfile `ENV`), a line of just a secret name and a token, a YAML
 //! value on the line below its name, `Your API key is <token>`, well-known token prefixes, PEM
-//! and SSH2 private keys and PuTTY `.ppk` private lines. An unquoted `password: ...` runs to the
-//! end of its line, the value of a `.env` line to the next whitespace.
+//! and SSH2 private keys and PuTTY `.ppk` private lines, `.pgpass` lines, XML elements named by a
+//! `key` or `name` attribute (`<string name="api_key">...</string>`), config commands that set a
+//! secret key (`git config github.token ...`, `npm config set ...:_authToken ...`), Markdown table
+//! rows (`| DB_PASSWORD | ... |`), fallback literals (`os.getenv("X", "...")`, `|| '...'`) and
+//! the password flags of common tools (`redis-cli -a`, `ldapsearch -w`, `smbclient -U u%p`,
+//! `net use`, `openssl -k`, `twine -p`). An unquoted `password: ...` runs to the end of its line,
+//! the value of a `.env` line to the next whitespace.
 //! Over-masking is preferred to a leak. Callers strip terminal sequences first
 //! ([`strip_controls`]), so a color code cannot split a name from its value.
 
@@ -83,7 +88,17 @@ const PREFIXES: &[(&str, usize)] = &[
     ("ya29.", 20),
     // A JSON Web Token: base64 of `{"`.
     ("eyJ", 24),
+    // PyPI upload tokens (a macaroon), Stripe and Svix webhook secrets, age identities, Grafana
+    // service account tokens, Heroku API keys.
+    ("pypi-AgE", 50),
+    ("whsec_", 24),
+    ("AGE-SECRET-KEY-1", 50),
+    ("glsa_", 32),
+    ("HRKU-", 24),
 ];
+
+/// A Telegram bot token: 8 to 10 digits of the bot id, `:AA`, then this many characters.
+const MIN_TELEGRAM_TAIL: usize = 30;
 
 /// AWS key ids are 16 upper case letters or digits after the prefix, so that names such as
 /// `ASIA_PACIFIC_REGION` stay.
@@ -113,6 +128,7 @@ const MAX_PEM_LABEL: usize = 96;
 pub fn redact(text: &str) -> String {
     let text = redact_pem(text);
     let text = redact_ppk(&text);
+    let text = redact_pgpass(&text);
     let text = redact_url_credentials(&text);
     let text = redact_authorization(&text);
     let text = redact_bearer(&text);
@@ -122,6 +138,8 @@ pub fn redact(text: &str) -> String {
     let text = redact_xml(&text);
     let text = redact_xml_attributes(&text);
     let text = redact_netrc(&text);
+    let text = redact_table_cells(&text);
+    let text = redact_fallbacks(&text);
     let text = redact_word_lines(&text);
     let text = redact_assignments(&text);
     let text = redact_sentences(&text);
@@ -301,6 +319,53 @@ fn redact_ppk(text: &str) -> String {
         offset += line.len();
     }
     ranges.extend(block);
+    mask_ranges(text, &ranges)
+}
+
+/// `.pgpass` lines, `host:port:database:user:password`: five fields, the port a number or `*`,
+/// no whitespace before the password. `\:` belongs to its field.
+fn redact_pgpass(text: &str) -> String {
+    const FIELDS: usize = 5;
+    let mut ranges = Vec::new();
+    let mut offset = 0;
+    for line in text.split_inclusive('\n') {
+        let line_start = offset;
+        offset += line.len();
+        let body = line.trim_end_matches(['\n', '\r']);
+        let lead = body.len() - body.trim_start().len();
+        let body = &body[lead..];
+        let bytes = body.as_bytes();
+        let mut colons = Vec::with_capacity(FIELDS);
+        let mut at = 0;
+        while at < bytes.len() && colons.len() < FIELDS {
+            match bytes[at] {
+                b'\\' => at += 2,
+                b':' => {
+                    colons.push(at);
+                    at += 1;
+                }
+                _ => at += 1,
+            }
+        }
+        let [host, port, database, user] = match colons.as_slice() {
+            &[a, b, c, d] => [(0, a), (a + 1, b), (b + 1, c), (c + 1, d)],
+            _ => continue,
+        };
+        let field = |(start, end): (usize, usize)| &body[start..end];
+        let head = &body[..user.1];
+        let port = field(port);
+        let port_ok = port == "*" || (!port.is_empty() && port.bytes().all(|b| b.is_ascii_digit()));
+        let filled = [host, database, user].iter().all(|f| !field(*f).is_empty());
+        if !port_ok || !filled || head.contains(char::is_whitespace) {
+            continue;
+        }
+        let from = user.1 + 1;
+        let password = body[from..].trim_end();
+        if !password.is_empty() {
+            let start = line_start + lead + from;
+            ranges.push((start, start + password.len()));
+        }
+    }
     mask_ranges(text, &ranges)
 }
 
@@ -603,6 +668,11 @@ fn redact_assignments(text: &str) -> String {
             continue;
         };
         let quoted_value = value_start > j;
+        // Masked by an earlier pass (`-passin pass:[redacted] -in x`): the rest is no value.
+        if text[value_start..].starts_with(REDACTED) {
+            i = (value_start + REDACTED.len()).max(i);
+            continue;
+        }
         // A `.env` line (`NAME=value`, also after `export` or a list's `- `): the value runs to
         // the next whitespace, `&`, `;`, `)`, `}` and quotes included; a `;` or `,` at its end
         // ends a shell command or list instead.
@@ -612,14 +682,19 @@ fn redact_assignments(text: &str) -> String {
                 .map_or(text.len(), |e| value_start + e);
             value_end = value_start + text[value_start..end].trim_end_matches([';', ',']).len();
         }
-        // `<add key="Password" value="..."/>`: the name of the entry, whose value the attribute
-        // pass masks.
+        // `<add key="Password" value="..."/>`, `<entry key="password">...</entry>`: the name of
+        // the entry, whose value the attribute or element pass masks.
         if name == "key" && quoted_value {
             let after = value_end + 1;
             let rest = text
                 .get(after..text.len().min(after + 16))
                 .unwrap_or_default();
-            if rest.trim_start().starts_with("value=") {
+            let rest = rest.trim_start();
+            // `key="theme">`: the entry's name; only a long value could be a key itself.
+            let entry = &text[value_start..value_end];
+            let names_entry =
+                rest.starts_with('>') && (named_secret(entry) || entry.len() < MIN_LOOSE_VALUE);
+            if rest.starts_with("value=") || names_entry {
                 i = value_end.max(i);
                 continue;
             }
@@ -810,8 +885,9 @@ fn redact_webhooks(text: &str) -> String {
 }
 
 /// `<password>value</password>`, `<apiKey>...</apiKey>`, `<ns:Secret attr="x">...</ns:Secret>`:
-/// the text of an element with a secret-looking name, when a closing tag follows it. Loose names
-/// stay (a plist names every entry in `<key>`).
+/// the text of an element with a secret-looking name, or one whose `key` or `name` attribute
+/// names a secret (`<string name="api_key">...</string>`), when a closing tag follows it. Loose
+/// names stay (a plist names every entry in `<key>`).
 fn redact_xml(text: &str) -> String {
     let bytes = text.as_bytes();
     let mut ranges = Vec::new();
@@ -829,10 +905,8 @@ fn redact_xml(text: &str) -> String {
         }
         let name = text[from..name_end].to_ascii_lowercase();
         let local = name.rsplit(':').next().unwrap_or(&name);
-        if LOOSE_NAMES.contains(&local) || !is_secret_name(local) {
-            continue;
-        }
-        // The rest of the start tag on the same line; a self-closing tag holds nothing.
+        // The rest of the start tag on the same line; a self-closing tag holds nothing. The
+        // search stops at the next `<`, so the pass stays linear.
         let Some(close) = text[name_end..]
             .find(['>', '<', '\n'])
             .map(|e| name_end + e)
@@ -840,6 +914,17 @@ fn redact_xml(text: &str) -> String {
             continue;
         };
         if bytes[close] != b'>' || bytes[close - 1] == b'/' {
+            continue;
+        }
+        // `<string name="api_key">`, `<entry key="password">`: the attribute names the entry.
+        let secret = named_secret(local)
+            || tag_attributes(text, name_end, close)
+                .iter()
+                .any(|(attribute, (start, end))| {
+                    matches!(attribute.as_str(), "key" | "name")
+                        && named_secret(&text[*start..*end])
+                });
+        if !secret {
             continue;
         }
         let value_start = close + 1;
@@ -855,6 +940,13 @@ fn redact_xml(text: &str) -> String {
         from = value_end;
     }
     mask_ranges(text, &ranges)
+}
+
+/// A tag or attribute value that names a secret; loose names stay (a plist names every entry in
+/// `<key>`).
+fn named_secret(value: &str) -> bool {
+    let lower = value.to_ascii_lowercase();
+    !LOOSE_NAMES.contains(&lower.as_str()) && is_secret_name(&lower)
 }
 
 /// Attributes of a start tag: lower-case name and the byte range of the value inside its quotes.
@@ -925,10 +1017,6 @@ fn redact_xml_attributes(text: &str) -> String {
         let tag = text[from..name_end].to_ascii_lowercase();
         let local = tag.rsplit(':').next().unwrap_or(&tag);
         let attributes = tag_attributes(text, name_end, close);
-        let named_secret = |value: &str| {
-            let lower = value.to_ascii_lowercase();
-            !LOOSE_NAMES.contains(&lower.as_str()) && is_secret_name(&lower)
-        };
         let secret = named_secret(local)
             || attributes.iter().any(|(name, (start, end))| {
                 matches!(name.as_str(), "key" | "name") && named_secret(&text[*start..*end])
@@ -969,6 +1057,40 @@ fn redact_word_lines(text: &str) -> String {
             (end > start && !harmless_value(text, start, end, bare.trim_start_matches('-')))
                 .then_some((start, end))
         };
+        // `aws configure set aws_secret_access_key <v>`, `git config --global github.token <v>`,
+        // `npm config set //registry.npmjs.org/:_authToken <v>`.
+        for index in 1..list.len().saturating_sub(1) {
+            let (Some(before), Some(key)) = (word(index - 1), word(index)) else {
+                continue;
+            };
+            if !CONFIG_SETTERS.contains(&before) {
+                continue;
+            }
+            // `set` alone is prose (`set API_KEY to a valid key`); only `config set` and
+            // `configure set` take a key.
+            let tool_set = index >= 2 && matches!(word(index - 2), Some("config" | "configure"));
+            if before == "set" && !tool_set {
+                continue;
+            }
+            let Some(last) = config_key_secret(key) else {
+                continue;
+            };
+            let Some((start, end)) = value_of(index + 1, last) else {
+                continue;
+            };
+            let value = &text[start..end];
+            // A plain word after a plain name is prose (`set password reset`); a key spelled as
+            // one (`a.b`, `A_B`, `x:y`) or a value that looks like a token is not.
+            let spelled = key
+                .bytes()
+                .any(|b| matches!(b, b'_' | b'.' | b':' | b'/') || b.is_ascii_uppercase());
+            let mixed = value.bytes().any(|b| b.is_ascii_digit())
+                && value.bytes().any(|b| b.is_ascii_alphabetic());
+            let token = mixed && value.len() >= MIN_AUTHORIZATION;
+            if !value.starts_with('-') && (spelled || token) {
+                ranges.push((start, end));
+            }
+        }
         match first {
             _ if program(first) == "setx" => {
                 if let Some(name) = word(1).filter(|name| secret_name(name)) {
@@ -1013,7 +1135,32 @@ fn redact_word_lines(text: &str) -> String {
             _ => {}
         }
     }
+    ranges.sort_unstable();
     mask_ranges(text, &ranges)
+}
+
+/// Words after which a config key and its value follow: `aws configure set`, `npm config set`,
+/// `git config [--global|--local|--system|--worktree]`. Not `-e`: `grep -e API_KEY src` names a
+/// pattern and a path, and a container tool takes `-e NAME=value` (the assignment pass).
+const CONFIG_SETTERS: &[&str] = &[
+    "set",
+    "config",
+    "--global",
+    "--local",
+    "--system",
+    "--worktree",
+    "--add",
+    "--replace-all",
+];
+
+/// The last part of a config key (after `.`, `:` or `/`) when it names a secret:
+/// `github.token`, `//registry.npmjs.org/:_authToken`, `aws_secret_access_key`.
+fn config_key_secret(key: &str) -> Option<&str> {
+    let last = key.rsplit(['.', ':', '/']).next()?;
+    (!last.is_empty()
+        && last.bytes().all(is_name_byte)
+        && is_secret_name(&last.to_ascii_lowercase()))
+    .then_some(last)
 }
 
 /// `Your API key is <value>`: a secret name, `is`, and a value that looks like a token (long,
@@ -1100,6 +1247,184 @@ fn redact_netrc(text: &str) -> String {
     mask_ranges(text, &ranges)
 }
 
+/// A Markdown table row whose cell names a secret (`| DB_PASSWORD | value |`, also in
+/// backticks): the next cell. A header row (the line below it separates header and body) names
+/// columns, not values, so `| Password | Notes |` stays.
+fn redact_table_cells(text: &str) -> String {
+    let mut ranges = Vec::new();
+    let mut offset = 0;
+    let mut lines = text.split_inclusive('\n').peekable();
+    while let Some(line) = lines.next() {
+        let line_start = offset;
+        offset += line.len();
+        let body = line.trim_end_matches(['\n', '\r']);
+        let trimmed = body.trim_start();
+        if !trimmed.starts_with('|') || lines.peek().is_some_and(|next| table_separator(next)) {
+            continue;
+        }
+        let lead = line_start + body.len() - trimmed.len();
+        let body_end = line_start + body.len();
+        let bytes = trimmed.as_bytes();
+        let mut cells = Vec::new();
+        let mut cell_start = lead + 1;
+        for at in 1..bytes.len() {
+            if bytes[at] == b'|' && bytes[at - 1] != b'\\' {
+                cells.push((cell_start, lead + at));
+                cell_start = lead + at + 1;
+            }
+        }
+        if cell_start < body_end {
+            cells.push((cell_start, body_end));
+        }
+        for pair in cells.windows(2) {
+            let (name_start, name_end) = cell_content(text, pair[0]);
+            let name = &text[name_start..name_end];
+            let lower = name.to_ascii_lowercase();
+            if name.is_empty() || !name.bytes().all(is_name_byte) || !is_secret_name(&lower) {
+                continue;
+            }
+            let (start, end) = cell_content(text, pair[1]);
+            let bare = lower.trim_start_matches('-');
+            if end <= start || harmless_value(text, start, end, bare) {
+                continue;
+            }
+            let token_len = text[start..end]
+                .bytes()
+                .take_while(|b| is_token_byte(*b))
+                .count();
+            if LOOSE_NAMES.contains(&bare) && token_len < MIN_LOOSE_VALUE {
+                continue;
+            }
+            ranges.push((start, end));
+        }
+    }
+    mask_ranges(text, &ranges)
+}
+
+/// The line between a Markdown table's header and its body: `|---|:--:|`.
+fn table_separator(line: &str) -> bool {
+    let line = line.trim();
+    line.starts_with('|')
+        && line.contains('-')
+        && line
+            .bytes()
+            .all(|b| matches!(b, b'|' | b'-' | b':' | b' ' | b'\t'))
+}
+
+/// A table cell without its spaces and the backticks or quotes around it.
+fn cell_content(text: &str, (start, end): (usize, usize)) -> (usize, usize) {
+    let cell = &text[start..end];
+    let inner = cell.trim();
+    let from = start + (cell.len() - cell.trim_start().len());
+    let to = from + inner.len();
+    let quoted = inner.len() >= 2
+        && matches!(inner.as_bytes()[0], b'`' | b'"' | b'\'')
+        && inner.as_bytes()[inner.len() - 1] == inner.as_bytes()[0];
+    if quoted {
+        (from + 1, to - 1)
+    } else {
+        (from, to)
+    }
+}
+
+/// Calls that read an environment variable and take a default as their second argument.
+const GETENV_CALLS: &[&str] = &["getenv(", "environ.get(", "env.get(", "env.fetch("];
+/// Operators whose right side is the fallback of a missing variable.
+const FALLBACK_OPERATORS: &[&str] = &["||", "??", " or "];
+
+/// A literal used when a secret's variable is missing: `os.getenv("DB_PASSWORD", "...")`,
+/// `password = getenv("X", "...")`, `process.env.X || '...'`, `... ?? "..."`, `... or "..."`
+/// after a secret name on the same line. Only a quoted literal is masked.
+fn redact_fallbacks(text: &str) -> String {
+    let mut ranges = Vec::new();
+    let mut offset = 0;
+    for line in text.split_inclusive('\n') {
+        let line_start = offset;
+        offset += line.len();
+        let line = line.trim_end_matches(['\n', '\r']);
+        let lower = line.to_ascii_lowercase();
+        let secret_at = first_secret_name(line);
+        // Where the next fallback may start; skipping masked literals keeps the pass linear.
+        let mut next_free = 0;
+        let mut found = Vec::new();
+        for operator in FALLBACK_OPERATORS {
+            let mut from = 0;
+            while let Some(hit) = lower[from..].find(operator) {
+                let at = from + hit;
+                from = at + operator.len();
+                if secret_at.is_some_and(|secret| secret <= at) {
+                    found.push((at, from, false));
+                }
+            }
+        }
+        for call in GETENV_CALLS {
+            let mut from = 0;
+            while let Some(hit) = lower[from..].find(call) {
+                let at = from + hit;
+                from = at + call.len();
+                found.push((at, from, true));
+            }
+        }
+        found.sort_unstable();
+        for (at, after, call) in found {
+            if at < next_free {
+                continue;
+            }
+            let literal = if call {
+                getenv_default(line, after, secret_at.is_some_and(|secret| secret <= at))
+            } else {
+                quoted_at(line, skip_spaces(line, after))
+            };
+            if let Some((start, end)) = literal {
+                ranges.push((line_start + start, line_start + end));
+                next_free = end;
+            }
+        }
+    }
+    ranges.sort_unstable();
+    mask_ranges(text, &ranges)
+}
+
+/// The end of the first word on `line` that names a secret.
+fn first_secret_name(line: &str) -> Option<usize> {
+    let bytes = line.as_bytes();
+    let mut at = 0;
+    while at < bytes.len() {
+        if !is_name_byte(bytes[at]) {
+            at += 1;
+            continue;
+        }
+        let start = at;
+        while at < bytes.len() && is_name_byte(bytes[at]) {
+            at += 1;
+        }
+        if is_secret_name(&line[start..at].to_ascii_lowercase()) {
+            return Some(at);
+        }
+    }
+    None
+}
+
+/// The inside of a quoted literal at `at` that is not empty.
+fn quoted_at(line: &str, at: usize) -> Option<(usize, usize)> {
+    if !matches!(line.as_bytes().get(at), Some(b'"' | b'\'')) {
+        return None;
+    }
+    value_at(line, at).filter(|(start, end)| end > start)
+}
+
+/// The quoted second argument of a getenv-like call whose arguments start at `args`, when the
+/// first one names a secret or a secret name comes before the call (`secret_before`).
+fn getenv_default(line: &str, args: usize, secret_before: bool) -> Option<(usize, usize)> {
+    let (name_start, name_end) = quoted_at(line, skip_spaces(line, args))?;
+    let named = is_secret_name(&line[name_start..name_end].to_ascii_lowercase());
+    let comma = skip_spaces(line, name_end + 1);
+    if line.as_bytes().get(comma) != Some(&b',') || !(named || secret_before) {
+        return None;
+    }
+    quoted_at(line, skip_spaces(line, comma + 1))
+}
+
 /// Byte ranges of the whitespace-separated words of one line. A quote opened at the start of a
 /// word, after `=` or inside a flag (`-p'a b'`) keeps its spaces in the word, as a shell would;
 /// an apostrophe inside a plain word (`it's`) opens nothing.
@@ -1153,22 +1478,70 @@ fn unquote(text: &str, (start, end): (usize, usize)) -> (usize, usize) {
 /// Short password flags of tools that take one there (`sshpass -p X`, `docker login -p X`,
 /// `mysql -pX`; `mysql -p db` prompts and names a database, `docker run -p 80:80` is a port),
 /// and `-u` or `--user` with `user:password` (curl): everything after the first `:`, unless both
-/// sides are numbers (`docker run -u 1000:1000`).
+/// sides are numbers (`docker run -u 1000:1000`). Also `twine -p X`, `redis-cli -a X`,
+/// `ldapsearch -w X` (and `-y`, the password file), `smbclient -U user%X`, `openssl -k X` and
+/// `-pass pass:X`, and the password after the share of `net use`.
 fn redact_tool_flags(text: &str) -> String {
     const MYSQL: &[&str] = &["mysql", "mysqldump", "mysqladmin", "mysqlimport", "mariadb"];
+    const OTHERS: &[&str] = &["twine", "redis-cli", "smbclient", "openssl", "net"];
     let mut ranges = Vec::new();
     let mut offset = 0;
     for line in text.split_inclusive('\n') {
         let list = words(line, offset);
         offset += line.len();
         let mut tool = String::new();
+        // `echo <password> | docker login --password-stdin`: what is echoed.
+        let piped = list.first().is_some_and(|&(start, end)| {
+            matches!(&text[start..end], "echo" | "printf")
+                && list
+                    .iter()
+                    .any(|&(start, end)| &text[start..end] == "--password-stdin")
+        });
+        if piped {
+            let echoed = list[1..]
+                .iter()
+                .take_while(|&&(start, end)| &text[start..end] != "|")
+                .map(|&value| unquote(text, value));
+            ranges.extend(echoed.filter(|(start, end)| end > start));
+        }
+        // `net use Z: \\host\share <password> /user:name`: the word after the share.
+        let mut after_share = false;
         for (index, &(start, end)) in list.iter().enumerate() {
             let word = &text[start..end];
             let next = list.get(index + 1).copied();
+            if std::mem::take(&mut after_share) && !word.starts_with('/') && word != "*" {
+                ranges.push(unquote(text, (start, end)));
+                continue;
+            }
+            let next_value = next.map(|value| unquote(text, value));
             match word {
+                _ if tool == "net use" && (word.starts_with('\\') || word.starts_with("//")) => {
+                    after_share = true;
+                }
+                "-a" if tool == "redis-cli" => ranges.extend(next_value),
+                "-w" | "-y" if tool.starts_with("ldap") => ranges.extend(next_value),
+                "-k" if tool == "openssl" => ranges.extend(next_value),
+                "-pass" | "-passin" | "-passout" if tool == "openssl" => {
+                    if let Some((start, end)) = next_value {
+                        if text[start..end].starts_with("pass:") && end > start + 5 {
+                            ranges.push((start + 5, end));
+                        }
+                    }
+                }
+                "-U" | "--user" if tool == "smbclient" => {
+                    if let Some((start, end)) = next_value {
+                        if let Some(at) = text[start..end].find('%') {
+                            if end > start + at + 1 {
+                                ranges.push((start + at + 1, end));
+                            }
+                        }
+                    }
+                }
                 "-p" => {
-                    let takes =
-                        tool == "sshpass" || tool == "docker login" || tool == "podman login";
+                    let takes = tool == "sshpass"
+                        || tool == "docker login"
+                        || tool == "podman login"
+                        || tool == "twine";
                     if let (true, Some(value)) = (takes, next) {
                         ranges.push(unquote(text, value));
                     }
@@ -1199,10 +1572,14 @@ fn redact_tool_flags(text: &str) -> String {
                     let name = program(word);
                     if (tool == "docker" || tool == "podman") && name == "login" {
                         tool = format!("{tool} login");
+                    } else if tool == "net" && name == "use" {
+                        tool = "net use".to_owned();
                     } else if name == "sshpass"
                         || name == "docker"
                         || name == "podman"
+                        || name.starts_with("ldap")
                         || MYSQL.contains(&name.as_str())
+                        || OTHERS.contains(&name.as_str())
                     {
                         tool = name;
                     }
@@ -1462,8 +1839,10 @@ fn redact_prefixes(text: &str) -> String {
                 }
             }
         });
-        if hit.is_some() {
-            let end = i + bytes[i..].iter().take_while(|b| is_token_byte(**b)).count();
+        let telegram = telegram_token_len(&bytes[i..]);
+        if hit.is_some() || telegram.is_some() {
+            let token = bytes[i..].iter().take_while(|b| is_token_byte(**b)).count();
+            let end = i + token.max(telegram.unwrap_or(0));
             out.push_str(&text[copied..i]);
             out.push_str(REDACTED);
             copied = end;
@@ -1474,6 +1853,25 @@ fn redact_prefixes(text: &str) -> String {
     }
     out.push_str(&text[copied..]);
     out
+}
+
+/// The length of a Telegram bot token at the start of `bytes`: 8 to 10 digits, `:AA`, then at
+/// least [`MIN_TELEGRAM_TAIL`] letters, digits, `_` or `-`.
+fn telegram_token_len(bytes: &[u8]) -> Option<usize> {
+    let digits = bytes
+        .iter()
+        .take(11)
+        .take_while(|b| b.is_ascii_digit())
+        .count();
+    if !(8..=10).contains(&digits) || !bytes[digits..].starts_with(b":AA") {
+        return None;
+    }
+    let from = digits + 3;
+    let tail = bytes[from..]
+        .iter()
+        .take_while(|b| b.is_ascii_alphanumeric() || matches!(b, b'_' | b'-'))
+        .count();
+    (tail >= MIN_TELEGRAM_TAIL).then_some(from + tail)
 }
 
 #[cfg(test)]
@@ -1730,6 +2128,19 @@ mod tests {
             "\nAPI_KEY=&",
             "'token'] = ",
             "setenv('token',",
+            "a:5432:b:c:",
+            "<entry key=\"password\">",
+            "<string name=\"x\" ",
+            "| token | ",
+            "|---|\n",
+            "token || '",
+            "token ?? ",
+            "getenv(\"token\", \"",
+            "git config token ",
+            "-e DB_PASSWORD ",
+            "net use \\\\h\\s ",
+            "openssl -pass pass:",
+            "123456789:AA",
         ] {
             let small = time(&unit.repeat(125_000 / unit.len()));
             let large = time(&unit.repeat(1_000_000 / unit.len()));
@@ -2357,6 +2768,230 @@ AAAA
             "the key is the parser module",
             "Your API key is stored in the keychain",
             "The token is expired_and_needs_refresh",
+        ]);
+    }
+
+    #[test]
+    fn pgpass_lines() {
+        masks(&[
+            (
+                format!("db.example.invalid:5432:appdb:appuser:{FAKE}"),
+                "db.example.invalid:5432:appdb:appuser:[redacted]",
+            ),
+            (
+                format!("*:*:*:postgres:{FAKE}\nnext"),
+                "*:*:*:postgres:[redacted]\nnext",
+            ),
+            (
+                format!("  host\\:x:5432:db:me:{FAKE}"),
+                "  host\\:x:5432:db:me:[redacted]",
+            ),
+        ]);
+        keeps(&[
+            "at 10:30:00:00: done",
+            "a:b:c:d:e",
+            "host:5432:db:me:",
+            "std::io::Error:x:y",
+            "time 12:30:45:67:89",
+        ]);
+    }
+
+    #[test]
+    fn xml_entries_named_by_an_attribute() {
+        masks(&[
+            (
+                format!("<string name=\"api_key\">{FAKE}</string>"),
+                "<string name=\"api_key\">[redacted]</string>",
+            ),
+            (
+                format!("<entry key=\"password\">{FAKE}</entry>"),
+                "<entry key=\"password\">[redacted]</entry>",
+            ),
+            (
+                format!("<setting name='DbPassword' serializeAs=\"String\">{FAKE}</setting>"),
+                "<setting name='DbPassword' serializeAs=\"String\">[redacted]</setting>",
+            ),
+        ]);
+        keeps(&[
+            "<string name=\"app_name\">Hangar</string>",
+            "<entry key=\"theme\">dark</entry>",
+            "<string name=\"title\">Settings</string>",
+            "<key>password</key>",
+        ]);
+    }
+
+    #[test]
+    fn config_commands_that_set_a_secret() {
+        masks(&[
+            (
+                format!("aws configure set aws_secret_access_key {FAKE}"),
+                "aws configure set aws_secret_access_key [redacted]",
+            ),
+            (
+                format!("git config --global github.token {FAKE}"),
+                "git config --global github.token [redacted]",
+            ),
+            (
+                format!("git config hub.oauthtoken {FAKE}"),
+                "git config hub.oauthtoken [redacted]",
+            ),
+            (
+                format!("npm config set //registry.npmjs.org/:_authToken {FAKE}"),
+                "npm config set //registry.npmjs.org/:_authToken [redacted]",
+            ),
+            (
+                format!("yarn config set npmAuthToken {FAKE}"),
+                "yarn config set npmAuthToken [redacted]",
+            ),
+        ]);
+        keeps(&[
+            "set password reset",
+            "git config --global user.name Someone",
+            "git config --global credential.helper manager",
+            "you can config token values later",
+            "grep -e password notes.txt",
+            "git config --global --unset github.token",
+            "you need to set API_KEY to a valid key",
+            "then set OPENAI_API_KEY before running",
+            "grep -e API_KEY src/main.rs",
+            "docker run -e DB_PASSWORD postgres:16",
+        ]);
+    }
+
+    #[test]
+    fn markdown_table_cells() {
+        masks(&[
+            (
+                format!("| DB_PASSWORD | {FAKE} |"),
+                "| DB_PASSWORD | [redacted] |",
+            ),
+            (
+                format!("| Name | Value |\n|---|---|\n| `API_TOKEN` | `{FAKE}` |\n| port | 5432 |"),
+                "| Name | Value |\n|---|---|\n| `API_TOKEN` | `[redacted]` |\n| port | 5432 |",
+            ),
+            (
+                "| password | two words |".to_owned(),
+                "| password | [redacted] |",
+            ),
+        ]);
+        keeps(&[
+            "| Column | Value |",
+            "| Password | Notes |\n|---|---|\n| x | y |",
+            "| key | Ctrl+K |",
+            "| token | 5 |",
+            "| TOKEN_COUNT | 12 |",
+        ]);
+    }
+
+    #[test]
+    fn fallback_literals_of_secret_variables() {
+        masks(&[
+            (
+                format!("password = os.getenv(\"DB_PASSWORD\", \"{FAKE}\")"),
+                "password = os.getenv(\"DB_PASSWORD\", \"[redacted]\")",
+            ),
+            (
+                format!("x = os.environ.get('API_TOKEN', '{FAKE}')"),
+                "x = os.environ.get('API_TOKEN', '[redacted]')",
+            ),
+            (
+                format!("password := getenv(\"X\", \"{FAKE}\")"),
+                "password := getenv(\"X\", \"[redacted]\")",
+            ),
+            (
+                format!("DB_PASSWORD = os.getenv(\"DB_PASSWORD\") or \"{FAKE}\""),
+                "DB_PASSWORD = os.getenv(\"DB_PASSWORD\") or \"[redacted]\"",
+            ),
+            (
+                format!("const secret = env(\"S\") ?? \"{FAKE}\";"),
+                "const secret = env(\"S\") ?? \"[redacted]\";",
+            ),
+            (
+                format!("const t = process.env.API_TOKEN || '{FAKE}'"),
+                "const t = process.env.API_TOKEN || '[redacted]'",
+            ),
+        ]);
+        keeps(&[
+            "home = os.getenv(\"HOME\", \"/root\")",
+            "name = user or \"anonymous\"",
+            "const port = process.env.PORT || '8080'",
+            "the password or the key",
+            "x = os.environ.get('API_TOKEN', '')",
+        ]);
+    }
+
+    #[test]
+    fn password_flags_of_more_tools() {
+        masks(&[
+            (
+                format!("redis-cli -h db -a {FAKE} ping"),
+                "redis-cli -h db -a [redacted] ping",
+            ),
+            (
+                format!("ldapsearch -x -D cn=admin -w {FAKE} -b dc=x"),
+                "ldapsearch -x -D cn=admin -w [redacted] -b dc=x",
+            ),
+            (
+                "ldapwhoami -x -D cn=admin -y /run/secrets/ldap".to_owned(),
+                "ldapwhoami -x -D cn=admin -y [redacted]",
+            ),
+            (
+                format!("smbclient //host.invalid/share -U me%{FAKE}"),
+                "smbclient //host.invalid/share -U me%[redacted]",
+            ),
+            (
+                format!("net use Z: \\\\host.invalid\\share {FAKE} /user:me"),
+                "net use Z: \\\\host.invalid\\share [redacted] /user:me",
+            ),
+            (
+                format!("openssl enc -aes-256-cbc -k {FAKE} -in x"),
+                "openssl enc -aes-256-cbc -k [redacted] -in x",
+            ),
+            (
+                format!("openssl rsa -in k.pem -passout pass:{FAKE} -out y"),
+                "openssl rsa -in k.pem -passout pass:[redacted] -out y",
+            ),
+            (
+                format!("twine upload -u __token__ -p {FAKE} dist/*"),
+                "twine upload -u __token__ -p [redacted] dist/*",
+            ),
+            (
+                format!("echo {FAKE} | docker login -u me --password-stdin"),
+                "echo [redacted] | docker login -u me --password-stdin",
+            ),
+        ]);
+        keeps(&[
+            "redis-cli -h db ping",
+            "ls -a -w 80",
+            "smbclient //host.invalid/share -U me",
+            "net use Z: \\\\host.invalid\\share /user:me",
+            "net use Z: \\\\host.invalid\\share * /user:me",
+            "openssl rsa -in k.pem -passin env:KEY_PASS",
+            "echo done | tee log.txt",
+            "grep -a -k pattern",
+        ]);
+    }
+
+    #[test]
+    fn newer_token_prefixes() {
+        for token in [
+            format!("pypi-AgE{FAKE}{FAKE}"),
+            format!("whsec_{FAKE}"),
+            format!("AGE-SECRET-KEY-1{}", "Q".repeat(58)),
+            format!("glsa_{FAKE}{FAKE}"),
+            format!("HRKU-{FAKE}"),
+            format!("123456789:AA{FAKE}{FAKE}"),
+        ] {
+            let input = format!("use {token} now");
+            assert_eq!(redact(&input), "use [redacted] now", "{token}");
+        }
+        keeps(&[
+            "pypi-AgE short",
+            "whsec_short",
+            "AGE-SECRET-KEY-1 is the age prefix",
+            "glsa_x and HRKU-x",
+            "at 123456789:AAA and 12:AA",
+            "id 12345678901:AAFAKEFAKEFAKEFAKEFAKEFAKEFAKEFAKE",
         ]);
     }
 

@@ -3,7 +3,8 @@
 //! git follows `include.path` and every `includeIf.<condition>.path` while it reads the
 //! repository's config, and it opens further paths the config names (`core.excludesFile`,
 //! `core.attributesFile`, `core.worktree`, `mailmap.file`, `diff.orderFile`) and the object
-//! folders listed in `objects/info/alternates`. A cloned repository controls all of them. On
+//! folders listed in `objects/info/alternates`, and it opens the linked worktree folders that
+//! `worktrees/<id>/gitdir` names. A cloned or copied repository controls all of them. On
 //! Windows a path on a network share makes git hand the user's credentials to that host, and an
 //! included file can name filter drivers and hooks that a condition only switches on later (an
 //! `onbranch:` include matches once a worktree checks out another branch).
@@ -54,6 +55,8 @@ const MAX_INCLUDE_DEPTH: usize = 10;
 const MAX_ALTERNATES_DEPTH: usize = 5;
 /// Alternate object folders per repository, over all levels; a repository with more is refused.
 const MAX_ALTERNATES: usize = 256;
+/// Linked worktree entries in a common git folder; a repository with more is refused.
+const MAX_WORKTREES: usize = 256;
 /// Config files per repository; a repository with more is refused.
 const MAX_FILES: usize = 64;
 const MAX_SMALL_FILE: usize = 64 * 1024;
@@ -444,6 +447,7 @@ fn scan(
         &mut budget,
         stamps,
     )?;
+    check_worktrees(start, &candidate.common, stamps)?;
 
     let mut config = RepoConfig::default();
     let mut queue = vec![(candidate.common.join("config"), 0usize)];
@@ -642,6 +646,63 @@ fn check_alternates(
         // Each level may list many folders; without a bound the walk grows with their power.
         *budget = budget.checked_sub(1).ok_or(Refusal::Unsafe)?;
         check_alternates(start, &target, depth + 1, budget, stamps)?;
+    }
+    Ok(())
+}
+
+/// The back-links of linked worktrees: git reads `worktrees/<id>/gitdir` of the common folder for
+/// every entry there (`get_worktrees`) and opens the folder it names on `worktree list`, `add`,
+/// `remove` and on a commit (measured with git 2.56). A relative target is relative to
+/// `worktrees/<id>`. Each target must stay off other shares and devices. The `worktrees` folder
+/// is stamped, so an added or removed entry is noticed, and so is each `gitdir` file, also a
+/// missing one that appears later.
+fn check_worktrees(start: &Path, common: &Path, stamps: &mut Vec<Stamp>) -> Result<(), Refusal> {
+    let folder = common.join("worktrees");
+    let found = reach(&folder)?;
+    if !link_allowed(start, &folder) {
+        return Err(Refusal::Remote);
+    }
+    stamps.push(stamp(&folder));
+    match found {
+        None => return Ok(()),
+        // git's `opendir` fails on anything else and it lists no linked worktree.
+        Some(meta) if !meta.is_dir() => return Ok(()),
+        Some(_) => {}
+    }
+    let entries = fs::read_dir(&folder).map_err(|_| Refusal::Unsafe)?;
+    let mut count = 0usize;
+    for entry in entries {
+        let entry = entry.map_err(|_| Refusal::Unsafe)?;
+        count += 1;
+        if count > MAX_WORKTREES {
+            return Err(Refusal::Unsafe);
+        }
+        let id = folder.join(entry.file_name());
+        // The walk first: the plain lookups of `link_allowed` and `stamp` would pass a link on
+        // the way.
+        reach(&id)?;
+        if !link_allowed(start, &id) || !link_allowed(start, &id.join("HEAD")) {
+            return Err(Refusal::Remote);
+        }
+        let gitdir = id.join("gitdir");
+        let text = read_pointer(start, &gitdir).map_err(|_| Refusal::Remote)?;
+        stamps.push(stamp(&gitdir));
+        // git trims trailing whitespace and skips an empty file.
+        let Some(text) = text.as_deref().map(str::trim_end).filter(|t| !t.is_empty()) else {
+            continue;
+        };
+        let path = Path::new(text);
+        let target = if path.is_absolute() || path.has_root() || is_remote(path) {
+            path.to_path_buf()
+        } else {
+            id.join(path)
+        };
+        if !allowed(start, &target, false) {
+            return Err(Refusal::Remote);
+        }
+        // git resolves the target (`strbuf_realpath_forgiving`) and opens it, so a folder linked
+        // to a share on the way would be contacted although the text names a local path.
+        reach(&target)?;
     }
     Ok(())
 }
@@ -945,6 +1006,59 @@ mod tests {
             &repo.join(".git").join("config"),
             "[include]\n\tpath = linked/x.cfg\n",
         );
+        let started = Instant::now();
+        assert!(refused(&git, &repo));
+        // An SMB attempt to the unroutable address would take seconds.
+        assert!(started.elapsed() < std::time::Duration::from_secs(5));
+    }
+
+    /// More linked worktree entries than checked: refused rather than partly checked.
+    #[test]
+    fn too_many_worktree_entries_are_refused() {
+        use crate::git::tests::init_repo;
+        let Some(git) = git() else { return };
+        let tmp = TempDir::new("git-guard-worktrees-cap");
+        let repo = tmp.path().join("repo");
+        init_repo(&git, &repo);
+        let worktrees = repo.join(".git").join("worktrees");
+        for id in 0..MAX_WORKTREES {
+            put(
+                &worktrees.join(format!("w{id}")).join("gitdir"),
+                b"../../../w/.git\n",
+            );
+        }
+        assert!(check(&git, &repo, deadline()).is_ok());
+        put(
+            &worktrees.join("extra").join("gitdir"),
+            b"../../../w/.git\n",
+        );
+        assert!(matches!(
+            check(&git, &repo, deadline()),
+            Err(GitError::UnsafeFilters)
+        ));
+    }
+
+    /// A worktree back-link whose path passes a folder linked to a share: git resolves a
+    /// relative target with `strbuf_realpath_forgiving` and opens it, so the walk refuses it.
+    #[test]
+    fn worktree_back_link_through_a_linked_folder_is_refused() {
+        use crate::git::tests::init_repo;
+        let Some(git) = git() else { return };
+        let tmp = TempDir::new("git-guard-worktree-linked");
+        let repo = tmp.path().join("repo");
+        init_repo(&git, &repo);
+        let link = repo.join("linked");
+        #[cfg(windows)]
+        let made = std::os::windows::fs::symlink_dir(r"\\192.0.2.1\share", &link);
+        #[cfg(unix)]
+        let made = std::os::unix::fs::symlink("//192.0.2.1/share", &link);
+        if let Err(error) = made {
+            eprintln!("symbolic link not possible here, case skipped: {error}");
+            return;
+        }
+        let entry = repo.join(".git").join("worktrees").join("x");
+        put(&entry.join("HEAD"), b"ref: refs/heads/main\n");
+        put(&entry.join("gitdir"), b"../../../linked/x/.git\n");
         let started = Instant::now();
         assert!(refused(&git, &repo));
         // An SMB attempt to the unroutable address would take seconds.
