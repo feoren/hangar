@@ -3936,6 +3936,112 @@ body.resizing-horizontal * {
   padding: 18px 20px 16px;
 }
 
+/* Resizable dialogs (DialogResize.tsx): grips straddle the border, so the hit area reaches a few
+   pixels outside the dialog like a window frame. The size comes from the inline style. */
+.dialog.resizable {
+  position: relative;
+}
+
+.dialog-resize {
+  position: absolute;
+  z-index: 1;
+  touch-action: none;
+}
+
+.dialog-resize.n,
+.dialog-resize.s {
+  left: 14px;
+  right: 14px;
+  height: 8px;
+  cursor: ns-resize;
+}
+
+.dialog-resize.n {
+  top: -4px;
+}
+
+.dialog-resize.s {
+  bottom: -4px;
+}
+
+.dialog-resize.e,
+.dialog-resize.w {
+  top: 14px;
+  bottom: 14px;
+  width: 8px;
+  cursor: ew-resize;
+}
+
+.dialog-resize.e {
+  right: -4px;
+}
+
+.dialog-resize.w {
+  left: -4px;
+}
+
+.dialog-resize.ne,
+.dialog-resize.nw,
+.dialog-resize.se,
+.dialog-resize.sw {
+  width: 18px;
+  height: 18px;
+}
+
+.dialog-resize.ne {
+  top: -4px;
+  right: -4px;
+  cursor: nesw-resize;
+}
+
+.dialog-resize.sw {
+  bottom: -4px;
+  left: -4px;
+  cursor: nesw-resize;
+}
+
+.dialog-resize.nw {
+  top: -4px;
+  left: -4px;
+  cursor: nwse-resize;
+}
+
+.dialog-resize.se {
+  right: -4px;
+  bottom: -4px;
+  border-radius: 4px;
+  cursor: nwse-resize;
+}
+
+/* Two short diagonal strokes in the lower right corner show where the dialog can be resized. */
+.dialog-resize.se::after {
+  content: "";
+  position: absolute;
+  right: 8px;
+  bottom: 8px;
+  width: 8px;
+  height: 8px;
+  background: linear-gradient(
+    135deg,
+    transparent 0 46%,
+    var(--muted) 46% 54%,
+    transparent 54% 72%,
+    var(--muted) 72% 80%,
+    transparent 80%
+  );
+  opacity: 0.55;
+}
+
+.dialog-resize.se:hover::after,
+.dialog-resize.se:focus-visible::after {
+  opacity: 1;
+}
+
+.dialog-resize.se:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
+}
+
 .dialog-header {
   display: flex;
   align-items: center;

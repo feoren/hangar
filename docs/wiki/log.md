@@ -1011,3 +1011,13 @@ wave's features move to 0.9.0 in the changelog. The bar no longer keeps a tracke
 terminal's one prompt line tracker feeds the handover's `SubmittedLines`, the timeline's
 `StepPrompt` and the bar, so deleting a selection in the prompt reaches all three alike.
 Pages changed: [[costs-and-handover]].
+
+## [2026-11-15] update | Prompt editing across wrapped rows, resizable settings dialog
+Click-to-move and deleting a selection in an agent's prompt now work across the rows xterm wrapped
+the cursor's line onto itself (`isWrapped`), with the blank cell a wrapped wide character leaves
+dropped from the counts. Prompts the agent wraps or breaks itself (Claude Code's own wrapping,
+Shift+Enter) stay single line. A ConPTY recording of Claude Code 2.1.325 confirms that it ends every
+prompt row with a real line break, so its prompts are not joined yet. The settings dialog can be resized by its edges and corners, grows to both sides,
+is clamped to the window, snaps to device pixels and remembers its size.
+Pages changed: [[prompt-mouse-editing]], [[resizable-dialogs]] (new), [[claude-prompt-wrap-measurement]]
+(new, raw `2026-11-15-claude-prompt-wrap-measurement.md`), index.

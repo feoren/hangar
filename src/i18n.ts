@@ -44,6 +44,9 @@ const de = {
   "common.cancel": "Abbrechen",
   "common.close": "Schließen",
   "splitter.resetHint": "{label} (Doppelklick: zurücksetzen)",
+  "dialog.resizeWidth": "Breite ändern",
+  "dialog.resizeHeight": "Höhe ändern",
+  "dialog.resizeSize": "Größe ändern",
 
   "key.ctrl": "Strg",
   "key.shift": "Umschalt",
@@ -1954,6 +1957,9 @@ const en: Record<MessageKey, string> = {
   "common.cancel": "Cancel",
   "common.close": "Close",
   "splitter.resetHint": "{label} (double-click: reset)",
+  "dialog.resizeWidth": "Resize width",
+  "dialog.resizeHeight": "Resize height",
+  "dialog.resizeSize": "Resize",
 
   "key.ctrl": "Ctrl",
   "key.shift": "Shift",
@@ -3819,6 +3825,9 @@ const el: Record<MessageKey, string> = {
   "common.cancel": "Άκυρο",
   "common.close": "Κλείσιμο",
   "splitter.resetHint": "{label} (διπλό κλικ: επαναφορά)",
+  "dialog.resizeWidth": "Αλλαγή πλάτους",
+  "dialog.resizeHeight": "Αλλαγή ύψους",
+  "dialog.resizeSize": "Αλλαγή μεγέθους",
 
   "key.ctrl": "Ctrl",
   "key.shift": "Shift",
@@ -5747,6 +5756,9 @@ const es: Record<MessageKey, string> = {
   "common.cancel": "Cancelar",
   "common.close": "Cerrar",
   "splitter.resetHint": "{label} (doble clic: restablecer)",
+  "dialog.resizeWidth": "Cambiar el ancho",
+  "dialog.resizeHeight": "Cambiar la altura",
+  "dialog.resizeSize": "Cambiar el tamaño",
 
   "key.ctrl": "Ctrl",
   "key.shift": "Mayús",
@@ -7647,6 +7659,9 @@ const fr: Record<MessageKey, string> = {
   "common.cancel": "Annuler",
   "common.close": "Fermer",
   "splitter.resetHint": "{label} (double-clic : réinitialiser)",
+  "dialog.resizeWidth": "Modifier la largeur",
+  "dialog.resizeHeight": "Modifier la hauteur",
+  "dialog.resizeSize": "Redimensionner",
 
   "key.ctrl": "Ctrl",
   "key.shift": "Maj",
@@ -9570,6 +9585,9 @@ const it: Record<MessageKey, string> = {
   "common.cancel": "Annulla",
   "common.close": "Chiudi",
   "splitter.resetHint": "{label} (doppio clic: ripristina)",
+  "dialog.resizeWidth": "Cambia larghezza",
+  "dialog.resizeHeight": "Cambia altezza",
+  "dialog.resizeSize": "Ridimensiona",
 
   "key.ctrl": "Ctrl",
   "key.shift": "Maiusc",
@@ -11475,6 +11493,9 @@ const ja: Record<MessageKey, string> = {
   "common.cancel": "キャンセル",
   "common.close": "閉じる",
   "splitter.resetHint": "{label} (ダブルクリックでリセット)",
+  "dialog.resizeWidth": "幅を変更",
+  "dialog.resizeHeight": "高さを変更",
+  "dialog.resizeSize": "サイズを変更",
 
   "key.ctrl": "Ctrl",
   "key.shift": "Shift",
@@ -13374,6 +13395,9 @@ const pl: Record<MessageKey, string> = {
   "common.cancel": "Anuluj",
   "common.close": "Zamknij",
   "splitter.resetHint": "{label} (podwójne kliknięcie: przywróć)",
+  "dialog.resizeWidth": "Zmień szerokość",
+  "dialog.resizeHeight": "Zmień wysokość",
+  "dialog.resizeSize": "Zmień rozmiar",
 
   "key.ctrl": "Ctrl",
   "key.shift": "Shift",
@@ -15256,6 +15280,9 @@ const pt: Record<MessageKey, string> = {
   "common.cancel": "Cancelar",
   "common.close": "Fechar",
   "splitter.resetHint": "{label} (clique duplo: redefinir)",
+  "dialog.resizeWidth": "Alterar largura",
+  "dialog.resizeHeight": "Alterar altura",
+  "dialog.resizeSize": "Redimensionar",
 
   "key.ctrl": "Ctrl",
   "key.shift": "Shift",
@@ -17152,6 +17179,9 @@ const ru: Record<MessageKey, string> = {
   "common.cancel": "Отмена",
   "common.close": "Закрыть",
   "splitter.resetHint": "{label} (двойной щелчок: сбросить)",
+  "dialog.resizeWidth": "Изменить ширину",
+  "dialog.resizeHeight": "Изменить высоту",
+  "dialog.resizeSize": "Изменить размер",
 
   "key.ctrl": "Ctrl",
   "key.shift": "Shift",
@@ -19029,6 +19059,9 @@ const tr: Record<MessageKey, string> = {
   "common.cancel": "İptal",
   "common.close": "Kapat",
   "splitter.resetHint": "{label} (çift tıklama: sıfırla)",
+  "dialog.resizeWidth": "Genişliği değiştir",
+  "dialog.resizeHeight": "Yüksekliği değiştir",
+  "dialog.resizeSize": "Boyutu değiştir",
 
   "key.ctrl": "Ctrl",
   "key.shift": "Shift",
@@ -20896,6 +20929,9 @@ const zh: Record<MessageKey, string> = {
   "common.cancel": "取消",
   "common.close": "关闭",
   "splitter.resetHint": "{label} (双击重置)",
+  "dialog.resizeWidth": "调整宽度",
+  "dialog.resizeHeight": "调整高度",
+  "dialog.resizeSize": "调整大小",
 
   "key.ctrl": "Ctrl",
   "key.shift": "Shift",

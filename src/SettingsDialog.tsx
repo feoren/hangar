@@ -5,6 +5,7 @@ import { errorText, type Profile } from "./api";
 
 import { CommandGuardSettings } from "./CommandGuardSettings";
 import { Dialog } from "./Dialog";
+import { DialogResizeHandles, useDialogSize, type DialogSizeBounds } from "./DialogResize";
 import { GateRulesSettings } from "./GateRulesSettings";
 import {
   isLanguage,
@@ -182,6 +183,16 @@ function isNarrow(): boolean {
 let lastSection: SettingsSection = "general";
 
 /**
+ * The standard size matches `--large-dialog-width` and `--large-dialog-height` in styles.css. The
+ * minimum keeps the section list and a field row side by side; a smaller window still wins.
+ */
+const SIZE_BOUNDS: DialogSizeBounds = {
+  storageKey: "hangar.settingsDialogSize",
+  standard: { width: 936, height: 672 },
+  min: { width: 640, height: 420 },
+};
+
+/**
  * Sections as vertical tabs on the left (WAI-ARIA Tabs, automatic activation), content on the
  * right. Every change takes effect immediately and is saved right away; there is no Save
  * button.
@@ -191,6 +202,7 @@ export function SettingsDialog(props: Props) {
   const [section, setSection] = useState<SettingsSection>(props.initialSection ?? lastSection);
   const tabs = useRef(new Map<SettingsSection, HTMLButtonElement>());
   const narrow = useSyncExternalStore(subscribeNarrow, isNarrow);
+  const size = useDialogSize(SIZE_BOUNDS);
 
   useEffect(() => {
     lastSection = section;
@@ -211,7 +223,12 @@ export function SettingsDialog(props: Props) {
   };
 
   return (
-    <Dialog labelledBy="settings-title" className="settings" onClose={props.onClose}>
+    <Dialog
+      labelledBy="settings-title"
+      className="settings resizable"
+      style={size.style}
+      onClose={props.onClose}
+    >
       <div className="dialog-header">
         <h2 id="settings-title">{t("settings.title")}</h2>
         <button
@@ -277,6 +294,7 @@ export function SettingsDialog(props: Props) {
           {t("common.close")}
         </button>
       </div>
+      <DialogResizeHandles state={size} />
     </Dialog>
   );
 }
