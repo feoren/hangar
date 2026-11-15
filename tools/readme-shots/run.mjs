@@ -1,12 +1,13 @@
 // Renders the README screenshots into docs/images from the real frontend with a mocked backend
 // (mock.ts) in a headless Chromium based browser: one image per scene and color scheme, e.g.
-// hangar-dark.png (the overview) and hangar-team-light.png.
+// hangar-dark.png (the overview) and hangar-queue-light.png.
 //
 // Usage: pnpm readme:shots [--scene <name>]...   (default: every scene)
 //
 // Starts its own Vite server on a free port, never touches a running Hangar, and keeps all
 // temporary files (browser profile, Vite cache) under tests/.tmp/readme-shots, which it removes at
-// the end.
+// the end. A scene that gets stuck leaves the page as it stood in
+// tests/.tmp/readme-shots-failed-<scene>.png.
 import react from "@vitejs/plugin-react";
 import { execFileSync } from "node:child_process";
 import { mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
@@ -54,7 +55,8 @@ const working = (count) => `(() => {
 
 /**
  * Every scene waits for the same sidebar first: Claude Code and Codex CLI working, and Gemini CLI
- * done (it went quiet after its answer). Aider asks from the start, PowerShell rests.
+ * done (it went quiet after its answer). Aider asks from the start, PowerShell rests. A scene can
+ * wait for something else instead (`settled`).
  */
 const SETTLED = `(${working(2)} && ${shows(".session", "done")})`;
 
@@ -65,19 +67,52 @@ const BLUR = `(() => {
 })()`;
 
 /**
- * Scrolls the element into view, aligned to the bottom of its scrolling parent. In Settings this
- * brings the terminal preview, the color schemes and the fonts into one view.
+ * Scrolls the element into view, aligned to `block` of its scrolling parent ("start", "center"
+ * or "end").
  */
-const reveal = (selector) => `(() => {
+const reveal = (selector, block) => `(() => {
   const element = document.querySelector(${JSON.stringify(selector)});
   if (!element) return false;
-  element.scrollIntoView({ block: "end", behavior: "instant" });
+  element.scrollIntoView({ block: ${JSON.stringify(block)}, behavior: "instant" });
   return true;
 })()`;
 
+/** Picks `value` in the select element matching `selector`, as a person would. */
+const choose = (selector, value) => `(() => {
+  const select = document.querySelector(${JSON.stringify(selector)});
+  if (!select) throw new Error("No select " + ${JSON.stringify(selector)});
+  const setter = Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype, "value").set;
+  setter.call(select, ${JSON.stringify(value)});
+  select.dispatchEvent(new Event("change", { bubbles: true }));
+  return true;
+})()`;
+
+/** Opens the context menu of the sidebar row at `index`, a little right of its top left corner. */
+const rowMenu = (index) => `(() => {
+  const row = document.querySelectorAll(".session .session-main")[${index}];
+  if (!row) throw new Error("No session row ${index}");
+  const box = row.getBoundingClientRect();
+  row.dispatchEvent(new MouseEvent("contextmenu", {
+    bubbles: true,
+    cancelable: true,
+    button: 2,
+    clientX: box.left + 140,
+    clientY: box.top + 24,
+  }));
+  return true;
+})()`;
+
+/** Opens the app menu, then its group `group`, then runs the entry `entry`. */
+const appMenu = (group, entry) => [
+  { run: click(".menu-button"), ready: shows("[role=menuitem]", group) },
+  { run: click("[role=menuitem]", group), ready: shows("[role=menuitem]", entry) },
+  { run: click("[role=menuitem]", entry), ready: "true" },
+];
+
 /**
- * The scenes. `file`: the image name without scheme; `layout`: changes to the stored layout;
- * `steps`: what to run once the app is up, each followed by what must show before the next.
+ * The scenes, in README order. `file`: the image name without scheme; `layout`: changes to the
+ * stored layout; `steps`: what to run once the app is up, each followed by what must show before
+ * the next. The mock reads the scene's name too (mock.ts `SCENE`).
  */
 const SCENES = [
   {
@@ -94,75 +129,83 @@ const SCENES = [
     steps: [{ ready: shows(".subagent-node", "tester") }],
   },
   {
-    name: "subagent",
-    file: "hangar-subagent",
+    // The home view: the commit calendar and one card per repository.
+    name: "home",
+    file: "hangar-home",
     maxBytes: 300 * KB,
     layout: { closedGroups: ["newSession"] },
     steps: [
-      { ready: shows(".subagent-node", "tester") },
+      { run: click(".sidebar-home"), ready: shows(".project-card .project-commits li") },
       {
-        run: click(".subagent-node", "tester"),
-        ready: shows(".subagent-log .log-line", "Checking the timing"),
+        ready: `(${shows(".project-server", "localhost:5173")} && ${shows(".project-changes", "open change")} && ${shows(".activity-day.level-4")})`,
       },
-    ],
-  },
-  {
-    // The Files tab with the folders open where this session and the teammates work.
-    name: "files",
-    file: "hangar-files",
-    maxBytes: 300 * KB,
-    layout: {
-      snapLayout: "single",
-      sideOpen: true,
-      sideTab: "files",
-      notesWidth: 360,
-      closedGroups: ["newSession"],
-    },
-    steps: [
-      { ready: shows(".team-pill", "online") },
-      { ready: shows(".file-tree .tree-item", "src") },
-      { run: click(".file-tree .tree-item", "src"), ready: shows(".tree-item", "payments") },
-      { run: click(".tree-item", "payments"), ready: shows(".tree-item", "webhook.ts") },
-      { run: click(".tree-item", "emails"), ready: shows(".tree-item", "checkout.de.json") },
-      { run: click(".tree-item", "search"), ready: shows(".tree-item", "rank.ts") },
-      { run: click(".tree-item", "webhook.ts"), ready: shows(".tree-item.selected", "webhook.ts") },
-      { ready: shows(".tree-people") },
       { run: BLUR, ready: "true" },
     ],
   },
   {
-    name: "team",
-    file: "hangar-team",
+    // Claude Code works; its next message waits in the queue, opened again from the row's menu.
+    name: "queue",
+    file: "hangar-queue",
     maxBytes: 300 * KB,
-    // A narrower sidebar keeps the teammates' avatars on the worktree row clear of the window.
-    layout: { sidebarWidth: 300 },
+    layout: { snapLayout: "single", closedGroups: ["newSession"] },
     steps: [
-      { ready: shows(".team-pill", "online") },
-      { run: click(".team-pill"), ready: shows(".team-window .team-peer", "Jonas Berg") },
-    ],
-  },
-  {
-    // The panel opens on the private notes; the Shared side shows the notes kept in the repository.
-    name: "notes",
-    file: "hangar-notes",
-    maxBytes: 300 * KB,
-    layout: { snapLayout: "single", sideOpen: true, sideTab: "notes" },
-    steps: [
-      { ready: shows(".notes-sides .segment", "Shared") },
+      { ready: shows(".session-queued") },
+      { run: rowMenu(0), ready: shows("[role=menuitem]", "Edit queued message") },
       {
-        run: click(".notes-sides .segment", "Shared"),
-        ready: shows(".notes", "Release checklist"),
+        run: click("[role=menuitem]", "Edit queued message"),
+        ready: shows(".queue-editor .queue-text"),
       },
     ],
   },
   {
-    name: "settings",
-    file: "hangar-settings",
+    // The command guard holds a force push of the team session until the person answers.
+    name: "guard",
+    file: "hangar-guard",
     maxBytes: 300 * KB,
+    layout: { snapLayout: "single", closedGroups: ["newSession"] },
+    settled: `(${working(1)} && ${shows(".session", "done")})`,
+    steps: [{ ready: shows(".gate-card .gate-command", "git push --force") }],
+  },
+  {
+    // The daily review of the day before: projects, sessions with their times, commits.
+    name: "review",
+    file: "hangar-review",
+    maxBytes: 300 * KB,
+    layout: { closedGroups: ["newSession"] },
+    steps: [
+      ...appMenu("View", "Daily review"),
+      { ready: shows(".daily-review .review-project") },
+      { run: click(".review-prev"), ready: shows(".review-commits", "retry the webhook") },
+      { run: BLUR, ready: "true" },
+    ],
+  },
+  {
+    // File > Clean up worktrees: Hangar's worktrees with their state and size.
+    name: "worktrees",
+    file: "hangar-worktrees",
+    maxBytes: 300 * KB,
+    layout: { closedGroups: ["newSession"] },
+    steps: [
+      ...appMenu("File", "Clean up worktrees"),
+      { ready: shows(".cleanup-meta", "295 MiB") },
+      { run: BLUR, ready: "true" },
+    ],
+  },
+  {
+    // Settings > Appearance: the builder for the session row and its templates.
+    name: "row-builder",
+    file: "hangar-row-builder",
+    maxBytes: 300 * KB,
+    layout: { closedGroups: ["newSession"] },
     steps: [
       { run: click(".footer-settings"), ready: shows("[role=tab]", "Appearance") },
-      { run: click("[role=tab]", "Appearance"), ready: shows(".scheme-picker") },
-      { run: BLUR, ready: reveal(".font-picker") },
+      { run: click("[role=tab]", "Appearance"), ready: shows(".row-builder") },
+      // A template other than the standard row: the example and the editor follow it.
+      {
+        run: choose(".row-builder-preset select", "compact"),
+        ready: `document.querySelector(".row-builder-preset select").value === "compact"`,
+      },
+      { run: BLUR, ready: reveal(".row-builder", "start") },
     ],
   },
 ];
@@ -259,6 +302,7 @@ async function render(page, url, scene, scheme, version) {
   });
   await page.send("Emulation.setFocusEmulationEnabled", { enabled: true });
   await page.send("Emulation.setTimezoneOverride", { timezoneId: "UTC" }).catch(() => undefined);
+  await page.send("Emulation.setLocaleOverride", { locale: "en-US" }).catch(() => undefined);
   await page.send("Emulation.setEmulatedMedia", {
     features: [
       { name: "prefers-color-scheme", value: scheme },
@@ -278,6 +322,7 @@ async function render(page, url, scene, scheme, version) {
       fontSize: 14,
       ...scene.layout,
     },
+    "readmeShots.scene": scene.name,
     "hangar.settings": {
       language: "en",
       theme: "system",
@@ -304,13 +349,13 @@ async function render(page, url, scene, scheme, version) {
         const version = document.querySelector(".brand-version");
         return (
           sessions.length === 5 &&
-          text.includes("asks") &&
+          text.includes("question") &&
           text.includes("working") &&
           version !== null &&
           version.textContent.includes(${JSON.stringify(shown)})
         );
       })()`),
-    { what: `five sessions, agents working, Aider asking and version ${shown}` },
+    { what: `five sessions, an agent working, Aider asking and version ${shown}` },
   );
   await page.evaluate("document.fonts.ready.then(() => true)");
   // The version (with its beta badge) must be readable, not cut off with an ellipsis. If this
@@ -322,7 +367,7 @@ async function render(page, url, scene, scheme, version) {
   if (missing > 0) {
     throw new Error(`The version ${shown} is cut off in the sidebar header by ${missing} px.`);
   }
-  for (const [index, step] of [{ ready: SETTLED }, ...scene.steps].entries()) {
+  for (const [index, step] of [{ ready: scene.settled ?? SETTLED }, ...scene.steps].entries()) {
     if (step.run) await page.evaluate(step.run);
     await waitFor(() => page.evaluate(step.ready), {
       what: index === 0 ? "the settled sidebar" : `step ${index} of the scene ${scene.name}`,
@@ -381,7 +426,16 @@ async function main() {
     page = await launchBrowser(browserPath, path.join(WORK, "profile"));
     for (const scene of scenes) {
       for (const scheme of SCHEMES) {
-        const raw = await render(page, vite.url, scene, scheme, version);
+        const raw = await render(page, vite.url, scene, scheme, version).catch(async (error) => {
+          // What the page showed when the scene got stuck, kept next to the work folder.
+          const failed = path.join(REPO, `tests/.tmp/readme-shots-failed-${scene.name}.png`);
+          await page
+            .screenshot()
+            .then((shot) => writeFileSync(failed, shot))
+            .then(() => console.error(`The page as it stood: ${path.relative(REPO, failed)}`))
+            .catch(() => undefined);
+          throw error;
+        });
         const optimized = optimizePng(raw);
         const { width, height } = pngSize(optimized);
         const name = `${scene.file}-${scheme}.png`;

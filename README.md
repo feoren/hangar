@@ -34,7 +34,7 @@ your own accounts, on your own machine. The desktop app is open source under the
 
 <picture>
   <source media="(prefers-color-scheme: light)" srcset="docs/images/hangar-light.png">
-  <img alt="Hangar with Claude Code, Codex CLI in its own worktree and Gemini CLI in resized split panes; the sidebar shows each session's state, folder, branch and CPU, memory and GPU use, Claude Code's sub-agents and context meter, Aider asking a question and two teammates online" src="docs/images/hangar-dark.png">
+  <img alt="Hangar with Claude Code, Codex CLI in its own worktree and Gemini CLI side by side; the sidebar shows each session's state, folder, branch, CPU and memory use in aligned columns, Claude Code's sub-agents and context meter, Aider asking a question, a PowerShell session with a dev server and two teammates online" src="docs/images/hangar-dark.png">
 </picture>
 
 ## Features
@@ -168,6 +168,9 @@ your own accounts, on your own machine. The desktop app is open source under the
 - **Your look.** Fourteen terminal color schemes, each in light and dark and readable in both, and
   seven bundled coding fonts, every one shown in its own colors and typeface. Switch between light
   and dark with one click.
+- **Your own session row.** Under Appearance you arrange the parts of every session row yourself:
+  drag them into place, pick a form for each and hide what you don't need. Fourteen templates give
+  you a head start, previewed live.
 - **Easy on the battery.** On battery Hangar polls less often and holds its animations still; a
   small leaf in the system bar shows that saving is on (Windows and Linux).
 - **Twelve languages.** The interface speaks English, German, Spanish, French, Italian, Portuguese,
@@ -184,44 +187,50 @@ your own accounts, on your own machine. The desktop app is open source under the
   <tr>
     <td width="50%" valign="top">
       <picture>
-        <source media="(prefers-color-scheme: light)" srcset="docs/images/hangar-subagent-light.png">
-        <img alt="A Claude Code session with its sub-agent 'tester' shown beside the terminal as in Claude Code: the task, its text, tool calls with summed-up results, a failing test run and the fix, and a footer with tool uses, tokens and run time" src="docs/images/hangar-subagent-dark.png">
+        <source media="(prefers-color-scheme: light)" srcset="docs/images/hangar-home-light.png">
+        <img alt="The home view: a calendar of the commits of the last year above one card per repository with its sessions, open changes, recent commits, team reservations and a dev server" src="docs/images/hangar-home-dark.png">
       </picture>
-      <br><sub>Follow a sub-agent beside its session, the way Claude Code shows it.</sub>
+      <br><sub>The home view: your commit calendar and one card per project with sessions, changes, commits and dev servers.</sub>
     </td>
     <td width="50%" valign="top">
       <picture>
-        <source media="(prefers-color-scheme: light)" srcset="docs/images/hangar-files-light.png">
-        <img alt="The Files tab beside a terminal: the project folder as a tree with Git letters on changed files, dots on folders and teammates' avatars on the files their agents edit" src="docs/images/hangar-files-dark.png">
+        <source media="(prefers-color-scheme: light)" srcset="docs/images/hangar-queue-light.png">
+        <img alt="The Queue message dialog over a working Claude Code session, with the next instruction typed in and the note that Hangar sends it once the session is done" src="docs/images/hangar-queue-dark.png">
       </picture>
-      <br><sub>See the project as a tree, with your changes and your teammates' files.</sub>
+      <br><sub>Queue the next message while the agent works; Hangar sends it once the session is done.</sub>
     </td>
   </tr>
   <tr>
     <td width="50%" valign="top">
       <picture>
-        <source media="(prefers-color-scheme: light)" srcset="docs/images/hangar-team-light.png">
-        <img alt="The Team window over the terminals, listing two teammates with their sessions and states and the reserved tasks of the project; the worktree row in the sidebar shows both teammates' avatars" src="docs/images/hangar-team-dark.png">
+        <source media="(prefers-color-scheme: light)" srcset="docs/images/hangar-guard-light.png">
+        <img alt="A team session wants to run git push --force; the command guard shows the command with Allow once and Block while the agent waits" src="docs/images/hangar-guard-dark.png">
       </picture>
-      <br><sub>See who on your team works on what, and reserve tasks.</sub>
+      <br><sub>The command guard stops risky shell commands of team sessions until you decide.</sub>
     </td>
     <td width="50%" valign="top">
       <picture>
-        <source media="(prefers-color-scheme: light)" srcset="docs/images/hangar-notes-light.png">
-        <img alt="The notes panel beside a terminal on its Shared side, listing the notes kept encrypted in the repository, with a switch to the private notes" src="docs/images/hangar-notes-dark.png">
+        <source media="(prefers-color-scheme: light)" srcset="docs/images/hangar-review-light.png">
+        <img alt="The Daily review for one day: active time, sessions, projects and commits, each project with its sessions and their times, the commits and the changed files" src="docs/images/hangar-review-dark.png">
       </picture>
-      <br><sub>Keep notes private or share them encrypted with the repository.</sub>
+      <br><sub>The daily review: what ran where, for how long, and what got committed.</sub>
     </td>
   </tr>
   <tr>
     <td width="50%" valign="top">
       <picture>
-        <source media="(prefers-color-scheme: light)" srcset="docs/images/hangar-settings-light.png">
-        <img alt="Settings, Appearance: a live terminal preview, the color schemes shown in their own colors and the bundled terminal fonts" src="docs/images/hangar-settings-dark.png">
+        <source media="(prefers-color-scheme: light)" srcset="docs/images/hangar-worktrees-light.png">
+        <img alt="The Clean up worktrees dialog listing the worktrees Hangar created with their state (in use, merged, changes, own commits, folder missing), size and age, and a button that removes the safe ones" src="docs/images/hangar-worktrees-dark.png">
       </picture>
-      <br><sub>Pick a color scheme and font, previewed live.</sub>
+      <br><sub>Clean up worktrees: see each one's state and size, remove the safe ones in one go.</sub>
     </td>
-    <td width="50%" valign="top"></td>
+    <td width="50%" valign="top">
+      <picture>
+        <source media="(prefers-color-scheme: light)" srcset="docs/images/hangar-row-builder-light.png">
+        <img alt="Settings, Appearance, Session row: a live example, the Compact template and the row parts in four lines, ready to drag, with hidden parts and the frame and spacing choices" src="docs/images/hangar-row-builder-dark.png">
+      </picture>
+      <br><sub>Build your own session row from templates or by dragging its parts.</sub>
+    </td>
   </tr>
 </table>
 

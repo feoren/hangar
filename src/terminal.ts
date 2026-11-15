@@ -4,7 +4,7 @@
 import { FitAddon } from "@xterm/addon-fit";
 import { SearchAddon, type ISearchOptions } from "@xterm/addon-search";
 import { SerializeAddon } from "@xterm/addon-serialize";
-import { Terminal, type IBufferCell, type IBufferRange } from "@xterm/xterm";
+import { Terminal, type IBufferCell, type IBufferRange, type IMarker } from "@xterm/xterm";
 
 import type { PasteWarning } from "./appPaste";
 import { api, Channel, type SessionEvent, type SessionFallback, type TermSize } from "./api";
@@ -28,6 +28,7 @@ import { t } from "./i18n";
 import { FONT_SIZE } from "./layout";
 import type { ShellKind } from "./pathQuote";
 import { PathChecker } from "./pathCheck";
+import { promptWorthShowing } from "./lastPrompt";
 import { PromptLineTracker } from "./promptTitle";
 import { SubmittedLines } from "./handover";
 import { StepPrompt } from "./timeline";
@@ -179,7 +180,7 @@ export class SessionTerminal {
   onImagePasteFailed: (() => void) | null = null;
   /**
    * Lines the user submits with Enter, while the app may still name the session after its first
-   * task (promptTitle.ts); `null` stops the tracking.
+   * task (promptTitle.ts); `null` stops the calls, not the tracking.
    */
   onPromptLine: ((line: string) => void) | null = null;
   private readonly promptLines = new PromptLineTracker();
@@ -187,6 +188,10 @@ export class SessionTerminal {
   private readonly submitted = new SubmittedLines();
   /** The step's prompt for its snapshot (timeline.ts): never a line typed while it works. */
   private readonly stepPrompt = new StepPrompt();
+  /** The user's last prompt and a marker on the line it was sent from (lastPrompt.ts). */
+  private lastPromptEntry: { text: string; marker: IMarker | undefined } | null = null;
+  private lastPromptSnapshot: { text: string; reachable: boolean } | null = null;
+  private readonly lastPromptListeners = new Set<() => void>();
   /**
    * The newest local dev server address in the current process's output changed (devServer.ts);
    * `null` when the process ended or started again. Called on changes only, never per chunk.
@@ -296,7 +301,7 @@ export class SessionTerminal {
       // Ctrl+C or a lone Escape interrupts an agent's turn; its end is then no finished task.
       if (data === "\x03" || data === "\x1b") this.attention.interrupted();
       this.send(data);
-      this.trackPrompt(data);
+      this.trackTyped(data);
     });
     // Real key presses only, not xterm's automatic replies (cursor position, focus).
     this.term.onKey(() => {
@@ -834,7 +839,7 @@ export class SessionTerminal {
     this.attention.typed();
     this.typedSinceTaken = true;
     this.send("\r");
-    this.trackPrompt("\r");
+    this.trackTyped("\r");
   }
 
   /**
@@ -852,17 +857,22 @@ export class SessionTerminal {
     return this.typedSinceTaken;
   }
 
-  /** Runs for the whole session; typed input is small, so this costs nothing measurable. */
-  private trackPrompt(data: string): void {
+  /**
+   * Every input that reaches the program as typed goes through here. One tracker feeds the
+   * handover, the timeline, the title and the last prompt bar, so they never disagree on a line.
+   * Runs for the whole session; typed input is small, so this costs nothing measurable.
+   */
+  private trackTyped(data: string): void {
     const lines = this.promptLines.feed(data);
     if (lines.length === 0) return;
-    // A shell's command line is no request to hand over.
+    // A shell's command line is no request to hand over and no prompt to come back to.
     const agent = this.shellKind() === "agent";
     for (const line of lines) {
       this.submitted.record(line, agent);
       this.stepPrompt.submitted(line, this.attention.state, this.cursorRow());
       this.emitPromptLine(line);
     }
+    if (agent) this.trackLastPrompt(lines);
   }
 
   /** The user's last request in this agent session (handover.ts), `null` before one. */
@@ -883,6 +893,61 @@ export class SessionTerminal {
   private cursorRow(): string {
     const buffer = this.term.buffer.active;
     return buffer.getLine(buffer.baseY + buffer.cursorY)?.translateToString(true) ?? "";
+  }
+
+  /** The last prompt bar's entry follows the newest line worth showing (lastPrompt.ts). */
+  private trackLastPrompt(lines: readonly string[]): void {
+    let changed = false;
+    for (const line of lines) {
+      const text = promptWorthShowing(line);
+      if (text === null) continue;
+      this.lastPromptEntry?.marker?.dispose();
+      // The cursor still stands on the prompt's line: the program has not answered yet.
+      this.lastPromptEntry = { text, marker: this.term.registerMarker(0) };
+      changed = true;
+    }
+    if (changed) for (const listener of this.lastPromptListeners) listener();
+  }
+
+  /** The bar above the terminal reads this; `null` until the user sent a prompt. Stable object. */
+  lastPrompt(): { text: string; reachable: boolean } | null {
+    const entry = this.lastPromptEntry;
+    if (entry === null) return null;
+    const reachable = entry.marker !== undefined && !entry.marker.isDisposed;
+    const snapshot = this.lastPromptSnapshot;
+    if (snapshot?.text !== entry.text || snapshot.reachable !== reachable) {
+      this.lastPromptSnapshot = { text: entry.text, reachable };
+    }
+    return this.lastPromptSnapshot;
+  }
+
+  subscribeLastPrompt(listener: () => void): () => void {
+    this.lastPromptListeners.add(listener);
+    return () => {
+      this.lastPromptListeners.delete(listener);
+    };
+  }
+
+  /**
+   * Scrolls back to the line the last prompt was sent from, with a short highlight, and gives the
+   * keyboard back to the terminal. `false` when the line has left the scrollback.
+   */
+  revealLastPrompt(): boolean {
+    const marker = this.lastPromptEntry?.marker;
+    if (marker === undefined || marker.isDisposed) return false;
+    // One line of context above it.
+    this.term.scrollToLine(Math.max(0, marker.line - 1));
+    const decoration = this.term.registerDecoration({ marker, width: this.term.cols });
+    if (decoration) {
+      decoration.onRender((element) => {
+        element.classList.add("prompt-flash");
+      });
+      setTimeout(() => {
+        decoration.dispose();
+      }, 1600);
+    }
+    this.term.focus();
+    return true;
   }
 
   /** Read anew per line: the listener may stop itself after the first one. */
@@ -1005,6 +1070,8 @@ export class SessionTerminal {
     this.links.dispose();
     this.onImagePasteFailed = null;
     this.onPromptLine = null;
+    this.lastPromptEntry?.marker?.dispose();
+    this.lastPromptListeners.clear();
     this.onDevServer = null;
     this.attentionListener = null;
     this.searchListener = null;
@@ -1111,7 +1178,7 @@ export class SessionTerminal {
         this.typedSinceTaken = true;
         this.attention.typed();
         this.send(keys);
-        this.trackPrompt(keys);
+        this.trackTyped(keys);
         return false;
       }
       case "terminal":

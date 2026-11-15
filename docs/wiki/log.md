@@ -972,6 +972,7 @@ protected main window preferences carry the daily budget, its warned day and the
 and the terminal keeps the user's submitted lines in one `SubmittedLines` record that feeds both
 the handover's last request and the timeline's last prompt.
 Pages changed: [[costs-and-handover]].
+
 ## [2026-11-15] ingest | Timeline security rework
 Measured the git behavior the jump back now relies on (`checkout-index --prefix` into a staging
 folder, assume-unchanged entries, `gc` with an alternate, `File::try_lock` per handle) and filed it
@@ -999,3 +1000,14 @@ Pages changed: [[costs-and-handover]].
 ## [2026-11-15] update | Prompt mouse editing: suggestion stays, selection deletes
 A click in an agent's prompt no longer moves into Claude Code's faint suggestion (a Right arrow took it); the cursor stops at the end of the typed text and at the first character after the prompt mark. Backspace or Delete with a selection inside the typed text of the cursor's line deletes it (arrows to its end, one Backspace per character); elsewhere the keys behave as before. Read the suggestion's rendering from the Claude Code 2.1.325 binary.
 Pages changed: [[prompt-mouse-editing]], [[claude-code-suggestion-reading]].
+
+## [2026-11-15] update | Seven screenshot scenes per release
+The README screenshots now come from seven scenes: the overview plus six for the release's most visible features; for 0.8.0 `home`, `queue`, `guard`, `review`, `worktrees` and `row-builder` replace `subagent`, `files`, `team`, `notes` and `settings`.
+Pages changed: [[release-rollout]].
+
+## [2026-11-15] update | 0.9.0 integration with the last prompt bar
+Merged main (0.8.0 released, upcoming 0.9.0, last prompt bar back) into the integration. The
+wave's features move to 0.9.0 in the changelog. The bar no longer keeps a tracker of its own: the
+terminal's one prompt line tracker feeds the handover's `SubmittedLines`, the timeline's
+`StepPrompt` and the bar, so deleting a selection in the prompt reaches all three alike.
+Pages changed: [[costs-and-handover]].

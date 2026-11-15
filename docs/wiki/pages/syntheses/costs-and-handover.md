@@ -91,9 +91,9 @@ updated: 2026-11-15
   `notReady`).
 - The text (`src/handover.ts`): introduction with program and folder, the last request (at most
   1500 characters, quoted; the old terminal tracks the user's submitted lines in agent sessions,
-  `SessionTerminal.lastRequest`, skipping slash commands and one-character answers, since the last
-  prompt bar it used to read is gone; the terminal's one prompt line tracker feeds this
-  `SubmittedLines` record and the timeline's `StepPrompt`, which keeps its own rules), the changed files from `git_diff` by session id (at most
+  `SessionTerminal.lastRequest`, skipping slash commands and one-character answers; the terminal's
+  one prompt line tracker feeds this `SubmittedLines` record, the timeline's `StepPrompt` and the
+  last prompt bar above the terminal, each with its own rules), the changed files from `git_diff` by session id (at most
   40, then a count), the
   project notes (at most 5 titles with excerpts of 160 characters), and the instruction to
   summarize first. At most 8000 characters: excerpts go first, then file lines.

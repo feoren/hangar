@@ -110,8 +110,10 @@ collects its items under that same version without a date. `src/versionSync.test
    backend and a fictional scene (`tools/readme-shots/`) in headless Edge, Chrome or Chromium
    (`README_SHOTS_BROWSER` picks a specific executable) and writes one image per scene and color
    scheme into `docs/images/` (1296 x 839): the overview `hangar-dark.png` and `hangar-light.png`
-   (at most 400 KB each) and `hangar-<scene>-dark.png` / `-light.png` for the scenes `subagent`,
-   `team`, `notes` and `settings` (at most 300 KB each). The README and the website use these
+   (at most 400 KB each) and `hangar-<scene>-dark.png` / `-light.png` for six scenes (at most
+   300 KB each): one per most visible feature of the release. Since 0.8.0 these are `home`,
+   `queue`, `guard`, `review`, `worktrees` and `row-builder`; each release keeps exactly seven
+   scenes and replaces the ones whose feature is no longer among the six best. The README and the website use these
    stable names. `--scene <name>` renders only some scenes. Times are deterministic: the mock runs
    a fixed clock and the browser renders in UTC; animations stop on a fixed frame. It cleans up
    after itself (temporary files only under `tests/.tmp/readme-shots`), runs its own Vite server

@@ -1,6 +1,6 @@
 [
   {
-    "version": "0.8.0",
+    "version": "0.9.0",
     "date": null,
     "items": [
       {
@@ -17,6 +17,96 @@
         "tr": "Değişiklikler sekmesindeki zaman çizelgesi her agent adımından sonra dosyalarını sessizce kaydeder. Adımları gör, kayıtlı her duruma geri dön.",
         "zh": "“更改”标签中的时间线会在代理每一步之后静默保存文件。点击步骤查看其更改，并可返回任一已保存的状态。"
       },
+      {
+        "de": "Diktieren: Halte Strg+Umschalt+Leertaste, sprich und lass los. Die Sprache wird auf deinem Rechner erkannt. Einschalten unter Einstellungen > Diktieren.",
+        "en": "Dictation: hold Ctrl+Shift+Space, speak, let go. Your speech is recognized on your own computer. Turn it on under Settings > Dictation.",
+        "el": "Υπαγόρευση: κράτα Ctrl+Shift+Διάστημα, μίλα και άφησε. Η ομιλία αναγνωρίζεται στον υπολογιστή σου. Ενεργοποίηση στις Ρυθμίσεις > Υπαγόρευση.",
+        "es": "Dictado: mantén Ctrl+Mayús+Espacio, habla y suelta. Tu voz se reconoce en tu propio equipo. Actívalo en Configuración > Dictado.",
+        "fr": "Dictée : maintiens Ctrl+Maj+Espace, parle, relâche. Ta voix est reconnue sur ton propre ordinateur. À activer dans Paramètres > Dictée.",
+        "it": "Dettatura: tieni premuto Ctrl+Maiusc+Spazio, parla e rilascia. La voce viene riconosciuta sul tuo computer. Attivala in Impostazioni > Dettatura.",
+        "ja": "音声入力：Ctrl+Shift+スペースを押したまま話し、離すと入力されます。音声はこのコンピューター上で認識されます。設定 > 音声入力 で有効にできます。",
+        "pl": "Dyktowanie: przytrzymaj Ctrl+Shift+Spacja, mów i puść. Mowa jest rozpoznawana na twoim komputerze. Włącz je w Ustawienia > Dyktowanie.",
+        "pt": "Ditado: segure Ctrl+Shift+Espaço, fale e solte. Sua fala é reconhecida no seu próprio computador. Ative em Configurações > Ditado.",
+        "ru": "Диктовка: удерживай Ctrl+Shift+Пробел, говори и отпусти. Речь распознаётся на твоём компьютере. Включается в Настройки > Диктовка.",
+        "tr": "Dikte: Ctrl+Shift+Boşluk tuşlarını basılı tut, konuş, bırak. Konuşman kendi bilgisayarında tanınır. Ayarlar > Dikte bölümünden aç.",
+        "zh": "语音输入：按住 Ctrl+Shift+空格，说话后松开。语音在你自己的电脑上识别。可在 设置 > 语音输入 中开启。"
+      },
+      {
+        "de": "Token und geschätzte Kosten pro Sitzung und Tag für Claude Code siehst du in der Vorschau und unter Ansicht > Kosten, auf Wunsch mit Tagesbudget.",
+        "en": "See tokens and estimated costs per session and day for Claude Code in the peek and under View > Costs, with an optional daily budget.",
+        "el": "Tokens και εκτιμώμενο κόστος ανά συνεδρία και ημέρα για το Claude Code, στην προεπισκόπηση και στο Προβολή > Κόστος, με προαιρετικό ημερήσιο όριο.",
+        "es": "Tokens y costes estimados por sesión y día para Claude Code, en la vista previa y en Ver > Costes, con presupuesto diario opcional.",
+        "fr": "Jetons et coûts estimés par session et par jour pour Claude Code, dans l’aperçu et sous Affichage > Coûts, avec un budget journalier optionnel.",
+        "it": "Token e costi stimati per sessione e giorno per Claude Code, nell’anteprima e in Visualizza > Costi, con budget giornaliero opzionale.",
+        "ja": "Claude Code のセッションごと・日ごとのトークンと推定コストを、プレビューと「表示 > コスト」で確認できます。1 日の予算も設定できます。",
+        "pl": "Tokeny i szacowane koszty na sesję i dzień dla Claude Code, w podglądzie i w Widok > Koszty, z opcjonalnym dziennym budżetem.",
+        "pt": "Tokens e custos estimados por sessão e dia para o Claude Code, na prévia e em Exibir > Custos, com orçamento diário opcional.",
+        "ru": "Токены и оценка расходов по сессиям и дням для Claude Code, в превью и в меню Вид > Расходы, с дневным бюджетом по желанию.",
+        "tr": "Claude Code için oturum ve gün başına token ve tahmini maliyet, önizlemede ve Görünüm > Maliyetler altında, isteğe bağlı günlük bütçeyle.",
+        "zh": "按会话和按天显示 Claude Code 的 token 和估算费用，可在预览和“视图 > 费用”中查看，并可设置每日预算。"
+      },
+      {
+        "de": "„Übergeben an …“ im Sitzungsmenü startet einen anderen Agenten im selben Ordner und fügt letzten Auftrag, geänderte Dateien und Notizen ein.",
+        "en": "“Hand over to …” in the session menu starts another agent in the same folder and inserts the last request, changed files and notes.",
+        "el": "Η «Παράδοση σε …» στο μενού συνεδρίας ξεκινά άλλον agent στον ίδιο φάκελο και εισάγει το τελευταίο αίτημα, τα αλλαγμένα αρχεία και σημειώσεις.",
+        "es": "«Pasar a …» en el menú de sesión inicia otro agente en la misma carpeta e inserta la última petición, los archivos cambiados y las notas.",
+        "fr": "« Passer à … » dans le menu de session lance un autre agent dans le même dossier avec la dernière demande, les fichiers modifiés et les notes.",
+        "it": "«Passa a …» nel menu della sessione avvia un altro agente nella stessa cartella e inserisce l’ultima richiesta, i file modificati e le note.",
+        "ja": "セッションメニューの「引き継ぎ先 …」で、同じフォルダーに別のエージェントを起動し、最後の依頼、変更ファイル、メモを挿入します。",
+        "pl": "„Przekaż do …” w menu sesji uruchamia innego agenta w tym samym folderze i wstawia ostatnie polecenie, zmienione pliki i notatki.",
+        "pt": "“Passar para …” no menu da sessão inicia outro agente na mesma pasta e insere o último pedido, os arquivos alterados e as notas.",
+        "ru": "«Передать …» в меню сессии запускает другого агента в той же папке и вставляет последний запрос, изменённые файлы и заметки.",
+        "tr": "Oturum menüsündeki “Devret …”, aynı klasörde başka bir ajan başlatır ve son isteği, değişen dosyaları ve notları ekler.",
+        "zh": "会话菜单中的“移交给 …”会在同一文件夹中启动另一个代理，并插入最后的请求、已更改的文件和笔记。"
+      },
+      {
+        "de": "Die Arena gibt eine Aufgabe an 2 bis 4 Agenten, jeder im eigenen Worktree. Du vergleichst Dateien, Zeilen, Dauer und Tests und übernimmst den Gewinner.",
+        "en": "The arena gives one task to 2 to 4 agents, each in its own worktree. Compare files, lines, time and tests, then take over the winner.",
+        "el": "Η αρένα δίνει μία εργασία σε 2 έως 4 agents, τον καθένα στο δικό του worktree. Σύγκρινε αρχεία, γραμμές, χρόνο και δοκιμές και υιοθέτησε τον νικητή.",
+        "es": "La arena da una tarea a entre 2 y 4 agentes, cada uno en su propio worktree. Compara archivos, líneas, tiempo y pruebas, y adopta al ganador.",
+        "fr": "L’arène confie une tâche à 2 à 4 agents, chacun dans son worktree. Compare fichiers, lignes, durée et tests, puis reprends le gagnant.",
+        "it": "L’arena dà un compito a un numero di agenti da 2 a 4, ognuno nel proprio worktree. Confronta file, righe, durata e test, poi adotta il vincitore.",
+        "ja": "アリーナは 1 つのタスクを 2 から 4 のエージェントに渡し、それぞれ専用の worktree で作業させます。ファイル、行、時間、テストを比べて勝者を取り込めます。",
+        "pl": "Arena daje jedno zadanie od 2 do 4 agentom, każdemu we własnym worktree. Porównaj pliki, wiersze, czas i testy, a potem przejmij zwycięzcę.",
+        "pt": "A arena dá uma tarefa a 2 a 4 agentes, cada um em seu próprio worktree. Compare arquivos, linhas, tempo e testes e adote o vencedor.",
+        "ru": "Арена даёт одну задачу двум, трём или четырём агентам, каждому в своём worktree. Сравни файлы, строки, время и тесты и забери победителя.",
+        "tr": "Arena tek bir görevi 2 ile 4 arası ajana verir, her biri kendi worktree’sinde. Dosyaları, satırları, süreyi ve testleri karşılaştır, kazananı al.",
+        "zh": "竞技场把一个任务交给 2 到 4 个代理，每个都在自己的 worktree 中工作。比较文件、行数、用时和测试，然后采用胜出者。"
+      },
+      {
+        "de": "Über dem Terminal eines Agenten steht wieder dein letzter Prompt. Ein Klick springt zu der Zeile, in der du ihn abgeschickt hast.",
+        "en": "Your last prompt is back above an agent's terminal. A click jumps to the line you sent it from.",
+        "el": "Το τελευταίο σου prompt εμφανίζεται ξανά πάνω από το τερματικό ενός agent. Ένα κλικ σε μεταφέρει στη γραμμή από την οποία το έστειλες.",
+        "es": "Tu último prompt vuelve a aparecer encima del terminal de un agente. Un clic salta a la línea desde la que lo enviaste.",
+        "fr": "Ton dernier prompt réapparaît au-dessus du terminal d’un agent. Un clic te ramène à la ligne d’où tu l’as envoyé.",
+        "it": "Il tuo ultimo prompt torna sopra il terminale di un agente. Un clic salta alla riga da cui l’hai inviato.",
+        "ja": "エージェントのターミナルの上に、最後のプロンプトが再び表示されます。クリックすると、送信した行へ移動します。",
+        "pl": "Twój ostatni prompt znów widać nad terminalem agenta. Kliknięcie przenosi do wiersza, z którego go wysłałeś.",
+        "pt": "Seu último prompt volta a aparecer acima do terminal de um agente. Um clique leva à linha de onde você o enviou.",
+        "ru": "Твой последний промпт снова виден над терминалом агента. Щелчок переносит к строке, из которой ты его отправил.",
+        "tr": "Son istemin yeniden bir ajanın terminalinin üstünde görünüyor. Tıklayınca onu gönderdiğin satıra atlarsın.",
+        "zh": "智能体终端上方再次显示你的上一个提示。点击即可跳到你发送它的那一行。"
+      },
+      {
+        "de": "Ein Klick in die Eingabe eines Agenten übernimmt den grauen Vorschlag nicht mehr. Markierten Text in der Eingabe löschst du mit Rücktaste oder Entf.",
+        "en": "Clicking into an agent’s prompt no longer takes its grey suggestion. Delete marked text in the prompt with Backspace or Delete.",
+        "el": "Ένα κλικ στη γραμμή εισόδου ενός πράκτορα δεν παίρνει πια τη γκρι πρόταση. Σβήσε το επιλεγμένο κείμενο εκεί με Backspace ή Delete.",
+        "es": "Hacer clic en la entrada de un agente ya no acepta su sugerencia gris. Borra el texto marcado en la entrada con Retroceso o Supr.",
+        "fr": "Un clic dans la saisie d’un agent n’accepte plus sa suggestion grise. Efface le texte sélectionné dans la saisie avec Retour arrière ou Suppr.",
+        "it": "Un clic nell’input di un agente non accetta più il suggerimento grigio. Cancella il testo selezionato nell’input con Backspace o Canc.",
+        "ja": "エージェントの入力欄をクリックしても、灰色の候補が確定されなくなりました。入力欄で選択した文字は Backspace か Delete で消せます。",
+        "pl": "Kliknięcie w pole wpisywania agenta nie przyjmuje już szarej podpowiedzi. Zaznaczony tekst w tym polu usuniesz klawiszem Backspace lub Delete.",
+        "pt": "Clicar na entrada de um agente não aceita mais a sugestão cinza. Apague o texto marcado na entrada com Backspace ou Delete.",
+        "ru": "Щелчок в поле ввода агента больше не принимает серую подсказку. Выделенный текст в поле ввода удаляй клавишей Backspace или Delete.",
+        "tr": "Bir ajanın giriş satırına tıklamak artık gri öneriyi kabul etmez. Girişte seçtiğin metni Backspace veya Delete ile sil.",
+        "zh": "点击智能体的输入框不再会采纳灰色建议。在输入框中选中的文字可以用 Backspace 或 Delete 删除。"
+      }
+    ]
+  },
+  {
+    "version": "0.8.0",
+    "date": "2026-11-15",
+    "items": [
       {
         "de": "Die Startansicht zeigt pro Repository eine Karte mit seinen Sitzungen, offenen Änderungen, den neuesten Commits und Dev-Servern.",
         "en": "The home view shows one card per repository with its sessions, open changes, newest commits and dev servers.",
@@ -172,20 +262,6 @@
         "zh": "在“外观”中可自己搭建会话行：拖动各部分排列，为每个部分选择形式，隐藏不需要的。另有 14 种模板可作为起点。"
       },
       {
-        "de": "Diktieren: Halte Strg+Umschalt+Leertaste, sprich und lass los. Die Sprache wird auf deinem Rechner erkannt. Einschalten unter Einstellungen > Diktieren.",
-        "en": "Dictation: hold Ctrl+Shift+Space, speak, let go. Your speech is recognized on your own computer. Turn it on under Settings > Dictation.",
-        "el": "Υπαγόρευση: κράτα Ctrl+Shift+Διάστημα, μίλα και άφησε. Η ομιλία αναγνωρίζεται στον υπολογιστή σου. Ενεργοποίηση στις Ρυθμίσεις > Υπαγόρευση.",
-        "es": "Dictado: mantén Ctrl+Mayús+Espacio, habla y suelta. Tu voz se reconoce en tu propio equipo. Actívalo en Configuración > Dictado.",
-        "fr": "Dictée : maintiens Ctrl+Maj+Espace, parle, relâche. Ta voix est reconnue sur ton propre ordinateur. À activer dans Paramètres > Dictée.",
-        "it": "Dettatura: tieni premuto Ctrl+Maiusc+Spazio, parla e rilascia. La voce viene riconosciuta sul tuo computer. Attivala in Impostazioni > Dettatura.",
-        "ja": "音声入力：Ctrl+Shift+スペースを押したまま話し、離すと入力されます。音声はこのコンピューター上で認識されます。設定 > 音声入力 で有効にできます。",
-        "pl": "Dyktowanie: przytrzymaj Ctrl+Shift+Spacja, mów i puść. Mowa jest rozpoznawana na twoim komputerze. Włącz je w Ustawienia > Dyktowanie.",
-        "pt": "Ditado: segure Ctrl+Shift+Espaço, fale e solte. Sua fala é reconhecida no seu próprio computador. Ative em Configurações > Ditado.",
-        "ru": "Диктовка: удерживай Ctrl+Shift+Пробел, говори и отпусти. Речь распознаётся на твоём компьютере. Включается в Настройки > Диктовка.",
-        "tr": "Dikte: Ctrl+Shift+Boşluk tuşlarını basılı tut, konuş, bırak. Konuşman kendi bilgisayarında tanınır. Ayarlar > Dikte bölümünden aç.",
-        "zh": "语音输入：按住 Ctrl+Shift+空格，说话后松开。语音在你自己的电脑上识别。可在 设置 > 语音输入 中开启。"
-      },
-      {
         "de": "Sicherer: Terminal-Links öffnen nur lokale Ziele, neue Worktrees führen keine Repository-Hooks aus, und das Team-Relay nimmt einfaches ws nur lokal an.",
         "en": "Safer: terminal links open only local targets, new worktrees run no repository hooks, and the team relay accepts plain ws only from this machine.",
         "el": "Πιο ασφαλές: οι σύνδεσμοι τερματικού ανοίγουν μόνο τοπικούς στόχους, τα νέα worktrees δεν τρέχουν hooks και το relay δέχεται απλό ws μόνο τοπικά.",
@@ -282,62 +358,6 @@
         "ru": "Календарь коммитов теперь всегда вверху главного экрана, даже до твоего первого коммита.",
         "tr": "Commit takvimi artık ilk commit'inden önce bile ana ekranın en üstünde.",
         "zh": "提交日历现在始终显示在主页顶部，即使你还没有自己的提交。"
-      },
-      {
-        "de": "Token und geschätzte Kosten pro Sitzung und Tag für Claude Code siehst du in der Vorschau und unter Ansicht > Kosten, auf Wunsch mit Tagesbudget.",
-        "en": "See tokens and estimated costs per session and day for Claude Code in the peek and under View > Costs, with an optional daily budget.",
-        "el": "Tokens και εκτιμώμενο κόστος ανά συνεδρία και ημέρα για το Claude Code, στην προεπισκόπηση και στο Προβολή > Κόστος, με προαιρετικό ημερήσιο όριο.",
-        "es": "Tokens y costes estimados por sesión y día para Claude Code, en la vista previa y en Ver > Costes, con presupuesto diario opcional.",
-        "fr": "Jetons et coûts estimés par session et par jour pour Claude Code, dans l’aperçu et sous Affichage > Coûts, avec un budget journalier optionnel.",
-        "it": "Token e costi stimati per sessione e giorno per Claude Code, nell’anteprima e in Visualizza > Costi, con budget giornaliero opzionale.",
-        "ja": "Claude Code のセッションごと・日ごとのトークンと推定コストを、プレビューと「表示 > コスト」で確認できます。1 日の予算も設定できます。",
-        "pl": "Tokeny i szacowane koszty na sesję i dzień dla Claude Code, w podglądzie i w Widok > Koszty, z opcjonalnym dziennym budżetem.",
-        "pt": "Tokens e custos estimados por sessão e dia para o Claude Code, na prévia e em Exibir > Custos, com orçamento diário opcional.",
-        "ru": "Токены и оценка расходов по сессиям и дням для Claude Code, в превью и в меню Вид > Расходы, с дневным бюджетом по желанию.",
-        "tr": "Claude Code için oturum ve gün başına token ve tahmini maliyet, önizlemede ve Görünüm > Maliyetler altında, isteğe bağlı günlük bütçeyle.",
-        "zh": "按会话和按天显示 Claude Code 的 token 和估算费用，可在预览和“视图 > 费用”中查看，并可设置每日预算。"
-      },
-      {
-        "de": "„Übergeben an …“ im Sitzungsmenü startet einen anderen Agenten im selben Ordner und fügt letzten Auftrag, geänderte Dateien und Notizen ein.",
-        "en": "“Hand over to …” in the session menu starts another agent in the same folder and inserts the last request, changed files and notes.",
-        "el": "Η «Παράδοση σε …» στο μενού συνεδρίας ξεκινά άλλον agent στον ίδιο φάκελο και εισάγει το τελευταίο αίτημα, τα αλλαγμένα αρχεία και σημειώσεις.",
-        "es": "«Pasar a …» en el menú de sesión inicia otro agente en la misma carpeta e inserta la última petición, los archivos cambiados y las notas.",
-        "fr": "« Passer à … » dans le menu de session lance un autre agent dans le même dossier avec la dernière demande, les fichiers modifiés et les notes.",
-        "it": "«Passa a …» nel menu della sessione avvia un altro agente nella stessa cartella e inserisce l’ultima richiesta, i file modificati e le note.",
-        "ja": "セッションメニューの「引き継ぎ先 …」で、同じフォルダーに別のエージェントを起動し、最後の依頼、変更ファイル、メモを挿入します。",
-        "pl": "„Przekaż do …” w menu sesji uruchamia innego agenta w tym samym folderze i wstawia ostatnie polecenie, zmienione pliki i notatki.",
-        "pt": "“Passar para …” no menu da sessão inicia outro agente na mesma pasta e insere o último pedido, os arquivos alterados e as notas.",
-        "ru": "«Передать …» в меню сессии запускает другого агента в той же папке и вставляет последний запрос, изменённые файлы и заметки.",
-        "tr": "Oturum menüsündeki “Devret …”, aynı klasörde başka bir ajan başlatır ve son isteği, değişen dosyaları ve notları ekler.",
-        "zh": "会话菜单中的“移交给 …”会在同一文件夹中启动另一个代理，并插入最后的请求、已更改的文件和笔记。"
-      },
-      {
-        "de": "Die Arena gibt eine Aufgabe an 2 bis 4 Agenten, jeder im eigenen Worktree. Du vergleichst Dateien, Zeilen, Dauer und Tests und übernimmst den Gewinner.",
-        "en": "The arena gives one task to 2 to 4 agents, each in its own worktree. Compare files, lines, time and tests, then take over the winner.",
-        "el": "Η αρένα δίνει μία εργασία σε 2 έως 4 agents, τον καθένα στο δικό του worktree. Σύγκρινε αρχεία, γραμμές, χρόνο και δοκιμές και υιοθέτησε τον νικητή.",
-        "es": "La arena da una tarea a entre 2 y 4 agentes, cada uno en su propio worktree. Compara archivos, líneas, tiempo y pruebas, y adopta al ganador.",
-        "fr": "L’arène confie une tâche à 2 à 4 agents, chacun dans son worktree. Compare fichiers, lignes, durée et tests, puis reprends le gagnant.",
-        "it": "L’arena dà un compito a un numero di agenti da 2 a 4, ognuno nel proprio worktree. Confronta file, righe, durata e test, poi adotta il vincitore.",
-        "ja": "アリーナは 1 つのタスクを 2 から 4 のエージェントに渡し、それぞれ専用の worktree で作業させます。ファイル、行、時間、テストを比べて勝者を取り込めます。",
-        "pl": "Arena daje jedno zadanie od 2 do 4 agentom, każdemu we własnym worktree. Porównaj pliki, wiersze, czas i testy, a potem przejmij zwycięzcę.",
-        "pt": "A arena dá uma tarefa a 2 a 4 agentes, cada um em seu próprio worktree. Compare arquivos, linhas, tempo e testes e adote o vencedor.",
-        "ru": "Арена даёт одну задачу двум, трём или четырём агентам, каждому в своём worktree. Сравни файлы, строки, время и тесты и забери победителя.",
-        "tr": "Arena tek bir görevi 2 ile 4 arası ajana verir, her biri kendi worktree’sinde. Dosyaları, satırları, süreyi ve testleri karşılaştır, kazananı al.",
-        "zh": "竞技场把一个任务交给 2 到 4 个代理，每个都在自己的 worktree 中工作。比较文件、行数、用时和测试，然后采用胜出者。"
-      },
-      {
-        "de": "Ein Klick in die Eingabe eines Agenten übernimmt den grauen Vorschlag nicht mehr. Markierten Text in der Eingabe löschst du mit Rücktaste oder Entf.",
-        "en": "Clicking into an agent’s prompt no longer takes its grey suggestion. Delete marked text in the prompt with Backspace or Delete.",
-        "el": "Ένα κλικ στη γραμμή εισόδου ενός πράκτορα δεν παίρνει πια τη γκρι πρόταση. Σβήσε το επιλεγμένο κείμενο εκεί με Backspace ή Delete.",
-        "es": "Hacer clic en la entrada de un agente ya no acepta su sugerencia gris. Borra el texto marcado en la entrada con Retroceso o Supr.",
-        "fr": "Un clic dans la saisie d’un agent n’accepte plus sa suggestion grise. Efface le texte sélectionné dans la saisie avec Retour arrière ou Suppr.",
-        "it": "Un clic nell’input di un agente non accetta più il suggerimento grigio. Cancella il testo selezionato nell’input con Backspace o Canc.",
-        "ja": "エージェントの入力欄をクリックしても、灰色の候補が確定されなくなりました。入力欄で選択した文字は Backspace か Delete で消せます。",
-        "pl": "Kliknięcie w pole wpisywania agenta nie przyjmuje już szarej podpowiedzi. Zaznaczony tekst w tym polu usuniesz klawiszem Backspace lub Delete.",
-        "pt": "Clicar na entrada de um agente não aceita mais a sugestão cinza. Apague o texto marcado na entrada com Backspace ou Delete.",
-        "ru": "Щелчок в поле ввода агента больше не принимает серую подсказку. Выделенный текст в поле ввода удаляй клавишей Backspace или Delete.",
-        "tr": "Bir ajanın giriş satırına tıklamak artık gri öneriyi kabul etmez. Girişte seçtiğin metni Backspace veya Delete ile sil.",
-        "zh": "点击智能体的输入框不再会采纳灰色建议。在输入框中选中的文字可以用 Backspace 或 Delete 删除。"
       }
     ]
   },
