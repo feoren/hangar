@@ -1,7 +1,7 @@
 import { listen } from "@tauri-apps/api/event";
 import { useEffect, useRef, useState } from "react";
 
-import { api, errorText } from "./api";
+import { api } from "./api";
 import { ChangeList } from "./ChangeList";
 import { Dialog } from "./Dialog";
 import { parseGitDiff, type GitDiff } from "./gitDiff";
@@ -13,10 +13,13 @@ import { Revealed } from "./Revealed";
 import {
   canRestore,
   concernsSession,
+  headMoved,
   parseRestoreOutcome,
   parseSnapshotList,
+  restoreErrorText,
   SNAPSHOTS_CHANGED,
   snapshotTitle,
+  timelineErrorText,
   type Skipped,
   type Snapshot,
   type SnapshotList,
@@ -38,18 +41,19 @@ interface Props {
   onRestored: () => void;
 }
 
+/** `text` of an error is the whole sentence to show (timelineErrorText). */
 type ListLoad =
-  { kind: "loading" } | { kind: "error"; message: string } | { kind: "done"; list: SnapshotList };
+  { kind: "loading" } | { kind: "error"; text: string } | { kind: "done"; list: SnapshotList };
 
 type DetailLoad =
-  { kind: "loading" } | { kind: "error"; message: string } | { kind: "done"; result: GitDiff };
+  { kind: "loading" } | { kind: "error"; text: string } | { kind: "done"; result: GitDiff };
 
 /** The last jump back, shown above the list until the next one. */
 type Notice =
   | { kind: "restored" }
   | { kind: "alreadyThere" }
   | { kind: "incomplete"; message: string }
-  | { kind: "error"; message: string };
+  | { kind: "error"; text: string };
 
 const MINUTE_MS = 60_000;
 
@@ -101,11 +105,13 @@ export function TimelineView({ sessionId, reload, language, working, onBusy, onR
       .then((value) => {
         const list = parseSnapshotList(value);
         settle(
-          list === null ? { kind: "error", message: t("error.unknown") } : { kind: "done", list },
+          list === null
+            ? { kind: "error", text: t("timeline.failed", { error: t("error.unknown") }) }
+            : { kind: "done", list },
         );
       })
       .catch((e: unknown) => {
-        settle({ kind: "error", message: errorText(e) });
+        settle({ kind: "error", text: timelineErrorText(e, "timeline.failed", t) });
       });
     // `t` only changes with the language; a new language needs no new git call.
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -133,12 +139,12 @@ export function TimelineView({ sessionId, reload, language, working, onBusy, onR
         const result = parseGitDiff(value);
         settle(
           result === null
-            ? { kind: "error", message: t("error.unknown") }
+            ? { kind: "error", text: t("timeline.diffFailed", { error: t("error.unknown") }) }
             : { kind: "done", result },
         );
       })
       .catch((e: unknown) => {
-        settle({ kind: "error", message: errorText(e) });
+        settle({ kind: "error", text: timelineErrorText(e, "timeline.diffFailed", t) });
       });
   };
 
@@ -163,14 +169,14 @@ export function TimelineView({ sessionId, reload, language, working, onBusy, onR
         const outcome = parseRestoreOutcome(value);
         setNotice(
           outcome === null
-            ? { kind: "error", message: t("error.unknown") }
+            ? { kind: "error", text: t("timeline.restoreFailed", { error: t("error.unknown") }) }
             : outcome.kind === "incomplete"
               ? { kind: "incomplete", message: outcome.message }
               : { kind: outcome.kind },
         );
       })
       .catch((e: unknown) => {
-        setNotice({ kind: "error", message: errorText(e) });
+        setNotice({ kind: "error", text: restoreErrorText(e, t) });
       })
       .finally(() => {
         setRestoring(false);
@@ -190,7 +196,7 @@ export function TimelineView({ sessionId, reload, language, working, onBusy, onR
   if (load.kind === "error") {
     return (
       <p className="changes-message error-text selectable" role="alert">
-        {t("timeline.failed", { error: load.message })}
+        {load.text}
       </p>
     );
   }
@@ -234,6 +240,8 @@ export function TimelineView({ sessionId, reload, language, working, onBusy, onR
       )}
       {asking !== null && (
         <RestoreDialog
+          root={list.root}
+          headMoved={headMoved(list, asking)}
           others={list.others}
           restorable={restorable}
           onCancel={() => {
@@ -283,7 +291,7 @@ function NoticeLine({ notice }: { notice: Notice }) {
     case "error":
       return (
         <p className="changes-hint error-text selectable" role="alert">
-          {t("timeline.restoreFailed", { error: notice.message })}
+          {notice.text}
         </p>
       );
   }
@@ -373,7 +381,7 @@ function StepDetail({ detail }: { detail: DetailLoad | undefined }) {
   if (detail.kind === "error") {
     return (
       <p className="change-note error-text selectable" role="alert">
-        {t("timeline.diffFailed", { error: detail.message })}
+        {detail.text}
       </p>
     );
   }
@@ -386,11 +394,17 @@ function StepDetail({ detail }: { detail: DetailLoad | undefined }) {
 
 /** Says what going back does before anything is written. */
 function RestoreDialog({
+  root,
+  headMoved: moved,
   others,
   restorable,
   onCancel,
   onConfirm,
 }: {
+  /** The work tree whose files change; empty when the backend did not name it. */
+  root: string;
+  /** Another commit is checked out than when the snapshot was taken. */
+  headMoved: boolean;
   /** Other sessions in the same work tree: their files go back too. */
   others: number;
   /** An agent started working since the button was pressed: the confirmation waits. */
@@ -402,7 +416,13 @@ function RestoreDialog({
   return (
     <Dialog labelledBy="timeline-restore-title" onClose={onCancel}>
       <h2 id="timeline-restore-title">{t("timeline.restoreTitle")}</h2>
+      {root !== "" && (
+        <p className="selectable" title={revealInvisible(root)}>
+          <Revealed text={t("timeline.restoreRoot", { path: root })} />
+        </p>
+      )}
       <p className="muted">{t("timeline.restoreBody")}</p>
+      {moved && <p>{t("timeline.restoreHeadMoved")}</p>}
       {others > 0 && <p>{t("timeline.restoreOthers", { count: others })}</p>}
       {!restorable && <p>{t("timeline.restoreBusy")}</p>}
       <div className="dialog-actions">

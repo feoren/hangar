@@ -440,15 +440,15 @@ const PROGRAM_NOT_FOUND = /^The program (.+) was not found$/;
  */
 export function arenaErrorText(error: unknown, t: Translate): string {
   if (typeof error !== "string") return t("error.unknown");
-  const split = splitBackendError(error);
-  if (split === null) return knownWorktreeErrorText(error, t) ?? t("error.unknown");
-  if (split.code === "arena_count") {
+  const { code, text } = splitBackendError(error);
+  if (code === null) return knownWorktreeErrorText(error, t) ?? t("error.unknown");
+  if (code === "arena_count") {
     return t("arena.errorCount", { min: ARENA_MIN, max: ARENA_MAX });
   }
-  if (split.code === "arena_program_not_found") {
-    const program = PROGRAM_NOT_FOUND.exec(split.text)?.[1];
+  if (code === "arena_program_not_found") {
+    const program = PROGRAM_NOT_FOUND.exec(text)?.[1];
     return program === undefined ? t("arena.errorNoProgram") : t("arena.errorProgram", { program });
   }
-  const key = ERROR_MESSAGES.get(split.code);
+  const key = ERROR_MESSAGES.get(code);
   return key === undefined ? t("error.unknown") : t(key);
 }

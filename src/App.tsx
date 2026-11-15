@@ -315,7 +315,7 @@ import { busySession, pasteForm } from "./dictation";
 import { DictationIndicator, type IndicatorMode } from "./DictationIndicator";
 import { useDictationKey, useDictationStatus, type DictationProblem } from "./useDictation";
 import { openLink } from "./terminalLinkOpen";
-import { snapshotPrompt } from "./timeline";
+import { takesSnapshots, timelineAvailability } from "./timeline";
 import { fontStack, schemeColors, type TerminalLook } from "./terminalLook";
 import { osc8DecisionOf } from "./termSafety";
 import { EmptyPane, paneStyle, TerminalPane } from "./TerminalPane";
@@ -2073,12 +2073,11 @@ export function App() {
   const takeSnapshot = useCallback((id: number) => {
     const session = stateRef.current.sessions.find((s) => s.id === id);
     const terminal = terminals.get(id);
-    if (session === undefined || terminal === undefined || isPlaceholder(id)) return;
-    if (session.kind === "update") return;
+    if (session === undefined || terminal === undefined) return;
     const profile = profilesRef.current.find((p) => p.id === session.profileId);
-    if (profile === undefined || shellKind(profile.command) !== "agent") return;
+    if (!takesSnapshots(id, runsAgent(profile?.command, session.kind))) return;
     // The backend remembers a skipped or failed step and shows it in the timeline.
-    api.snapshotTake(id, snapshotPrompt(terminal.lastPrompt())).catch(() => undefined);
+    api.snapshotTake(id, terminal.takeStepPrompt()).catch(() => undefined);
   }, []);
 
   /** Connects a terminal to its session ID: exit, attention, visibility. */
@@ -6013,6 +6012,14 @@ export function App() {
                     focusToken={changesFocusToken}
                     view={changesView}
                     onView={setChangesView}
+                    timeline={timelineAvailability(
+                      activeSession !== undefined &&
+                        takesSnapshots(
+                          activeSession.id,
+                          panelSessionIsAgent(panelSessions, activeSession.id),
+                        ),
+                      settings.attentionEnabled,
+                    )}
                     focusCommit={commitFocus}
                     language={settings.language}
                   />

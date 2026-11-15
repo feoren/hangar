@@ -57,15 +57,25 @@ pub const SNAPSHOT_TIMEOUT: Duration = Duration::from_secs(30);
 pub const MAX_PROMPT_CHARS: usize = 200;
 /// Folder below Hangar's local data folder for the side repositories.
 pub const FOLDER: &str = "git-snapshots";
-/// Folder below [`FOLDER`] for the temporary index files.
+/// Folder below [`FOLDER`] for the temporary index files and the staged files of a jump back.
 const TEMP_FOLDER: &str = "tmp";
+/// Files below [`FOLDER`] for the lock every running Hangar holds shared ([`InstanceLock`]).
+const LOCK_FILE: &str = ".lock";
+const GATE_FILE: &str = ".gate";
+/// All side repositories together; above it the clean-up at start drops the least recently used.
+pub const MAX_FOLDER_BYTES: u64 = 2 * 1024 * MIB;
+/// A side repository whose repository cannot be found (a drive that is not plugged in, a network
+/// share, a WSL distribution) and whose newest snapshot is older than this goes.
+const ORPHAN_AGE: Duration = Duration::from_secs(30 * 24 * 3600);
+/// `ls-files -v` lists every entry of the index; a large repository needs more than a file list.
+const MAX_INDEX_LIST_BYTES: usize = 64 * 1024 * 1024;
 /// File in a side repository that names the common git folder it belongs to.
 const SOURCE_FILE: &str = "hangar-source";
 /// A temporary index this old is a leftover: every operation ends after [`SNAPSHOT_TIMEOUT`].
 const STALE_TEMP: Duration = Duration::from_secs(600);
-/// Loose objects younger than this survive the prune at start, so a snapshot written at the same
+/// Loose objects younger than this survive the `gc` at start, so a snapshot written at the same
 /// time keeps its objects.
-const PRUNE_EXPIRE: &str = "--expire=1.hour.ago";
+const PRUNE_EXPIRE: &str = "--prune=1.hour.ago";
 /// First word of every snapshot's subject, so the commits explain themselves.
 const SUBJECT_TAG: &str = "hangar-snapshot";
 /// `commit-tree` needs an identity; the snapshot is Hangar's, not the user's.
@@ -99,6 +109,10 @@ pub enum SnapshotError {
     FolderInTheWay(String),
     #[error("{0} is an ignored file, which no snapshot holds; going back would overwrite it")]
     IgnoredInTheWay(String),
+    #[error("{0} is a symbolic link in the snapshot, which Hangar does not write; go back in the terminal")]
+    SymlinkEntry(String),
+    #[error("{0} leads outside the work tree or into a git folder")]
+    Outside(String),
     #[error("The current state could not be saved first ({0}); nothing was changed")]
     CannotSaveCurrent(String),
     #[error("Hangar's snapshot folder cannot be used: {0}")]
@@ -111,9 +125,42 @@ pub enum SnapshotError {
     Task(String),
 }
 
+impl SnapshotError {
+    /// A stable code for the refusals the window shows in its own words (`src/timeline.ts`), and
+    /// the path or reason they name.
+    fn code(&self) -> Option<(&'static str, Option<&str>)> {
+        Some(match self {
+            Self::Working => ("snapshot_working", None),
+            Self::FolderInTheWay(path) => ("snapshot_folder_in_the_way", Some(path.as_str())),
+            Self::IgnoredInTheWay(path) => ("snapshot_ignored_in_the_way", Some(path.as_str())),
+            Self::CannotSaveCurrent(reason) => {
+                ("snapshot_cannot_save_current", Some(reason.as_str()))
+            }
+            Self::SymlinkEntry(path) => ("snapshot_symlink", Some(path.as_str())),
+            Self::Outside(path) => ("snapshot_outside", Some(path.as_str())),
+            Self::Action(ActionError::Linked(path)) => ("snapshot_linked", Some(path.as_str())),
+            Self::Action(ActionError::Filtered) => ("snapshot_filtered", None),
+            Self::Action(ActionError::TooLargeToCheck(path)) => {
+                ("snapshot_too_large_to_check", Some(path.as_str()))
+            }
+            _ => return None,
+        })
+    }
+}
+
+/// `[code] English text`, then for a refusal that names a path or reason a newline and that
+/// detail (`src/backendError.ts`). The English text never holds a newline, so the detail is
+/// everything after the first one; it is the fallback for a window that does not know the code.
 impl Serialize for SnapshotError {
     fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
-        serializer.serialize_str(&self.to_string())
+        let text = self.to_string().replace(['\r', '\n'], " ");
+        match self.code() {
+            Some((code, Some(detail))) => {
+                serializer.serialize_str(&format!("[{code}] {text}\n{detail}"))
+            }
+            Some((code, None)) => serializer.serialize_str(&format!("[{code}] {text}")),
+            None => serializer.serialize_str(&text),
+        }
     }
 }
 
@@ -161,6 +208,8 @@ pub struct Snapshot {
     pub kind: SnapshotKind,
     /// The agent's last prompt before the step, cut; empty when none was known.
     pub prompt: String,
+    /// Full id of the commit that was HEAD when the snapshot was taken; `None` without one.
+    pub parent: Option<String>,
 }
 
 /// Why the newest step of a session was not saved; the window says so in the timeline.
@@ -192,6 +241,11 @@ pub struct SnapshotList {
     pub others: usize,
     /// A session in the same work tree (this one included) is working: going back is refused.
     pub busy: bool,
+    /// The work tree's root as the platform writes it; empty outside a repository.
+    pub root: String,
+    /// Full id of the current HEAD commit; `None` on a branch without commits. A snapshot whose
+    /// `parent` differs was taken on another commit (a branch switch since).
+    pub head: Option<String>,
 }
 
 /// What [`take`] did.
@@ -238,6 +292,8 @@ pub struct SnapshotEnv<'a> {
     pub max_files: usize,
     pub max_file_bytes: u64,
     pub max_total_bytes: u64,
+    /// All side repositories together, enforced by the clean-up at start.
+    pub max_folder_bytes: u64,
 }
 
 impl<'a> SnapshotEnv<'a> {
@@ -249,6 +305,7 @@ impl<'a> SnapshotEnv<'a> {
             max_files: MAX_CHANGED_FILES,
             max_file_bytes: MAX_FILE_BYTES,
             max_total_bytes: MAX_TOTAL_BYTES,
+            max_folder_bytes: MAX_FOLDER_BYTES,
         }
     }
 
@@ -333,16 +390,21 @@ fn alternate(path: &Path) -> Result<OsString, SnapshotError> {
 /// A temporary index file in Hangar's data folder, removed (with its lock) on drop.
 struct TempIndex(PathBuf);
 
+/// A name no other temporary file of this or another running Hangar has: process ID, a counter,
+/// and `extension`.
+fn temp_name(extension: &str) -> String {
+    static NEXT: AtomicU64 = AtomicU64::new(0);
+    format!(
+        "{}-{}.{extension}",
+        std::process::id(),
+        NEXT.fetch_add(1, Ordering::Relaxed)
+    )
+}
+
 impl TempIndex {
     fn new(dir: &Path) -> Result<Self, SnapshotError> {
-        static NEXT: AtomicU64 = AtomicU64::new(0);
         fs::create_dir_all(dir).map_err(data_error)?;
-        let name = format!(
-            "{}-{}.index",
-            std::process::id(),
-            NEXT.fetch_add(1, Ordering::Relaxed)
-        );
-        let path = dir.join(name);
+        let path = dir.join(temp_name("index"));
         // A leftover of a crashed run with the same name would be read as a stale index.
         remove_quietly(&path);
         Ok(Self(path))
@@ -409,6 +471,10 @@ struct Repo {
     side: PathBuf,
     side_objects: OsString,
     user_objects: OsString,
+    /// The work tree's root and its git folders, canonical (links resolved, long names): a file
+    /// is written only into a folder inside the first and outside the others.
+    real_root: PathBuf,
+    real_git_dirs: Vec<PathBuf>,
 }
 
 impl Repo {
@@ -418,16 +484,28 @@ impl Repo {
         let Some(root) = git::toplevel(env.git, cwd, deadline)? else {
             return Ok(None);
         };
-        let common = env.git.run(
+        let dirs = env.git.run(
             &root,
-            ["rev-parse", "--path-format=absolute", "--git-common-dir"],
+            [
+                "rev-parse",
+                "--path-format=absolute",
+                "--git-dir",
+                "--git-common-dir",
+            ],
             deadline,
             MAX_ID_BYTES,
         )?;
-        if !common.success {
-            return Err(common.failure().into());
+        if !dirs.success {
+            return Err(dirs.failure().into());
         }
-        let common = root.join(git::native_path(&String::from_utf8_lossy(&common.stdout)));
+        let text = String::from_utf8_lossy(&dirs.stdout);
+        let mut lines = text.lines().map(|line| root.join(git::native_path(line)));
+        let (Some(git_dir), Some(common)) = (lines.next(), lines.next()) else {
+            return Err(SnapshotError::Unexpected("no git folder"));
+        };
+        let real = |path: &Path| fs::canonicalize(path).map_err(data_error);
+        let real_root = real(&root)?;
+        let real_git_dirs = vec![real(&git_dir)?, real(&common)?];
         let user_objects = alternate(&common.join("objects"))?;
         let side = side_repo(env, &common, deadline)?;
         let side_objects = side.join("objects").into_os_string();
@@ -436,6 +514,12 @@ impl Repo {
             "core.splitIndex=false",
             // `always` would give every snapshot ref a reflog of its own.
             "core.logAllRefUpdates=false",
+            // Paths a checkout must refuse on any file system the work tree may live on (`.git`
+            // spelled as an NTFS short name or with code points HFS+ ignores).
+            "core.protectNTFS=true",
+            "core.protectHFS=true",
+            // Would mark the entries `add` updates assume-unchanged in the temporary index.
+            "core.ignoreStat=false",
         ]
         .into_iter()
         .flat_map(|setting| ["-c".to_owned(), setting.to_owned()])
@@ -453,6 +537,8 @@ impl Repo {
             side,
             side_objects,
             user_objects,
+            real_root,
+            real_git_dirs,
         }))
     }
 
@@ -605,7 +691,7 @@ fn entries(env: &SnapshotEnv<'_>, repo: &Repo, key: &str) -> Result<Vec<Entry>, 
         env,
         &[
             "for-each-ref",
-            "--format=%(refname)%00%(objectname)%00%(creatordate:unix)%00%(subject)",
+            "--format=%(refname)%00%(objectname)%00%(creatordate:unix)%00%(parent)%00%(subject)",
             &folder,
         ],
         None,
@@ -614,10 +700,12 @@ fn entries(env: &SnapshotEnv<'_>, repo: &Repo, key: &str) -> Result<Vec<Entry>, 
     let mut list: Vec<Entry> = String::from_utf8_lossy(&output.stdout)
         .lines()
         .filter_map(|line| {
-            let mut fields = line.splitn(4, '\0');
+            let mut fields = line.splitn(5, '\0');
             let name = fields.next()?;
             let sha = fields.next()?;
             let created_at = fields.next()?.trim().parse().ok()?;
+            let parent = fields.next()?.trim();
+            let parent = is_object_id(parent).then(|| parent.to_owned());
             let (kind, files, prompt) = parse_subject(fields.next()?)?;
             let number: u64 = name.strip_prefix(&folder)?.parse().ok()?;
             if number == 0 || !is_object_id(sha) {
@@ -632,6 +720,7 @@ fn entries(env: &SnapshotEnv<'_>, repo: &Repo, key: &str) -> Result<Vec<Entry>, 
                     files,
                     kind,
                     prompt,
+                    parent,
                 },
             })
         })
@@ -661,6 +750,7 @@ fn work_tree_tree(env: &SnapshotEnv<'_>, repo: &Repo) -> Result<String, Snapshot
         Err(error) if error.kind() == io::ErrorKind::NotFound => {}
         Err(error) => return Err(data_error(error)),
     }
+    clear_assume_unchanged(env, repo, &index)?;
     repo.run(
         env,
         &["add", "--all"],
@@ -671,63 +761,224 @@ fn work_tree_tree(env: &SnapshotEnv<'_>, repo: &Repo) -> Result<String, Snapshot
     repo.id(env, &["write-tree"], Some(&index), None)
 }
 
-/// Files that differ between two trees (or, without `from`, all files of `to`).
-fn changed_files(
+/// Clears the assume-unchanged bit (`update-index --assume-unchanged`, `core.ignoreStat`) of every
+/// entry in the temporary index: `add --all` takes such an entry as unchanged and would leave the
+/// file's newer content out of the snapshot, so going back would lose it.
+fn clear_assume_unchanged(
     env: &SnapshotEnv<'_>,
     repo: &Repo,
-    from: Option<&str>,
-    to: &str,
-) -> Result<Vec<(u8, String)>, SnapshotError> {
-    let output = match from {
-        Some(from) => repo.run(
-            env,
-            &[
-                "diff-tree",
-                "-r",
-                "-z",
-                "--no-renames",
-                "--name-status",
-                "--ignore-submodules=all",
-                from,
-                to,
-                "--",
-            ],
-            None,
-            None,
-            git::MAX_LIST_BYTES,
-        )?,
-        None => {
-            let output = repo.run(
-                env,
-                &["ls-tree", "-r", "-z", "--name-only", to],
-                None,
-                None,
-                git::MAX_LIST_BYTES,
-            )?;
-            let names = output
-                .stdout
-                .split(|b| *b == 0)
-                .filter(|name| !name.is_empty())
-                .map(|name| (b'A', String::from_utf8_lossy(name).into_owned()))
-                .collect();
-            return Ok(names);
-        }
-    };
-    if output.truncated {
-        return Err(SnapshotError::Unexpected("file list too long"));
+    index: &TempIndex,
+) -> Result<(), SnapshotError> {
+    let listed = repo.run(
+        env,
+        &["ls-files", "-v", "-z"],
+        Some(index),
+        None,
+        MAX_INDEX_LIST_BYTES,
+    )?;
+    if listed.truncated {
+        return Err(SnapshotError::Unexpected("index too large"));
     }
-    let mut files = Vec::new();
-    let mut records = output.stdout.split(|b| *b == 0);
-    while let Some(code) = records.next() {
-        let Some(&letter) = code.first() else {
+    let marked = assume_unchanged(&listed.stdout);
+    if marked.is_empty() {
+        return Ok(());
+    }
+    repo.run(
+        env,
+        &["update-index", "--no-assume-unchanged", "-z", "--stdin"],
+        Some(index),
+        Some(marked),
+        MAX_ID_BYTES,
+    )?;
+    Ok(())
+}
+
+/// The NUL separated paths of `ls-files -v -z` whose tag is a lower case letter: assume-unchanged.
+fn assume_unchanged(output: &[u8]) -> Vec<u8> {
+    let mut paths = Vec::new();
+    for record in output.split(|b| *b == 0) {
+        if let [tag, b' ', path @ ..] = record {
+            if tag.is_ascii_lowercase() && !path.is_empty() {
+                paths.extend_from_slice(path);
+                paths.push(0);
+            }
+        }
+    }
+    paths
+}
+
+/// Mode of a symbolic link and of a submodule in a tree.
+const LINK_MODE: &str = "120000";
+const GITLINK_MODE: &str = "160000";
+
+/// One file that differs between two trees: `D` deleted, `A` added, `M` (or another letter)
+/// changed; mode and object id on the side of the second tree (empty for a deleted file).
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct Change {
+    letter: u8,
+    old_mode: String,
+    new_mode: String,
+    new_id: String,
+    path: String,
+}
+
+impl Change {
+    fn is_gitlink(&self) -> bool {
+        self.old_mode == GITLINK_MODE || self.new_mode == GITLINK_MODE
+    }
+}
+
+/// `diff-tree -r -z --raw`: `:<old mode> <new mode> <old id> <new id> <letter>\0<path>\0`.
+fn parse_raw(output: &[u8]) -> Vec<Change> {
+    let mut changes = Vec::new();
+    let mut records = output.split(|b| *b == 0);
+    while let Some(head) = records.next() {
+        let Some(head) = head.strip_prefix(b":") else {
             continue;
         };
         let Some(path) = records.next() else {
             break;
         };
-        files.push((letter, String::from_utf8_lossy(path).into_owned()));
+        let head = String::from_utf8_lossy(head);
+        let fields: Vec<&str> = head.split(' ').collect();
+        let [old_mode, new_mode, _, new_id, status] = fields[..] else {
+            continue;
+        };
+        let Some(&letter) = status.as_bytes().first() else {
+            continue;
+        };
+        changes.push(Change {
+            letter,
+            old_mode: old_mode.to_owned(),
+            new_mode: new_mode.to_owned(),
+            new_id: if letter == b'D' {
+                String::new()
+            } else {
+                new_id.to_owned()
+            },
+            path: String::from_utf8_lossy(path).into_owned(),
+        });
     }
-    Ok(files)
+    changes
+}
+
+/// `ls-tree -r -z`: `<mode> <type> <id>\t<path>\0`, every entry as added.
+fn parse_tree(output: &[u8]) -> Vec<Change> {
+    output
+        .split(|b| *b == 0)
+        .filter_map(|record| {
+            let tab = record.iter().position(|b| *b == b'\t')?;
+            let head = String::from_utf8_lossy(&record[..tab]);
+            let fields: Vec<&str> = head.split(' ').collect();
+            let [mode, _, id] = fields[..] else {
+                return None;
+            };
+            Some(Change {
+                letter: b'A',
+                old_mode: "000000".to_owned(),
+                new_mode: mode.to_owned(),
+                new_id: id.to_owned(),
+                path: String::from_utf8_lossy(&record[tab + 1..]).into_owned(),
+            })
+        })
+        .collect()
+}
+
+/// Files that differ between two trees (or, without `from`, all files of `to`), submodules left
+/// out.
+fn changed_files(
+    env: &SnapshotEnv<'_>,
+    repo: &Repo,
+    from: Option<&str>,
+    to: &str,
+) -> Result<Vec<Change>, SnapshotError> {
+    type Parse = fn(&[u8]) -> Vec<Change>;
+    let (output, parse): (Output, Parse) = match from {
+        Some(from) => (
+            repo.run(
+                env,
+                &[
+                    "diff-tree",
+                    "-r",
+                    "-z",
+                    "--raw",
+                    "--no-abbrev",
+                    "--no-renames",
+                    "--ignore-submodules=all",
+                    from,
+                    to,
+                    "--",
+                ],
+                None,
+                None,
+                git::MAX_LIST_BYTES,
+            )?,
+            parse_raw,
+        ),
+        None => (
+            repo.run(
+                env,
+                &["ls-tree", "-r", "-z", "--full-tree", to],
+                None,
+                None,
+                git::MAX_LIST_BYTES,
+            )?,
+            parse_tree,
+        ),
+    };
+    if output.truncated {
+        return Err(SnapshotError::Unexpected("file list too long"));
+    }
+    Ok(parse(&output.stdout)
+        .into_iter()
+        .filter(|change| !change.is_gitlink())
+        .collect())
+}
+
+/// Sizes of the objects `ids` (one `cat-file --batch-check` for all), in order.
+fn object_sizes(
+    env: &SnapshotEnv<'_>,
+    repo: &Repo,
+    ids: &[&str],
+) -> Result<Vec<u64>, SnapshotError> {
+    if ids.is_empty() {
+        return Ok(Vec::new());
+    }
+    let mut input = Vec::new();
+    for id in ids {
+        input.extend_from_slice(id.as_bytes());
+        input.push(b'\n');
+    }
+    let output = repo.run(
+        env,
+        &["cat-file", "--batch-check=%(objectsize)"],
+        None,
+        Some(input),
+        git::MAX_LIST_BYTES,
+    )?;
+    let sizes: Vec<u64> = String::from_utf8_lossy(&output.stdout)
+        .lines()
+        .filter_map(|line| line.trim().parse().ok())
+        .collect();
+    if output.truncated || sizes.len() != ids.len() {
+        return Err(SnapshotError::Unexpected("object sizes"));
+    }
+    Ok(sizes)
+}
+
+/// Whether one size exceeds the per file limit or all together the total.
+fn sizes_exceed(env: &SnapshotEnv<'_>, sizes: impl IntoIterator<Item = u64>) -> bool {
+    let mut total: u64 = 0;
+    for size in sizes {
+        if size > env.max_file_bytes {
+            return true;
+        }
+        total = total.saturating_add(size);
+        if total > env.max_total_bytes {
+            return true;
+        }
+    }
+    false
 }
 
 /// The work tree as a tree object, unless too much changed to save it.
@@ -739,24 +990,28 @@ enum Current {
 
 /// Whether the changed files on disk exceed one file's or all files' size limit.
 fn exceeds_sizes(env: &SnapshotEnv<'_>, root: &Path, paths: &[String]) -> bool {
-    let mut total: u64 = 0;
-    for path in paths {
-        // A deleted file has no size; a link counts as the link, never its target.
-        let Ok(meta) = fs::symlink_metadata(root.join(path)) else {
-            continue;
-        };
-        if !meta.is_file() {
-            continue;
-        }
-        if meta.len() > env.max_file_bytes {
-            return true;
-        }
-        total = total.saturating_add(meta.len());
-        if total > env.max_total_bytes {
-            return true;
-        }
-    }
-    false
+    // A deleted file has no size; a link counts as the link, never its target.
+    let sizes = paths.iter().filter_map(|path| {
+        fs::symlink_metadata(root.join(path))
+            .ok()
+            .filter(fs::Metadata::is_file)
+            .map(|meta| meta.len())
+    });
+    sizes_exceed(env, sizes)
+}
+
+/// Whether the blobs `tree` holds beyond HEAD's tree exceed the limits. The check on disk runs
+/// before `add`, so a file that grew in between is caught here, by the size git stored.
+fn tree_too_large(env: &SnapshotEnv<'_>, repo: &Repo, tree: &str) -> Result<bool, SnapshotError> {
+    let head = repo.resolve(env, "HEAD^{tree}")?;
+    let changes = changed_files(env, repo, head.as_deref(), tree)?;
+    let ids: Vec<&str> = changes
+        .iter()
+        .filter(|change| change.letter != b'D')
+        .map(|change| change.new_id.as_str())
+        .collect();
+    let sizes = object_sizes(env, repo, &ids)?;
+    Ok(sizes_exceed(env, sizes))
 }
 
 /// The work tree as a tree object, or why it is not saved: more than `max_files` files changed
@@ -788,7 +1043,12 @@ fn current_tree(env: &SnapshotEnv<'_>, repo: &Repo) -> Result<Current, SnapshotE
     if exceeds_sizes(env, &repo.root, &paths) {
         return Ok(Current::TooLarge);
     }
-    work_tree_tree(env, repo).map(Current::Tree)
+    let tree = work_tree_tree(env, repo)?;
+    if tree_too_large(env, repo, &tree)? {
+        // Its blobs stay unreferenced in the side repository until the next `gc` drops them.
+        return Ok(Current::TooLarge);
+    }
+    Ok(Current::Tree(tree))
 }
 
 /// The state the work tree is in after [`record`].
@@ -804,7 +1064,9 @@ enum Taken {
 }
 
 /// Keeps `tree` as the session's next snapshot, unless it matches the newest one (or, for the
-/// first step, HEAD), and prunes the oldest beyond the cap in the same ref transaction.
+/// first step, HEAD), and prunes the oldest beyond the cap in the same ref transaction. The
+/// snapshot numbered `keep` (the target of a jump back) is never pruned, so it stays in the list
+/// as the state the work tree now holds; the cap may then be passed by one.
 fn record(
     env: &SnapshotEnv<'_>,
     repo: &Repo,
@@ -812,6 +1074,7 @@ fn record(
     prompt: &str,
     kind: SnapshotKind,
     tree: &str,
+    keep: Option<u64>,
 ) -> Result<Taken, SnapshotError> {
     let list = entries(env, repo, key)?;
     let head = repo.resolve(env, "HEAD^{commit}")?;
@@ -844,7 +1107,11 @@ fn record(
     let number = last.map_or(1, |last| last.number + 1);
     let mut transaction = format!("create {}{number} {commit}\n", ref_folder(key));
     let excess = (list.len() + 1).saturating_sub(env.max_snapshots.max(1));
-    for old in list.iter().take(excess) {
+    for old in list
+        .iter()
+        .filter(|entry| Some(entry.snapshot.number) != keep)
+        .take(excess)
+    {
         transaction.push_str(&format!("delete {}\n", old.name));
     }
     repo.side_run(
@@ -884,7 +1151,7 @@ pub fn take(
         }
     };
     Ok(
-        match record(env, &repo, &key, prompt, SnapshotKind::Step, &tree)? {
+        match record(env, &repo, &key, prompt, SnapshotKind::Step, &tree, None)? {
             Taken::Created { number, files } => TakeOutcome::Created { number, files },
             Taken::Unchanged { .. } => TakeOutcome::Unchanged,
         },
@@ -934,6 +1201,8 @@ fn list_in(
             skipped: None,
             others: 0,
             busy: false,
+            root: String::new(),
+            head: None,
         };
         return Ok((empty, None));
     };
@@ -948,6 +1217,8 @@ fn list_in(
         skipped: None,
         others: 0,
         busy: false,
+        root: repo.root.to_string_lossy().into_owned(),
+        head: repo.resolve(env, "HEAD^{commit}")?,
     };
     Ok((list, Some(repo.root)))
 }
@@ -1080,10 +1351,12 @@ fn ignored_in_the_way(
 /// Makes the work tree match snapshot `number`: files changed since get its content back, files
 /// created since are removed, ignored files, the index, HEAD and the branch stay, as do entries
 /// the index marks skip-worktree. Before anything is written: refused while `busy(root)` says a
-/// session works in the work tree, when a path leads through a link, needs a filter driver, or a
-/// folder with other files stands where a file goes, and when the current state cannot be saved.
-/// The current state is then saved as a snapshot (`undo` in the answer), so the jump can be
-/// undone.
+/// session works in the work tree, when a path leads through a link, holds a symbolic link in the
+/// snapshot, needs a filter driver, or a folder with other files or an ignored file stands where a
+/// file goes, and when the current state cannot be saved. The snapshot's files are staged outside
+/// the work tree, the current state is saved as a snapshot (`undo` in the answer), so the jump
+/// can be undone, and right before the first write `busy` is asked again and the work tree must
+/// still be the state just saved.
 pub fn restore(
     env: &SnapshotEnv<'_>,
     cwd: &Path,
@@ -1125,25 +1398,29 @@ pub fn restore(
     }
 
     let all = changed_files(env, &repo, Some(&current_tree), &target_tree)?;
-    for (_, path) in &all {
-        git_actions::check_path(path)?;
-        git_actions::refuse_links(&repo.root, path)?;
+    for change in &all {
+        git_actions::check_path(&change.path)?;
+        git_actions::refuse_links(&repo.root, &change.path)?;
+        // git would write a link whose target the snapshot names, possibly outside the work tree.
+        if change.letter != b'D' && change.new_mode == LINK_MODE {
+            return Err(SnapshotError::SymlinkEntry(change.path.clone()));
+        }
     }
-    let names: Vec<&str> = all.iter().map(|(_, path)| path.as_str()).collect();
+    let names: Vec<&str> = all.iter().map(|change| change.path.as_str()).collect();
     let sparse = skip_worktree(env, &repo, &names)?;
-    let changes: Vec<(u8, String)> = all
-        .into_iter()
-        .filter(|(_, path)| !sparse.contains(path))
+    let changes: Vec<&Change> = all
+        .iter()
+        .filter(|change| !sparse.contains(&change.path))
         .collect();
-    let (deleted, written): (Vec<_>, Vec<_>) =
-        changes.iter().partition(|(letter, _)| *letter == b'D');
-    let deleted: Vec<&str> = deleted.iter().map(|(_, path)| path.as_str()).collect();
+    let (deleted, written): (Vec<&Change>, Vec<&Change>) =
+        changes.iter().partition(|change| change.letter == b'D');
+    let deleted: Vec<&str> = deleted.iter().map(|change| change.path.as_str()).collect();
     let added: HashSet<&str> = written
         .iter()
-        .filter(|(letter, _)| *letter == b'A')
-        .map(|(_, path)| path.as_str())
+        .filter(|change| change.letter == b'A')
+        .map(|change| change.path.as_str())
         .collect();
-    let written: Vec<String> = written.iter().map(|(_, path)| path.clone()).collect();
+    let written: Vec<String> = written.iter().map(|change| change.path.clone()).collect();
     if repo.filters {
         git_actions::refuse_filtered_files(env.git, &repo.root, repo.deadline, &written)?;
     }
@@ -1163,8 +1440,20 @@ pub fn restore(
     }) {
         return Err(SnapshotError::IgnoredInTheWay(spot));
     }
+    // git writes the files into Hangar's data folder; a failure there changes nothing.
+    let staging = Staging::new(&env.temp_dir())?;
+    stage(env, &repo, &staging, &written, &target_tree)?;
 
-    let undo = match record(env, &repo, &key, "", SnapshotKind::Undo, &current_tree) {
+    let undo = record(
+        env,
+        &repo,
+        &key,
+        "",
+        SnapshotKind::Undo,
+        &current_tree,
+        Some(target.snapshot.number),
+    );
+    let undo = match undo {
         Ok(Taken::Created { number, .. })
         | Ok(Taken::Unchanged {
             number: Some(number),
@@ -1174,7 +1463,17 @@ pub fn restore(
         }
         Err(error) => return Err(SnapshotError::CannotSaveCurrent(error.to_string())),
     };
-    match write_back(env, &repo, &deleted, &written, &added, &target_tree) {
+    // The last look before the first write: an agent that started during the checks, or a file
+    // saved meanwhile, would otherwise be overwritten by a state the undo point does not hold.
+    if busy(&repo.root) {
+        return Err(SnapshotError::Working);
+    }
+    match work_tree_tree(env, &repo) {
+        Ok(tree) if tree == current_tree => {}
+        Ok(_) => return Err(SnapshotError::Working),
+        Err(error) => return Err(SnapshotError::CannotSaveCurrent(error.to_string())),
+    }
+    match write_back(&repo, &deleted, &written, &added, &staging) {
         Ok(()) => Ok(RestoreOutcome::Restored {
             files: u64::try_from(changes.len()).unwrap_or(u64::MAX),
             undo,
@@ -1186,31 +1485,89 @@ pub fn restore(
     }
 }
 
-/// The writing half of [`restore`], after every check passed and the undo point is saved.
-fn write_back(
+/// A folder below Hangar's data folder that holds the files of one jump back, removed on drop.
+struct Staging(PathBuf);
+
+impl Staging {
+    fn new(dir: &Path) -> Result<Self, SnapshotError> {
+        fs::create_dir_all(dir).map_err(data_error)?;
+        let path = dir.join(temp_name("stage"));
+        // A leftover of a crashed run with the same name.
+        if fs::symlink_metadata(&path).is_ok() {
+            fs::remove_dir_all(&path).map_err(data_error)?;
+        }
+        fs::create_dir(&path).map_err(data_error)?;
+        Ok(Self(path))
+    }
+}
+
+impl Drop for Staging {
+    fn drop(&mut self) {
+        if let Err(error) = fs::remove_dir_all(&self.0) {
+            if error.kind() != io::ErrorKind::NotFound {
+                eprintln!("hangar: could not remove {}: {error}", self.0.display());
+            }
+        }
+    }
+}
+
+/// Writes the files `written` of `tree` below `staging` with `checkout-index --prefix`, so git
+/// converts them (line endings, `ident`) as it would in the work tree, which it never touches.
+fn stage(
     env: &SnapshotEnv<'_>,
     repo: &Repo,
-    deleted: &[&str],
+    staging: &Staging,
     written: &[String],
-    added: &HashSet<&str>,
-    target_tree: &str,
+    tree: &str,
 ) -> Result<(), SnapshotError> {
-    for path in deleted {
-        // Again right before the delete: a folder on the way may have become a link since.
-        git_actions::refuse_links(&repo.root, path)?;
-        remove_file(&repo.root, path)?;
-    }
     if written.is_empty() {
         return Ok(());
     }
     let index = TempIndex::new(&env.temp_dir())?;
+    repo.run(env, &["read-tree", tree], Some(&index), None, MAX_ID_BYTES)?;
+    let mut prefix = staging.0.to_string_lossy().replace('\\', "/");
+    prefix.push('/');
+    let prefix = format!("--prefix={prefix}");
+    let mut input = Vec::new();
+    for path in written {
+        input.extend_from_slice(path.as_bytes());
+        input.push(0);
+    }
     repo.run(
         env,
-        &["read-tree", target_tree],
+        &[
+            // The staging folder adds to the path's length (Git for Windows only).
+            "-c",
+            "core.longpaths=true",
+            "checkout-index",
+            "--force",
+            "-z",
+            "--stdin",
+            &prefix,
+        ],
         Some(&index),
-        None,
-        MAX_ID_BYTES,
+        Some(input),
+        git::MAX_LIST_BYTES,
     )?;
+    Ok(())
+}
+
+/// The writing half of [`restore`], after every check passed and the undo point is saved.
+fn write_back(
+    repo: &Repo,
+    deleted: &[&str],
+    written: &[String],
+    added: &HashSet<&str>,
+    staging: &Staging,
+) -> Result<(), SnapshotError> {
+    for path in deleted {
+        // Again right before the delete: a folder on the way may have become a link since.
+        git_actions::refuse_links(&repo.root, path)?;
+        remove_file(repo, path)?;
+    }
+    if written.is_empty() {
+        return Ok(());
+    }
     // The deletes are done: any folder or file left where a file goes holds something else.
     let none = HashSet::new();
     if let Some(path) = written
@@ -1224,25 +1581,114 @@ fn write_back(
     }) {
         return Err(SnapshotError::IgnoredInTheWay(spot));
     }
-    let mut input = Vec::new();
     for path in written {
-        input.extend_from_slice(path.as_bytes());
-        input.push(0);
+        install(repo, path, &staging.0.join(path))?;
     }
-    repo.run(
-        env,
-        &["checkout-index", "--force", "-z", "--stdin"],
-        Some(&index),
-        Some(input),
-        git::MAX_LIST_BYTES,
-    )?;
     Ok(())
+}
+
+fn write_error(path: &str, error: io::Error) -> SnapshotError {
+    GitError::Failed(format!("{path} could not be written: {error}")).into()
+}
+
+/// The canonical form of the existing folder `dir`, refused unless it lies inside the work tree
+/// and outside its git folders. Canonical means links resolved and long names, so a folder
+/// reached through a junction swapped in since the checks, or named by an NTFS short name of a git
+/// folder (`GIT~1`, `GI7EBA~1`), is caught.
+fn inside(repo: &Repo, dir: &Path, path: &str) -> Result<PathBuf, SnapshotError> {
+    let real = fs::canonicalize(dir).map_err(|error| write_error(path, error))?;
+    if !real.starts_with(&repo.real_root)
+        || repo.real_git_dirs.iter().any(|git| real.starts_with(git))
+    {
+        return Err(SnapshotError::Outside(path.to_owned()));
+    }
+    Ok(real)
+}
+
+/// Puts the staged file at `path` (relative to the root, `/` separated). Right before: every
+/// folder on the way is created if missing and must be a plain folder (no link, no junction),
+/// the deepest must lie inside the work tree ([`inside`]), and a file already there must be the
+/// one the path names. The file goes in as a new temporary file beside it and a rename, which
+/// replaces a file but never a folder and never follows a link at the target.
+fn install(repo: &Repo, path: &str, staged: &Path) -> Result<(), SnapshotError> {
+    let (folder, name) = path.rsplit_once('/').unwrap_or(("", path));
+    let mut dir = repo.root.clone();
+    let mut walked = String::new();
+    for part in folder.split('/').filter(|part| !part.is_empty()) {
+        dir.push(part);
+        if !walked.is_empty() {
+            walked.push('/');
+        }
+        walked.push_str(part);
+        if let Err(error) = fs::create_dir(&dir) {
+            if error.kind() != io::ErrorKind::AlreadyExists {
+                return Err(write_error(path, error));
+            }
+        }
+        match fs::symlink_metadata(&dir) {
+            Ok(meta) if git_actions::is_link(&meta) => {
+                return Err(ActionError::Linked(path.to_owned()).into())
+            }
+            Ok(meta) if meta.is_dir() => {}
+            Ok(_) => return Err(SnapshotError::IgnoredInTheWay(walked)),
+            Err(error) => return Err(write_error(path, error)),
+        }
+    }
+    let real_dir = inside(repo, &dir, path)?;
+    let target = dir.join(name);
+    match fs::symlink_metadata(&target) {
+        Ok(meta) if git_actions::is_link(&meta) => {
+            return Err(ActionError::Linked(path.to_owned()).into())
+        }
+        Ok(meta) if meta.is_dir() => return Err(SnapshotError::FolderInTheWay(path.to_owned())),
+        Ok(_) => {
+            // An NTFS short name (`README~1.MD`) would name another file than the snapshot's.
+            let real = fs::canonicalize(&target).map_err(|error| write_error(path, error))?;
+            let same = real.parent() == Some(real_dir.as_path())
+                && real.file_name().is_some_and(|real| {
+                    real.to_string_lossy().to_lowercase() == name.to_lowercase()
+                });
+            if !same {
+                return Err(SnapshotError::Outside(path.to_owned()));
+            }
+        }
+        Err(error) if error.kind() == io::ErrorKind::NotFound => {}
+        Err(error) => return Err(write_error(path, error)),
+    }
+    let temp = dir.join(format!(".hangar-{}", temp_name("restore")));
+    copy_new(staged, &temp).map_err(|error| write_error(path, error))?;
+    if let Err(error) = fs::rename(&temp, &target) {
+        remove_quietly(&temp);
+        return Err(write_error(path, error));
+    }
+    Ok(())
+}
+
+/// Copies `from` into the new file `to` (never an existing one, never through a link there),
+/// with the permissions git gave the staged file (the executable bit).
+fn copy_new(from: &Path, to: &Path) -> io::Result<()> {
+    let mut source = fs::File::open(from)?;
+    let mut target = fs::OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .open(to)?;
+    let copied = io::copy(&mut source, &mut target)
+        .and_then(|_| target.set_permissions(source.metadata()?.permissions()));
+    drop(target);
+    if copied.is_err() {
+        remove_quietly(to);
+    }
+    copied
 }
 
 /// Removes a file the snapshot does not have, then its folders up to the root as long as they are
 /// empty (a folder that holds an ignored file stays).
-fn remove_file(root: &Path, path: &str) -> Result<(), SnapshotError> {
+fn remove_file(repo: &Repo, path: &str) -> Result<(), SnapshotError> {
+    let root = repo.root.as_path();
     let target = root.join(path);
+    if let Some(parent) = target.parent().filter(|parent| parent.exists()) {
+        inside(repo, parent, path)?;
+    }
     match fs::remove_file(&target) {
         Ok(()) => {}
         Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(()),
@@ -1332,24 +1778,35 @@ pub struct CleanUp {
     pub refs: usize,
 }
 
-/// At start, before any session takes a snapshot: removes leftover temporary indexes, the side
+/// At start, before any session takes a snapshot: removes leftover temporary files, the side
 /// repositories whose repository is gone, and with `keep` (the keys of the sessions that will be
 /// restored) the snapshots of every other session; a side repository left without snapshots goes
-/// as a whole, the others drop their unreferenced objects. `keep: None` (the saved workspace
-/// could not be read) keeps every snapshot of an existing repository.
+/// as a whole, the others drop their unreferenced objects (`gc`). Last, all side repositories
+/// together are brought below [`SnapshotEnv::max_folder_bytes`]. `keep: None` (the saved
+/// workspace could not be read) keeps every snapshot of an existing repository. Runs only while
+/// no other Hangar uses the folder ([`InstanceLock`]).
 pub fn clean_up(env: &SnapshotEnv<'_>, keep: Option<&BTreeSet<String>>) -> CleanUp {
     let mut done = CleanUp::default();
     let now = SystemTime::now();
     if let Ok(files) = fs::read_dir(env.temp_dir()) {
         for file in files.flatten() {
-            let stale = file
-                .metadata()
+            let Ok(meta) = fs::symlink_metadata(file.path()) else {
+                continue;
+            };
+            let stale = meta
+                .modified()
                 .ok()
-                .filter(|meta| meta.is_file())
-                .and_then(|meta| meta.modified().ok())
                 .and_then(|modified| now.duration_since(modified).ok())
                 .is_some_and(|age| age > STALE_TEMP);
-            if stale && fs::remove_file(file.path()).is_ok() {
+            if !stale {
+                continue;
+            }
+            let removed = if meta.is_dir() && !git_actions::is_link(&meta) {
+                fs::remove_dir_all(file.path())
+            } else {
+                fs::remove_file(file.path())
+            };
+            if removed.is_ok() {
                 done.temp_files += 1;
             }
         }
@@ -1357,6 +1814,7 @@ pub fn clean_up(env: &SnapshotEnv<'_>, keep: Option<&BTreeSet<String>>) -> Clean
     let Ok(sides) = fs::read_dir(env.folder) else {
         return done;
     };
+    let mut kept = Vec::new();
     for side in sides.flatten() {
         let path = side.path();
         let is_side = path.extension() == Some(OsStr::new("git"))
@@ -1365,15 +1823,22 @@ pub fn clean_up(env: &SnapshotEnv<'_>, keep: Option<&BTreeSet<String>>) -> Clean
         if !is_side {
             continue;
         }
-        match clean_side(env, &path, keep) {
+        match clean_side(env, &path, keep, now) {
             Ok(SideState::Removed) => done.side_repos += 1,
-            Ok(SideState::Kept { refs }) => done.refs += refs,
-            Err(error) => eprintln!(
-                "hangar: snapshot clean-up of {} skipped: {error}",
-                path.display()
-            ),
+            Ok(SideState::Kept { refs }) => {
+                done.refs += refs;
+                kept.push(path);
+            }
+            Err(error) => {
+                eprintln!(
+                    "hangar: snapshot clean-up of {} skipped: {error}",
+                    path.display()
+                );
+                kept.push(path);
+            }
         }
     }
+    enforce_cap(env, kept, &mut done);
     done
 }
 
@@ -1382,23 +1847,78 @@ enum SideState {
     Kept { refs: usize },
 }
 
+/// Whether the drive a repository lived on is there. Only a local drive letter is looked at: a
+/// network share or a WSL distribution may take long to answer or start on access, and a mount
+/// point on Unix stays as an empty folder when its drive is unplugged.
+fn volume_present(path: &Path) -> bool {
+    use std::path::{Component, Prefix};
+    match path.components().next() {
+        Some(Component::Prefix(prefix)) => match prefix.kind() {
+            Prefix::Disk(letter) | Prefix::VerbatimDisk(letter) => {
+                Path::new(&format!("{}:\\", char::from(letter))).is_dir()
+            }
+            _ => false,
+        },
+        _ => false,
+    }
+}
+
+/// The newest snapshot's time (Unix seconds) in the side repository, `None` without snapshots.
+fn newest_snapshot(
+    env: &SnapshotEnv<'_>,
+    side: &Path,
+    deadline: Instant,
+) -> Result<Option<i64>, SnapshotError> {
+    let output = side_run(
+        env,
+        side,
+        None,
+        &["for-each-ref", "--format=%(creatordate:unix)", REF_PREFIX],
+        None,
+        deadline,
+        git::MAX_LIST_BYTES,
+    )?;
+    Ok(String::from_utf8_lossy(&output.stdout)
+        .lines()
+        .filter_map(|line| line.trim().parse().ok())
+        .max())
+}
+
+fn unix_seconds(time: SystemTime) -> i64 {
+    time.duration_since(SystemTime::UNIX_EPOCH)
+        .map_or(0, |age| i64::try_from(age.as_secs()).unwrap_or(i64::MAX))
+}
+
 fn clean_side(
     env: &SnapshotEnv<'_>,
     side: &Path,
     keep: Option<&BTreeSet<String>>,
+    now: SystemTime,
 ) -> Result<SideState, SnapshotError> {
     let deadline = Instant::now() + SNAPSHOT_TIMEOUT;
     let source = fs::read_to_string(side.join(SOURCE_FILE))
         .ok()
         .map(|text| PathBuf::from(text.trim_end()));
-    let objects = source
-        .as_ref()
-        .map(|common| common.join("objects"))
-        .filter(|objects| objects.is_dir());
-    let Some(objects) = objects else {
+    let Some(source) = source else {
+        // Not one Hangar wrote completely.
         fs::remove_dir_all(side).map_err(data_error)?;
         return Ok(SideState::Removed);
     };
+    let objects = source.join("objects");
+    if !objects.is_dir() {
+        // Gone for sure only when its drive is there; otherwise (unplugged, a share, WSL) once
+        // its newest snapshot is old.
+        let newest = newest_snapshot(env, side, deadline)?;
+        let old = newest.is_none_or(|newest| {
+            unix_seconds(now).saturating_sub(newest)
+                > i64::try_from(ORPHAN_AGE.as_secs()).unwrap_or(i64::MAX)
+        });
+        if volume_present(&source) || old {
+            fs::remove_dir_all(side).map_err(data_error)?;
+            return Ok(SideState::Removed);
+        }
+        return Ok(SideState::Kept { refs: 0 });
+    }
     let Some(keep) = keep else {
         return Ok(SideState::Kept { refs: 0 });
     };
@@ -1411,25 +1931,179 @@ fn clean_side(
         return Ok(SideState::Removed);
     }
     delete_refs(env, side, &dropped, deadline)?;
-    let objects = alternate(&objects)?;
-    // A failed prune (an object of the user's repository gone after a gc there) deletes nothing.
-    if let Err(error) = side_run(
-        env,
-        side,
-        Some(&objects),
-        &["prune", PRUNE_EXPIRE],
-        None,
-        deadline,
-        MAX_ID_BYTES,
-    ) {
-        eprintln!(
-            "hangar: snapshot prune of {} skipped: {error}",
-            side.display()
-        );
-    }
+    gc(env, side, &objects, deadline);
     Ok(SideState::Kept {
         refs: dropped.len(),
     })
+}
+
+/// `git gc` in the side repository with the user's objects as an alternate: packs what the
+/// snapshots hold and drops unreferenced objects older than an hour. A failure (an object of the
+/// user's repository gone after a gc there) deletes nothing.
+fn gc(env: &SnapshotEnv<'_>, side: &Path, objects: &Path, deadline: Instant) {
+    let result = alternate(objects).and_then(|objects| {
+        side_run(
+            env,
+            side,
+            Some(&objects),
+            &["gc", "--quiet", PRUNE_EXPIRE],
+            None,
+            deadline,
+            MAX_ID_BYTES,
+        )
+    });
+    if let Err(error) = result {
+        eprintln!("hangar: snapshot gc of {} skipped: {error}", side.display());
+    }
+}
+
+/// Bytes of the files below `dir`, links not followed.
+fn folder_bytes(dir: &Path) -> u64 {
+    let mut total: u64 = 0;
+    let mut pending = vec![dir.to_path_buf()];
+    while let Some(folder) = pending.pop() {
+        let Ok(entries) = fs::read_dir(&folder) else {
+            continue;
+        };
+        for entry in entries.flatten() {
+            let Ok(meta) = fs::symlink_metadata(entry.path()) else {
+                continue;
+            };
+            if meta.is_dir() && !git_actions::is_link(&meta) {
+                pending.push(entry.path());
+            } else if meta.is_file() {
+                total = total.saturating_add(meta.len());
+            }
+        }
+    }
+    total
+}
+
+/// Above the cap the side repositories whose newest snapshot is oldest go first; the last one
+/// left keeps the newer half of each session's snapshots instead of going.
+fn enforce_cap(env: &SnapshotEnv<'_>, sides: Vec<PathBuf>, done: &mut CleanUp) {
+    let deadline = Instant::now() + SNAPSHOT_TIMEOUT;
+    let mut sized: Vec<(PathBuf, u64, i64)> = sides
+        .into_iter()
+        .map(|side| {
+            let bytes = folder_bytes(&side);
+            let newest = newest_snapshot(env, &side, deadline)
+                .ok()
+                .flatten()
+                .unwrap_or(0);
+            (side, bytes, newest)
+        })
+        .collect();
+    let mut total: u64 = sized.iter().map(|(_, bytes, _)| *bytes).sum();
+    if total <= env.max_folder_bytes {
+        return;
+    }
+    // Newest first, so the oldest is popped.
+    sized.sort_by_key(|(_, _, newest)| std::cmp::Reverse(*newest));
+    while total > env.max_folder_bytes && sized.len() > 1 {
+        let Some((side, bytes, _)) = sized.pop() else {
+            break;
+        };
+        match fs::remove_dir_all(&side) {
+            Ok(()) => {
+                done.side_repos += 1;
+                total = total.saturating_sub(bytes);
+            }
+            Err(error) => eprintln!("hangar: could not remove {}: {error}", side.display()),
+        }
+    }
+    if total > env.max_folder_bytes {
+        if let Some((side, _, _)) = sized.first() {
+            match thin(env, side, deadline) {
+                Ok(refs) => done.refs += refs,
+                Err(error) => eprintln!(
+                    "hangar: snapshot thinning of {} skipped: {error}",
+                    side.display()
+                ),
+            }
+        }
+    }
+}
+
+/// Deletes the older half of every session's snapshots in `side`, then runs `gc`.
+fn thin(env: &SnapshotEnv<'_>, side: &Path, deadline: Instant) -> Result<usize, SnapshotError> {
+    let mut by_key: HashMap<String, Vec<(u64, String)>> = HashMap::new();
+    for name in side_refs(env, side, REF_PREFIX, deadline)? {
+        let Some(key) = key_of_ref(&name) else {
+            continue;
+        };
+        let Some(number) = name
+            .rsplit('/')
+            .next()
+            .and_then(|number| number.parse::<u64>().ok())
+        else {
+            continue;
+        };
+        by_key
+            .entry(key.to_owned())
+            .or_default()
+            .push((number, name.clone()));
+    }
+    let mut dropped = Vec::new();
+    for refs in by_key.values_mut() {
+        refs.sort();
+        let older = refs.len() / 2;
+        dropped.extend(refs.drain(..older).map(|(_, name)| name));
+    }
+    delete_refs(env, side, &dropped, deadline)?;
+    let source = fs::read_to_string(side.join(SOURCE_FILE)).map_err(data_error)?;
+    gc(
+        env,
+        side,
+        &PathBuf::from(source.trim_end()).join("objects"),
+        deadline,
+    );
+    Ok(dropped.len())
+}
+
+/// Every running Hangar holds this lock on `<folder>/.lock` shared for its whole run, so the
+/// clean-up at start, which deletes snapshots of sessions that are not in the saved workspace,
+/// runs only in an instance that gets it exclusively: no other Hangar (an installed one next to a
+/// debug build, both share the data folder) is using any snapshot. `<folder>/.gate`, held
+/// exclusively for the few steps of [`InstanceLock::enter`], makes the change from exclusive to
+/// shared one step for every other instance.
+#[derive(Debug)]
+pub struct InstanceLock {
+    _file: fs::File,
+}
+
+impl InstanceLock {
+    /// Takes the lock; `alone` runs first if no other Hangar holds it. The answer says whether
+    /// `alone` ran.
+    pub fn enter(folder: &Path, alone: impl FnOnce()) -> io::Result<(Self, bool)> {
+        fs::create_dir_all(folder)?;
+        let open = |name: &str| {
+            fs::OpenOptions::new()
+                .read(true)
+                .write(true)
+                .create(true)
+                .truncate(false)
+                .open(folder.join(name))
+        };
+        let gate = open(GATE_FILE)?;
+        gate.lock()?;
+        let file = open(LOCK_FILE)?;
+        let ran = match file.try_lock() {
+            Ok(()) => {
+                alone();
+                file.unlock()?;
+                file.lock_shared()?;
+                true
+            }
+            Err(fs::TryLockError::WouldBlock) => {
+                file.lock_shared()?;
+                false
+            }
+            Err(fs::TryLockError::Error(error)) => return Err(error),
+        };
+        drop(gate);
+        Ok((Self { _file: file }, ran))
+    }
 }
 
 /// The session a key is bound to, and its folder (fixed for the session's life).
@@ -1451,6 +2125,11 @@ pub struct Snapshots {
     bound: Mutex<HashMap<SessionId, Bound>>,
     /// Held for writing by the clean-up at start, for reading by every other call.
     upkeep: RwLock<()>,
+    /// One jump back at a time in this Hangar, whichever session: two sessions in the same work
+    /// tree would otherwise write it at once, each with an undo point the other one changes.
+    restoring: Mutex<()>,
+    /// This Hangar's share of the folder's [`InstanceLock`], held for the whole run.
+    instance: Mutex<Option<InstanceLock>>,
 }
 
 impl Snapshots {
@@ -1590,19 +2269,24 @@ impl Snapshots {
     }
 
     /// [`restore`] for session `id`; refused while a session in the same work tree works.
+    /// `neighbours` is asked each time [`restore`] looks, so the last look is fresh.
     pub fn restore(
         &self,
         env: &SnapshotEnv<'_>,
         id: SessionId,
         number: u64,
-        neighbours: &Neighbours,
+        neighbours: &dyn Fn() -> Neighbours,
     ) -> Result<RestoreOutcome, SnapshotError> {
         let Bound { key, cwd } = self.bound(id)?;
         let _upkeep = self.upkeep();
+        let _restoring = self
+            .restoring
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner);
         let lock = self.session_lock(&key);
         let _busy = lock.lock().unwrap_or_else(PoisonError::into_inner);
         restore(env, &cwd, &key, number, &|root| {
-            neighbours.in_tree(root, id).1
+            neighbours().in_tree(root, id).1
         })
     }
 
@@ -1619,10 +2303,23 @@ impl Snapshots {
         forget(env, &cwd, &key)
     }
 
-    /// [`clean_up`], with every other call waiting until it is done.
-    pub fn clean_up(&self, env: &SnapshotEnv<'_>, keep: Option<&BTreeSet<String>>) -> CleanUp {
+    /// Joins the folder's [`InstanceLock`] and runs [`clean_up`] if no other Hangar holds it,
+    /// with every other call waiting until it is done. `None`: another Hangar runs, nothing was
+    /// cleaned up; also when the lock cannot be taken (then nothing is held either).
+    pub fn clean_up(
+        &self,
+        env: &SnapshotEnv<'_>,
+        keep: Option<&BTreeSet<String>>,
+    ) -> Option<CleanUp> {
         let _upkeep = self.upkeep.write().unwrap_or_else(PoisonError::into_inner);
-        clean_up(env, keep)
+        let mut done = None;
+        match InstanceLock::enter(env.folder, || done = Some(clean_up(env, keep))) {
+            Ok((lock, _)) => {
+                *self.instance.lock().unwrap_or_else(PoisonError::into_inner) = Some(lock);
+            }
+            Err(error) => eprintln!("hangar: snapshot clean-up skipped, no lock: {error}"),
+        }
+        done
     }
 }
 
@@ -1947,6 +2644,29 @@ mod tests {
         assert!(fx.numbers().is_empty());
         assert_eq!(list(&env, &fx.repo, OTHER).unwrap().snapshots.len(), 1);
         assert_eq!(forget(&env, &fx.repo, KEY).unwrap(), 0);
+    }
+
+    #[test]
+    fn a_jump_back_to_the_oldest_snapshot_keeps_it_in_the_list() {
+        let Some(fx) = Fixture::new("snapshot-prune-target") else {
+            return;
+        };
+        let env = SnapshotEnv {
+            max_snapshots: 3,
+            ..fx.env()
+        };
+        for step in 1..=3 {
+            write(&fx.repo.join("a.txt"), &format!("step {step}\n"));
+            take(&env, &fx.repo, KEY, "").unwrap();
+        }
+        write(&fx.repo.join("a.txt"), "unsaved\n");
+        assert!(matches!(
+            restore(&env, &fx.repo, KEY, 1, &idle).unwrap(),
+            RestoreOutcome::Restored { undo: 4, .. }
+        ));
+        // Step 2 makes room for the undo point; the target stays where the work tree now is.
+        assert_eq!(fx.numbers(), [4, 3, 1]);
+        assert_eq!(read(&fx.repo.join("a.txt")), "step 1\n");
     }
 
     #[test]
@@ -2338,7 +3058,7 @@ mod tests {
             None
         );
         assert!(matches!(
-            service.restore(&fx.env(), 1, 1, &neighbours),
+            service.restore(&fx.env(), 1, 1, &|| neighbours.clone()),
             Err(SnapshotError::Working)
         ));
         assert_eq!(service.forget(&fx.env(), 1).unwrap(), 1);
@@ -2393,6 +3113,80 @@ mod tests {
             TakeOutcome::Created { number: 1, .. }
         ));
         assert_eq!(service.forget(&fx.env(), 2).unwrap(), 1);
+    }
+
+    /// Two jumps back in one Hangar never run at once, not even for two sessions (their keys
+    /// differ, so the session locks alone would let both in): the second waits for the first.
+    #[test]
+    fn jumps_back_run_one_at_a_time() {
+        use std::sync::atomic::AtomicBool;
+        use std::sync::mpsc;
+        let Some(fx) = Fixture::new("snapshot-restoring") else {
+            return;
+        };
+        let service = Snapshots::default();
+        let alive = |_: SessionId| true;
+        service.bind(1, KEY, &fx.repo, &alive).unwrap();
+        service.bind(2, OTHER, &fx.repo, &alive).unwrap();
+        let (entered, first_inside) = mpsc::channel();
+        let (release, released) = mpsc::channel::<()>();
+        let second_inside = AtomicBool::new(false);
+        std::thread::scope(|scope| {
+            let (service, fx, second_inside) = (&service, &fx, &second_inside);
+            // The first look of a jump back asks for the neighbours; the first one waits there.
+            let first = scope.spawn(move || {
+                service.restore(&fx.env(), 1, 1, &|| {
+                    entered.send(()).unwrap();
+                    // Bounded, so a failed assertion below ends the test instead of hanging it.
+                    let _ = released.recv_timeout(Duration::from_secs(5));
+                    Neighbours::default()
+                })
+            });
+            first_inside.recv().unwrap();
+            let second = scope.spawn(move || {
+                service.restore(&fx.env(), 2, 1, &|| {
+                    second_inside.store(true, Ordering::SeqCst);
+                    Neighbours::default()
+                })
+            });
+            std::thread::sleep(Duration::from_millis(300));
+            assert!(!second_inside.load(Ordering::SeqCst));
+            release.send(()).unwrap();
+            // Neither session has a snapshot 1; what counts is that both ran, one after the other.
+            assert!(matches!(
+                first.join().unwrap(),
+                Err(SnapshotError::UnknownSnapshot)
+            ));
+            assert!(matches!(
+                second.join().unwrap(),
+                Err(SnapshotError::UnknownSnapshot)
+            ));
+        });
+        assert!(second_inside.load(Ordering::SeqCst));
+    }
+
+    /// Writing that fails part way leaves the deletes and the files written before it done and
+    /// reports the error; `restore` answers `Incomplete` with the undo point saved before.
+    #[test]
+    fn a_failed_write_stops_and_names_the_file() {
+        let Some(fx) = Fixture::new("snapshot-partial") else {
+            return;
+        };
+        let env = fx.env();
+        let repo = Repo::open(&env, &fx.repo).unwrap().unwrap();
+        let staging = Staging::new(&env.temp_dir()).unwrap();
+        write(&staging.0.join("a.txt"), "from the snapshot\n");
+        // `c.txt` is missing in the staging folder, so its copy fails.
+        let written = ["a.txt".to_owned(), "c.txt".to_owned()];
+        let added = HashSet::from(["c.txt"]);
+        let result = write_back(&repo, &["b.txt"], &written, &added, &staging);
+        assert!(
+            matches!(&result, Err(SnapshotError::Git(GitError::Failed(text))) if text.starts_with("c.txt ")),
+            "{result:?}"
+        );
+        assert!(!fx.repo.join("b.txt").exists());
+        assert_eq!(read(&fx.repo.join("a.txt")), "from the snapshot\n");
+        assert!(!fx.repo.join("c.txt").exists());
     }
 
     /// At start: stale temporary indexes go, the snapshots of sessions that do not come back go,
@@ -2453,5 +3247,427 @@ mod tests {
         let done = clean_up(&fx.env(), Some(&keep));
         assert_eq!(done.side_repos, 1);
         assert!(!side.exists());
+    }
+
+    /// A link (junction on Windows) at `link` to the folder `target`.
+    fn link_folder(link: &Path, target: &Path) {
+        #[cfg(windows)]
+        {
+            let status = std::process::Command::new("cmd")
+                .args(["/d", "/c", "mklink", "/J"])
+                .arg(link)
+                .arg(target)
+                .output()
+                .unwrap()
+                .status;
+            assert!(status.success());
+        }
+        #[cfg(unix)]
+        std::os::unix::fs::symlink(target, link).unwrap();
+    }
+
+    /// The writing step checks each folder right before the file goes in, not only during the
+    /// checks before: a folder swapped for a link since, a path into the git folder, a short
+    /// name that names another file. Nothing outside the work tree is written.
+    #[test]
+    fn install_checks_every_folder_right_before_writing() {
+        let Some(fx) = Fixture::new("snapshot-install") else {
+            return;
+        };
+        let env = fx.env();
+        let repo = Repo::open(&env, &fx.repo).unwrap().unwrap();
+        let staged = fx.tmp.path().join("staged.txt");
+        write(&staged, "from the snapshot\n");
+
+        // A plain new file in a new folder goes in; a changed one is replaced.
+        install(&repo, "new/deep/n.txt", &staged).unwrap();
+        assert_eq!(read(&fx.repo.join("new/deep/n.txt")), "from the snapshot\n");
+        install(&repo, "a.txt", &staged).unwrap();
+        assert_eq!(read(&fx.repo.join("a.txt")), "from the snapshot\n");
+        // No temporary file is left beside them.
+        let left: Vec<String> = fs::read_dir(&fx.repo)
+            .unwrap()
+            .flatten()
+            .map(|entry| entry.file_name().to_string_lossy().into_owned())
+            .filter(|name| name.starts_with(".hangar-"))
+            .collect();
+        assert!(left.is_empty(), "{left:?}");
+
+        // A folder that became a link after the checks.
+        let outside = fx.tmp.path().join("outside");
+        write(&outside.join("c.txt"), "must survive\n");
+        link_folder(&fx.repo.join("sub"), &outside);
+        let result = install(&repo, "sub/c.txt", &staged);
+        assert!(
+            matches!(result, Err(SnapshotError::Action(ActionError::Linked(_)))),
+            "{result:?}"
+        );
+        assert_eq!(read(&outside.join("c.txt")), "must survive\n");
+
+        // Into the git folder: refused by its canonical path, whatever spelled the name.
+        let result = install(&repo, ".git/hangar-test", &staged);
+        assert!(
+            matches!(&result, Err(SnapshotError::Outside(path)) if path == ".git/hangar-test"),
+            "{result:?}"
+        );
+        assert!(!fx.repo.join(".git/hangar-test").exists());
+        // An NTFS short name of the git folder, where the volume makes short names.
+        if fx.repo.join("GIT~1").is_dir() {
+            let result = install(&repo, "GIT~1/hangar-test", &staged);
+            assert!(
+                matches!(result, Err(SnapshotError::Outside(_))),
+                "{result:?}"
+            );
+        }
+        // A folder where the file goes is never replaced.
+        fs::create_dir_all(fx.repo.join("folder/inner")).unwrap();
+        assert!(matches!(
+            install(&repo, "folder", &staged),
+            Err(SnapshotError::FolderInTheWay(_))
+        ));
+        assert!(fx.repo.join("folder/inner").is_dir());
+    }
+
+    /// Line endings come out as git would write them in the work tree: staged with the work
+    /// tree's attributes, then moved in.
+    #[test]
+    fn restore_writes_line_endings_as_git_does() {
+        let Some(fx) = Fixture::new("snapshot-eol") else {
+            return;
+        };
+        write(&fx.repo.join(".gitattributes"), "*.txt text eol=crlf\n");
+        write(&fx.repo.join("a.txt"), "one\r\ntwo\r\n");
+        assert!(matches!(
+            fx.take(""),
+            TakeOutcome::Created { number: 1, .. }
+        ));
+        write(&fx.repo.join("a.txt"), "later\r\n");
+        let outcome = restore(&fx.env(), &fx.repo, KEY, 1, &idle).unwrap();
+        assert!(
+            matches!(outcome, RestoreOutcome::Restored { .. }),
+            "{outcome:?}"
+        );
+        assert_eq!(read(&fx.repo.join("a.txt")), "one\r\ntwo\r\n");
+        // The staging folder is gone.
+        let left: Vec<PathBuf> = fs::read_dir(fx.folder.join(TEMP_FOLDER))
+            .unwrap()
+            .flatten()
+            .map(|entry| entry.path())
+            .collect();
+        assert!(left.is_empty(), "{left:?}");
+    }
+
+    /// A file saved while the jump ran its checks, or an agent that started meanwhile: the jump
+    /// stops before the first write, the file keeps its newer content.
+    #[test]
+    fn restore_stops_when_the_work_tree_changes_meanwhile() {
+        let Some(fx) = Fixture::new("snapshot-meanwhile") else {
+            return;
+        };
+        write(&fx.repo.join("a.txt"), "step\n");
+        assert!(matches!(
+            fx.take(""),
+            TakeOutcome::Created { number: 1, .. }
+        ));
+        write(&fx.repo.join("a.txt"), "current\n");
+
+        // The second look (right before writing) finds a change saved after the first.
+        let looks = std::cell::Cell::new(0);
+        let saves_meanwhile = |_: &Path| {
+            looks.set(looks.get() + 1);
+            if looks.get() == 2 {
+                write(&fx.repo.join("b.txt"), "saved meanwhile\n");
+            }
+            false
+        };
+        let result = restore(&fx.env(), &fx.repo, KEY, 1, &saves_meanwhile);
+        assert!(matches!(result, Err(SnapshotError::Working)), "{result:?}");
+        assert_eq!(looks.get(), 2);
+        assert_eq!(read(&fx.repo.join("a.txt")), "current\n");
+        assert_eq!(read(&fx.repo.join("b.txt")), "saved meanwhile\n");
+
+        // An agent that started meanwhile.
+        let looks = std::cell::Cell::new(0);
+        let starts_meanwhile = |_: &Path| {
+            looks.set(looks.get() + 1);
+            looks.get() == 2
+        };
+        let result = restore(&fx.env(), &fx.repo, KEY, 1, &starts_meanwhile);
+        assert!(matches!(result, Err(SnapshotError::Working)), "{result:?}");
+        assert_eq!(read(&fx.repo.join("a.txt")), "current\n");
+    }
+
+    /// An entry marked assume-unchanged keeps its newer content in the snapshot, so a jump back
+    /// can return to it.
+    #[test]
+    fn assume_unchanged_entries_are_saved_with_their_content() {
+        let Some(fx) = Fixture::new("snapshot-assume") else {
+            return;
+        };
+        git_ok(
+            &fx.git,
+            &fx.repo,
+            &["update-index", "--assume-unchanged", "a.txt"],
+        );
+        write(&fx.repo.join("a.txt"), "hidden change\n");
+        assert!(matches!(
+            fx.take(""),
+            TakeOutcome::Created {
+                number: 1,
+                files: 1
+            }
+        ));
+        let reference = format!("{REF_PREFIX}{KEY}/1");
+        assert_eq!(
+            fx.side_out(&["show", &format!("{reference}:a.txt")]),
+            "hidden change\n"
+        );
+        // The user's index keeps its bit.
+        assert!(fx.out(&["ls-files", "-v", "a.txt"]).starts_with("h "));
+        assert_eq!(assume_unchanged(b"h a.txt\0H b.txt\0S c\0"), b"a.txt\0");
+    }
+
+    /// A symbolic link in the snapshot is not written: its target could lie anywhere.
+    #[test]
+    fn restore_refuses_a_symbolic_link_in_the_snapshot() {
+        let Some(fx) = Fixture::new("snapshot-symlink") else {
+            return;
+        };
+        // With `core.symlinks=false` git keeps the link as a file with its target, mode 120000.
+        git_ok(&fx.git, &fx.repo, &["config", "core.symlinks", "false"]);
+        write(&fx.repo.join("link"), "../outside");
+        let blob = fx.out(&["hash-object", "-w", "link"]);
+        let info = format!("120000,{},link", blob.trim());
+        git_ok(
+            &fx.git,
+            &fx.repo,
+            &["update-index", "--add", "--cacheinfo", &info],
+        );
+        assert!(matches!(
+            fx.take(""),
+            TakeOutcome::Created { number: 1, .. }
+        ));
+        fs::remove_file(fx.repo.join("link")).unwrap();
+        let result = restore(&fx.env(), &fx.repo, KEY, 1, &idle);
+        assert!(
+            matches!(&result, Err(SnapshotError::SymlinkEntry(path)) if path == "link"),
+            "{result:?}"
+        );
+        assert!(!fx.repo.join("link").exists());
+        assert_eq!(fx.numbers(), [1]);
+
+        let raw = b":100644 120000 aaaa bbbb T\0link\0:100644 000000 cccc 0000 D\0gone\0";
+        let changes = parse_raw(raw);
+        assert_eq!(changes.len(), 2);
+        assert_eq!(
+            (changes[0].new_mode.as_str(), changes[0].letter),
+            ("120000", b'T')
+        );
+        assert_eq!((changes[1].new_id.as_str(), changes[1].letter), ("", b'D'));
+    }
+
+    /// The size check runs on disk before `add` and on the stored blobs after it, so a file that
+    /// grew in between is caught too.
+    #[test]
+    fn the_stored_blobs_are_checked_for_size() {
+        let Some(fx) = Fixture::new("snapshot-blob-size") else {
+            return;
+        };
+        write(&fx.repo.join("grown.bin"), "twenty bytes long!!\n");
+        let env = fx.env();
+        let repo = Repo::open(&env, &fx.repo).unwrap().unwrap();
+        let tree = work_tree_tree(&env, &repo).unwrap();
+        assert!(!tree_too_large(&env, &repo, &tree).unwrap());
+        let small = SnapshotEnv {
+            max_file_bytes: 19,
+            ..fx.env()
+        };
+        assert!(tree_too_large(&small, &repo, &tree).unwrap());
+    }
+
+    #[test]
+    fn checkouts_protect_git_folders_on_every_file_system() {
+        let Some(fx) = Fixture::new("snapshot-protect") else {
+            return;
+        };
+        let env = fx.env();
+        let repo = Repo::open(&env, &fx.repo).unwrap().unwrap();
+        for setting in [
+            "core.protectNTFS=true",
+            "core.protectHFS=true",
+            "core.ignoreStat=false",
+        ] {
+            assert!(repo.overrides.iter().any(|arg| arg == setting), "{setting}");
+        }
+    }
+
+    /// The refusals reach the window with a stable code and the path after a newline.
+    #[test]
+    fn refusals_are_serialized_with_a_code() {
+        let json = |error: SnapshotError| serde_json::to_value(error).unwrap();
+        assert_eq!(
+            json(SnapshotError::Working),
+            "[snapshot_working] A session in this folder is working; go back once it is done"
+        );
+        let text = json(SnapshotError::FolderInTheWay("a\nb".to_owned()));
+        let text = text.as_str().unwrap();
+        let (first, detail) = text.split_once('\n').unwrap();
+        assert!(first.starts_with("[snapshot_folder_in_the_way] a b is a folder"));
+        assert_eq!(detail, "a\nb");
+        assert!(
+            json(SnapshotError::Action(ActionError::Linked("x".to_owned())))
+                .as_str()
+                .unwrap()
+                .starts_with("[snapshot_linked] ")
+        );
+        assert!(json(SnapshotError::Action(ActionError::Filtered))
+            .as_str()
+            .unwrap()
+            .starts_with("[snapshot_filtered] "));
+        assert_eq!(
+            json(SnapshotError::UnknownSnapshot),
+            "This snapshot no longer exists"
+        );
+    }
+
+    /// The list names the work tree, the current HEAD, and each snapshot's parent, so the window
+    /// can warn when a branch was switched since.
+    #[test]
+    fn the_list_names_root_head_and_parents() {
+        let Some(fx) = Fixture::new("snapshot-head") else {
+            return;
+        };
+        write(&fx.repo.join("a.txt"), "changed\n");
+        assert!(matches!(fx.take(""), TakeOutcome::Created { .. }));
+        let head = fx.out(&["rev-parse", "HEAD"]).trim().to_owned();
+        let listed = list(&fx.env(), &fx.repo, KEY).unwrap();
+        assert_eq!(listed.head.as_deref(), Some(head.as_str()));
+        assert_eq!(listed.snapshots[0].parent.as_deref(), Some(head.as_str()));
+        assert_eq!(
+            fs::canonicalize(&listed.root).unwrap(),
+            fs::canonicalize(&fx.repo).unwrap()
+        );
+        git_ok(&fx.git, &fx.repo, &["commit", "--quiet", "-am", "second"]);
+        let listed = list(&fx.env(), &fx.repo, KEY).unwrap();
+        assert_ne!(listed.head, listed.snapshots[0].parent);
+    }
+
+    /// Only one running Hangar cleans up: a second one holding the lock shared keeps the first
+    /// from deleting snapshots it may be using.
+    #[test]
+    fn clean_up_runs_only_without_another_instance() {
+        let Some(fx) = Fixture::new("snapshot-instances") else {
+            return;
+        };
+        write(&fx.repo.join("a.txt"), "changed\n");
+        assert!(matches!(fx.take(""), TakeOutcome::Created { .. }));
+        let (other, ran) = InstanceLock::enter(&fx.folder, || {}).unwrap();
+        assert!(ran);
+        let (second, ran) = InstanceLock::enter(&fx.folder, || panic!("not alone")).unwrap();
+        assert!(!ran);
+
+        // The other instance runs: nothing goes, although no key is kept.
+        let service = Snapshots::default();
+        assert_eq!(service.clean_up(&fx.env(), Some(&BTreeSet::new())), None);
+        assert_eq!(fx.numbers(), [1]);
+        drop(other);
+        drop(second);
+        drop(service);
+
+        let service = Snapshots::default();
+        let done = service.clean_up(&fx.env(), Some(&BTreeSet::new())).unwrap();
+        assert_eq!(done.side_repos, 1);
+        // This one now holds it shared: a later start does not clean up.
+        let (_third, ran) = InstanceLock::enter(&fx.folder, || {}).unwrap();
+        assert!(!ran);
+    }
+
+    /// The clean-up packs the side repository without copying the user's objects into it, and
+    /// keeps all side repositories together below the cap.
+    #[test]
+    fn clean_up_runs_gc_and_keeps_the_folder_below_its_cap() {
+        let Some(fx) = Fixture::new("snapshot-cap") else {
+            return;
+        };
+        let keep = BTreeSet::from([KEY.to_owned()]);
+        for step in 1..=4 {
+            write(&fx.repo.join("a.txt"), &format!("step {step}\n"));
+            fx.take("");
+        }
+        let done = clean_up(&fx.env(), Some(&keep));
+        assert_eq!(done, CleanUp::default());
+        let side = fx.side();
+        // Packed: no loose snapshot objects left.
+        let loose = fx.side_out(&["count-objects", "-v"]);
+        assert!(loose.contains("count: 0\n"), "{loose}");
+        // The unchanged `b.txt` stays in the user's objects only.
+        let blob = fx.out(&["rev-parse", "HEAD:b.txt"]);
+        let alone = fx
+            .git
+            .run(
+                &side,
+                ["cat-file", "-e", blob.trim()],
+                Instant::now() + git::TIMEOUT,
+                1 << 10,
+            )
+            .unwrap();
+        assert!(!alone.success);
+
+        // Over the cap with one side repository: the older half of each session's snapshots go.
+        let tiny = SnapshotEnv {
+            max_folder_bytes: 1,
+            ..fx.env()
+        };
+        let done = clean_up(&tiny, Some(&keep));
+        assert_eq!(done.refs, 2);
+        assert_eq!(fx.numbers(), [4, 3]);
+
+        // Two side repositories: the one with the older newest snapshot goes as a whole.
+        let second = fx.tmp.path().join("second");
+        init_repo(&fx.git, &second);
+        write(&second.join("x.txt"), "x\n");
+        std::thread::sleep(Duration::from_millis(1100));
+        assert!(matches!(
+            take(&fx.env(), &second, OTHER, "").unwrap(),
+            TakeOutcome::Created { .. }
+        ));
+        let both = BTreeSet::from([KEY.to_owned(), OTHER.to_owned()]);
+        let done = clean_up(&tiny, Some(&both));
+        assert_eq!(done.side_repos, 1);
+        assert!(!side.exists());
+        assert_eq!(list(&fx.env(), &second, OTHER).unwrap().snapshots.len(), 1);
+    }
+
+    /// A repository on a drive that is not there (unplugged, not mapped) keeps its snapshots.
+    #[test]
+    fn a_missing_drive_keeps_its_snapshots() {
+        if cfg!(windows) {
+            assert!(volume_present(Path::new(r"C:\Windows")));
+            assert!(!volume_present(Path::new(r"\\server\share\repo\.git")));
+        } else {
+            assert!(!volume_present(Path::new("/media/usb/repo/.git")));
+        }
+        let Some(fx) = Fixture::new("snapshot-drive") else {
+            return;
+        };
+        write(&fx.repo.join("a.txt"), "changed\n");
+        assert!(matches!(fx.take(""), TakeOutcome::Created { .. }));
+        let side = fx.side();
+        let gone = if cfg!(windows) {
+            let Some(letter) = (b'D'..=b'Z')
+                .rev()
+                .map(char::from)
+                .find(|letter| !Path::new(&format!("{letter}:\\")).exists())
+            else {
+                return;
+            };
+            PathBuf::from(format!(r"{letter}:\repo\.git"))
+        } else {
+            PathBuf::from("/media/hangar-test-unplugged/repo/.git")
+        };
+        fs::write(side.join(SOURCE_FILE), gone.to_string_lossy().as_bytes()).unwrap();
+        let done = clean_up(&fx.env(), Some(&BTreeSet::new()));
+        assert_eq!(done.side_repos, 0);
+        assert!(side.exists());
     }
 }

@@ -11,6 +11,7 @@ import {
   handoverStart,
   handoverTargets,
   PROMPT_MAX_CHARS,
+  SubmittedLines,
   waitUntilReady,
 } from "./handover";
 import { createTranslator } from "./i18n";
@@ -206,5 +207,28 @@ describe("handoverRequest", () => {
     const text = handoverRequest("a".repeat(PROMPT_MAX_CHARS + 50));
     expect(Array.from(text ?? "")).toHaveLength(PROMPT_MAX_CHARS);
     expect(text?.endsWith("…")).toBe(true);
+  });
+});
+
+describe("SubmittedLines", () => {
+  it("keeps the newest request of an agent session", () => {
+    const lines = new SubmittedLines();
+    expect(lines.request).toBeNull();
+    lines.record("fix the login", true);
+    lines.record("/clear", true);
+    lines.record("y", true);
+    lines.record("   ", true);
+    expect(lines.request).toBe("fix the login");
+    lines.record("now the logout", true);
+    expect(lines.request).toBe("now the logout");
+  });
+
+  it("never takes a shell's command line as a request", () => {
+    const lines = new SubmittedLines();
+    lines.record("git status", false);
+    expect(lines.request).toBeNull();
+    lines.record("write the tests", true);
+    lines.record("ls -la", false);
+    expect(lines.request).toBe("write the tests");
   });
 });

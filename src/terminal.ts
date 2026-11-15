@@ -30,6 +30,7 @@ import type { ShellKind } from "./pathQuote";
 import { PathChecker } from "./pathCheck";
 import { PromptLineTracker } from "./promptTitle";
 import { SubmittedLines } from "./handover";
+import { StepPrompt } from "./timeline";
 import { PtySizeSync } from "./ptySize";
 import { SCROLLBACK_LINES } from "./settings";
 import type { Activity } from "./statusLine";
@@ -176,8 +177,10 @@ export class SessionTerminal {
    */
   onPromptLine: ((line: string) => void) | null = null;
   private readonly promptLines = new PromptLineTracker();
-  /** What the user submitted (handover.ts): the timeline's last prompt, the handover's request. */
+  /** What the user submitted in an agent session (handover.ts): the handover's last request. */
   private readonly submitted = new SubmittedLines();
+  /** The step's prompt for its snapshot (timeline.ts): never a line typed while it works. */
+  private readonly stepPrompt = new StepPrompt();
   /**
    * The newest local dev server address in the current process's output changed (devServer.ts);
    * `null` when the process ended or started again. Called on changes only, never per chunk.
@@ -221,7 +224,10 @@ export class SessionTerminal {
       (state, reason) => {
         // Only state changes arrive here, so this costs nothing per output chunk.
         if (state !== "working") this.workingSince = null;
-        else this.workingSince ??= Date.now();
+        else {
+          this.workingSince ??= Date.now();
+          this.stepPrompt.workStarted();
+        }
         this.attentionListener?.(state, reason);
       },
     );
@@ -806,19 +812,29 @@ export class SessionTerminal {
     const agent = this.shellKind() === "agent";
     for (const line of lines) {
       this.submitted.record(line, agent);
+      this.stepPrompt.submitted(line, this.attention.state, this.cursorRow());
       this.emitPromptLine(line);
     }
-  }
-
-  /** The last line the user submitted with Enter, kept with a snapshot (timeline.ts). */
-  lastPrompt(): { text: string } | null {
-    const text = this.submitted.last;
-    return text === null ? null : { text };
   }
 
   /** The user's last request in this agent session (handover.ts), `null` before one. */
   lastRequest(): string | null {
     return this.submitted.request;
+  }
+
+  /**
+   * The prompt for the snapshot of the step that just ended: the last line the user submitted
+   * while the agent waited, before it began working, cut (`StepPrompt`). Resets, so the next step
+   * starts without one.
+   */
+  takeStepPrompt(): string | null {
+    return this.stepPrompt.take();
+  }
+
+  /** The row under the cursor: the program's prompt and the echo of what was typed. */
+  private cursorRow(): string {
+    const buffer = this.term.buffer.active;
+    return buffer.getLine(buffer.baseY + buffer.cursorY)?.translateToString(true) ?? "";
   }
 
   /** Read anew per line: the listener may stop itself after the first one. */

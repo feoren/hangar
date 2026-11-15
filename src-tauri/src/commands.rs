@@ -2000,7 +2000,7 @@ pub async fn git_commit(
 // folder comes from the session manager and its workspace key from the binding the main window
 // sets with `snapshot_bind`, so the panel window can reach no other session's snapshots.
 
-/// Emitted to every window with the session ID whenever its snapshots change.
+/// Emitted to the main and the panel window with the session ID whenever its snapshots change.
 pub const SNAPSHOTS_CHANGED: &str = "snapshots-changed";
 
 /// Runs one snapshot call on a blocking thread, with the side repositories below Hangar's local
@@ -2038,8 +2038,11 @@ fn snapshot_neighbours(manager: &SessionManager, team: &TeamService) -> Neighbou
 }
 
 fn snapshots_changed(app: &tauri::AppHandle, id: SessionId) {
-    // A window that misses it reads the timeline again on its next refresh.
-    let _ = app.emit(SNAPSHOTS_CHANGED, id);
+    // Only the windows that show a timeline; one that misses it reads it again on its next
+    // refresh.
+    for label in [panel_window::MAIN_LABEL, panel_window::LABEL] {
+        let _ = app.emit_to(label, SNAPSHOTS_CHANGED, id);
+    }
 }
 
 /// Binds the session's workspace key, which names its snapshots across restarts; the main window
@@ -2130,17 +2133,22 @@ pub async fn snapshot_restore(
     window: tauri::Window,
     scope: State<'_, PanelScope>,
     app: tauri::AppHandle,
-    manager: Manager<'_>,
-    team: State<'_, TeamService>,
     id: SessionId,
     number: u64,
 ) -> Result<RestoreOutcome, SnapshotError> {
     if !in_scope(&window, &scope, id) {
         return Err(SnapshotError::UnknownSession(id));
     }
-    let neighbours = snapshot_neighbours(&manager, &team);
     let notify = app.clone();
+    let states = app.clone();
     let outcome = snapshot_call(app, move |snapshots, env| {
+        // Read again for the last look right before the first write.
+        let neighbours = || {
+            snapshot_neighbours(
+                &states.state::<SessionManager>(),
+                &states.state::<TeamService>(),
+            )
+        };
         snapshots.restore(env, id, number, &neighbours)
     })
     .await;

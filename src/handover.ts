@@ -72,22 +72,15 @@ export function handoverRequest(line: string): string | null {
 }
 
 /**
- * The lines a session's user submitted, fed from the one prompt line tracker of the terminal:
- * `last` is the newest non-blank line of any session (kept with a timeline snapshot), `request`
- * the newest one an agent session can hand over (`handoverRequest`); a shell's command line or a
- * slash command never replaces it.
+ * The lines a session's user submitted, fed from the one prompt line tracker of the terminal
+ * (which also feeds the timeline's `StepPrompt`): `request` is the newest one an agent session can
+ * hand over (`handoverRequest`); a shell's command line or a slash command never replaces it.
  */
 export class SubmittedLines {
-  private lastLine: string | null = null;
   private lastRequest: string | null = null;
 
   record(line: string, agent: boolean): void {
-    if (line.trim() !== "") this.lastLine = line;
     if (agent) this.lastRequest = handoverRequest(line) ?? this.lastRequest;
-  }
-
-  get last(): string | null {
-    return this.lastLine;
   }
 
   get request(): string | null {

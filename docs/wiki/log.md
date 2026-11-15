@@ -972,3 +972,26 @@ protected main window preferences carry the daily budget, its warned day and the
 and the terminal keeps the user's submitted lines in one `SubmittedLines` record that feeds both
 the handover's last request and the timeline's last prompt.
 Pages changed: [[costs-and-handover]].
+## [2026-11-15] ingest | Timeline security rework
+Measured the git behavior the jump back now relies on (`checkout-index --prefix` into a staging
+folder, assume-unchanged entries, `gc` with an alternate, `File::try_lock` per handle) and filed it
+as [[timeline-restore-measurement]]. The contract now describes staging plus installing each file
+with a canonical check right before the write, the last look before writing (working states read
+again, tree built again), symbolic link entries refused, assume-unchanged bits cleared, blob sizes
+checked again, the cross-process lock for the clean-up, `gc`, the 2 GiB cap, side repositories of
+missing drives kept, coded refusals, the view offered only where snapshots are taken, the prompt
+kept only from the waiting state, and the residual risks.
+Pages changed: [[work-tree-timeline]], [[timeline-restore-measurement]] (new), index.
+
+## [2026-11-15] update | Timeline step prompt and prune target
+The step's prompt is now the last line submitted while the agent waits for a task, fixed when the
+working phase begins, so `/clear` or `/model` before the real prompt no longer names the step.
+The undo point of a jump back no longer prunes the jump's target.
+Pages changed: [[work-tree-timeline]].
+
+## [2026-11-15] update | 0.8.0 integration of the timeline restore hardening
+Merged the timeline's restore hardening and step prompt into the integration. The terminal's one
+prompt line tracker now feeds two records: `SubmittedLines` for the handover's last request (agent
+sessions only) and the timeline's `StepPrompt` (fixed when the work starts). The timeline's
+`splitBackendError` with its detail line is the one kept; the arena reads its code from it.
+Pages changed: [[costs-and-handover]].
