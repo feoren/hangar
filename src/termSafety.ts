@@ -60,18 +60,20 @@ export function addressParts(url: string): AddressParts {
 /** What a click on an OSC 8 link does: open at once, or show the real address first. */
 export type Osc8Decision = "open" | "confirm";
 
-/** Text that reads like a file path: absolute, relative with `./`, home, a drive or a share. */
-const PATH_LIKE = /^(?:\/|\.{1,2}[\\/]|~[\\/]|[a-z]:[\\/]|\\\\)/iu;
-/** An address with a scheme of its own (`https://`, `file://`). */
-const WITH_SCHEME = /^[a-z][a-z0-9+.-]*:\/\//iu;
-/** A host name with at least one dot, or `localhost`, optionally with a port and a path. */
-const HOST_LIKE =
-  /^(?<host>localhost|[\p{L}\p{N}-]+(?:\.[\p{L}\p{N}-]+)+)(?<rest>(?::\d{1,5})?(?:[/?#].*)?)$/iu;
-/** An IPv6 address in brackets, as in an address: `[::1]:3000`. */
-const IPV6_LIKE = /^\[[0-9a-f:.]*:[0-9a-f:.]*\](?::\d{1,5})?(?:[/?#].*)?$/iu;
+/**
+ * A file path at the start of a word or right after a sign: `/tmp/x`, `./x`, `~/x`, `C:\x` or a
+ * share (`\\server`), also behind `(` or `=`. Not a `/` between two names (`src/app.ts`).
+ */
+const PATH_LIKE = /(?:^|[^\p{L}\p{N}._~\-/\\:])(?:\/|\.{1,2}[\\/]|~[\\/]|[a-z]:[\\/]|\\\\)/iu;
+/** A run of the characters a host name is made of; anything else separates two of them. */
+const RUN = /[\p{L}\p{N}.-]+/gu;
+/** An IPv6 address in brackets, anywhere in a word, as in `[::1]:3000`. */
+const IPV6 = /\[[0-9a-f:.]*:[0-9a-f:.]*\](?::(?<port>\d+))?/giu;
 /** A top-level domain: letters, or an internationalized one in Punycode. */
 const TLD = /^(?:\p{L}{2,}|xn--[a-z0-9-]+)$/iu;
 const IPV4 = /^\d{1,3}(?:\.\d{1,3}){3}$/u;
+/** A port right after a host: `:3000`. */
+const PORT = /:(\d+)/y;
 /**
  * Endings that name a file far more often than a domain. A bare `README.md` or `install.sh` as
  * link text is a file name, not a claimed host; with a path or port (`example.md/x`) the text
@@ -84,10 +86,6 @@ const FILE_ENDINGS = new Set(
     "tar tgz toml ts tsx txt xml yaml yml zip"
   ).split(" "),
 );
-/** A bare file name: no path, no scheme, ending in one of `FILE_ENDINGS`. */
-const FILE_NAME = /^[^\s/\\:?#]+\.(?<ending>[a-z0-9]{1,8})$/iu;
-/** A file name with a line and maybe a column, as tools print a place in a file: `app.ts:42:7`. */
-const FILE_PLACE = /^(?<name>[^\s/\\:?#]+\.[a-z0-9]{1,8})(?::\d+){1,2}$/iu;
 /**
  * Characters nobody sees: zero-width spaces and joiners, the soft hyphen, the word joiner, bidi
  * marks and overrides, variation selectors. In link text they split a host name so that it reads
@@ -97,36 +95,62 @@ const IGNORABLE = /\p{Default_Ignorable_Code_Point}/u;
 /** A variation selector after a pictograph and a joiner between two draw an emoji. */
 const EMOJI_GLUE =
   /(?<=\p{Extended_Pictographic})\uFE0F|(?<=\p{Extended_Pictographic}\uFE0F?)\u200d(?=\p{Extended_Pictographic})/gu;
-/** Ideographic and fullwidth full stops, which browsers read as the dot in a host name. */
-const WIDE_DOTS = /[\u3002\uFF0E\uFF61]/gu;
-/** Opening brackets and quotes before a word: `(github.com)`, `"github.com"`. */
-const LEADING = /^[([{<"'`\u00AB\u2039\u201C\u2018\u300C\u300E]+/u;
-/** Punctuation and closing brackets after a word: `github.com.`, `github.com),`. */
-const TRAILING = /[)\]}>"'`\u00BB\u203A\u201D\u2019\u300D\u300F.,;:!?]+$/u;
-
+/** Combining marks: drawn onto the letter before them, so `githu\u0325b` still reads `github`. */
+const MARKS = /\p{M}/gu;
 /**
- * Whether a word without a scheme claims a host: `github.com/org`, `localhost:3000` or
- * `10.0.0.1` do; a version (`v0.8.0`) or a file name (`README.md`) does not.
+ * Characters that look like the dot of a host name (Unicode's confusables, UTS 39): ideographic
+ * and fullwidth full stops, the Lisu tone mark, Arabic-Indic zeros, katakana and other middle
+ * dots, bullet and dot operators.
  */
-function claimsHost(word: string): boolean {
-  const match = HOST_LIKE.exec(word);
-  const host = match?.groups?.host;
-  if (match === null || host === undefined) return false;
-  if (host.toLowerCase() === "localhost" || IPV4.test(host)) return true;
-  const tld = host.slice(host.lastIndexOf(".") + 1);
-  if (!TLD.test(tld)) return false;
-  return (match.groups?.rest ?? "") !== "" || !FILE_ENDINGS.has(tld.toLowerCase());
+const DOT_LIKE = /[\u3002\uFF0E\uFF61\uA4F8\u0660\u06F0\u30FB\uFF65\u00B7\u2027\u2219\u22C5]/gu;
+/** Characters that look like a slash: division, fraction and big solidus. */
+const SLASH_LIKE = /[\u2215\u2044\u29F8]/gu;
+/**
+ * Any other sign outside ASCII between two ASCII letters or digits may pass for a dot as well
+ * (`github\u2E31com`). Only between ASCII ones, so prose in other scripts keeps its punctuation.
+ */
+const SIGN_BETWEEN = /(?<=[A-Za-z0-9])[^\p{L}\p{N}\s\p{ASCII}](?=[A-Za-z0-9])/gu;
+/** A character outside ASCII right before or after a dot. */
+const NON_ASCII_AT_DOT = /\P{ASCII}\.|\.\P{ASCII}/u;
+const NON_ASCII = /\P{ASCII}/u;
+
+/** The link text as it reads: look-alikes of the dot and the slash become the real ones. */
+function readable(shown: string): string {
+  return (
+    shown
+      .normalize("NFKC")
+      .replace(MARKS, "")
+      .replace(DOT_LIKE, ".")
+      .replace(SLASH_LIKE, "/")
+      .replace(SIGN_BETWEEN, ".")
+      // `github .com` and `github . com` still read as one host name.
+      .replace(/\s+\.\s*/gu, ".")
+  );
 }
 
-/** Whether a word is a bare file name such as `install.sh`. */
-function isFileName(word: string): boolean {
-  const ending = FILE_NAME.exec(word)?.groups?.ending;
-  return ending !== undefined && FILE_ENDINGS.has(ending.toLowerCase());
+/** Whether a run names a host: `localhost`, an IPv4 address, or labels ending in a TLD. */
+function hostLike(run: string): boolean {
+  if (run.toLowerCase() === "localhost" || IPV4.test(run)) return true;
+  const labels = run.split(".");
+  const tld = labels[labels.length - 1] ?? "";
+  return labels.length > 1 && TLD.test(tld);
+}
+
+/** Whether a run names a file (`README.md`): a name, a dot and one of `FILE_ENDINGS`. */
+function isFileName(run: string): boolean {
+  const dot = run.lastIndexOf(".");
+  return dot > 0 && FILE_ENDINGS.has(run.slice(dot + 1).toLowerCase());
 }
 
 /** A host name without a leading `www.`, which names the same site as the bare host. */
 function siteOf(hostname: string): string {
   return hostname.startsWith("www.") ? hostname.slice(4) : hostname;
+}
+
+/** The port an address reaches, also when it names none (80 for http, 443 for https). */
+function portOf(url: URL): string {
+  if (url.port !== "") return url.port;
+  return url.protocol === "http:" ? "80" : "443";
 }
 
 /** The last name in the target's path, decoded; "" for none. */
@@ -139,65 +163,104 @@ function lastPathName(target: URL): string {
   }
 }
 
-/**
- * Whether one word of the link text claims something the target is not: another host, a path,
- * a file of another name.
- */
-function wordMisleads(raw: string, target: URL | null): boolean {
-  if (PATH_LIKE.test(raw)) return true;
-  const unpunctuated = raw.replace(TRAILING, "");
-  const word = unpunctuated.replace(LEADING, "");
-  if (word === "") return false;
-  if (PATH_LIKE.test(word)) return true;
-  const place = FILE_PLACE.exec(word)?.groups?.name;
-  // `app.ts:42` on a link to `.../app.ts#L42` names the target's own file, not a host and port.
-  if (place !== undefined && isFileName(place) && target !== null) {
-    if (lastPathName(target).toLowerCase() === place.toLowerCase()) return false;
-  }
+/** Whether `host`, with `port` where one is named, is the target's site and port. */
+function sameSite(host: string, port: string | null, target: URL): boolean {
+  if (port !== null && port.length > 5) return false;
   let claimed: URL;
   try {
-    if (IPV6_LIKE.test(unpunctuated)) claimed = new URL(`https://${unpunctuated}`);
-    else if (WITH_SCHEME.test(word)) claimed = new URL(word);
-    else if (claimsHost(word)) claimed = new URL(`https://${word}`);
-    else if (isFileName(word)) {
-      // A file name says what the click brings: fine only when the target is that very file.
-      return target === null || lastPathName(target).toLowerCase() !== word.toLowerCase();
-    } else return false;
+    claimed = new URL(`${target.protocol}//${host}${port === null ? "" : `:${port}`}`);
   } catch {
-    // Reads like an address but is none: the target cannot be what it claims.
-    return true;
+    return false;
   }
-  if (claimed.protocol !== "http:" && claimed.protocol !== "https:") return true;
-  if (claimed.username !== "" || claimed.password !== "") return true;
-  return target === null || siteOf(claimed.hostname) !== siteOf(target.hostname);
+  if (siteOf(claimed.hostname) !== siteOf(target.hostname)) return false;
+  return port === null || portOf(claimed) === portOf(target);
+}
+
+/** Whether a host run has a character outside ASCII at a dot or at a slash next to it. */
+function oddAtSeparator(word: string, core: string, begin: number, end: number): boolean {
+  if (NON_ASCII_AT_DOT.test(core)) return true;
+  if (word[begin - 1] === "/" && NON_ASCII.test(core.charAt(0))) return true;
+  return word[end] === "/" && NON_ASCII.test(core.charAt(core.length - 1));
+}
+
+/**
+ * Whether one word of the link text names something the target is not. Every host found anywhere
+ * in the word counts, wherever it starts or ends (`**github.com**`, `url=github.com`,
+ * `git@github.com:org/repo`): each must be the target's site, with the target's port and scheme
+ * where the word names them. A file name must be the target's file, a path is never a web
+ * address.
+ */
+function wordMisleads(word: string, target: URL): boolean {
+  if (PATH_LIKE.test(word)) return true;
+  for (const match of word.matchAll(IPV6)) {
+    const host = match[0].slice(0, match[0].indexOf("]") + 1);
+    if (!sameSite(host, match.groups?.port ?? null, target)) return true;
+  }
+  let onTargetSite = false;
+  let previous = "";
+  for (const match of word.matchAll(RUN)) {
+    const raw = match[0];
+    const lead = raw.length - raw.replace(/^[.-]+/u, "").length;
+    const core = raw.slice(lead).replace(/[.-]+$/u, "");
+    const begin = match.index + lead;
+    const end = begin + core.length;
+    // After `https://` comes a host, whatever it looks like (`https://git`).
+    const afterScheme = begin >= 3 && word.startsWith("://", begin - 3);
+    const scheme = previous;
+    previous = core;
+    if (core === "") continue;
+    if (word.startsWith("://", end)) {
+      // A scheme: only the target's own.
+      if (core.toLowerCase() !== target.protocol.slice(0, -1)) return true;
+      continue;
+    }
+    if (afterScheme && scheme.toLowerCase() !== target.protocol.slice(0, -1)) return true;
+    // A name in the path behind the target's own host (`vercel/next.js`, `acme/app.git`) is a
+    // page of that site, not another host.
+    if (onTargetSite && !afterScheme && word[begin - 1] === "/") continue;
+    const addressy = word[end] === "/" || /^:\d/u.test(word.slice(end, end + 2));
+    if (!afterScheme && isFileName(core)) {
+      if (lastPathName(target).toLowerCase() === core.toLowerCase()) continue;
+      if (!addressy) return true;
+    } else if (!afterScheme && !hostLike(core)) continue;
+    if (oddAtSeparator(word, core, begin, end)) return true;
+    PORT.lastIndex = end;
+    const port = PORT.exec(word)?.[1] ?? null;
+    if (!sameSite(core, port, target)) return true;
+    onTargetSite = true;
+  }
+  return false;
 }
 
 /**
  * An OSC 8 link shows one text and leads elsewhere: a program can print
- * `https://github.com/org/repo` as the visible text of a link to another host. When the visible
- * text claims an address of another host, looks like a path, names a file the target is not, or
- * holds characters nobody sees, the click shows the real target first ("confirm"). Plain words
- * and versions claim nothing; those links open at once ("open"); the hover still shows where they
- * lead.
+ * `https://github.com/org/repo` as the visible text of a link to another host. A click opens at
+ * once ("open") only when the visible text names no address at all (plain words, `PR #123`,
+ * `v0.8.0`, `Python 3.12`), or when every host it names anywhere is the target's site, with the
+ * target's port and scheme where it names them, and every file it names is the target's file.
+ * Anything else shows the real target first ("confirm"): another host, a path, characters nobody
+ * sees, a sign outside ASCII at a dot of a host, a target host in Punycode.
+ *
+ * The text is read as a person sees it: compatibility forms folded (NFKC), combining marks
+ * dropped, look-alikes of the dot and the slash taken for them. Hosts are searched, not matched
+ * against the whole word, so no sign around them (`**`, `|`, `=`, `@`, `~`) hides one.
  *
  * `shown` is the whole word around the link on screen (`linkWord` in terminalLinkWord.ts), so
- * text printed right before or after the link counts too. Each word is read on its own, without
- * the brackets and punctuation around it, so `(github.com).` or `see github.com/org` claim GitHub
- * as well. `target` is the link's address, already checked by `safeLinkUrl`.
+ * text printed right before or after the link counts too. `target` is the link's address, already
+ * checked by `safeLinkUrl`.
  */
 export function osc8Decision(shown: string, target: string): Osc8Decision {
   if (IGNORABLE.test(shown.replace(EMOJI_GLUE, ""))) return "confirm";
-  const text = shown
-    .normalize("NFKC")
-    .replace(WIDE_DOTS, ".")
-    // `github .com` and `github . com` still read as one host name.
-    .replace(/\s+\.\s*/gu, ".");
-  let real: URL | null;
+  let real: URL;
   try {
     real = new URL(target);
   } catch {
-    real = null;
+    return "confirm";
   }
-  const misleads = text.split(/\s+/u).some((word) => word !== "" && wordMisleads(word, real));
+  // An internationalized host can pass for another one letter by letter.
+  if (real.hostname.split(".").some((label) => label.startsWith("xn--"))) return "confirm";
+  const misleads = readable(shown)
+    .split(/\s+/u)
+    .some((word) => word !== "" && wordMisleads(word, real));
   return misleads ? "confirm" : "open";
 }

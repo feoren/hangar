@@ -31,30 +31,56 @@ Web addresses and existing file or folder paths in a session's output are links.
   whose visible text misleads shows the real address (host in bold) with an Open button first
   (`osc8Decision` in `src/termSafety.ts`). An OSC 8 target with a user name or password
   (`https://github.com@example.net/`) is no link at all (`safeLinkUrl`).
-- What counts as the visible text (second audit round): the link's cells plus every non-blank
-  cell touching them, on the same row and through wrapped rows in both directions
-  (`linkWord` in `src/terminalLinkWord.ts`; wide CJK and emoji cells count once). So plain
-  `https://github.com/` printed right before a link whose own text is `acme` counts as
-  `https://github.com/acme`. The text is read word by word (split at white space), each word
-  without the brackets, quotes and sentence punctuation around it, so `(github.com).`,
-  `see github.com/org` and `Open https://github.com/org` all claim GitHub.
-- A click asks when the text holds any `Default_Ignorable_Code_Point` (zero-width space, soft
-  hyphen, word joiner, bidi marks and overrides; a variation selector or joiner inside an emoji
-  is fine), when a word names another host (with a scheme, a bare host such as
-  `github.com/org`, `localhost:3000`, an IPv4 address or a bracketed IPv6 address; read after
-  NFKC with U+3002, U+FF0E and U+FF61 as dots, and with `github .com` joined), when a word looks
-  like a path, and when a word is a bare file name (`install.sh`, `update.zip`, `README.md`)
-  unless the target's last path name is that very file (also with a line and column:
-  `app.ts:42` on a link to `.../app.ts#L42`). A leading `www.` names the same site as the bare
-  host (`example.com` on `https://www.example.com/`). Plain words, issue and PR numbers
-  (`PR #123`) and versions (`v0.8.0`) open at once; `src/termSafety.test.ts` keeps a table of
-  common agent link texts that must not ask.
+- What counts as the visible text (second audit round, widened in the third): the link's cells
+  plus every non-blank cell touching them, on the same row and through wrapped rows in both
+  directions (`linkWord` in `src/terminalLinkWord.ts`; wide CJK and emoji cells count once). A
+  hard line break counts as a wrap when it looks like one: the row above is filled up to its
+  last column and the row below starts with text. So plain `https://github.com/` printed right
+  before a link whose own text is `acme` counts as `https://github.com/acme`, also across such a
+  break. Cells nobody sees end the word like a space: drawn invisible (SGR 8), two palette colors
+  of the same index (bold base colors count as their bright variant) or two RGB colors with a
+  contrast ratio below 1.1 (`cellHidden`). Default colors and mixed color kinds count as visible,
+  since the color scheme is not known there. The color rules apply only while
+  `minimumContrastRatio` is 1 (dark theme): above it (light theme, 4.5) xterm's renderer lifts
+  text in its background color until it reads (`_applyMinimumContrast` in
+  `DomRendererRowFactory.ts`), so there only SGR 8 hides a cell; otherwise a shown prefix would
+  drop out of the word and a misleading link would open at once.
+- Decision (third audit round, inverted from a blocklist): a click opens at once only when the
+  visible text names no address at all, or when everything it names is the target. The text is
+  read as a person sees it: NFKC, combining marks (`\p{M}`) dropped, UTS 39 look-alikes of the
+  dot (U+3002, U+FF0E, U+FF61, U+A4F8, U+0660, U+06F0, U+30FB, U+FF65, U+00B7, U+2027, U+2219,
+  U+22C5) and of the slash (U+2215, U+2044, U+29F8) taken for them, any other non-ASCII sign
+  between two ASCII letters or digits taken for a dot, `github .com` joined. Each word (split at
+  white space) is then searched, not matched whole: every run of letters, digits, dots and
+  hyphens is a candidate, so no sign around a host hides it (`**github.com**`, `|...|`,
+  `url=github.com`, `x;github.com`, `git@github.com:org/repo`, `github.com:org/repo`). A host run
+  (`localhost`, IPv4, labels ending in a letter TLD or `xn--`, or anything right after
+  `scheme://`) must be the target's site (`www.` ignored), with the target's port if it names one
+  (`:3000`, compared with the default port of the target's scheme) and the target's scheme if it
+  names one; a non-ASCII letter at a dot of a host run asks. A file name (`README.md`,
+  `install.sh`) must be the target's last path name (also `app.ts:42` on `.../app.ts#L42`); any
+  name in the path behind the target's own host (`vercel/next.js`, `acme/app.git`) is a page of
+  that site, not a host. A path (`/x`, `./x`, `~/x`, `C:\x`, `\\server`,
+  also behind a sign) and any `Default_Ignorable_Code_Point` (an emoji's own joiner and variation
+  selector excepted) ask. A target whose host has an `xn--` label always asks.
+  `src/termSafety.test.ts` keeps the auditor's inputs as tests and a table of common agent link
+  texts that must not ask (`PR #123`, `#42`, `docs`, `v0.8.0`, `Python 3.12`, `README.md` and
+  `app.ts:42` on that file, `localhost:3000` on the same port, `github.com/org/repo` on that URL,
+  `www.` variants).
 - Known limits: `github. com` (space only after the dot) and short IPv4 forms (`127.1`) are not
-  read as hosts; a link text such as `Node.js` reads like a file name, so a link to `nodejs.org` asks before it
-  opens.
+  read as hosts. Some honest texts ask once: `Node.js` on `nodejs.org` (reads like a file name),
+  library names that read like hosts (`socket.io`, `lodash.debounce`, `foo.bar()`), `St.Louis`, `http://` shown for an
+  `https://` target, any link to an internationalized host.
+- Printed (plain text) addresses: hovering shows where they lead in the same tip as OSC 8 links.
+  An address is read from visible cells only, so an invisible rest printed right after a shown
+  address is not part of it (`logicalLine` in `src/terminalLinkProvider.ts`).
 - The file viewer's Markdown preview applies the same check to its links (`src/viewerLink.ts`):
   `[github.com/org](https://example.net/)` shows the real address with Open and Cancel (focused,
-  also Escape) before anything opens; links with a user name stay plain text.
+  also Escape) before anything opens; links with a user name stay plain text. Since the third
+  audit round the link is judged with the text touching it in its block (paragraph, list item,
+  table cell, heading, quote), widened to white space on both sides (`wordAround`), so
+  `github.com/[acme](https://example.net/)`, a code span before the link and a neighbouring link
+  (`[github.com/](https://github.com/)[acme](https://example.net/)`) count as `github.com/acme`.
 - Link trimming walks back from the end once, with the brackets counted in one pass; the former
   loop was quadratic and took about 30 ms for a line of 4,000 closing brackets.
 - File inside the session's folder: Hangar's viewer, unless the viewer could only show "binary";

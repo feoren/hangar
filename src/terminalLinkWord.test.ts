@@ -1,6 +1,12 @@
 import { describe, expect, it } from "vitest";
 
-import { linkWord, type WordCell, type WordLine, type WordSource } from "./terminalLinkWord";
+import {
+  cellHidden,
+  linkWord,
+  type WordCell,
+  type WordLine,
+  type WordSource,
+} from "./terminalLinkWord";
 
 /** Wide characters (CJK, most emoji) take two cells, the second empty with width 0. */
 const WIDE = /[\u3000-\u9FFF\uFF00-\uFFEF]|\p{Extended_Pictographic}/u;
@@ -49,8 +55,27 @@ describe("linkWord", () => {
   });
 
   it("does not run into the next row when it is not a wrap", () => {
-    const source = screen(row("a github.c", 10), row("om/acme", 10));
+    // The row ends in an empty cell: a hard line break, not a full row that goes on.
+    const source = screen(row("a github.c", 12), row("om/acme", 12));
     expect(linkWord(source, { x: 2, y: 0 }, { x: 9, y: 0 })).toBe("github.c");
+    const below = screen(row("github.com/", 12), row("acme", 12));
+    expect(linkWord(below, { x: 0, y: 1 }, { x: 3, y: 1 })).toBe("acme");
+  });
+
+  it("joins a hard line break that looks like a wrap: a full row and text right below", () => {
+    // `https://github.com/` fills the row up to the last column, the link `acme` starts the next
+    // row without being marked as wrapped. On screen it reads as one address.
+    const source = screen(row(" https://github.com/", 20), row("acme", 20));
+    expect(linkWord(source, { x: 0, y: 1 }, { x: 3, y: 1 })).toBe("https://github.com/acme");
+    const after = screen(row("x https://github.co", 19), row("m/acme", 19));
+    expect(linkWord(after, { x: 2, y: 0 }, { x: 18, y: 0 })).toBe("https://github.com/acme");
+  });
+
+  it("treats invisible cells as gaps, so hidden text joins no word", () => {
+    const cells: WordCell[] = Array.from("github.com/acme", (chars) => ({ chars, width: 1 }));
+    for (const cell of cells.slice(0, 11)) cell.hidden = true;
+    const line: WordLine = { isWrapped: false, length: cells.length, cell: (x) => cells[x] };
+    expect(linkWord(screen(line), { x: 11, y: 0 }, { x: 14, y: 0 })).toBe("acme");
   });
 
   it("reads wide CJK and emoji cells as one character each", () => {
@@ -63,5 +88,53 @@ describe("linkWord", () => {
 
   it("is empty for a range outside the buffer", () => {
     expect(linkWord(screen(row("abc", 3)), { x: 5, y: 3 }, { x: 6, y: 3 })).toBe("");
+  });
+});
+
+describe("cellHidden", () => {
+  const plain = {
+    isInvisible: () => 0,
+    isBold: () => 0,
+    getFgColor: () => 0,
+    getBgColor: () => 0,
+    isFgRGB: () => false,
+    isBgRGB: () => false,
+    isFgPalette: () => false,
+    isBgPalette: () => false,
+  };
+
+  it("hides cells drawn invisible or in the color of their background", () => {
+    expect(cellHidden({ ...plain, isInvisible: () => 1 })).toBe(true);
+    const palette = { ...plain, isFgPalette: () => true, isBgPalette: () => true };
+    expect(cellHidden({ ...palette, getFgColor: () => 4, getBgColor: () => 4 })).toBe(true);
+    const rgb = { ...plain, isFgRGB: () => true, isBgRGB: () => true };
+    expect(cellHidden({ ...rgb, getFgColor: () => 0x101010, getBgColor: () => 0x101010 })).toBe(
+      true,
+    );
+    expect(cellHidden({ ...rgb, getFgColor: () => 0x101011, getBgColor: () => 0x101010 })).toBe(
+      true,
+    );
+  });
+
+  it("keeps text in its background color visible where xterm lifts the contrast", () => {
+    const palette = { ...plain, isFgPalette: () => true, isBgPalette: () => true };
+    const same = { ...palette, getFgColor: () => 4, getBgColor: () => 4 };
+    expect(cellHidden(same, 1)).toBe(true);
+    expect(cellHidden(same, 4.5)).toBe(false);
+    expect(cellHidden({ ...plain, isInvisible: () => 1 }, 4.5)).toBe(true);
+  });
+
+  it("keeps normal, colored and bold cells visible", () => {
+    expect(cellHidden(plain)).toBe(false);
+    const palette = { ...plain, isFgPalette: () => true, isBgPalette: () => true };
+    expect(cellHidden({ ...palette, getFgColor: () => 2, getBgColor: () => 4 })).toBe(false);
+    // Bold text of a base color is drawn in its bright variant.
+    const bold = { ...palette, isBold: () => 1, getFgColor: () => 4, getBgColor: () => 4 };
+    expect(cellHidden(bold)).toBe(false);
+    const rgb = { ...plain, isFgRGB: () => true, isBgRGB: () => true };
+    expect(cellHidden({ ...rgb, getFgColor: () => 0xffffff, getBgColor: () => 0x000000 })).toBe(
+      false,
+    );
+    expect(cellHidden({})).toBe(false);
   });
 });

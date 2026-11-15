@@ -46,7 +46,7 @@ import {
 import { arrowsToColumn, clickMovesCursor, type ClickCell } from "./terminalClick";
 import { terminalKeyAction } from "./terminalKeys";
 import { TerminalLinks, type LinkRequest } from "./terminalLinkProvider";
-import { linkWord } from "./terminalLinkWord";
+import { cellHidden, linkWord } from "./terminalLinkWord";
 import { guardSecondaryClick } from "./terminalMouse";
 import { InputStalled, settleStalled } from "./sessionInput";
 import { setupUnicode } from "./terminalUnicode";
@@ -259,6 +259,13 @@ export class SessionTerminal {
       open: (request) => {
         this.onOpenLink?.(request);
       },
+      // A printed address shows where it leads, like an OSC 8 link.
+      hover: (event, url) => {
+        this.showLinkTip(event, url);
+      },
+      leave: () => {
+        this.hideLinkTip();
+      },
     });
     this.term.loadAddon(this.fitAddon);
     this.applyFont();
@@ -282,10 +289,12 @@ export class SessionTerminal {
       this.programSelection.keyTyped();
     });
     // xterm has no OSC 52 handler: the clipboard write is only read here, not carried out, and
-    // `false` leaves it to any later handler.
+    // `false` leaves it to any later handler. Only a program that tracks the mouse can have
+    // selected something itself.
     this.term.parser.registerOscHandler(52, (data) => {
       const text = clipboardWriteText(data);
-      if (text !== null) this.programSelection.clipboardWritten(text);
+      const tracking = this.term.modes.mouseTrackingMode !== "none";
+      if (text !== null) this.programSelection.clipboardWritten(text, tracking);
       return false;
     });
     this.term.onBell(() => {
@@ -647,6 +656,7 @@ export class SessionTerminal {
    */
   private linkText(range: IBufferRange): string {
     const buffer = this.term.buffer.active;
+    const contrast = this.term.options.minimumContrastRatio ?? 1;
     return linkWord(
       (y) => {
         const line = buffer.getLine(y);
@@ -658,7 +668,11 @@ export class SessionTerminal {
             const cell = line.getCell(x);
             return cell === undefined
               ? undefined
-              : { chars: cell.getChars(), width: cell.getWidth() };
+              : {
+                  chars: cell.getChars(),
+                  width: cell.getWidth(),
+                  hidden: cellHidden(cell, contrast),
+                };
           },
         };
       },

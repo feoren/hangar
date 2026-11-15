@@ -8,10 +8,15 @@
 // When the program tracks the mouse itself (full screen programs), a plain click is the
 // program's: links are then inert and invisible. Shift bypasses mouse tracking in xterm, so
 // Shift+click still opens a segment there.
+//
+// Only visible text becomes a link: a cell drawn invisible or in its background color ends an
+// address like a space, so a program cannot hang a hidden rest onto a shown one. Hovering an
+// address shows where it leads (`hover`).
 
 import type { IDisposable, ILink, ILinkProvider } from "@xterm/xterm";
 
 import type { PathChecker, PathKind } from "./pathCheck";
+import { cellHidden, type CellStyle } from "./terminalLinkWord";
 import {
   cellText,
   findLinks,
@@ -32,6 +37,10 @@ export interface TerminalLinkOptions {
   cwd: () => string | null;
   checker: PathChecker;
   open: (request: LinkRequest) => void;
+  /** The mouse reached an address; shows where it leads. */
+  hover?: (event: MouseEvent, url: string) => void;
+  /** The mouse left an address, or a click opened it. */
+  leave?: () => void;
 }
 
 /**
@@ -44,6 +53,8 @@ export interface LinkTerminal {
   readonly rows: number;
   hasSelection(): boolean;
   readonly modes: { readonly mouseTrackingMode: string };
+  /** xterm lifts text above this contrast; text in its background color is then seen. */
+  readonly options?: { readonly minimumContrastRatio?: number };
   readonly buffer: { readonly active: { getLine(y: number): LinkLine | undefined } };
 }
 
@@ -51,7 +62,7 @@ export interface LinkTerminal {
 export interface LinkLine {
   readonly isWrapped: boolean;
   readonly length: number;
-  getCell(x: number): { getChars(): string; getWidth(): number } | undefined;
+  getCell(x: number): ({ getChars(): string; getWidth(): number } & CellStyle) | undefined;
 }
 
 /** A soft wrapped line longer than this many rows is only searched in these rows. */
@@ -194,6 +205,7 @@ export class TerminalLinks implements IDisposable {
         if (start === undefined || end === undefined) continue;
         const request = this.requestFor(span.opens, span.whole ? kind : "dir", root);
         if (request === null) continue;
+        const url = request.kind === "url" ? request.url : null;
         links.push({
           range: { start, end },
           text: span.opens,
@@ -202,13 +214,16 @@ export class TerminalLinks implements IDisposable {
             if (inert || this.term.hasSelection()) return;
             event.preventDefault();
             this.opened = true;
+            if (url !== null) this.options.leave?.();
             this.options.open(request);
           },
-          hover: () => {
+          hover: (event) => {
             this.hovered = true;
+            if (url !== null && !inert) this.options.hover?.(event, url);
           },
           leave: () => {
             this.hovered = false;
+            if (url !== null) this.options.leave?.();
           },
         });
       }
@@ -225,6 +240,7 @@ export class TerminalLinks implements IDisposable {
   /** The rows of the soft wrapped line that holds buffer line `line` (1 based). */
   private logicalLine(line: number): CellText {
     const buffer = this.term.buffer.active;
+    const contrast = this.term.options?.minimumContrastRatio ?? 1;
     let first = line - 1;
     while (first > 0 && line - 1 - first < MAX_ROWS && buffer.getLine(first)?.isWrapped === true) {
       first -= 1;
@@ -236,7 +252,9 @@ export class TerminalLinks implements IDisposable {
       const cells: LinkCell[] = [];
       for (let x = 0; x < bufferLine.length; x += 1) {
         const cell = bufferLine.getCell(x);
-        cells.push({ chars: cell?.getChars() ?? "", width: cell?.getWidth() ?? 1 });
+        // A hidden cell reads as empty: an address ends where the visible text ends.
+        const chars = cell === undefined || cellHidden(cell, contrast) ? "" : cell.getChars();
+        cells.push({ chars, width: cell?.getWidth() ?? 1 });
       }
       rows.push(cells);
     }

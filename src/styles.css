@@ -9464,6 +9464,27 @@ body.session-dragging .session-actions {
   margin-left: 21px;
 }
 
+/* For a moment after the card appears its answers take no click (useArmDelay.ts): dimmed, then
+   they fade in. */
+.gate-card .secondary-button {
+  transition: opacity 160ms ease-out;
+}
+
+.gate-card .secondary-button[aria-disabled="true"] {
+  opacity: 0.55;
+  cursor: default;
+}
+
+.gate-card .secondary-button[aria-disabled="true"]:hover {
+  background: var(--panel);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .gate-card .secondary-button {
+    transition: none;
+  }
+}
+
 /* The command guard's rules file and what in it could not be read, under its setting. */
 #command-guard-help p {
   margin: 0;

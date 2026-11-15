@@ -848,3 +848,7 @@ Pages changed: [[0010-command-guard]].
 ## [2026-11-15] update | Stage, unstage and discard create no hooks folder
 The commands no longer create the empty `git-no-hooks` folder below the local data folder or take a path to it; git switches hooks off for them like for every other call, so a file left in that folder no longer blocks staging. The `.no-hooks` constant of the worktree folder is gone too; a dot name stays no valid slug.
 Pages changed: [[commit-history]], [[agent-workflow-features]].
+
+## [2026-11-15] update | Third security round: link decision inverted, hidden cells, gate arm delay
+`osc8Decision` (terminal OSC 8 links and the file viewer's Markdown links) no longer lists signs that may surround a host; it searches every host-like run in each word and opens at once only when there is none or each is the target's site, with a named port and scheme matching. Combining marks are dropped and UTS 39 look-alikes of the dot and slash are read as such; an internationalized target host always asks. The visible word now follows a hard line break that looks like a wrap and treats invisible or same-color cells as gaps; printed addresses end where the visible text ends and show their target on hover. The viewer judges a link with the text touching it in its block. Gate cards ignore answer clicks for 600 ms after they appear. An OSC 52 write counts as the program's selection only while the program tracks the mouse.
+Pages changed: [[terminal-links]], [[gate-rules]].

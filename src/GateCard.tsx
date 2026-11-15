@@ -13,6 +13,7 @@ import {
 import { useT } from "./i18n";
 import { OverlapIcon } from "./icons";
 import { Revealed } from "./Revealed";
+import { useArmDelay } from "./useArmDelay";
 
 /**
  * A pending decision of the gate: which session wants to change which file, who else is changing
@@ -30,6 +31,9 @@ import { Revealed } from "./Revealed";
  * agent typed cannot pose as one). "Allow once" and "Block"; "Remember for this project" names the
  * rules again and offers to always allow or always block them in the project, except for Hangar's
  * own settings. Without an answer the backend blocks it after 10 minutes.
+ *
+ * The answers take no click for a moment after the card appears or its decision changes
+ * (useArmDelay.ts): a click meant for what was under the mouse before must not answer it.
  */
 export function GateCard(props: {
   decision: PendingDecision;
@@ -60,20 +64,25 @@ export function GateCard(props: {
   const [remembering, setRemembering] = useState(false);
   const text = decisionText(decision, props.nameOf, t);
   const other = decision.otherSessions[0];
-  const answer = (value: GateAnswer) => () => {
-    props.onAnswer(value);
-  };
+  const { armed, guard } = useArmDelay(decision.id);
+  /** Props of an answer button: its click, ignored while the card is not armed yet. */
+  const answer = (value: GateAnswer) => ({
+    onClick: guard(() => {
+      props.onAnswer(value);
+    }),
+    "aria-disabled": armed ? undefined : true,
+  });
   const command = decision.command;
   const remember = command === null || command.rememberable;
   const folder = command === null ? ruleFolder(decision.path) : null;
   const ruleRow = (label: string, file: GateAnswer, inFolder: GateAnswer) => (
     <div className="gate-rule-row">
       <span className="gate-rule-label">{label}</span>
-      <button type="button" className="secondary-button" onClick={answer(file)}>
+      <button type="button" className="secondary-button" {...answer(file)}>
         {t("gate.ruleFile")}
       </button>
       {folder !== null && (
-        <button type="button" className="secondary-button" onClick={answer(inFolder)}>
+        <button type="button" className="secondary-button" {...answer(inFolder)}>
           {t("gate.ruleFolder", { folder: rulePathLabel(folder, "folder", t) })}
         </button>
       )}
@@ -121,15 +130,15 @@ export function GateCard(props: {
         <p className="gate-command-more">{t("gate.commandHidden", { count: command.hidden })}</p>
       )}
       <div className="gate-actions">
-        <button type="button" className="secondary-button" onClick={answer("allowOnce")}>
+        <button type="button" className="secondary-button" {...answer("allowOnce")}>
           {t("gate.allowOnce")}
         </button>
         {command === null && (
-          <button type="button" className="secondary-button" onClick={answer("allowFile")}>
+          <button type="button" className="secondary-button" {...answer("allowFile")}>
             {t("gate.allowFile")}
           </button>
         )}
-        <button type="button" className="secondary-button" onClick={answer("deny")}>
+        <button type="button" className="secondary-button" {...answer("deny")}>
           {t(command === null ? "gate.deny" : "gate.block")}
         </button>
       </div>
@@ -147,10 +156,10 @@ export function GateCard(props: {
             })}
           </p>
           <div className="gate-rule-row">
-            <button type="button" className="secondary-button" onClick={answer("alwaysCommand")}>
+            <button type="button" className="secondary-button" {...answer("alwaysCommand")}>
               {t("gate.alwaysCommand")}
             </button>
-            <button type="button" className="secondary-button" onClick={answer("neverCommand")}>
+            <button type="button" className="secondary-button" {...answer("neverCommand")}>
               {t("gate.neverCommand")}
             </button>
           </div>
