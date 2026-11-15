@@ -121,6 +121,11 @@ export interface Settings {
    * upstream and asks before pulling them, where its program takes a first prompt.
    */
   worktreeUpstreamCheck: boolean;
+  /**
+   * Ctrl+V and Shift+Insert ask before text that would run line by line (no bracketed paste) or
+   * hides characters (clipboardPaste.ts). On by default, against pastejacking.
+   */
+  warnMultilinePaste: boolean;
   /** Order, visibility and icons of the terminals and agents (programPrefs.ts). */
   programs: ProgramPrefs;
   /** Terminal colors; every scheme follows the app theme (terminalLook.ts). */
@@ -156,6 +161,7 @@ type Flag =
   | "commandGuardEnabled"
   | "hangarMd"
   | "worktreeUpstreamCheck"
+  | "warnMultilinePaste"
   | "cursorBlink";
 
 export function defaultSettings(language: Language): Settings {
@@ -188,6 +194,7 @@ export function defaultSettings(language: Language): Settings {
     commandGuardEnabled: true,
     hangarMd: true,
     worktreeUpstreamCheck: true,
+    warnMultilinePaste: true,
     programs: DEFAULT_PROGRAM_PREFS,
     terminalScheme: DEFAULT_TERMINAL_LOOK.scheme,
     terminalFont: DEFAULT_TERMINAL_LOOK.font,
@@ -285,6 +292,7 @@ export function parseSettings(text: string | null, fallbackLanguage: Language): 
     commandGuardEnabled: flag("commandGuardEnabled"),
     hangarMd: flag("hangarMd"),
     worktreeUpstreamCheck: flag("worktreeUpstreamCheck"),
+    warnMultilinePaste: flag("warnMultilinePaste"),
     programs: parseProgramPrefs(get("programs")),
     terminalScheme: parseColorScheme(scheme) ?? defaults.terminalScheme,
     terminalFont: isTerminalFont(font) ? font : defaults.terminalFont,

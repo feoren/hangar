@@ -161,9 +161,10 @@ describe("startsOver", () => {
 });
 
 describe("sendCommand", () => {
-  const target = () => {
+  const target = (bracketed = true) => {
     const calls: string[] = [];
     const value: BroadcastTarget = {
+      bracketedPaste: () => bracketed,
       pasteAndWait: (text) => {
         calls.push(`paste:${text}`);
         return Promise.resolve();
@@ -181,7 +182,7 @@ describe("sendCommand", () => {
       calls.push("pause");
       return Promise.resolve();
     });
-    await sendCommand(value, compact, pause);
+    await expect(sendCommand(value, compact, pause)).resolves.toBe(true);
     expect(calls).toEqual(["paste:/compact", "pause", "enter"]);
   });
 
@@ -191,5 +192,21 @@ describe("sendCommand", () => {
     await sendCommand(value, own, pause);
     expect(calls).toEqual(["paste:/model "]);
     expect(pause).not.toHaveBeenCalled();
+  });
+
+  it("sends no command with a line break into a program without bracketed paste", async () => {
+    const pause = vi.fn(() => Promise.resolve());
+    const lines: AgentCommand = {
+      label: "Marker",
+      text: "/model\necho marker",
+      submit: false,
+      confirm: false,
+    };
+    const submitted: AgentCommand = { ...lines, submit: true };
+    for (const command of [lines, submitted]) {
+      const { calls, value } = target(false);
+      await expect(sendCommand(value, command, pause)).resolves.toBe(false);
+      expect(calls).toEqual([]);
+    }
   });
 });

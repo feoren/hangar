@@ -780,3 +780,7 @@ Pages changed: [[agent-commands]].
 ## [2026-11-14] query | Stall hint on battery
 The stall hint now follows the power saving mode: `pollInterval("stall")` gives 10 s on AC and 30 s on battery, and `StallMonitor.setSampleInterval` restarts its timer without resetting the time since the last progress. It keeps its own timer on the injected clock instead of `PollTimer`.
 Pages changed: [[power-detection]], [[queued-messages-and-stall-hint]].
+
+## [2026-11-15] query | Frontend security fixes from the audit
+OSC 8 links show their real target on hover; a click whose visible text names another host or looks like a path shows the address with an Open button first (`osc8Decision`). Ctrl+V and Shift+Insert ask before text that would run line by line or hides characters (setting `warnMultilinePaste`, on by default). Broadcasts, queued messages and agent commands skip a program without bracketed paste when the text has a line break or invisible characters. Dropped paths with control characters are left out, Aider's `(Y)es/(N)o` prompt counts as a question ([UNVERIFIED]), and link trimming is a single pass.
+Pages changed: [[notes]], [[queued-messages-and-stall-hint]], [[terminal-links]].

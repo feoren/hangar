@@ -4,7 +4,7 @@ type: synthesis
 tags: [notes, contract]
 sources: ["[[notes-and-start-usability]]", "[[note-gitattributes-measurement]]"]
 created: 2026-11-07
-updated: 2026-11-13
+updated: 2026-11-15
 ---
 
 # Notes (contract)
@@ -137,8 +137,13 @@ Capabilities:
   last runs at once. In that case, and when the text holds bidi or zero-width characters
   (`hasInvisible`, line breaks, tabs and emoji joiners ignored), the main window shows an inline
   question with Cancel (focused, also Escape) and "Send anyway"; nothing is written before the
-  answer, and nothing at all if the session closes meanwhile. Ctrl+V
-  and Shift+Insert stay unchanged. The editor marks invisible characters with CodeMirror's
+  answer, and nothing at all if the session closes meanwhile. Since the security audit of
+  2026-11-15, Ctrl+V and Shift+Insert ask the same question (`src/clipboardPaste.ts`): a web page
+  can put a hidden line break and a command into the clipboard (pastejacking), and without
+  bracketed paste that line runs as it arrives. Windows Terminal warns before a multi-line paste
+  too. The setting "Warn before pasting several lines" (`warnMultilinePaste`, on by default)
+  turns the question off for the clipboard; text without anything to warn about still pastes
+  synchronously. The editor marks invisible characters with CodeMirror's
   `highlightSpecialChars`, extended by the bidi embeddings, U+2068 and U+2060 to U+2064.
 - While detached, the main window shows no right panel (the terminal gets the space); the
   sidebar buttons, the menu entries and the shortcuts for notes, changes and files bring the

@@ -108,6 +108,13 @@ describe("looksLikeQuestion: classic prompts and limits", () => {
     expect(looksLikeQuestion(["Continue? [y/N]"])).toBe(true);
   });
 
+  it("sees Aider's confirmation prompt", () => {
+    expect(looksLikeQuestion(["Run shell command? (Y)es/(N)o [Yes]:"])).toBe(true);
+    expect(
+      looksLikeQuestion(["Add marker.txt to the chat? (Y)es/(N)o/(D)on't ask again [Yes]:"]),
+    ).toBe(true);
+  });
+
   it("does not take a plain numbered list in the answer for a choice", () => {
     expect(looksLikeQuestion(["Steps:", "1. Marker one", "2. Marker two", "> "])).toBe(false);
   });

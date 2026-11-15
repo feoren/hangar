@@ -239,3 +239,20 @@ describe("cellText", () => {
     expect(cells.from[3]).toEqual({ x: 1, y: 11 });
   });
 });
+
+describe("findLinks on hostile input", () => {
+  it("trims thousands of closing brackets in one pass", () => {
+    const line = `http://a${")".repeat(4088)}`;
+    expect(findLinks(line).map((link) => link.target)).toEqual([{ kind: "url", url: "http://a" }]);
+    // Twenty lines, as a hover over a screen of such output asks: the quadratic trimming took
+    // about 30 ms per line, a single pass well under one. The bound is generous against noise.
+    const started = performance.now();
+    for (let round = 0; round < 20; round += 1) findLinks(line);
+    expect(performance.now() - started).toBeLessThan(50);
+  });
+
+  it("still keeps balanced brackets and strips sentence punctuation", () => {
+    const [link] = findLinks("see (https://example.com/a_(b)).");
+    expect(link?.target).toEqual({ kind: "url", url: "https://example.com/a_(b)" });
+  });
+});

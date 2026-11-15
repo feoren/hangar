@@ -60,6 +60,7 @@ describe("parseSettings", () => {
       commandGuardEnabled: false,
       hangarMd: false,
       worktreeUpstreamCheck: false,
+      warnMultilinePaste: false,
       programs: { order: ["b", "a"], hidden: ["a"], icons: {} },
       terminalScheme: "sundial",
       terminalFont: "JetBrains Mono",
@@ -97,11 +98,17 @@ describe("parseSettings", () => {
       claimsEnabled: "no",
       gateEnabled: 0,
       commandGuardEnabled: "on",
+      warnMultilinePaste: "no",
       dotAnimation: "spin",
       rowStyle: "fancy",
       sessionGrouping: "folder",
     };
     expect(parseSettings(JSON.stringify(stored), "de")).toEqual(defaultSettings("de"));
+  });
+
+  it("warns before a multi-line paste by default, also for older settings", () => {
+    expect(defaultSettings("de").warnMultilinePaste).toBe(true);
+    expect(parseSettings(JSON.stringify({ language: "en" }), "de").warnMultilinePaste).toBe(true);
   });
 
   it("keeps the previous terminal look by default, also for older settings", () => {

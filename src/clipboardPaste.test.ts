@@ -6,17 +6,41 @@ import {
   type ClipboardPasteTarget,
   type ImagePaste,
 } from "./clipboardPaste";
+import type { PasteWarning } from "./appPaste";
 import type { ShellKind } from "./pathQuote";
 
-function target(kind: ShellKind = "agent"): ClipboardPasteTarget & { written: string[] } {
+interface Options {
+  kind?: ShellKind;
+  bracketed?: boolean;
+  warns?: boolean;
+  answer?: boolean;
+}
+
+function target(
+  options: ShellKind | Options = {},
+): ClipboardPasteTarget & { written: string[]; asked: PasteWarning[] } {
+  const {
+    kind = "agent",
+    bracketed = true,
+    warns = true,
+    answer = false,
+  } = typeof options === "string" ? { kind: options } : options;
   const written: string[] = [];
+  const asked: PasteWarning[] = [];
   return {
     written,
+    asked,
     pasteText: (text) => {
       written.push(text);
     },
     shellKind: () => kind,
     imagePasteInFlight: false,
+    bracketedPaste: () => bracketed,
+    warnsBeforePaste: () => warns,
+    confirmPaste: (warning) => {
+      asked.push(warning);
+      return Promise.resolve(answer);
+    },
   };
 }
 
@@ -32,6 +56,43 @@ describe("pasteFromClipboard", () => {
   it("pastes text unchanged and never looks for an image", async () => {
     const session = target();
     await expect(pasteFromClipboard(session, "one\ntwo", noImage)).resolves.toBe("text");
+    expect(session.written).toEqual(["one\ntwo"]);
+  });
+
+  it("asks before several lines go into a program without bracketed paste", async () => {
+    const declined = target({ bracketed: false, answer: false });
+    await expect(pasteFromClipboard(declined, "echo one\necho two", noImage)).resolves.toBe(
+      "declined",
+    );
+    expect(declined.asked).toEqual([{ runsLines: true, hidden: false }]);
+    expect(declined.written).toEqual([]);
+    const agreed = target({ bracketed: false, answer: true });
+    await expect(pasteFromClipboard(agreed, "echo one\necho two", noImage)).resolves.toBe("text");
+    expect(agreed.written).toEqual(["echo one\necho two"]);
+  });
+
+  it("asks before text with hidden characters, even with bracketed paste", async () => {
+    const session = target({ bracketed: true });
+    await pasteFromClipboard(session, "marker\u202eetxt", noImage);
+    expect(session.asked).toEqual([{ runsLines: false, hidden: true }]);
+    expect(session.written).toEqual([]);
+  });
+
+  it("pastes one line or a bracketed paste without asking, at once", () => {
+    const line = target({ bracketed: false });
+    void pasteFromClipboard(line, "echo marker", noImage);
+    // Synchronous: Ctrl+V must not wait a tick when there is nothing to ask.
+    expect(line.written).toEqual(["echo marker"]);
+    const bracketed = target({ bracketed: true });
+    void pasteFromClipboard(bracketed, "one\ntwo", noImage);
+    expect(bracketed.written).toEqual(["one\ntwo"]);
+    expect([...line.asked, ...bracketed.asked]).toEqual([]);
+  });
+
+  it("pastes without asking when the warning is turned off", async () => {
+    const session = target({ bracketed: false, warns: false });
+    await expect(pasteFromClipboard(session, "one\ntwo", noImage)).resolves.toBe("text");
+    expect(session.asked).toEqual([]);
     expect(session.written).toEqual(["one\ntwo"]);
   });
 

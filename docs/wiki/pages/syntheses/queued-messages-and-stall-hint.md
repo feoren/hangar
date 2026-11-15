@@ -4,7 +4,7 @@ type: synthesis
 tags: [attention, sidebar, frontend]
 sources: ["[[agent-prompt-strings-reading]]"]
 created: 2026-11-14
-updated: 2026-11-14
+updated: 2026-11-15
 ---
 
 # Queued messages and the stall hint
@@ -33,6 +33,9 @@ listener), editor in `src/QueueDialog.tsx`.
   text would otherwise confirm the preselected answer. The same check runs when the editor saves
   while the session is done (`saveMessage`). A held message is marked `waiting`; the peek says it
   waits for the answer, and the next work after the user's input clears the mark.
+- Aider's confirmation prompt (`Run shell command? (Y)es/(N)o [Yes]:`) is a question phrase
+  too (`/\(y\)es\/\(n\)o/iu`). The format comes from the security audit of 2026-11-15, not from
+  a measurement: [UNVERIFIED] until an Aider screen has been read.
 - "done" sends an armed message exactly once (it leaves the queue as it is handed out). "asks"
   keeps it; the peek says it waits for the answer. "other" keeps it disarmed.
 - Armed: queued or edited in this run. Disarmed: restored after a restart, or after an exit. A
@@ -42,6 +45,10 @@ listener), editor in `src/QueueDialog.tsx`.
 - Sending reuses the broadcast path: variables filled (`fillVariables`), then `sendToTargets`
   (bracketed paste, Enter as a separate write after `BROADCAST_ENTER_DELAY_MS`). A missing
   variable sends nothing; the message stays queued with a notice.
+- A filled variable (`{{diff}}`, `{{selection}}`) can bring text the user did not read. When the
+  program has no bracketed paste on and the text has a line break or invisible characters
+  (`blockedFor` in `src/broadcast.ts`), nothing is sent: the message stays queued and a notice
+  says why. "Send to several" and agent commands follow the same rule.
 - The "done" that sends the message raises no chime, flash, desktop notification, phone push or
   done notice: the session goes on working.
 - Persistence: `localStorage` key `hangar.queuedMessages`, an object of session key to text,

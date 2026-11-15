@@ -6282,6 +6282,29 @@ body.resizing-horizontal * {
   gap: 6px;
 }
 
+/* An OSC 8 link whose text claimed another address: the warn edge, as for the paste question. */
+.link-notice.link-check {
+  border-color: color-mix(in srgb, var(--warn) 60%, transparent);
+}
+
+/* The real target of the OSC 8 link under the mouse (terminal.ts `showLinkTip`). */
+.terminal-link-tip {
+  position: absolute;
+  z-index: 20;
+  max-width: min(60ch, calc(100% - 16px));
+  padding: 4px 8px;
+  font-family: var(--mono);
+  font-size: 12px;
+  line-height: 1.4;
+  color: var(--text);
+  background: var(--panel-raised);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  box-shadow: 0 6px 18px var(--shadow);
+  overflow-wrap: anywhere;
+  pointer-events: none;
+}
+
 /* Terminal context menu: small caption above the snippets. */
 .menu-heading {
   padding: 6px 10px 2px;

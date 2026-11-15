@@ -468,6 +468,20 @@ function SessionsField({ settings, onChange, onClearScrollbacks }: Props) {
       <label className="check">
         <input
           type="checkbox"
+          checked={settings.warnMultilinePaste}
+          aria-describedby="warn-multiline-paste-help"
+          onChange={(event) => {
+            onChange({ warnMultilinePaste: event.currentTarget.checked });
+          }}
+        />
+        <span>{t("settings.warnMultilinePaste")}</span>
+      </label>
+      <p id="warn-multiline-paste-help" className="muted settings-help">
+        {t("settings.warnMultilinePasteHelp")}
+      </p>
+      <label className="check">
+        <input
+          type="checkbox"
           checked={settings.subAgentExcerpts}
           aria-describedby="sub-agent-excerpts-help"
           onChange={(event) => {

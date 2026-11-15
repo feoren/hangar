@@ -610,6 +610,15 @@ const de = {
   "link.notice": "Der Browser ließ sich nicht öffnen. Kopiere die Adresse und öffne sie selbst:",
   "link.copied": "Kopiert.",
   "link.openFailed": "Das ließ sich nicht öffnen: {error}",
+  "link.leadsTo": "Führt zu {url}",
+  "link.checkTarget": "Dieser Link zeigt eine andere Adresse, als er öffnet. Er führt wirklich zu:",
+  "link.open": "Öffnen",
+  "paste.dropSkipped": "Ein Pfad mit Zeilenumbruch oder Steuerzeichen wurde ausgelassen.",
+  "send.blocked":
+    "Nicht gesendet an {sessions}: Der Text hat mehrere Zeilen oder unsichtbare Zeichen, und das Programm dort würde jede Zeile sofort ausführen.",
+  "settings.warnMultilinePaste": "Vor mehrzeiligem Einfügen warnen",
+  "settings.warnMultilinePasteHelp":
+    "Strg+V und Umschalt+Einfg fragen nach, bevor mehrere Zeilen in ein Programm gehen, das jede Zeile sofort ausführt, oder bevor Text mit unsichtbaren Zeichen eingefügt wird.",
   "paste.runsLines": "{name} führt jede Zeile sofort aus, sobald sie ankommt.",
   "paste.hidden": "Der Text enthält unsichtbare Zeichen. Er könnte anders laufen, als er aussieht.",
   "paste.sendAnyway": "Trotzdem senden",
@@ -2178,6 +2187,15 @@ const en: Record<MessageKey, string> = {
   "link.notice": "The browser could not be opened. Copy the address and open it yourself:",
   "link.copied": "Copied.",
   "link.openFailed": "That could not be opened: {error}",
+  "link.leadsTo": "Leads to {url}",
+  "link.checkTarget": "This link shows a different address than it opens. It really leads to:",
+  "link.open": "Open",
+  "paste.dropSkipped": "A path with a line break or control character was left out.",
+  "send.blocked":
+    "Not sent to {sessions}: the text has several lines or hidden characters, and the program there would run each line at once.",
+  "settings.warnMultilinePaste": "Warn before pasting several lines",
+  "settings.warnMultilinePasteHelp":
+    "Ctrl+V and Shift+Insert ask first before several lines go into a program that runs each line at once, or before text with hidden characters is pasted.",
   "paste.runsLines": "{name} runs each line as soon as it arrives.",
   "paste.hidden": "The text contains hidden characters. It may run differently than it reads.",
   "paste.sendAnyway": "Send anyway",
@@ -3739,6 +3757,16 @@ const el: Record<MessageKey, string> = {
     "Δεν ήταν δυνατό να ανοίξει ο browser. Αντίγραψε τη διεύθυνση και άνοιξέ τη μόνος σου:",
   "link.copied": "Αντιγράφηκε.",
   "link.openFailed": "Δεν ήταν δυνατό να ανοίξει: {error}",
+  "link.leadsTo": "Οδηγεί σε {url}",
+  "link.checkTarget":
+    "Αυτός ο σύνδεσμος δείχνει άλλη διεύθυνση από αυτή που ανοίγει. Στην πραγματικότητα οδηγεί σε:",
+  "link.open": "Άνοιγμα",
+  "paste.dropSkipped": "Παραλείφθηκε μια διαδρομή με αλλαγή γραμμής ή χαρακτήρα ελέγχου.",
+  "send.blocked":
+    "Δεν στάλθηκε σε {sessions}: το κείμενο έχει πολλές γραμμές ή αόρατους χαρακτήρες και το πρόγραμμα εκεί θα εκτελούσε κάθε γραμμή αμέσως.",
+  "settings.warnMultilinePaste": "Προειδοποίηση πριν από επικόλληση πολλών γραμμών",
+  "settings.warnMultilinePasteHelp":
+    "Τα Ctrl+V και Shift+Insert ρωτούν πρώτα, πριν πάνε πολλές γραμμές σε πρόγραμμα που εκτελεί κάθε γραμμή αμέσως ή πριν επικολληθεί κείμενο με αόρατους χαρακτήρες.",
   "paste.runsLines": "Το {name} εκτελεί κάθε γραμμή μόλις φτάσει.",
   "paste.hidden":
     "Το κείμενο περιέχει κρυφούς χαρακτήρες. Μπορεί να εκτελεστεί διαφορετικά από ό,τι φαίνεται.",
@@ -5325,6 +5353,16 @@ const es: Record<MessageKey, string> = {
   "link.notice": "No se pudo abrir el navegador. Copia la dirección y ábrela tú mismo:",
   "link.copied": "Copiado.",
   "link.openFailed": "No se pudo abrir: {error}",
+  "link.leadsTo": "Lleva a {url}",
+  "link.checkTarget":
+    "Este enlace muestra una dirección distinta de la que abre. En realidad lleva a:",
+  "link.open": "Abrir",
+  "paste.dropSkipped": "Se omitió una ruta con un salto de línea o un carácter de control.",
+  "send.blocked":
+    "No se envió a {sessions}: el texto tiene varias líneas o caracteres ocultos, y el programa de allí ejecutaría cada línea al instante.",
+  "settings.warnMultilinePaste": "Avisar antes de pegar varias líneas",
+  "settings.warnMultilinePasteHelp":
+    "Ctrl+V y Mayús+Insert preguntan antes de que varias líneas vayan a un programa que ejecuta cada línea al instante, o antes de pegar texto con caracteres ocultos.",
   "paste.runsLines": "{name} ejecuta cada línea en cuanto llega.",
   "paste.hidden":
     "El texto contiene caracteres ocultos. Podría ejecutarse de forma distinta a como se lee.",
@@ -6901,6 +6939,17 @@ const fr: Record<MessageKey, string> = {
   "link.notice": "Impossible d’ouvrir le navigateur. Copie l’adresse et ouvre-la toi-même :",
   "link.copied": "Copié.",
   "link.openFailed": "Impossible d’ouvrir cet élément : {error}",
+  "link.leadsTo": "Mène à {url}",
+  "link.checkTarget":
+    "Ce lien affiche une autre adresse que celle qu’il ouvre. Il mène en réalité à :",
+  "link.open": "Ouvrir",
+  "paste.dropSkipped":
+    "Un chemin contenant un saut de ligne ou un caractère de contrôle a été ignoré.",
+  "send.blocked":
+    "Non envoyé à {sessions} : le texte a plusieurs lignes ou des caractères invisibles, et le programme là-bas exécuterait chaque ligne aussitôt.",
+  "settings.warnMultilinePaste": "Avertir avant de coller plusieurs lignes",
+  "settings.warnMultilinePasteHelp":
+    "Ctrl+V et Maj+Inser demandent d’abord avant que plusieurs lignes aillent dans un programme qui exécute chaque ligne aussitôt, ou avant de coller un texte avec des caractères invisibles.",
   "paste.runsLines": "{name} exécute chaque ligne dès qu'elle arrive.",
   "paste.hidden":
     "Le texte contient des caractères cachés. Il pourrait s'exécuter autrement qu'il ne se lit.",
@@ -8487,6 +8536,16 @@ const it: Record<MessageKey, string> = {
   "link.notice": "Non è stato possibile aprire il browser. Copia l’indirizzo e aprilo tu:",
   "link.copied": "Copiato.",
   "link.openFailed": "Impossibile aprirlo: {error}",
+  "link.leadsTo": "Porta a {url}",
+  "link.checkTarget":
+    "Questo link mostra un indirizzo diverso da quello che apre. In realtà porta a:",
+  "link.open": "Apri",
+  "paste.dropSkipped": "Un percorso con un a capo o un carattere di controllo è stato escluso.",
+  "send.blocked":
+    "Non inviato a {sessions}: il testo ha più righe o caratteri invisibili, e il programma lì eseguirebbe subito ogni riga.",
+  "settings.warnMultilinePaste": "Avvisa prima di incollare più righe",
+  "settings.warnMultilinePasteHelp":
+    "Ctrl+V e Maiusc+Ins chiedono prima che più righe vadano in un programma che esegue subito ogni riga, o prima di incollare testo con caratteri invisibili.",
   "paste.runsLines": "{name} esegue ogni riga appena arriva.",
   "paste.hidden":
     "Il testo contiene caratteri nascosti. Potrebbe essere eseguito diversamente da come si legge.",
@@ -10059,6 +10118,15 @@ const ja: Record<MessageKey, string> = {
   "link.notice": "ブラウザーを開けませんでした。アドレスをコピーしてご自身で開いてください:",
   "link.copied": "コピーしました。",
   "link.openFailed": "開けませんでした: {error}",
+  "link.leadsTo": "リンク先: {url}",
+  "link.checkTarget": "このリンクは、開く先とは別のアドレスを表示しています。実際のリンク先:",
+  "link.open": "開く",
+  "paste.dropSkipped": "改行や制御文字を含むパスを除外しました。",
+  "send.blocked":
+    "{sessions} には送信しませんでした: テキストに複数の行または見えない文字があり、そこのプログラムは各行をすぐに実行してしまいます。",
+  "settings.warnMultilinePaste": "複数行を貼り付ける前に警告する",
+  "settings.warnMultilinePasteHelp":
+    "Ctrl+V と Shift+Insert は、各行をすぐに実行するプログラムに複数行を送る前や、見えない文字を含むテキストを貼り付ける前に確認します。",
   "paste.runsLines": "{name} は届いた行をすぐに 1 行ずつ実行します。",
   "paste.hidden":
     "テキストに見えない文字が含まれています。見た目と違う動作をする可能性があります。",
@@ -11629,6 +11697,15 @@ const pl: Record<MessageKey, string> = {
   "link.notice": "Nie udało się otworzyć przeglądarki. Skopiuj adres i otwórz go samodzielnie:",
   "link.copied": "Skopiowano.",
   "link.openFailed": "Nie udało się tego otworzyć: {error}",
+  "link.leadsTo": "Prowadzi do {url}",
+  "link.checkTarget": "Ten link pokazuje inny adres niż ten, który otwiera. Naprawdę prowadzi do:",
+  "link.open": "Otwórz",
+  "paste.dropSkipped": "Pominięto ścieżkę z podziałem wiersza lub znakiem sterującym.",
+  "send.blocked":
+    "Nie wysłano do {sessions}: tekst ma kilka wierszy lub niewidoczne znaki, a tamten program wykonałby każdy wiersz od razu.",
+  "settings.warnMultilinePaste": "Ostrzegaj przed wklejeniem kilku wierszy",
+  "settings.warnMultilinePasteHelp":
+    "Ctrl+V i Shift+Insert pytają najpierw, zanim kilka wierszy trafi do programu, który wykonuje każdy wiersz od razu, albo zanim zostanie wklejony tekst z niewidocznymi znakami.",
   "paste.runsLines": "{name} wykonuje każdy wiersz, gdy tylko dotrze.",
   "paste.hidden": "Tekst zawiera ukryte znaki. Może działać inaczej, niż wygląda.",
   "paste.sendAnyway": "Wyślij mimo to",
@@ -13189,6 +13266,16 @@ const pt: Record<MessageKey, string> = {
   "link.notice": "Não foi possível abrir o navegador. Copie o endereço e abra você mesmo:",
   "link.copied": "Copiado.",
   "link.openFailed": "Não foi possível abrir: {error}",
+  "link.leadsTo": "Leva a {url}",
+  "link.checkTarget": "Este link mostra um endereço diferente do que abre. Na verdade leva a:",
+  "link.open": "Abrir",
+  "paste.dropSkipped":
+    "Um caminho com quebra de linha ou caractere de controle foi deixado de fora.",
+  "send.blocked":
+    "Não enviado para {sessions}: o texto tem várias linhas ou caracteres ocultos, e o programa ali executaria cada linha na hora.",
+  "settings.warnMultilinePaste": "Avisar antes de colar várias linhas",
+  "settings.warnMultilinePasteHelp":
+    "Ctrl+V e Shift+Insert perguntam antes que várias linhas vão para um programa que executa cada linha na hora, ou antes de colar texto com caracteres ocultos.",
   "paste.runsLines": "{name} executa cada linha assim que ela chega.",
   "paste.hidden":
     "O texto contém caracteres ocultos. Ele pode ser executado de forma diferente do que parece.",
@@ -14753,6 +14840,16 @@ const ru: Record<MessageKey, string> = {
   "link.notice": "Не удалось открыть браузер. Скопируй адрес и открой его сам:",
   "link.copied": "Скопировано.",
   "link.openFailed": "Не удалось открыть: {error}",
+  "link.leadsTo": "Ведёт на {url}",
+  "link.checkTarget":
+    "Эта ссылка показывает другой адрес, чем открывает. На самом деле она ведёт на:",
+  "link.open": "Открыть",
+  "paste.dropSkipped": "Путь с переводом строки или управляющим символом пропущен.",
+  "send.blocked":
+    "Не отправлено в {sessions}: в тексте несколько строк или невидимые символы, а программа там выполнила бы каждую строку сразу.",
+  "settings.warnMultilinePaste": "Предупреждать перед вставкой нескольких строк",
+  "settings.warnMultilinePasteHelp":
+    "Ctrl+V и Shift+Insert сначала спрашивают, прежде чем несколько строк попадут в программу, которая сразу выполняет каждую строку, или прежде чем вставить текст с невидимыми символами.",
   "paste.runsLines": "{name} выполняет каждую строку сразу, как только она приходит.",
   "paste.hidden": "В тексте есть скрытые символы. Он может выполниться не так, как выглядит.",
   "paste.sendAnyway": "Всё равно отправить",
@@ -16303,6 +16400,15 @@ const tr: Record<MessageKey, string> = {
   "link.notice": "Tarayıcı açılamadı. Adresi kopyala ve kendin aç:",
   "link.copied": "Kopyalandı.",
   "link.openFailed": "Açılamadı: {error}",
+  "link.leadsTo": "{url} adresine gider",
+  "link.checkTarget": "Bu bağlantı, açtığından farklı bir adres gösteriyor. Aslında şuraya gider:",
+  "link.open": "Aç",
+  "paste.dropSkipped": "Satır sonu veya denetim karakteri içeren bir yol atlandı.",
+  "send.blocked":
+    "{sessions} oturumuna gönderilmedi: metinde birden çok satır veya görünmez karakter var ve oradaki program her satırı hemen çalıştırırdı.",
+  "settings.warnMultilinePaste": "Birden çok satır yapıştırmadan önce uyar",
+  "settings.warnMultilinePasteHelp":
+    "Ctrl+V ve Shift+Insert, birden çok satır her satırı hemen çalıştıran bir programa gitmeden ya da görünmez karakterli metin yapıştırılmadan önce sorar.",
   "paste.runsLines": "{name} her satırı gelir gelmez çalıştırır.",
   "paste.hidden": "Metin gizli karakterler içeriyor. Göründüğünden farklı çalışabilir.",
   "paste.sendAnyway": "Yine de gönder",
@@ -17829,6 +17935,14 @@ const zh: Record<MessageKey, string> = {
   "link.notice": "无法打开浏览器。请复制地址并自行打开：",
   "link.copied": "已复制。",
   "link.openFailed": "无法打开：{error}",
+  "link.leadsTo": "指向 {url}",
+  "link.checkTarget": "此链接显示的地址与它实际打开的不同。它真正指向:",
+  "link.open": "打开",
+  "paste.dropSkipped": "已跳过一个含有换行符或控制字符的路径。",
+  "send.blocked": "未发送到 {sessions}:文本有多行或隐藏字符,那里的程序会立即执行每一行。",
+  "settings.warnMultilinePaste": "粘贴多行前发出警告",
+  "settings.warnMultilinePasteHelp":
+    "在多行文本进入会立即执行每一行的程序之前,或在粘贴含隐藏字符的文本之前,Ctrl+V 和 Shift+Insert 会先询问。",
   "paste.runsLines": "{name} 会在每一行到达时立即执行。",
   "paste.hidden": "文本包含隐藏字符，实际执行的内容可能与看到的不同。",
   "paste.sendAnyway": "仍然发送",

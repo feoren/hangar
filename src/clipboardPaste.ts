@@ -2,6 +2,7 @@
 // image but no text (a screenshot) has nothing to type, so the backend saves the image as a file
 // and its path goes in, quoted like a dropped file: agent CLIs attach image paths they read.
 
+import { pasteWarning, type PasteWarning } from "./appPaste";
 import { dropText, type ShellKind } from "./pathQuote";
 import { sanitizePaste } from "./termSafety";
 
@@ -17,6 +18,12 @@ export interface ClipboardPasteTarget {
    * times a second; the repeats are dropped instead of each asking the backend.
    */
   imagePasteInFlight: boolean;
+  /** Whether the program in the session has turned on bracketed paste right now. */
+  bracketedPaste: () => boolean;
+  /** The setting "Warn before pasting several lines"; off pastes everything at once. */
+  warnsBeforePaste: () => boolean;
+  /** Asks the user; resolves to whether the text goes in after all. */
+  confirmPaste: (warning: PasteWarning) => Promise<boolean>;
 }
 
 /**
@@ -25,16 +32,26 @@ export interface ClipboardPasteTarget {
  * - `empty`: neither text nor an image; nothing happened.
  * - `busy`: an image paste was still running (here or in another session); dropped quietly.
  * - `failed`: there was no text and saving the image failed.
+ * - `declined`: the text would have run lines or hides characters, and the user said no.
  */
-export type ClipboardPasteResult = "text" | "image" | "empty" | "busy" | "failed";
+export type ClipboardPasteResult = "text" | "image" | "empty" | "busy" | "failed" | "declined";
 
-/** Pastes `text`, or without text the path of the clipboard's image, which `saveImage` saves. */
+/**
+ * Pastes `text`, or without text the path of the clipboard's image, which `saveImage` saves.
+ *
+ * Copied text can hold more than it shows (pastejacking: a web page puts a hidden line break and
+ * a command into the clipboard). Without bracketed paste each line runs as it arrives, so such
+ * text, and text with invisible characters, waits for the user's answer, as Windows Terminal
+ * asks before a multi-line paste. Text without anything to warn about goes in synchronously.
+ */
 export async function pasteFromClipboard(
   target: ClipboardPasteTarget,
   text: string,
   saveImage: () => Promise<ImagePaste>,
 ): Promise<ClipboardPasteResult> {
   if (sanitizePaste(text) !== "") {
+    const warning = target.warnsBeforePaste() ? pasteWarning(text, target.bracketedPaste()) : null;
+    if (warning !== null && !(await target.confirmPaste(warning))) return "declined";
     target.pasteText(text);
     return "text";
   }
