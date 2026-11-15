@@ -110,7 +110,9 @@ fn is_indented_code(line: &str) -> bool {
 
 /// One line of prose outside code blocks: `<` becomes `&lt;` outside code spans, so raw HTML
 /// in an agent's text shows as the text the terminal showed and an unclosed `<!--` or `<pre>`
-/// cannot hide the rest of the report. Backslash escapes stay as they are.
+/// cannot hide the rest of the report. `![` and `](` are escaped there too: an image would load
+/// from wherever the agent's text points as soon as the report is opened, and an inline link
+/// would hide its target behind other words. Backslash escapes stay as they are.
 fn escape_html(line: &str) -> String {
     let chars: Vec<char> = line.chars().collect();
     let mut out = String::with_capacity(line.len());
@@ -131,6 +133,14 @@ fn escape_html(line: &str) -> String {
             '<' => {
                 out.push_str("&lt;");
                 i += 1;
+            }
+            '!' if chars.get(i + 1) == Some(&'[') => {
+                out.push_str("!\\[");
+                i += 2;
+            }
+            ']' if chars.get(i + 1) == Some(&'(') => {
+                out.push_str("]\\(");
+                i += 2;
             }
             '`' => {
                 let run = chars[i..].iter().take_while(|c| **c == '`').count();
@@ -386,5 +396,27 @@ mod tests {
         assert_eq!(prose("\\` <b> \\<i>"), "\\` &lt;b> \\\\&lt;i>");
         // Inside a quoted prompt as well.
         assert_eq!(quote(&prose("<script>")), "> &lt;script>");
+    }
+
+    #[test]
+    fn images_and_inline_links_show_as_text_outside_code() {
+        assert_eq!(
+            prose("See ![chart](https://example.invalid/pixel.png) here"),
+            "See !\\[chart]\\(https://example.invalid/pixel.png) here"
+        );
+        assert_eq!(
+            prose("![ref image][r]\n\n[r]: https://example.invalid/x.png"),
+            "!\\[ref image][r]\n\n[r]: https://example.invalid/x.png"
+        );
+        assert_eq!(
+            prose("[docs](https://example.invalid)"),
+            "[docs]\\(https://example.invalid)"
+        );
+        // Code keeps it verbatim; an escaped `!` stays escaped.
+        assert_eq!(prose("`![a](b)`"), "`![a](b)`");
+        assert_eq!(prose("```\n![a](b)\n```"), "```\n![a](b)\n```");
+        assert_eq!(prose("\\![a]"), "\\![a]");
+        assert_eq!(prose("Wow! [a] (b)"), "Wow! [a] (b)");
+        assert_eq!(quote(&prose("![x](y)")), "> !\\[x]\\(y)");
     }
 }

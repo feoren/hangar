@@ -87,11 +87,15 @@ like a dropped file. Text on the clipboard always wins over an image.
 All git calls: `git` from PATH, argv only, `GIT_OPTIONAL_LOCKS=0`, `GIT_TERMINAL_PROMPT=0`,
 `-c core.fsmonitor=false`, timeout 10 s, no pager, no external diff or textconv, and no repository
 hook: every call passes `-c core.hooksPath=<path of the git program>`, a path below a regular
-file that can never exist, so git finds no hook and nothing has to be kept empty; a caller may
-still name its own hooks folder after it. Hooks named in the config (`hook.<name>.command`, git
-2.54 and later) are not found through that folder and still ran (verified with git 2.56), so every
-call also passes `-c hook.<event>.enabled=false` for each of the 24 events of githooks(5); older
-git ignores these keys. Only a commit from the Changes panel opts in
+file that can never exist, so git finds no hook and nothing has to be kept empty; no caller names
+a `core.hooksPath` of its own (a later `-c` would replace this one with a folder that can be
+filled). Hooks named in the config (`hook.<name>.command`, git 2.54 and later) are not found
+through that folder and still ran (verified with git 2.56), so every call also passes
+`-c hook.<event>.enabled=false` for each of the 24 events of githooks(5), and
+`-c hook.<name>.enabled=false` for every friendly name the repository's config files and their
+include targets name (so a hook for an event git adds later stays off too; measured with git
+2.56: both the event and the friendly name switch a config hook off); older git ignores these
+keys. Only a commit from the Changes panel opts in
 (`Git::with_repo_hooks`). Files below `.git` (`HEAD`, a `.git` file, `commondir`) are read
 only as regular files of at most 4 KiB, without following a link at the last component and
 without blocking on a FIFO (`persist::read_regular_capped`). Every inherited
@@ -107,9 +111,37 @@ absolute and existing, and the `.git` file found walking up from it (and the `co
 the git folder it names) must not lead from a local folder to a UNC share, `\\?\UNC\`, `\\.\` or
 another `\\?\` namespace (same rule as `git_branches`); otherwise the call fails with "The
 repository's git folder lies on another network share or device". Only the paths are compared.
-Not covered, because git reads them itself: `[include]` and `[includeIf]` paths,
-`objects/info/alternates`, `core.worktree`, `core.excludesFile`, `core.attributesFile` and other
-paths in the repository's config, and `.git` entries that are symlinks or junctions to a share.
+
+Repository config guard (`src-tauri/src/git/guard.rs`), before every git call through
+`Git::run`: git opens the repository's config with its includes at startup, even for
+`git config --file` (measured with git 2.56), so an `include.path` to `\\host\share` sent the
+user's NTLM credentials on every claims scan, and an `[includeIf "onbranch:hangar/**"]` could
+name a smudge filter that only applies once a worktree's HEAD is `hangar/<slug>` (both
+measured). The guard takes every git folder git could open from the call's folder (lexical and
+resolved): each `.git` folder or `.git` file target on the way up and each folder that looks
+like a bare repository, with its `commondir`. For each it reads `config` and `config.worktree`
+with `git config --file <f> --no-includes -z --get-regexp`, started in the git program's own
+folder with `GIT_CEILING_DIRECTORIES` set to its parent (outside every repository, so git's
+parser is used and no repository is opened), and follows every `include.path` and
+`includeIf.<any condition>.path` itself (relative to the including file, `~/` from `HOME`, then
+`USERPROFILE`; up to 10 levels, at most 64 files). Any include target, `core.excludesFile`,
+`core.attributesFile`, `core.worktree`, `mailmap.file`, `diff.orderFile`, entry of
+`objects/info/alternates` (also nested, 5 levels, C-quoted lines), `.git` entry, git folder or
+config file that is a link leading to another share or device (also `/\host`, `//host`,
+`\\?\UNC\`, `\??\UNC\`) refuses the call with "The repository's git folder lies on another
+network share or device" before git starts there. An include target that exists but is no
+regular file (folder, FIFO), `~user/` and `%(prefix)/` paths, a name `-c` cannot pass back and a
+config git cannot parse refuse it too ("filters Hangar cannot switch off safely" or git's
+message); a missing target is skipped as git skips it. The filter drivers and hook names found
+are the union over all those files, whatever the include's condition: `filter_overrides` adds
+them to what `git config --get-regexp` reports now, so overrides read on `main` still cover a
+call that runs on `hangar/<slug>`. Results are cached per git folder (256 entries) and reused
+while size, modification time and link state of every file read are unchanged (a link's target
+is only looked at while the link itself is unchanged). Cost: a few `stat` calls per git call on a
+cache hit; one `git config` process per config file on a change. The cache key holds the common
+folder, so a changed `commondir` is scanned again. Check and call are two steps: a config file
+rewritten in between, or within the timestamp resolution at the same size, is read by git
+unchecked; that needs write access to the git folder, which already allows far more.
 - `git_branches(paths: string[]) -> Record<string, string | null>`: branch per folder. Reads
   `HEAD` from the `.git` directory or follows a `.git` file (`gitdir: ...`, worktrees,
   submodules) walking up from the folder; no process. `ref: refs/heads/x` gives `x`, a detached
@@ -139,7 +171,11 @@ paths in the repository's config, and `.git` entries that are symlinks or juncti
   branch `hangar/<slug>` from `HEAD` and the worktree under
   `<app local data>/worktrees/<repo name>-<8 hex of sha256(repoRoot)>/<slug>`. `slug` comes from
   `label` (lowercase ASCII letters, digits, `-`, at most 40) plus a short random suffix. The app
-  data folder keeps repositories and synced folders clean.
+  data folder keeps repositories and synced folders clean. The worktree is added with
+  `--no-checkout`; the files are checked out afterwards with `git reset --hard --quiet
+  --no-recurse-submodules HEAD` inside the new worktree, with filter overrides read there (HEAD
+  already on the new branch, its `config.worktree` included). A failed checkout takes the new
+  worktree and branch back by force (they hold nothing of the user yet).
 - `remove_worktree(worktree: Worktree) -> { removed: boolean, branchDeleted: boolean, reason: string | null }`:
   first `git status --porcelain=v1 -z --ignored=matching` in the worktree (filters off as above):
   with ignored files (`!!`) nothing is removed and `reason` is "The worktree contains ignored
@@ -154,9 +190,9 @@ paths in the repository's config, and `.git` entries that are symlinks or juncti
   `git branch -d <branch>` (an unmerged branch stays). A folder deleted by hand leaves only git's
   record: `git worktree remove <path>` takes exactly that one away, never `worktree prune`, which
   would also drop the records of the user's own worktrees ([[worktree-remove-missing-measurement]]);
-  a record already gone counts as removed. `worktree remove` and
-  `branch -d` run with `-c core.hooksPath=<app local data>/worktrees/.no-hooks` (an empty
-  folder), so no repository hook runs. `worktree add` runs with the same empty hooks folder and
+  a record already gone counts as removed. `worktree remove`, `branch -d`, `worktree add` and the
+  checkout run without any repository hook (the `core.hooksPath` every call gets, see above; the
+  former empty `.no-hooks` folder is no longer named and stays reserved as no valid slug) and with
   the filter overrides, so neither a post-checkout or reference-transaction hook nor a smudge
   filter runs; a fresh worktree therefore holds Git LFS files as pointers. Refuses any path outside
   the app's worktrees folder, and any record whose path does not end in
@@ -323,7 +359,9 @@ rollouts cannot be linked to a session ([[session-report-transcripts]]).
   or text); thinking blocks and tool results are never read into the report. Titles, paths,
   branch and commit subjects are escaped, an unclosed code fence is closed, and raw HTML in
   prompts and assistant texts outside code is shown as text (`<` becomes `&lt;`), as the terminal
-  showed it, so a viewer never renders it and an unclosed `<!--` cannot hide the rest. The two
+  showed it, so a viewer never renders it and an unclosed `<!--` cannot hide the rest. Outside
+  code, `![` becomes `!\[` and `](` becomes `]\(`, so an image in an agent's text is not loaded
+  from a remote host when the report is opened, and a link shows its target as text. The two
   git sections are labelled for what they are: "Uncommitted changes" (the work tree now, not only
   the agent's) and "Commits in this period" (a time window, not a link to the session). At most 256 MiB of
   the transcript's end are read (a marker shows a left-out start), the report itself at most
@@ -666,7 +704,16 @@ menu paste uses the clipboard plugin.
       pwd, passphrase, credential or credentials, and of `pass`, `auth` and `cookie` as a whole
       name or after `_` or `-` (`DB_PASS`, npm `_auth=`, `Set-Cookie`; `compass` and `oauth2`
       stay), with `=` or `:` (`API_KEY=...`, `"client_secret": "..."`, `"auth": "..."`,
-      `password: ...`, `x-api-key: ...`); a bare unquoted `key:`, `auth:` or `cookie:` masks only
+      `password: ...`, `x-api-key: ...`), also with a qualifier after the secret word
+      (`API_KEY_2`, `SECRET_KEY_BASE`, `GITHUB_TOKEN_OLD`) unless the last part describes the
+      secret (`_file`, `_path`, `_count`, `_limit`, `_name`, `_id`, `_url`, `_at`, `_date` and similar), with a
+      fullwidth `：` or `＝`, URL-encoded (`password%3D...`, `%22token%22%3A%22...%22`), and in
+      JSON inside a JSON string (`{\"password\": \"...\"}`, an inner `\\\"` stays in the
+      value); an unquoted value keeps inner commas (`p@ss,word`) but not trailing ones. A YAML
+      block scalar (`password: |` or `>`, with chomping or indentation indicators) masks the
+      deeper indented lines below it. Not masked as values: booleans (`true`, `False`, `None`,
+      `null`, `on`, ...), numbers unless the name holds `pass`, `pwd` or `pin`, and a call
+      (`load_key(path)`). A bare unquoted `key:`, `auth:` or `cookie:` masks only
       a value of at least 16 token characters or one holding `=`, so prose headings stay, and a
       `Cookie:` value runs to the end of the line. Command line flags with such a name take the
       next word too (`--password X`, `--client-secret "X"`, `--token X`; not `--no-...`, not when
@@ -681,8 +728,10 @@ menu paste uses the clipboard plugin.
       `Bearer`, `Token` or `Digest` (at least 8 characters), or without a scheme when it looks
       like a key (at least 8 characters holding a digit or symbol, or at least 16), the token
       after `Bearer ` anywhere (at least 16), the value of PowerShell
-      `ConvertTo-SecureString "X" -AsPlainText` (also with `-String`), URL passwords
-      (`https://user:...@host`) and long URL user names, words starting with a known token prefix
+      `ConvertTo-SecureString "X" -AsPlainText` (also with `-String`, `-String:X`, or after the
+      switches `-AsPlainText -Force`, where an unquoted plain word counts only as the first
+      argument), URL passwords (`https://user:...@host`, also holding `/` up to 128 bytes when
+      the part after the colon is no port) and long URL user names, words starting with a known token prefix
       (`sk-`, `sk_live_`, `ghp_`, `ghr_`, `github_pat_`, `glpat-`, `xox?-`, `xapp-`, `AKIA`,
       `AIza`, `npm_`, `hf_`, `SG.`, `dop_v1_`, `shpat_`, `ya29.`, `eyJ` and others, with enough
       characters after them) and `-----BEGIN ... KEY-----` or `PRIVATE KEY BLOCK` blocks; also

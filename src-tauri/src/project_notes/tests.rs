@@ -1140,3 +1140,58 @@ fn resolving_conflicts_runs_no_repository_hook() {
         "git did not run the hook; the test is void"
     );
 }
+
+/// Note files are read only as regular files, checked on the open handle: a link is never
+/// followed (it could lead to a share or a device) and a FIFO never blocks.
+#[test]
+fn note_files_are_read_only_as_regular_files() {
+    let dir = TempDir::new("project-notes-regular");
+    let note = dir.path().join("a.note");
+    fs::write(&note, "content").unwrap();
+    assert_eq!(read_file(&note).unwrap().as_deref(), Some(&b"content"[..]));
+    assert!(stamp(&note).is_some());
+    assert!(read_file(&dir.path().join("missing.note"))
+        .unwrap()
+        .is_none());
+    assert!(stamp(dir.path()).is_none(), "a folder has no note stamp");
+    assert!(matches!(
+        read_file(dir.path()),
+        Err(ProjectNotesError::Unreadable) | Err(ProjectNotesError::Io { .. })
+    ));
+
+    let link = dir.path().join("link.note");
+    #[cfg(unix)]
+    let made = std::os::unix::fs::symlink(&note, &link);
+    // File symbolic links need Developer Mode or an elevated process on Windows.
+    #[cfg(windows)]
+    let made = std::os::windows::fs::symlink_file(&note, &link);
+    match made {
+        Ok(()) => {
+            assert!(
+                matches!(read_file(&link), Err(ProjectNotesError::Unreadable)),
+                "a link was followed"
+            );
+            assert!(stamp(&link).is_none(), "a link was followed");
+        }
+        Err(error) => eprintln!("symbolic link not possible here, link case skipped: {error}"),
+    }
+}
+
+#[cfg(unix)]
+#[test]
+fn a_fifo_note_never_blocks() {
+    use std::os::unix::ffi::OsStrExt;
+    let dir = TempDir::new("project-notes-fifo");
+    let fifo = dir.path().join("b.note");
+    let name = std::ffi::CString::new(fifo.as_os_str().as_bytes()).unwrap();
+    // SAFETY: `name` is a valid NUL-terminated path that lives for the call.
+    assert_eq!(unsafe { libc::mkfifo(name.as_ptr(), 0o600) }, 0);
+    let (tx, rx) = std::sync::mpsc::channel();
+    let path = fifo.clone();
+    std::thread::spawn(move || {
+        let _ = tx.send(read_file(&path).is_err() && stamp(&path).is_none());
+    });
+    assert!(rx
+        .recv_timeout(Duration::from_secs(2))
+        .expect("the read blocked"));
+}

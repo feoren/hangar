@@ -23,6 +23,9 @@ use serde::{Serialize, Serializer};
 use crate::persist::read_limited;
 use crate::proctree::ProcTree;
 
+mod guard;
+pub(crate) use guard::RepoConfig;
+
 pub const TIMEOUT: Duration = Duration::from_secs(10);
 /// Upper limit of the unified diff handed to the window.
 pub const MAX_DIFF_BYTES: usize = 2 * 1024 * 1024;
@@ -414,6 +417,22 @@ impl Git {
         I: IntoIterator<Item = S>,
         S: AsRef<OsStr>,
     {
+        self.command_with(cwd, args, stdin, &std::collections::BTreeSet::new())
+    }
+
+    /// [`Self::command`] that also switches off the hooks the repository's config names under
+    /// `config_hooks` (`hook.<name>.command`), for events git may add after [`HOOK_EVENTS`].
+    fn command_with<I, S>(
+        &self,
+        cwd: &Path,
+        args: I,
+        stdin: bool,
+        config_hooks: &std::collections::BTreeSet<String>,
+    ) -> Command
+    where
+        I: IntoIterator<Item = S>,
+        S: AsRef<OsStr>,
+    {
         let mut command = Command::new(&self.program);
         command
             .arg("--no-pager")
@@ -423,7 +442,8 @@ impl Git {
         if !self.repo_hooks {
             // A hook path below a regular file (git itself) can never exist, so git finds no
             // hook at all. Unlike an empty folder it needs no writable place that something
-            // could later fill. Callers may still name their own `core.hooksPath` after this.
+            // could later fill. Callers never name a `core.hooksPath` of their own: a later
+            // `-c` would replace this one with a folder that can be filled.
             let mut hooks = std::ffi::OsString::from("core.hooksPath=");
             hooks.push(self.program.as_os_str());
             command.arg("-c").arg(hooks);
@@ -432,6 +452,9 @@ impl Git {
             // git ignores these keys, and the command line wins over every config file.
             for event in HOOK_EVENTS {
                 command.arg("-c").arg(format!("hook.{event}.enabled=false"));
+            }
+            for name in config_hooks {
+                command.arg("-c").arg(format!("hook.{name}.enabled=false"));
             }
         }
         command
@@ -512,7 +535,32 @@ impl Git {
         I: IntoIterator<Item = S>,
         S: AsRef<OsStr>,
     {
-        let mut command = self.command(cwd, args, input.is_some());
+        // Before git opens the repository: its config must not lead to another share, and the
+        // hooks it names are switched off by name (guard.rs).
+        let config = guard::check(self, cwd, deadline)?;
+        let command = self.command_with(cwd, args, input.is_some(), &config.hooks);
+        self.execute(command, input, deadline, limit)
+    }
+
+    /// The repository's filter drivers and hook names for a call in `cwd`, read from its config
+    /// files and everything they include, whatever the include's condition (guard.rs). Fails
+    /// like a git call there would.
+    pub(crate) fn repo_config(
+        &self,
+        cwd: &Path,
+        deadline: Instant,
+    ) -> Result<RepoConfig, GitError> {
+        guard::check(self, cwd, deadline)
+    }
+
+    /// Starts a prepared command and collects its output (see [`Self::run`]).
+    fn execute(
+        &self,
+        mut command: Command,
+        input: Option<Vec<u8>>,
+        deadline: Instant,
+        limit: usize,
+    ) -> Result<Output, GitError> {
         let mut child = command.spawn().map_err(|error| {
             if error.kind() == io::ErrorKind::NotFound {
                 GitError::NotFound
@@ -603,6 +651,20 @@ impl Git {
             stderr,
             truncated,
         })
+    }
+}
+
+#[cfg(test)]
+impl Git {
+    /// The argv a call in `cwd` would get, with the hooks the repository's config names.
+    pub(crate) fn test_argv(&self, cwd: &Path, args: &[&str]) -> Vec<String> {
+        let config = self
+            .repo_config(cwd, Instant::now() + TIMEOUT)
+            .unwrap_or_default();
+        self.command_with(cwd, args, false, &config.hooks)
+            .get_args()
+            .map(|arg| arg.to_string_lossy().into_owned())
+            .collect()
     }
 }
 
@@ -761,8 +823,7 @@ pub fn check_folder(path: &Path) -> Result<(), GitError> {
 /// from a local folder to a network share or a device, where git would hand the user's
 /// credentials to another host. Only the paths are compared; nothing on a share is touched.
 /// A folder outside any repository passes (git then finds none). Includes, alternates and other
-/// paths inside the repository's config are not followed (contract: agent-workflow-features.md,
-/// "Git").
+/// paths inside the repository's config are checked before every git call (guard.rs).
 pub fn check_git_links(start: &Path) -> Result<(), GitError> {
     for dir in start.ancestors() {
         let dot_git = dir.join(".git");
@@ -841,45 +902,86 @@ pub(crate) const DIFF_ARGS: &[&str] = &[
 /// Filters git must not run for Hangar. `status` and `diff` run a repository's clean filter on
 /// files whose stat data changed, and a filter is any program the repository's config names
 /// (a cloned repository with a planted `.git/config`, or a `[include]` from it). Reading the
-/// config runs nothing.
-const FILTER_KEYS: &str = r"^filter\..*\.(clean|smudge|process)$";
+/// config runs nothing. Hooks the config names by a friendly name are read along.
+const OVERRIDE_KEYS: &str = r"^(filter\..*\.(clean|smudge|process)|hook\..*\.command)$";
 
 /// `-c` arguments that switch off every clean, smudge and process filter configured for the
 /// repository at `root`: git skips a filter whose command is empty, and `required=false` keeps
 /// it from failing the call instead. Must come before the subcommand.
+///
+/// The drivers are the union of what git reads now (every scope, the includes whose condition
+/// holds) and what the repository's own config files and all their include targets name, any
+/// condition ignored (guard.rs). An `[includeIf "onbranch:..."]` therefore cannot switch a
+/// filter on for a call that runs on another branch than the one the overrides were read on.
+/// Hooks the config names by a friendly name are switched off as well, unless `git` runs the
+/// repository's hooks.
 pub fn filter_overrides(
     git: &Git,
     root: &Path,
     deadline: Instant,
 ) -> Result<Vec<String>, GitError> {
+    let repo = git.repo_config(root, deadline)?;
     let output = git.run(
         root,
-        ["config", "-z", "--get-regexp", FILTER_KEYS],
+        ["config", "-z", "--get-regexp", OVERRIDE_KEYS],
         deadline,
         MAX_LIST_BYTES,
     )?;
     if output.truncated {
         return Err(GitError::UnsafeFilters);
     }
-    if !output.success {
+    let (mut drivers, mut hooks) = if output.success {
+        config_names(&output.stdout).ok_or(GitError::UnsafeFilters)?
+    } else if output.code == Some(1) {
         // 1: no such key, which is the normal case.
-        return match output.code {
-            Some(1) => Ok(Vec::new()),
-            _ => Err(output.failure()),
-        };
-    }
-    let drivers = filter_drivers(&output.stdout).ok_or(GitError::UnsafeFilters)?;
-    if drivers.len() > MAX_FILTER_DRIVERS {
+        Default::default()
+    } else {
+        return Err(output.failure());
+    };
+    drivers.extend(repo.filters);
+    hooks.extend(repo.hooks);
+    if drivers.len() > MAX_FILTER_DRIVERS || hooks.len() > MAX_FILTER_DRIVERS {
         return Err(GitError::UnsafeFilters);
     }
-    Ok(drivers
+    let mut overrides: Vec<String> = drivers
         .iter()
         .flat_map(|name| {
             ["clean=", "smudge=", "process=", "required=false"]
                 .into_iter()
                 .flat_map(move |setting| ["-c".to_owned(), format!("filter.{name}.{setting}")])
         })
-        .collect())
+        .collect();
+    if !git.repo_hooks {
+        for name in hooks {
+            overrides.push("-c".to_owned());
+            overrides.push(format!("hook.{name}.enabled=false"));
+        }
+    }
+    Ok(overrides)
+}
+
+type NameSet = std::collections::BTreeSet<String>;
+
+/// Filter driver names and hook names from `git config -z --get-regexp` over
+/// [`OVERRIDE_KEYS`]. `None` when a name could not be passed back through `-c`.
+fn config_names(output: &[u8]) -> Option<(NameSet, NameSet)> {
+    let mut filters = Vec::new();
+    let mut hooks = NameSet::new();
+    for record in output.split(|b| *b == 0).filter(|r| !r.is_empty()) {
+        let key = record.split(|b| *b == b'\n').next().unwrap_or_default();
+        if let Some(rest) = key.strip_prefix(b"hook.") {
+            let rest = std::str::from_utf8(rest).ok()?;
+            let (name, _variable) = rest.rsplit_once('.')?;
+            if name.is_empty() || name.contains(['=', '\n', '\0']) {
+                return None;
+            }
+            hooks.insert(name.to_owned());
+        } else {
+            filters.extend_from_slice(record);
+            filters.push(0);
+        }
+    }
+    Some((filter_drivers(&filters)?, hooks))
 }
 
 /// Driver names from `git config -z --get-regexp`: records `filter.<name>.<key>\n<value>\0`; a
@@ -1842,6 +1944,202 @@ pub(crate) mod tests {
         let overrides = filter_overrides(&git, &repo, Instant::now() + TIMEOUT).unwrap();
         assert!(overrides.contains(&"filter.with.dot.clean=".to_owned()));
         assert!(overrides.contains(&"filter.marker.required=false".to_owned()));
+    }
+
+    /// Appends raw text to a config file, without git (setting an include through git would
+    /// already make git read it).
+    pub(crate) fn append(path: &Path, text: &str) {
+        use std::io::Write as _;
+        let mut file = fs::OpenOptions::new()
+            .create(true)
+            .append(true)
+            .open(path)
+            .unwrap();
+        file.write_all(text.as_bytes()).unwrap();
+    }
+
+    /// Config text that defines `filter.marker` running `marker_filter`.
+    pub(crate) fn marker_filter_config(marker: &Path) -> String {
+        let filter = marker_filter(marker)
+            .replace('\\', "\\\\")
+            .replace('"', "\\\"");
+        format!("[filter \"marker\"]\n\tclean = \"{filter}\"\n\tsmudge = \"{filter}\"\n")
+    }
+
+    /// An include whose condition does not hold on the branch the overrides are read on still
+    /// counts: the call that follows may run on a branch where it holds.
+    #[test]
+    fn repository_filters_never_run_from_a_conditional_include() {
+        let Some(git) = git() else { return };
+        let tmp = TempDir::new("git-filter-onbranch");
+        let repo = tmp.path().join("repo");
+        init_repo(&git, &repo);
+        write(&repo.join(".gitattributes"), "*.txt filter=marker\n");
+        write(&repo.join("a.txt"), "one\n");
+        git_ok(&git, &repo, &["add", "-A"]);
+        git_ok(&git, &repo, &["commit", "--quiet", "-m", "first"]);
+        let marker = tmp.path().join("marker-smudge");
+        write(
+            &repo.join(".git").join("evil.cfg"),
+            &marker_filter_config(&marker),
+        );
+        append(
+            &repo.join(".git").join("config"),
+            "[includeIf \"onbranch:hangar/**\"]\n\tpath = evil.cfg\n",
+        );
+
+        let deadline = Instant::now() + TIMEOUT;
+        let neutral = filter_overrides(&git, &repo, deadline).unwrap();
+        assert!(
+            neutral.contains(&"filter.marker.clean=".to_owned()),
+            "{neutral:?}"
+        );
+
+        // HEAD moves to a branch where the include holds after the overrides were read.
+        git_ok(
+            &git,
+            &repo,
+            &["checkout", "--quiet", "-b", "hangar/x-1a2b3c"],
+        );
+        let file = fs::File::options()
+            .write(true)
+            .open(repo.join("a.txt"))
+            .unwrap();
+        file.set_modified(std::time::SystemTime::now() - Duration::from_secs(3600))
+            .unwrap();
+        drop(file);
+        git_ok(&git, &repo, &["status", "--porcelain"]);
+        assert!(marker.exists(), "git did not run the filter; test is void");
+        fs::remove_file(&marker).unwrap();
+        let file = fs::File::options()
+            .write(true)
+            .open(repo.join("a.txt"))
+            .unwrap();
+        file.set_modified(std::time::SystemTime::now() - Duration::from_secs(7200))
+            .unwrap();
+        drop(file);
+
+        status_files(&git, &repo, &neutral, deadline).unwrap();
+        assert!(!marker.exists(), "a filter from a conditional include ran");
+        diff(&git, &repo).unwrap();
+        assert!(!marker.exists(), "a filter from a conditional include ran");
+    }
+
+    /// Hooks named in the config for an event Hangar does not know yet are switched off by
+    /// their name, also when an include defines them.
+    #[test]
+    fn hooks_for_unknown_events_are_switched_off_by_name() {
+        let Some(git) = git() else { return };
+        let tmp = TempDir::new("git-future-hook");
+        let repo = tmp.path().join("repo");
+        init_repo(&git, &repo);
+        append(
+            &repo.join(".git").join("config"),
+            "[hook \"probe\"]\n\tevent = future-event\n\tcommand = touch marker-hook\n\
+             [includeIf \"onbranch:hangar/**\"]\n\tpath = more.cfg\n",
+        );
+        write(
+            &repo.join(".git").join("more.cfg"),
+            "[hook \"later.one\"]\n\tevent = future-event\n\tcommand = touch marker-hook\n",
+        );
+        let argv = git.test_argv(&repo, &["status"]);
+        let status = argv.iter().position(|arg| arg == "status").unwrap();
+        for name in ["probe", "later.one"] {
+            let off = format!("hook.{name}.enabled=false");
+            let at = argv.iter().position(|arg| *arg == off);
+            assert!(at.is_some_and(|at| at < status), "{off}: {argv:?}");
+        }
+        let neutral = filter_overrides(&git, &repo, Instant::now() + TIMEOUT).unwrap();
+        assert!(neutral.contains(&"hook.probe.enabled=false".to_owned()));
+        // A commit the user asked for keeps them.
+        let neutral =
+            filter_overrides(&git.with_repo_hooks(), &repo, Instant::now() + TIMEOUT).unwrap();
+        assert!(!neutral.iter().any(|arg| arg.starts_with("hook.")));
+        let argv = git.with_repo_hooks().test_argv(&repo, &["status"]);
+        assert!(!argv.iter().any(|arg| arg.starts_with("hook.")));
+    }
+
+    /// An include target that cannot be read is no reason to run git with its filters unknown.
+    #[test]
+    fn an_unreadable_include_is_refused() {
+        let Some(git) = git() else { return };
+        let tmp = TempDir::new("git-include-folder");
+        let repo = tmp.path().join("repo");
+        init_repo(&git, &repo);
+        fs::create_dir_all(repo.join(".git").join("a-folder")).unwrap();
+        append(
+            &repo.join(".git").join("config"),
+            "[include]\n\tpath = a-folder\n",
+        );
+        assert!(matches!(
+            changed_count(&git, &repo),
+            Err(GitError::UnsafeFilters)
+        ));
+        // A missing target is skipped, as git skips it.
+        fs::remove_dir(repo.join(".git").join("a-folder")).unwrap();
+        assert_eq!(changed_count(&git, &repo).unwrap(), Some(0));
+    }
+
+    /// Includes and paths in the repository's config that lead to a share are refused before
+    /// git opens the repository, also when a local include names them.
+    #[cfg(windows)]
+    #[test]
+    fn config_paths_to_a_share_are_refused_before_git_runs() {
+        let Some(git) = git() else { return };
+        let tmp = TempDir::new("git-config-unc");
+        let cases = [
+            "[include]\n\tpath = \\\\\\\\192.0.2.1\\\\share\\\\x\n",
+            "[include]\n\tpath = //192.0.2.1/share/x\n",
+            "[includeIf \"gitdir:/nowhere/\"]\n\tpath = \\\\\\\\192.0.2.1\\\\share\\\\x\n",
+            "[includeIf \"onbranch:hangar/**\"]\n\tpath = //192.0.2.1/share/x\n",
+            "[core]\n\texcludesFile = //192.0.2.1/share/x\n",
+            "[core]\n\tattributesFile = //192.0.2.1/share/x\n",
+            "[core]\n\tworktree = //192.0.2.1/share/x\n",
+            "[mailmap]\n\tfile = //192.0.2.1/share/x\n",
+            "[diff]\n\torderFile = //192.0.2.1/share/x\n",
+            "[include]\n\tpath = local.cfg\n",
+        ];
+        for (i, text) in cases.iter().enumerate() {
+            let repo = tmp.path().join(format!("repo{i}"));
+            init_repo(&git, &repo);
+            write(
+                &repo.join(".git").join("local.cfg"),
+                "[include]\n\tpath = //192.0.2.1/share/nested\n",
+            );
+            append(&repo.join(".git").join("config"), text);
+            let started = Instant::now();
+            assert!(
+                matches!(changed_count(&git, &repo), Err(GitError::RemoteGitDir)),
+                "{text}"
+            );
+            // An SMB attempt to the unroutable address would take seconds.
+            assert!(started.elapsed() < Duration::from_secs(5), "{text}");
+        }
+        // Alternates in the object folder.
+        let repo = tmp.path().join("alternates");
+        init_repo(&git, &repo);
+        write(
+            &repo
+                .join(".git")
+                .join("objects")
+                .join("info")
+                .join("alternates"),
+            "\\\\192.0.2.1\\share\\objects\n",
+        );
+        assert!(matches!(
+            changed_count(&git, &repo),
+            Err(GitError::RemoteGitDir)
+        ));
+        // A local alternate is fine.
+        write(
+            &repo
+                .join(".git")
+                .join("objects")
+                .join("info")
+                .join("alternates"),
+            "../../elsewhere/objects\n",
+        );
+        assert_eq!(changed_count(&git, &repo).unwrap(), Some(0));
     }
 
     #[test]

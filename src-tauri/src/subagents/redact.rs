@@ -84,6 +84,8 @@ const MIN_BEARER: usize = 16;
 const MIN_AUTHORIZATION: usize = 8;
 /// A user name without a password in a URL is masked from this length on (a token used as user).
 const MIN_URL_USER: usize = 16;
+/// How far past the first `/` a URL password may reach its `@`.
+const MAX_URL_PASSWORD: usize = 128;
 
 const PEM_BEGIN: &str = "-----BEGIN ";
 const PEM_END: &str = "-----END ";
@@ -232,9 +234,90 @@ fn is_name_byte(b: u8) -> bool {
     b.is_ascii_alphanumeric() || b == b'_' || b == b'-'
 }
 
-/// A secret-looking name, compared in lower case and without the dashes of a command line flag.
+/// Last parts of a name that make it the description of a secret rather than the secret
+/// (`--password-file`, `TOKEN_COUNT`, `api_key_path`), when the secret word is not last.
+const NOT_SECRET_TAILS: &[&str] = &[
+    "file",
+    "files",
+    "path",
+    "dir",
+    "folder",
+    "limit",
+    "count",
+    "len",
+    "length",
+    "size",
+    "type",
+    "name",
+    "names",
+    "id",
+    "ids",
+    "env",
+    "var",
+    "field",
+    "header",
+    "prefix",
+    "suffix",
+    "url",
+    "uri",
+    "endpoint",
+    "expiry",
+    "expires",
+    "expiration",
+    "ttl",
+    "timeout",
+    "format",
+    "mode",
+    "min",
+    "max",
+    "required",
+    "policy",
+    "helper",
+    "store",
+    "cache",
+    "manager",
+    "enabled",
+    "disabled",
+    "index",
+    "usage",
+    "used",
+    "budget",
+    "total",
+    "bits",
+    "algorithm",
+    "version",
+    "at",
+    "date",
+    "time",
+    "ts",
+    "status",
+    "kind",
+    "scope",
+    "scopes",
+];
+
+/// Words in a name that make even a number its value worth masking (a numeric password or PIN).
+const PASSWORD_WORDS: &[&str] = &["pass", "pwd", "pin"];
+
+/// A secret-looking name, compared in lower case and without the dashes of a command line flag:
+/// it ends in a secret word, or a secret word is followed by a qualifier (`API_KEY_2`,
+/// `SECRET_KEY_BASE`, `GITHUB_TOKEN_OLD`) that does not describe the secret
+/// ([`NOT_SECRET_TAILS`]).
 fn is_secret_name(lower: &str) -> bool {
     let bare = lower.trim_start_matches('-');
+    if ends_in_secret(bare) {
+        return true;
+    }
+    let last = bare.rsplit(['_', '-']).next().unwrap_or(bare);
+    if NOT_SECRET_TAILS.contains(&last) {
+        return false;
+    }
+    bare.char_indices()
+        .filter(|(_, c)| matches!(c, '_' | '-'))
+        .any(|(at, _)| ends_in_secret(&bare[..at]))
+}
+
+fn ends_in_secret(bare: &str) -> bool {
     SECRET_SUFFIXES.iter().any(|s| bare.ends_with(s))
         || SECRET_WORDS.iter().any(|word| {
             bare == *word
@@ -244,12 +327,50 @@ fn is_secret_name(lower: &str) -> bool {
         })
 }
 
+/// `text` holds `pattern` at `at`, ASCII case ignored.
+fn holds_at(text: &str, at: usize, pattern: &str) -> bool {
+    text.as_bytes()
+        .get(at..at + pattern.len())
+        .is_some_and(|found| found.eq_ignore_ascii_case(pattern.as_bytes()))
+}
+
+/// An unquoted value that is no secret: a number (unless the name is a password's), a boolean,
+/// or code that calls something (`load_key(path)`).
+fn harmless_value(text: &str, start: usize, end: usize, bare_name: &str) -> bool {
+    let value = &text[start..end];
+    let lower = value.to_ascii_lowercase();
+    if matches!(
+        lower.as_str(),
+        "true" | "false" | "yes" | "no" | "null" | "none" | "nil" | "on" | "off"
+    ) {
+        return true;
+    }
+    let number = !value.is_empty()
+        && value
+            .trim_start_matches('-')
+            .bytes()
+            .all(|b| b.is_ascii_digit() || b == b'.')
+        && value.bytes().any(|b| b.is_ascii_digit());
+    if number && !PASSWORD_WORDS.iter().any(|word| bare_name.contains(word)) {
+        return true;
+    }
+    let call = value
+        .bytes()
+        .take_while(|b| b.is_ascii_alphanumeric() || matches!(b, b'_' | b'.' | b':'))
+        .count();
+    call > 0
+        && value.as_bytes().get(call) == Some(&b'(')
+        && value.as_bytes()[0].is_ascii_alphabetic()
+}
+
 /// The unquoted value starting at `start`: up to whitespace, a separator or the quote that closes
-/// a surrounding argument (`-H 'x-api-key: ...'`).
+/// a surrounding argument (`-H 'x-api-key: ...'`). A comma inside the value belongs to it
+/// (`p@ss,word`); trailing commas do not (`f(password=x, user=y)`).
 fn unquoted_end(text: &str, start: usize) -> usize {
-    text[start..]
-        .find(|c: char| c.is_whitespace() || matches!(c, ',' | ';' | '&' | '}' | ')' | '"' | '\''))
-        .map_or(text.len(), |e| start + e)
+    let end = text[start..]
+        .find(|c: char| c.is_whitespace() || matches!(c, ';' | '&' | '}' | ')' | '"' | '\''))
+        .map_or(text.len(), |e| start + e);
+    start + text[start..end].trim_end_matches(',').len()
 }
 
 /// `(start, end)` of the value at `j`: the inside of a quoted value (a backslash escapes the next
@@ -295,28 +416,94 @@ fn redact_assignments(text: &str) -> String {
         while i < bytes.len() && is_name_byte(bytes[i]) {
             i += 1;
         }
-        let name = text[start..i].to_ascii_lowercase();
+        let mut name = text[start..i].to_ascii_lowercase();
+        // `%22name%22`: the name of URL-encoded JSON starts after the `22` of its quote.
+        let encoded_name = start > 0 && bytes[start - 1] == b'%' && name.starts_with("22");
+        if encoded_name {
+            name.drain(..2);
+        }
         if !is_secret_name(&name) {
             continue;
         }
         // `"name"`: the same quote on both sides (`'x-api-key: ...'` is a quoted header, not a
-        // quoted name).
-        let quoted_name = start > 0
-            && matches!(bytes[start - 1], b'"' | b'\'')
-            && bytes.get(i) == Some(&bytes[start - 1]);
+        // quoted name). Also `\"name\"` (JSON inside a JSON string) and `%22name%22`.
+        let open = start.checked_sub(1).map(|at| bytes[at]);
+        let name_end = match open {
+            Some(quote @ (b'"' | b'\'')) if bytes.get(i) == Some(&quote) => Some(i + 1),
+            Some(quote @ (b'"' | b'\''))
+                if bytes.get(i) == Some(&b'\\') && bytes.get(i + 1) == Some(&quote) =>
+            {
+                Some(i + 2)
+            }
+            // The opening `%22` may have been cut off; an encoded separator then tells.
+            _ if holds_at(text, i, "%22")
+                && (encoded_name
+                    || holds_at(text, i + 3, "%3a")
+                    || holds_at(text, i + 3, "%3d")) =>
+            {
+                Some(i + 3)
+            }
+            _ => None,
+        };
+        let quoted_name = name_end.is_some();
         let flag = name.starts_with('-') && !name.starts_with("--no-");
-        let mut j = skip_spaces(text, if quoted_name { i + 1 } else { i });
-        let Some(&separator) = bytes.get(j) else {
+        let mut j = skip_spaces(text, name_end.unwrap_or(i));
+        let Some(&first) = bytes.get(j) else {
             break;
         };
         let spaced = j > i;
-        if separator == b'=' || separator == b':' {
-            j = skip_spaces(text, j + 1);
+        // The separator and its length: ASCII, fullwidth (`：`, `＝`) or URL-encoded.
+        let (separator, separator_len) = match first {
+            b'=' | b':' => (first, 1),
+            _ if text[j..].starts_with('\u{ff1a}') => (b':', '\u{ff1a}'.len_utf8()),
+            _ if text[j..].starts_with('\u{ff1d}') => (b'=', '\u{ff1d}'.len_utf8()),
+            _ if holds_at(text, j, "%3a") => (b':', 3),
+            _ if holds_at(text, j, "%3d") => (b'=', 3),
+            _ => (first, 0),
+        };
+        let encoded = separator_len == 3 && first == b'%';
+        if separator_len > 0 {
+            j = skip_spaces(text, j + separator_len);
         } else if !(flag && spaced && separator != b'-' && separator != b'\n') {
             // `--password value`: a flag takes the next word; `--password --other` has none.
             continue;
         }
-        let Some((value_start, mut value_end)) = value_at(text, j) else {
+        let found = if encoded && holds_at(text, j, "%22") {
+            // URL-encoded JSON: the value runs to the next encoded quote. Scanned by hand, so
+            // the search ends with the value and the whole pass stays linear.
+            let from = j + 3;
+            let mut end = from;
+            while end < bytes.len()
+                && !holds_at(text, end, "%22")
+                && !bytes[end].is_ascii_whitespace()
+                && !matches!(bytes[end], b';' | b'&' | b'}' | b')' | b'"' | b'\'')
+            {
+                end += 1;
+            }
+            Some((from, end))
+        } else if let (Some(b'\\'), Some(&quote @ (b'"' | b'\''))) =
+            (bytes.get(j), bytes.get(j + 1))
+        {
+            // `\"value\"`: up to the escaped closing quote, a single backslash before it. A
+            // quote inside the value has three (`\\\"`), an escaped backslash two.
+            let from = j + 2;
+            let mut at = from;
+            while at < bytes.len() {
+                if bytes[at] != b'\\' {
+                    at += 1;
+                    continue;
+                }
+                let run = bytes[at..].iter().take_while(|b| **b == b'\\').count();
+                if run == 1 && bytes.get(at + 1) == Some(&quote) {
+                    break;
+                }
+                at += run;
+            }
+            Some((from, at.min(bytes.len())))
+        } else {
+            value_at(text, j)
+        };
+        let Some((value_start, mut value_end)) = found else {
             continue;
         };
         let quoted_value = value_start > j;
@@ -328,6 +515,19 @@ fn redact_assignments(text: &str) -> String {
             continue;
         }
         let bare = name.trim_start_matches('-');
+        if !quoted_value && harmless_value(text, value_start, value_end, bare) {
+            i = value_end.max(i);
+            continue;
+        }
+        if separator == b':' && !quoted_value {
+            if let Some(block) = yaml_block(text, start, value_start) {
+                if let Some((from, to)) = block {
+                    ranges.push((from, to));
+                }
+                i = block.map_or(value_end, |(_, to)| to).max(i);
+                continue;
+            }
+        }
         if separator == b':' && !quoted_name && LOOSE_NAMES.contains(&bare) && !quoted_value {
             let value = &text[value_start..value_end];
             let token_len = value.bytes().take_while(|b| is_token_byte(*b)).count();
@@ -352,6 +552,49 @@ fn redact_assignments(text: &str) -> String {
         i = value_end.max(i);
     }
     mask_ranges(text, &ranges)
+}
+
+/// A YAML block scalar (`password: |` or `>`, with chomping and indentation indicators): the
+/// lines below the name that are indented deeper than its own line. `marker` is where the value
+/// starts on the name's line. `Some(None)`: a block indicator without lines below it.
+fn yaml_block(text: &str, name_start: usize, marker: usize) -> Option<Option<(usize, usize)>> {
+    // The indicator is a few characters at most; looking no further keeps the pass linear.
+    let near = &text.as_bytes()[marker..text.len().min(marker + 16)];
+    if !matches!(near.first(), Some(b'|' | b'>')) {
+        return None;
+    }
+    let line_end = match near.iter().position(|b| *b == b'\n') {
+        Some(at) => marker + at,
+        None if marker + near.len() == text.len() => text.len(),
+        None => return None,
+    };
+    let indicator = text[marker..line_end].trim_end();
+    let mut chars = indicator.chars();
+    if !matches!(chars.next(), Some('|' | '>'))
+        || !chars.all(|c| matches!(c, '-' | '+' | '1'..='9'))
+    {
+        return None;
+    }
+    let line_start = text[..name_start].rfind('\n').map_or(0, |at| at + 1);
+    let indent = |line: &str| line.len() - line.trim_start_matches([' ', '\t']).len();
+    let own = indent(&text[line_start..name_start]);
+    let mut first = None;
+    let mut last = None;
+    let mut at = line_end;
+    while at < text.len() {
+        let start = at + 1;
+        let end = text[start..].find('\n').map_or(text.len(), |e| start + e);
+        let line = &text[start..end];
+        if !line.trim().is_empty() {
+            if indent(line) <= own {
+                break;
+            }
+            first.get_or_insert(start + indent(line));
+            last = Some(start + line.trim_end().len());
+        }
+        at = end;
+    }
+    Some(first.zip(last))
 }
 
 /// Webhook URLs whose path is the credential: anyone who has it can post to the channel.
@@ -619,6 +862,32 @@ fn redact_url_credentials(text: &str) -> String {
                 c.is_whitespace() || matches!(c, '/' | '?' | '#' | '"' | '\'' | '<' | '>' | '`')
             })
             .unwrap_or(after.len());
+        let mut authority_len = authority_len;
+        // `https://user:pa/ss@host`: a password with a slash. The authority then runs to the `@`
+        // that follows within [`MAX_URL_PASSWORD`] bytes, when the part after the colon is no
+        // port. The bound keeps the pass linear over a line of `a://a://...`.
+        if !after[..authority_len].contains('@') {
+            if let Some(colon) = after[..authority_len].find(':') {
+                let port = after[colon + 1..authority_len]
+                    .bytes()
+                    .all(|b| b.is_ascii_digit());
+                let window = after
+                    .char_indices()
+                    .take_while(|(at, _)| *at <= authority_len + MAX_URL_PASSWORD)
+                    .find(|(_, c)| {
+                        c.is_whitespace() || matches!(c, '@' | '"' | '\'' | '<' | '>' | '`')
+                    });
+                if let (false, Some((at, '@'))) = (port, window) {
+                    let host_end = after[at..]
+                        .find(|c: char| {
+                            c.is_whitespace()
+                                || matches!(c, '/' | '?' | '#' | '"' | '\'' | '<' | '>' | '`')
+                        })
+                        .map_or(after.len(), |e| at + e);
+                    authority_len = host_end;
+                }
+            }
+        }
         let authority = &after[..authority_len];
         let masked = authority.rfind('@').and_then(|at| {
             let user_info = &authority[..at];
@@ -743,11 +1012,41 @@ fn redact_secure_string(text: &str) -> String {
             }
             at
         };
+        // Switches (`-AsPlainText`, `-Force`) may come first, the value is named by `-String`
+        // or comes as the first word that is no switch.
         at = skip_spaces(at);
-        if lower[at..].starts_with("-string ") {
-            at = skip_spaces(at + "-string ".len());
+        let mut value = None;
+        for round in 0..4 {
+            if lower.as_bytes().get(at) != Some(&b'-') {
+                // A word after a switch is the value only if quoted or not a plain word
+                // (`-AsPlainText needs a value` is prose).
+                let word = text[at..]
+                    .split(|c: char| c.is_whitespace())
+                    .next()
+                    .unwrap_or_default();
+                let plain = !word.is_empty() && word.chars().all(char::is_alphabetic);
+                if round == 0 || !plain {
+                    value = Some(at);
+                }
+                break;
+            }
+            let word_end = lower[at..]
+                .find(|c: char| c.is_whitespace() || c == ':')
+                .map_or(lower.len(), |e| at + e);
+            let named = &lower[at..word_end] == "-string";
+            at = skip_spaces(word_end + usize::from(lower.as_bytes().get(word_end) == Some(&b':')));
+            if named {
+                value = Some(at);
+                break;
+            }
         }
-        if lower.as_bytes().get(at) == Some(&b'-') {
+        let Some(at) = value else {
+            continue;
+        };
+        if matches!(
+            lower.as_bytes().get(at),
+            None | Some(b'|' | b';' | b'\n' | b')')
+        ) {
             continue;
         }
         if let Some((start, end)) = value_at(text, at) {
@@ -1024,6 +1323,14 @@ mod tests {
             "-p",
             "\"",
             "\u{1b}[",
+            "\\\"token\\\": \\\"",
+            "%22token%22%3A%22",
+            "token%3D",
+            "password: |\n ",
+            "https://u:p/",
+            "ConvertTo-SecureString -AsPlainText ",
+            "API_KEY_2_",
+            "password=f(",
         ] {
             let small = time(&unit.repeat(125_000 / unit.len()));
             let large = time(&unit.repeat(1_000_000 / unit.len()));
@@ -1340,6 +1647,144 @@ AAAA
             "compass: north, then the machine room",
             "The machine has no login password set.",
             "Read the <token> docs and the key: value section.",
+        ]);
+    }
+
+    /// JSON inside a JSON string (`{\"password\": \"...\"}`), as an agent's tool input shows it.
+    #[test]
+    fn escaped_json_names_and_values() {
+        masks(&[
+            (
+                format!(r#"{{\"password\": \"{FAKE}\"}}"#),
+                r#"{\"password\": \"[redacted]\"}"#,
+            ),
+            (
+                format!(r#"{{\"api_key\":\"{FAKE}\",\"n\":1}}"#),
+                r#"{\"api_key\":\"[redacted]\",\"n\":1}"#,
+            ),
+            (
+                format!(r#"{{\"token\": \"FAKE\\\"QUOTE{FAKE}\"}}"#),
+                r#"{\"token\": \"[redacted]\"}"#,
+            ),
+        ]);
+        keeps(&[r#"{\"token\": 12, \"key\": {}}"#]);
+    }
+
+    #[test]
+    fn names_with_a_qualifier_after_the_secret_word() {
+        masks(&[
+            (format!("API_KEY_2={FAKE}"), "API_KEY_2=[redacted]"),
+            (
+                format!("SECRET_KEY_BASE={FAKE}"),
+                "SECRET_KEY_BASE=[redacted]",
+            ),
+            (
+                format!("GITHUB_TOKEN_OLD={FAKE}"),
+                "GITHUB_TOKEN_OLD=[redacted]",
+            ),
+            (
+                format!("db-password-prod: {FAKE}"),
+                "db-password-prod: [redacted]",
+            ),
+        ]);
+        keeps(&[
+            "TOKEN_COUNT=5",
+            "api_key_path=/etc/app/key.pem",
+            "app --password-file /run/secrets/db",
+            "GITHUB_TOKEN_NAME=deploy",
+            "auth_token_refreshed_at=2024-01-01",
+            "API_KEY_CREATED_DATE=2024-01-01",
+            "TOKEN_SCOPES=repo,workflow",
+        ]);
+    }
+
+    #[test]
+    fn other_separators_and_encodings() {
+        masks(&[
+            (
+                format!("PASSWORD\u{ff1a}{FAKE}"),
+                "PASSWORD\u{ff1a}[redacted]",
+            ),
+            (
+                format!("API_KEY\u{ff1d}{FAKE}"),
+                "API_KEY\u{ff1d}[redacted]",
+            ),
+            (
+                format!("?password%3D{FAKE}&x=1"),
+                "?password%3D[redacted]&x=1",
+            ),
+            (
+                format!("q=%7B%22token%22%3A%22{FAKE}%22%7D next"),
+                "q=%7B%22token%22%3A%22[redacted]%22%7D next",
+            ),
+            (format!("token%22%3A%22{FAKE}"), "token%22%3A%22[redacted]"),
+            (
+                "db_password=p@ss,word9 next".to_owned(),
+                "db_password=[redacted] next",
+            ),
+            (
+                format!("connect(password={FAKE}, user=me)"),
+                "connect(password=[redacted], user=me)",
+            ),
+            // A numeric password is still one.
+            ("DB_PASSWORD=12345678".to_owned(), "DB_PASSWORD=[redacted]"),
+        ]);
+    }
+
+    #[test]
+    fn yaml_block_scalars() {
+        masks(&[
+            (
+                format!("password: |\n  {FAKE}\n  second line\nuser: me"),
+                "password: |\n  [redacted]\nuser: me",
+            ),
+            (
+                format!("db:\n  secret: >-\n    {FAKE}\n\n    more\n  host: x"),
+                "db:\n  secret: >-\n    [redacted]\n  host: x",
+            ),
+        ]);
+        // An empty block holds nothing.
+        keeps(&["password: |\nuser: me"]);
+    }
+
+    #[test]
+    fn secure_strings_and_url_passwords_in_any_order() {
+        masks(&[
+            (
+                format!("ConvertTo-SecureString -AsPlainText -Force -String '{FAKE}'"),
+                "ConvertTo-SecureString -AsPlainText -Force -String '[redacted]'",
+            ),
+            (
+                format!("ConvertTo-SecureString -AsPlainText -Force \"{FAKE}\""),
+                "ConvertTo-SecureString -AsPlainText -Force \"[redacted]\"",
+            ),
+            (
+                format!("ConvertTo-SecureString -String:{FAKE} -AsPlainText"),
+                "ConvertTo-SecureString -String:[redacted] -AsPlainText",
+            ),
+            (
+                "git clone https://user:pa/ss@host.example/x".to_owned(),
+                "git clone https://user:[redacted]@host.example/x",
+            ),
+        ]);
+        keeps(&[
+            "ConvertTo-SecureString -AsPlainText -Force | Out-Null",
+            "http://localhost:3000/users/@me",
+            "https://example.com/a?mail=a@b.example",
+        ]);
+    }
+
+    /// Numbers, booleans and code are no secrets, whatever the name.
+    #[test]
+    fn harmless_values_stay() {
+        keeps(&[
+            "TOKEN=5",
+            "primary_key=True",
+            "api_key = None",
+            "let api_key = load_key(path);",
+            "secret = os.environ.get(name)",
+            "Input token: 123 and the rest of the line",
+            "\"use_auth\": false",
         ]);
     }
 
