@@ -314,6 +314,7 @@ fn codex_hook_command_round_trips_through_the_shell() {
         &catalog_agent("codex"),
         Path::new("codex.exe"),
         &[],
+        None,
     ));
     // The command exactly as Codex reads it from the `-c` value.
     let value = &launch.prepend[2];
@@ -392,6 +393,7 @@ fn gemini_hook_command_round_trips_through_the_shell() {
         &catalog_agent("gemini"),
         Path::new("gemini.exe"),
         &[],
+        None,
     ));
     let file = launch
         .env
@@ -435,6 +437,7 @@ fn copilot_hook_runs_the_helper_as_a_program() {
         &catalog_agent("copilot"),
         Path::new("copilot.exe"),
         &[],
+        None,
     ));
     let plugin = PathBuf::from(&launch.prepend[1]);
     let hooks: serde_json::Value =
@@ -478,6 +481,7 @@ fn droid_hook_command_round_trips_through_the_shell() {
         &catalog_agent("droid"),
         Path::new("droid.exe"),
         &[],
+        None,
     ));
     assert_eq!(launch.prepend[0], "--settings");
     let settings: serde_json::Value =
@@ -508,7 +512,11 @@ const PLUGIN_DRIVER: &str = r#"
 import { pathToFileURL } from "node:url";
 const [kind, file, toolName, argsJson, cwd] = process.argv.slice(2);
 const mod = await import(pathToFileURL(file).href);
-const args = JSON.parse(argsJson);
+// "throwing": input whose `command` cannot be read, so the handler itself fails.
+const args =
+  argsJson === '"throwing"'
+    ? { get command() { throw new Error("unreadable input"); } }
+    : JSON.parse(argsJson);
 if (kind === "pi") {
   let handler;
   mod.default({ on: (name, h) => { if (name === "tool_call") handler = h; } });
@@ -577,12 +585,12 @@ fn pi_extension_asks_the_endpoint_and_blocks_on_a_deny() {
     }
     let fixture = fixture("gate-plugin-pi");
     let dir = TempDir::new("gate-plugin-pi-run");
-    let launch = launched(fixture.service.prepare(
-        1,
-        &catalog_agent("pi"),
-        Path::new("pi.exe"),
-        &[],
-    ));
+    let launch =
+        launched(
+            fixture
+                .service
+                .prepare(1, &catalog_agent("pi"), Path::new("pi.exe"), &[], None),
+        );
     let file = PathBuf::from(&launch.prepend[1]);
     let gate = gate_env(&launch);
     // A file nobody else changes, named relative to the session's folder: no decision.
@@ -683,6 +691,7 @@ fn opencode_plugin_asks_the_endpoint_and_throws_on_a_deny() {
         &catalog_agent("opencode"),
         Path::new("opencode.exe"),
         &[],
+        None,
     ));
     let config: serde_json::Value = launch
         .env
@@ -788,6 +797,7 @@ fn claude_bash_hook_holds_a_risky_command_until_the_person_answers() {
         &catalog_agent("claude"),
         Path::new("claude.exe"),
         &[],
+        None,
     ));
     let settings: serde_json::Value = serde_json::from_str(&launch.args[1]).unwrap();
     let groups = settings["hooks"]["PreToolUse"].as_array().unwrap();
@@ -844,6 +854,7 @@ fn pi_and_opencode_extensions_send_shell_commands_to_the_guard() {
             &catalog_agent(agent),
             Path::new(program),
             &[],
+            None,
         ));
         let file = if kind == "pi" {
             PathBuf::from(&launch.prepend[1])
@@ -925,6 +936,7 @@ fn extension_shell_commands_fail_closed_when_the_endpoint_is_unreachable() {
             &catalog_agent(agent),
             Path::new(&format!("{agent}.exe")),
             &[],
+            None,
         ));
         let file = extension_file(&launch, kind);
         let answer = plugin_answer(&run_plugin(
@@ -985,6 +997,101 @@ fn extension_shell_commands_fail_closed_when_the_endpoint_is_unreachable() {
     }
 }
 
+/// When an extension fails itself while reading a call, a shell command is blocked instead of
+/// let through; a tool Hangar does not know by name that carries a `command` is checked like a
+/// shell tool.
+#[test]
+fn extension_failures_block_shell_commands_and_unknown_command_tools_are_checked() {
+    if !node_available() {
+        eprintln!("node not found; the extension shell tests are skipped");
+        return;
+    }
+    let fixture = fixture("gate-guard-failures");
+    for (kind, agent) in [("pi", "pi"), ("opencode", "opencode")] {
+        let launch = launched(fixture.service.prepare(
+            1,
+            &catalog_agent(agent),
+            Path::new(&format!("{agent}.exe")),
+            &[],
+            None,
+        ));
+        let file = extension_file(&launch, kind);
+        let gate = gate_env(&launch);
+        let dir = TempDir::new(&format!("gate-guard-failures-{kind}"));
+        let reason_of = |answer: &serde_json::Value| -> String {
+            if kind == "pi" {
+                assert_eq!(answer["result"]["block"], true, "{kind} {answer}");
+                answer["result"]["reason"].as_str().unwrap().to_owned()
+            } else {
+                answer["thrown"].as_str().unwrap().to_owned()
+            }
+        };
+        let answer = plugin_answer(&run_plugin(
+            &dir,
+            kind,
+            &file,
+            "bash",
+            serde_json::json!("throwing"),
+            &fixture.root,
+            &gate,
+        ));
+        assert!(
+            reason_of(&answer).contains("could not check"),
+            "{kind} {answer}"
+        );
+        // A tool whose input cannot be read and that is no edit tool may run a command too.
+        let answer = plugin_answer(&run_plugin(
+            &dir,
+            kind,
+            &file,
+            "run_in_terminal",
+            serde_json::json!("throwing"),
+            &fixture.root,
+            &gate,
+        ));
+        assert!(
+            reason_of(&answer).contains("could not check"),
+            "{kind} {answer}"
+        );
+        // An unknown tool with a command is held like a shell command.
+        let (root, file_held, gate_held, kind_held) = (
+            fixture.root.clone(),
+            file.clone(),
+            gate.clone(),
+            kind.to_owned(),
+        );
+        let held_dir = TempDir::new(&format!("gate-guard-failures-{kind}-held"));
+        let run = std::thread::spawn(move || {
+            run_plugin(
+                &held_dir,
+                &kind_held,
+                &file_held,
+                "run_in_terminal",
+                serde_json::json!({ "command": "git push --force" }),
+                &root,
+                &gate_held,
+            )
+        });
+        answer_next(&fixture, Answer::Deny).join().unwrap();
+        let answer = plugin_answer(&run.join().unwrap());
+        assert!(
+            reason_of(&answer).contains("git-push-force"),
+            "{kind} {answer}"
+        );
+        // A tool without a command goes ahead unasked.
+        let answer = plugin_answer(&run_plugin(
+            &dir,
+            kind,
+            &file,
+            "read",
+            serde_json::json!({ "path": "src/own.rs" }),
+            &fixture.root,
+            &gate,
+        ));
+        assert_eq!(answer["result"], serde_json::Value::Null, "{kind} {answer}");
+    }
+}
+
 /// The extension's module file of a prepared session, as the agent loads it.
 fn extension_file(launch: &GateLaunch, kind: &str) -> PathBuf {
     if kind == "pi" {
@@ -1018,6 +1125,7 @@ fn extension_shell_tools_carry_their_dialect_and_working_folder() {
             &catalog_agent(agent),
             Path::new(&format!("{agent}.exe")),
             &[],
+            None,
         ));
         let file = extension_file(&launch, kind);
         let gate = gate_env(&launch);
@@ -1045,6 +1153,7 @@ fn extension_shell_tools_carry_their_dialect_and_working_folder() {
         &catalog_agent("opencode"),
         Path::new("opencode.exe"),
         &[],
+        None,
     ));
     let file = extension_file(&launch, "opencode");
     let answer = plugin_answer(&run_plugin(

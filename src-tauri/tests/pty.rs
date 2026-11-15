@@ -1645,6 +1645,7 @@ impl LaunchGate for RecordingGate {
         agent: &hangar_lib::agent_catalog::Agent,
         _program: &std::path::Path,
         _args: &[String],
+        _version: Option<&str>,
     ) -> GatePlan {
         self.prepared.lock().unwrap().push(session);
         match agent.id() {

@@ -47,6 +47,15 @@ subcommand = ["push"]
 any = ["--force", "-f"]
 
 [[rule]]
+id = "git-push-delete"
+description = "git push --delete, --mirror or --prune deletes branches or tags on the remote"
+program = ["git"]
+value_options = ["-C", "-c", "--git-dir", "--work-tree", "--namespace", "--config-env", "--attr-source"]
+subcommand = ["push"]
+# A refspec "+main" counts as --force and ":main" as --delete.
+any = ["--delete", "-d", "--mirror", "--prune"]
+
+[[rule]]
 id = "git-reset-hard"
 description = "git reset --hard throws away uncommitted changes"
 program = ["git"]
@@ -88,8 +97,19 @@ outside_project = true
 [[rule]]
 id = "sql-drop"
 description = "DROP or TRUNCATE through a database client deletes tables or databases"
-program = ["mysql", "mariadb", "psql", "sqlite3", "sqlcmd", "duckdb", "clickhouse-client"]
+program = ["mysql", "mariadb", "psql", "sqlite3", "sqlcmd", "duckdb", "clickhouse-client", "invoke-sqlcmd"]
 words = ["DROP TABLE", "DROP DATABASE", "DROP SCHEMA", "TRUNCATE"]
+
+[[rule]]
+id = "dropdb"
+description = "dropdb deletes a PostgreSQL database"
+program = ["dropdb"]
+
+[[rule]]
+id = "mysqladmin-drop"
+description = "mysqladmin drop deletes a database"
+program = ["mysqladmin"]
+words = ["DROP"]
 
 [[rule]]
 id = "format-disk"

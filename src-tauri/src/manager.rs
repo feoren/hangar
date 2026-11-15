@@ -158,13 +158,16 @@ pub trait LaunchGate: Send + Sync {
     /// Whether a start of `agent` would get the gate now (program and setting), without
     /// registering anything or starting the endpoint.
     fn applies(&self, agent: &Agent) -> bool;
-    /// `args`: the start arguments the gate's own are added to.
+    /// `args`: the start arguments the gate's own are added to. `version`: the installed
+    /// version of the program as the version query found it, for a hook format whose settings
+    /// depend on it (Claude Code's `onFailure`); `None` when unknown or not asked.
     fn prepare(
         &self,
         session: SessionId,
         agent: &Agent,
         program: &Path,
         args: &[String],
+        version: Option<&str>,
     ) -> GatePlan;
     fn ended(&self, session: SessionId);
 }
@@ -437,6 +440,10 @@ struct Shared {
     secrets: Arc<dyn SecretStore>,
     /// The agent gate, once the app set it ([`SessionManager::set_launch_gate`]).
     gate: Mutex<Option<Arc<dyn LaunchGate>>>,
+    /// Versions for the gate's minimum versions and version-bound settings
+    /// ([`SessionManager::set_version_source`]). Never taken together with another lock:
+    /// cloned, then asked.
+    versions: Mutex<Option<Arc<dyn VersionSource>>>,
 }
 
 impl Shared {
@@ -445,6 +452,7 @@ impl Shared {
             sessions: Mutex::default(),
             secrets,
             gate: Mutex::new(None),
+            versions: Mutex::new(None),
         }
     }
 
@@ -824,9 +832,6 @@ pub struct SessionManager {
     home: PathBuf,
     next_id: AtomicU64,
     shared: Arc<Shared>,
-    /// Versions for the gate's minimum versions ([`Self::set_version_source`]). Never taken
-    /// together with another lock: cloned, then asked.
-    versions: Mutex<Option<Arc<dyn VersionSource>>>,
     /// `HANGAR.md` in the config folder ([`Self::with_instructions_file`]); `None`: no session
     /// gets instructions.
     instructions_file: Option<PathBuf>,
@@ -851,7 +856,6 @@ impl SessionManager {
             home,
             next_id: AtomicU64::new(1),
             shared: Arc::new(Shared::new(Arc::new(KeyringStore::default()))),
-            versions: Mutex::new(None),
             instructions_file: None,
             start_prompts: crate::agent_catalog::builtin_start_prompts()
                 .inspect_err(|error| eprintln!("hangar: {error}"))
@@ -917,14 +921,14 @@ impl SessionManager {
 
     /// Where the installed versions for the gate's minimum versions come from.
     pub fn set_version_source(&self, source: Arc<dyn VersionSource>) {
-        *lock(&self.versions) = Some(source);
+        *lock(&self.shared.versions) = Some(source);
     }
 
     /// [`team_blocks`] for `agents` with this manager's version source.
     fn team_blocks_for(&self, agents: &[Agent]) -> HashMap<String, Option<TeamBlock>> {
         let path = std::env::var_os("PATH");
         let pathext = std::env::var_os("PATHEXT");
-        let source = lock(&self.versions).clone();
+        let source = lock(&self.shared.versions).clone();
         team_blocks(
             agents,
             source.as_deref(),
@@ -1636,6 +1640,20 @@ fn spawn_thread(name: String, body: impl FnOnce() + Send + 'static) -> Result<()
     Ok(())
 }
 
+/// The installed version of a program whose gate settings depend on it (Claude Code's hook
+/// `onFailure`, [`crate::gate::claude_blocks_on_failure`]), from the cached version query;
+/// `None` for every other program, without a version source or when it is not known.
+fn gate_version(shared: &Shared, agent: &Agent, program: &Path) -> Option<String> {
+    if agent.capabilities.gate_format() != Some(crate::agent_catalog::HookFormat::ClaudeSettings) {
+        return None;
+    }
+    let source = lock(&shared.versions).clone()?;
+    source
+        .versions(&[(agent.clone(), program.to_path_buf())])
+        .remove(agent.id())
+        .flatten()
+}
+
 #[allow(clippy::too_many_arguments)] // All values belong to exactly this one start.
 fn spawn(
     shared: &Arc<Shared>,
@@ -1666,7 +1684,8 @@ fn spawn(
             GatePlan::Unavailable(GateStatus::ProfileSettings)
         }
         (SessionKind::Agent, SessionMode::Team, Some(gate)) => {
-            gate.prepare(id, agent, &program, &args)
+            let version = gate_version(shared, agent, &program);
+            gate.prepare(id, agent, &program, &args, version.as_deref())
         }
         _ => GatePlan::Skip,
     };

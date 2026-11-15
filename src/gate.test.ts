@@ -16,12 +16,15 @@ import {
   type AskRule,
   type RuleAnswer,
   gateSetup,
+  isShippedRule,
   parseGateSnapshot,
   waitingSessions,
   withGate,
   type PendingDecision,
 } from "./gate";
-import { createTranslator } from "./i18n";
+import { createTranslator, LANGUAGES } from "./i18n";
+import guardRulesText from "../src-tauri/src/command_guard.toml?raw";
+import guardSource from "../src-tauri/src/command_guard.rs?raw";
 
 const t = createTranslator("en");
 const names = new Map([
@@ -133,6 +136,36 @@ describe("held shell commands", () => {
     );
     // An unknown id marked built-in falls back to the description.
     expect(ruleText({ id: "future-rule", description: "later", builtin: true }, t)).toBe("later");
+  });
+
+  it("translates every rule Hangar ships, in every language", () => {
+    // The rules of the default file with their descriptions, and the built-in ones the guard
+    // adds itself: a new rule without a translation would show its English description.
+    const fileRules = [
+      ...guardRulesText.matchAll(/^id = "([^"]+)"\r?\ndescription = "([^"]+)"/gm),
+    ].map((match) => ({ id: match[1] ?? "", description: match[2] ?? "" }));
+    const builtIn = [...guardSource.matchAll(/^pub const RULE_\w+: &str = "([^"]+)";/gm)].map(
+      (match) => match[1] ?? "",
+    );
+    expect(fileRules.length).toBeGreaterThanOrEqual(11);
+    expect(builtIn.length).toBeGreaterThanOrEqual(4);
+    for (const { id, description } of fileRules) {
+      expect(isShippedRule(id), id).toBe(true);
+      // The English text is the file's own wording.
+      expect(ruleText({ id, description: "untranslated", builtin: true }, t), id).toBe(description);
+    }
+    const ids = [...fileRules.map((rule) => rule.id), ...builtIn];
+    for (const language of LANGUAGES) {
+      const translate = createTranslator(language);
+      for (const id of ids) {
+        expect(isShippedRule(id), id).toBe(true);
+        const text = ruleText({ id, description: "untranslated", builtin: true }, translate);
+        expect(text, `${language} ${id}`).not.toBe("untranslated");
+        const codes = Array.from(text, (c) => c.codePointAt(0));
+        expect(codes, `${language} ${id}`).not.toContain(0x2013);
+        expect(codes, `${language} ${id}`).not.toContain(0x2014);
+      }
+    }
   });
 
   it("names a command rule's answer by its rule", () => {

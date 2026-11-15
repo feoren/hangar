@@ -1502,6 +1502,8 @@ const de = {
   "gate.ruleDenied": "Gemerkte Antwort: {path} abgelehnt ({rule})",
   "gate.commandTitle": "{session} will einen gefährlichen Befehl ausführen",
   "guardRule.gitPushForce": "git push --force überschreibt den Branch auf dem Remote",
+  "guardRule.gitPushDelete":
+    "git push --delete, --mirror oder --prune löscht Branches oder Tags auf dem Remote",
   "guardRule.gitResetHard": "git reset --hard verwirft nicht committete Änderungen",
   "guardRule.gitCleanForce": "git clean -f löscht nicht versionierte Dateien",
   "guardRule.rmOutsideProject":
@@ -1512,6 +1514,8 @@ const de = {
     "del /s oder rd /s löscht Dateien außerhalb des Projekts, auf einem Laufwerk oder im Benutzerordner",
   "guardRule.sqlDrop":
     "DROP oder TRUNCATE über einen Datenbank-Client löscht Tabellen oder Datenbanken",
+  "guardRule.dropdb": "dropdb löscht eine PostgreSQL-Datenbank",
+  "guardRule.mysqladminDrop": "mysqladmin drop löscht eine Datenbank",
   "guardRule.formatDisk": "format, diskpart oder mkfs löscht ein Laufwerk",
   "guardRule.tooComplex":
     "Zu verschachtelt zum Prüfen: zu tief, zu viele Befehle oder ein offenes Anführungszeichen",
@@ -3110,6 +3114,8 @@ const en: Record<MessageKey, string> = {
   "gate.ruleDenied": "Remembered answer: {path} refused ({rule})",
   "gate.commandTitle": "{session} wants to run a dangerous command",
   "guardRule.gitPushForce": "git push --force overwrites the branch on the remote",
+  "guardRule.gitPushDelete":
+    "git push --delete, --mirror or --prune deletes branches or tags on the remote",
   "guardRule.gitResetHard": "git reset --hard throws away uncommitted changes",
   "guardRule.gitCleanForce": "git clean -f deletes untracked files",
   "guardRule.rmOutsideProject":
@@ -3119,6 +3125,8 @@ const en: Record<MessageKey, string> = {
   "guardRule.delOutsideProject":
     "del /s or rd /s deletes files outside the project, a drive root or the home folder",
   "guardRule.sqlDrop": "DROP or TRUNCATE through a database client deletes tables or databases",
+  "guardRule.dropdb": "dropdb deletes a PostgreSQL database",
+  "guardRule.mysqladminDrop": "mysqladmin drop deletes a database",
   "guardRule.formatDisk": "format, diskpart or mkfs erases a drive",
   "guardRule.tooComplex":
     "Too complex to check: nested too deep, too many commands, or a quote left open",
@@ -4754,6 +4762,8 @@ const el: Record<MessageKey, string> = {
   "gate.commandTitle": "Το {session} θέλει να εκτελέσει μια επικίνδυνη εντολή",
   "guardRule.gitPushForce":
     "Το git push --force αντικαθιστά τον κλάδο στο απομακρυσμένο αποθετήριο",
+  "guardRule.gitPushDelete":
+    "Το git push --delete, --mirror ή --prune διαγράφει κλάδους ή ετικέτες στο απομακρυσμένο αποθετήριο",
   "guardRule.gitResetHard": "Το git reset --hard πετά αλλαγές που δεν έχουν δεσμευτεί",
   "guardRule.gitCleanForce": "Το git clean -f διαγράφει αρχεία χωρίς παρακολούθηση",
   "guardRule.rmOutsideProject":
@@ -4764,6 +4774,8 @@ const el: Record<MessageKey, string> = {
     "Το del /s ή rd /s διαγράφει αρχεία έξω από το έργο, σε ρίζα δίσκου ή στον φάκελο χρήστη",
   "guardRule.sqlDrop":
     "Το DROP ή TRUNCATE μέσω προγράμματος βάσης δεδομένων διαγράφει πίνακες ή βάσεις",
+  "guardRule.dropdb": "Το dropdb διαγράφει μια βάση δεδομένων PostgreSQL",
+  "guardRule.mysqladminDrop": "Το mysqladmin drop διαγράφει μια βάση δεδομένων",
   "guardRule.formatDisk": "Το format, diskpart ή mkfs σβήνει έναν δίσκο",
   "guardRule.tooComplex":
     "Πολύ σύνθετη για έλεγχο: πολύ βαθιά ένθεση, πολλές εντολές ή ανοιχτά εισαγωγικά",
@@ -6388,6 +6400,8 @@ const es: Record<MessageKey, string> = {
   "gate.ruleDenied": "Respuesta recordada: {path} rechazado ({rule})",
   "gate.commandTitle": "{session} quiere ejecutar un comando peligroso",
   "guardRule.gitPushForce": "git push --force sobrescribe la rama en el remoto",
+  "guardRule.gitPushDelete":
+    "git push --delete, --mirror o --prune borra ramas o etiquetas en el remoto",
   "guardRule.gitResetHard": "git reset --hard descarta los cambios sin confirmar",
   "guardRule.gitCleanForce": "git clean -f borra archivos sin seguimiento",
   "guardRule.rmOutsideProject":
@@ -6398,6 +6412,8 @@ const es: Record<MessageKey, string> = {
     "del /s o rd /s borra archivos fuera del proyecto, en la raíz de una unidad o en la carpeta personal",
   "guardRule.sqlDrop":
     "DROP o TRUNCATE mediante un cliente de base de datos borra tablas o bases de datos",
+  "guardRule.dropdb": "dropdb borra una base de datos de PostgreSQL",
+  "guardRule.mysqladminDrop": "mysqladmin drop borra una base de datos",
   "guardRule.formatDisk": "format, diskpart o mkfs borra una unidad",
   "guardRule.tooComplex":
     "Demasiado complejo para revisar: anidado demasiado, demasiados comandos o unas comillas abiertas",
@@ -8030,6 +8046,8 @@ const fr: Record<MessageKey, string> = {
   "gate.ruleDenied": "Réponse retenue : {path} refusé ({rule})",
   "gate.commandTitle": "{session} veut exécuter une commande dangereuse",
   "guardRule.gitPushForce": "git push --force écrase la branche sur le dépôt distant",
+  "guardRule.gitPushDelete":
+    "git push --delete, --mirror ou --prune supprime des branches ou des tags sur le dépôt distant",
   "guardRule.gitResetHard": "git reset --hard jette les modifications non validées",
   "guardRule.gitCleanForce": "git clean -f supprime les fichiers non suivis",
   "guardRule.rmOutsideProject":
@@ -8040,6 +8058,8 @@ const fr: Record<MessageKey, string> = {
     "del /s ou rd /s supprime des fichiers hors du projet, à la racine d'un lecteur ou dans le dossier personnel",
   "guardRule.sqlDrop":
     "DROP ou TRUNCATE via un client de base de données supprime des tables ou des bases",
+  "guardRule.dropdb": "dropdb supprime une base de données PostgreSQL",
+  "guardRule.mysqladminDrop": "mysqladmin drop supprime une base de données",
   "guardRule.formatDisk": "format, diskpart ou mkfs efface un lecteur",
   "guardRule.tooComplex":
     "Trop complexe à vérifier : imbrication trop profonde, trop de commandes ou guillemets non fermés",
@@ -9666,6 +9686,8 @@ const it: Record<MessageKey, string> = {
   "gate.ruleDenied": "Risposta ricordata: {path} rifiutato ({rule})",
   "gate.commandTitle": "{session} vuole eseguire un comando pericoloso",
   "guardRule.gitPushForce": "git push --force sovrascrive il branch sul remoto",
+  "guardRule.gitPushDelete":
+    "git push --delete, --mirror o --prune elimina branch o tag sul remoto",
   "guardRule.gitResetHard": "git reset --hard butta via le modifiche non confermate",
   "guardRule.gitCleanForce": "git clean -f elimina i file non tracciati",
   "guardRule.rmOutsideProject":
@@ -9675,6 +9697,8 @@ const it: Record<MessageKey, string> = {
   "guardRule.delOutsideProject":
     "del /s o rd /s elimina file fuori dal progetto, nella radice di un'unità o nella cartella utente",
   "guardRule.sqlDrop": "DROP o TRUNCATE tramite un client di database elimina tabelle o database",
+  "guardRule.dropdb": "dropdb elimina un database PostgreSQL",
+  "guardRule.mysqladminDrop": "mysqladmin drop elimina un database",
   "guardRule.formatDisk": "format, diskpart o mkfs cancella un'unità",
   "guardRule.tooComplex":
     "Troppo complesso da controllare: annidato troppo, troppi comandi o virgolette aperte",
@@ -11294,6 +11318,8 @@ const ja: Record<MessageKey, string> = {
   "gate.ruleDenied": "記憶した回答: {path} を拒否 ({rule})",
   "gate.commandTitle": "{session} が危険なコマンドを実行しようとしています",
   "guardRule.gitPushForce": "git push --force はリモートのブランチを上書きします",
+  "guardRule.gitPushDelete":
+    "git push --delete、--mirror、--prune はリモートのブランチやタグを削除します",
   "guardRule.gitResetHard": "git reset --hard はコミットしていない変更を破棄します",
   "guardRule.gitCleanForce": "git clean -f は追跡されていないファイルを削除します",
   "guardRule.rmOutsideProject":
@@ -11304,6 +11330,8 @@ const ja: Record<MessageKey, string> = {
     "del /s または rd /s はプロジェクト外、ドライブのルート、またはホームフォルダーのファイルを削除します",
   "guardRule.sqlDrop":
     "データベースクライアントでの DROP や TRUNCATE はテーブルやデータベースを削除します",
+  "guardRule.dropdb": "dropdb は PostgreSQL のデータベースを削除します",
+  "guardRule.mysqladminDrop": "mysqladmin drop はデータベースを削除します",
   "guardRule.formatDisk": "format、diskpart、mkfs はドライブを消去します",
   "guardRule.tooComplex":
     "複雑すぎて確認できません: 入れ子が深すぎる、コマンドが多すぎる、または引用符が閉じていません",
@@ -12907,6 +12935,8 @@ const pl: Record<MessageKey, string> = {
   "gate.ruleDenied": "Zapamiętana odpowiedź: {path} odrzucone ({rule})",
   "gate.commandTitle": "{session} chce uruchomić niebezpieczne polecenie",
   "guardRule.gitPushForce": "git push --force nadpisuje gałąź na zdalnym repozytorium",
+  "guardRule.gitPushDelete":
+    "git push --delete, --mirror lub --prune usuwa gałęzie lub tagi na zdalnym repozytorium",
   "guardRule.gitResetHard": "git reset --hard odrzuca niezatwierdzone zmiany",
   "guardRule.gitCleanForce": "git clean -f usuwa nieśledzone pliki",
   "guardRule.rmOutsideProject":
@@ -12916,6 +12946,8 @@ const pl: Record<MessageKey, string> = {
   "guardRule.delOutsideProject":
     "del /s lub rd /s usuwa pliki poza projektem, w katalogu głównym dysku albo w folderze domowym",
   "guardRule.sqlDrop": "DROP lub TRUNCATE przez klienta bazy danych usuwa tabele lub bazy",
+  "guardRule.dropdb": "dropdb usuwa bazę danych PostgreSQL",
+  "guardRule.mysqladminDrop": "mysqladmin drop usuwa bazę danych",
   "guardRule.formatDisk": "format, diskpart lub mkfs czyści dysk",
   "guardRule.tooComplex":
     "Zbyt złożone do sprawdzenia: za głębokie zagnieżdżenie, za dużo poleceń albo niezamknięty cudzysłów",
@@ -14535,6 +14567,8 @@ const pt: Record<MessageKey, string> = {
   "gate.ruleDenied": "Resposta lembrada: {path} recusado ({rule})",
   "gate.commandTitle": "{session} quer executar um comando perigoso",
   "guardRule.gitPushForce": "git push --force sobrescreve o branch no remoto",
+  "guardRule.gitPushDelete":
+    "git push --delete, --mirror ou --prune exclui branches ou tags no remoto",
   "guardRule.gitResetHard": "git reset --hard descarta alterações não confirmadas",
   "guardRule.gitCleanForce": "git clean -f exclui arquivos não rastreados",
   "guardRule.rmOutsideProject":
@@ -14544,6 +14578,8 @@ const pt: Record<MessageKey, string> = {
   "guardRule.delOutsideProject":
     "del /s ou rd /s exclui arquivos fora do projeto, na raiz de uma unidade ou na pasta pessoal",
   "guardRule.sqlDrop": "DROP ou TRUNCATE por um cliente de banco de dados exclui tabelas ou bancos",
+  "guardRule.dropdb": "dropdb exclui um banco de dados PostgreSQL",
+  "guardRule.mysqladminDrop": "mysqladmin drop exclui um banco de dados",
   "guardRule.formatDisk": "format, diskpart ou mkfs apaga uma unidade",
   "guardRule.tooComplex":
     "Complexo demais para verificar: aninhado demais, comandos demais ou aspas abertas",
@@ -16143,6 +16179,8 @@ const ru: Record<MessageKey, string> = {
   "gate.ruleDenied": "Запомненный ответ: {path} отклонено ({rule})",
   "gate.commandTitle": "{session} хочет выполнить опасную команду",
   "guardRule.gitPushForce": "git push --force перезаписывает ветку на удалённом репозитории",
+  "guardRule.gitPushDelete":
+    "git push --delete, --mirror или --prune удаляет ветки или теги на удалённом репозитории",
   "guardRule.gitResetHard": "git reset --hard отбрасывает незафиксированные изменения",
   "guardRule.gitCleanForce": "git clean -f удаляет неотслеживаемые файлы",
   "guardRule.rmOutsideProject": "rm -r удаляет папку вне проекта, корень диска или домашнюю папку",
@@ -16151,6 +16189,8 @@ const ru: Record<MessageKey, string> = {
   "guardRule.delOutsideProject":
     "del /s или rd /s удаляет файлы вне проекта, в корне диска или в домашней папке",
   "guardRule.sqlDrop": "DROP или TRUNCATE через клиент базы данных удаляет таблицы или базы",
+  "guardRule.dropdb": "dropdb удаляет базу данных PostgreSQL",
+  "guardRule.mysqladminDrop": "mysqladmin drop удаляет базу данных",
   "guardRule.formatDisk": "format, diskpart или mkfs стирает диск",
   "guardRule.tooComplex":
     "Слишком сложно для проверки: слишком глубокая вложенность, слишком много команд или незакрытая кавычка",
@@ -17743,6 +17783,8 @@ const tr: Record<MessageKey, string> = {
   "gate.ruleDenied": "Hatırlanan yanıt: {path} reddedildi ({rule})",
   "gate.commandTitle": "{session} tehlikeli bir komut çalıştırmak istiyor",
   "guardRule.gitPushForce": "git push --force uzak depodaki dalın üzerine yazar",
+  "guardRule.gitPushDelete":
+    "git push --delete, --mirror veya --prune uzak depodaki dalları veya etiketleri siler",
   "guardRule.gitResetHard": "git reset --hard kaydedilmemiş değişiklikleri atar",
   "guardRule.gitCleanForce": "git clean -f izlenmeyen dosyaları siler",
   "guardRule.rmOutsideProject":
@@ -17753,6 +17795,8 @@ const tr: Record<MessageKey, string> = {
     "del /s veya rd /s proje dışındaki, sürücü kökündeki veya ana klasördeki dosyaları siler",
   "guardRule.sqlDrop":
     "Veritabanı istemcisiyle DROP veya TRUNCATE tabloları veya veritabanlarını siler",
+  "guardRule.dropdb": "dropdb bir PostgreSQL veritabanını siler",
+  "guardRule.mysqladminDrop": "mysqladmin drop bir veritabanını siler",
   "guardRule.formatDisk": "format, diskpart veya mkfs bir sürücüyü siler",
   "guardRule.tooComplex":
     "Denetlemek için fazla karmaşık: çok derin iç içe, çok fazla komut veya açık kalmış bir tırnak",
@@ -19282,6 +19326,7 @@ const zh: Record<MessageKey, string> = {
   "gate.ruleDenied": "已记住的回答：拒绝 {path}（{rule}）",
   "gate.commandTitle": "{session} 想要运行一条危险命令",
   "guardRule.gitPushForce": "git push --force 会覆盖远程上的分支",
+  "guardRule.gitPushDelete": "git push --delete、--mirror 或 --prune 会删除远程上的分支或标签",
   "guardRule.gitResetHard": "git reset --hard 会丢弃未提交的更改",
   "guardRule.gitCleanForce": "git clean -f 会删除未跟踪的文件",
   "guardRule.rmOutsideProject": "rm -r 会删除项目之外的文件夹、驱动器根目录或主文件夹",
@@ -19289,6 +19334,8 @@ const zh: Record<MessageKey, string> = {
     "Remove-Item -Recurse 会删除项目之外的文件夹、驱动器根目录或主文件夹",
   "guardRule.delOutsideProject": "del /s 或 rd /s 会删除项目之外、驱动器根目录或主文件夹中的文件",
   "guardRule.sqlDrop": "通过数据库客户端执行 DROP 或 TRUNCATE 会删除表或数据库",
+  "guardRule.dropdb": "dropdb 会删除 PostgreSQL 数据库",
+  "guardRule.mysqladminDrop": "mysqladmin drop 会删除数据库",
   "guardRule.formatDisk": "format、diskpart 或 mkfs 会擦除驱动器",
   "guardRule.tooComplex": "过于复杂，无法检查：嵌套太深、命令太多或引号未闭合",
   "guardRule.stdinScript": "某个 shell 从管道或 here-string 读取脚本，Hangar 看不到其内容",

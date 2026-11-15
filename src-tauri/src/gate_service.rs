@@ -493,10 +493,12 @@ impl GateService {
         port: u16,
         context: bool,
         program: &Path,
+        version: Option<&str>,
     ) -> Result<Vec<String>, GateStatus> {
-        let settings = gate::claude_settings(port, context);
+        let block = gate::claude_blocks_on_failure(version);
+        let settings = gate::claude_settings(port, context, block);
         let argument = if crate::batch::is_batch(program) {
-            self.settings_file(port, context, &settings)
+            self.settings_file(port, context, block, &settings)
                 .ok_or(GateStatus::Launcher)?
         } else {
             settings
@@ -507,8 +509,21 @@ impl GateService {
     /// The hook settings as a file, for a cmd.exe launcher: Hangar refuses `"` in such a
     /// launcher's arguments (batch.rs), so the JSON cannot go inline. `None` when the file's path
     /// holds a character cmd.exe would interpret or the file cannot be written.
-    fn settings_file(&self, port: u16, context: bool, settings: &str) -> Option<String> {
-        let suffix = if context { "-context" } else { "" };
+    fn settings_file(
+        &self,
+        port: u16,
+        context: bool,
+        block: bool,
+        settings: &str,
+    ) -> Option<String> {
+        // One file per content, so sessions of Claude Code versions on both sides of
+        // `CLAUDE_ON_FAILURE_SINCE` never rewrite each other's file.
+        let suffix = match (context, block) {
+            (true, true) => "-context-block",
+            (true, false) => "-context",
+            (false, true) => "-block",
+            (false, false) => "",
+        };
         let path = self
             .inner
             .settings_dir
@@ -581,6 +596,7 @@ impl GateService {
     /// What one start of a program with `format` gets, without the token: arguments before and
     /// after the user's, environment, and whether the token goes to the helper
     /// ([`HELPER_ENV`]) instead of an HTTP hook header ([`TOKEN_ENV`]).
+    #[allow(clippy::too_many_arguments)] // All values belong to exactly this one start.
     fn install(
         &self,
         format: HookFormat,
@@ -589,12 +605,13 @@ impl GateService {
         context: bool,
         program: &Path,
         user_args: &[String],
+        version: Option<&str>,
     ) -> Result<Install, GateStatus> {
         let batch = crate::batch::is_batch(program);
         let path_text = |path: &Path| path.to_string_lossy().into_owned();
         let install = match format {
             HookFormat::ClaudeSettings => Install {
-                args: self.claude_args(port, context, program)?,
+                args: self.claude_args(port, context, program, version)?,
                 ..Install::default()
             },
             HookFormat::QwenSystemSettings => {
@@ -841,6 +858,7 @@ impl LaunchGate for GateService {
         agent: &Agent,
         program: &Path,
         args: &[String],
+        version: Option<&str>,
     ) -> GatePlan {
         let Some(format) = agent.capabilities.gate_format() else {
             return GatePlan::Skip;
@@ -857,7 +875,7 @@ impl LaunchGate for GateService {
         };
         let context = agent.capabilities.context_inject;
         // Each program takes its hooks in its own format; the endpoint and token are the same.
-        let install = match self.install(format, session, port, context, program, args) {
+        let install = match self.install(format, session, port, context, program, args, version) {
             Ok(install) => install,
             Err(status) => {
                 self.remove_dirs(session);
@@ -1599,16 +1617,23 @@ impl Inner {
     /// The answer to a known session's request that finds no free slot, without reading its
     /// body. A tool hook is denied while the gate is on: an unanswered one (503, closed) lets
     /// the call go ahead unchecked, so a session flooding the endpoint could wave a command
-    /// past the guard. The prompt hook only adds context and may go without.
+    /// past the guard. With the gate off it gets "no decision": Claude Code's hook blocks the
+    /// call on an error (`onFailure: "block"`). The prompt hook only adds context and may go
+    /// without.
     fn overloaded(&self, head: &Head) -> (Status, String) {
         let tool_hook = matches!(
             head.path.as_str(),
             ROUTE_PRE_TOOL_USE | ROUTE_PRE_TOOL_USE_JSON
         );
-        if tool_hook && lock(&self.gate).enabled() {
+        if !tool_hook {
+            return (Status::Unavailable, String::new());
+        }
+        if lock(&self.gate).enabled() {
             (Status::Ok, Outcome::Deny(gate::busy_reason()).body())
+        } else if head.path == ROUTE_PRE_TOOL_USE_JSON {
+            (Status::Ok, gate::EMPTY_JSON.to_owned())
         } else {
-            (Status::Unavailable, String::new())
+            (Status::Ok, String::new())
         }
     }
 
@@ -1637,14 +1662,15 @@ impl Inner {
                         Status::Ok,
                         filled(self.decide(session, request, stream).body()),
                     ),
-                    // A refused request lets the call go ahead unchecked (Claude Code treats
-                    // any error as "go on"): a known session's call Hangar cannot read is
-                    // blocked while the gate is on.
+                    // A known session's call Hangar cannot read is blocked while the gate is on,
+                    // with a reason (a refused request lets Claude Code's hooks older than
+                    // `onFailure` go on). With the gate off it goes ahead: "no decision", since
+                    // an error now blocks the call (`onFailure: "block"`).
                     Err(_) if lock(&self.gate).enabled() => (
                         Status::Ok,
                         Outcome::Deny(gate::unreadable_call_reason()).body(),
                     ),
-                    Err(_) => (Status::BadRequest, String::new()),
+                    Err(_) => (Status::Ok, filled(String::new())),
                 }
             }
             ROUTE_USER_PROMPT_SUBMIT | ROUTE_USER_PROMPT_SUBMIT_JSON => {
@@ -2118,6 +2144,7 @@ mod tests {
             &claude(),
             Path::new("claude.exe"),
             &[],
+            None,
         ));
         let token = launch.env[0].1.to_string();
         (fixture.service.port().unwrap(), token)
@@ -2261,16 +2288,18 @@ mod tests {
         let program = Path::new("claude.exe");
         // Off by default: nothing added, no endpoint.
         assert!(matches!(
-            fixture.service.prepare(1, &claude(), program, &[]),
+            fixture.service.prepare(1, &claude(), program, &[], None),
             GatePlan::Skip
         ));
         assert_eq!(fixture.service.port(), None);
         fixture.service.configure(true);
         assert!(matches!(
-            fixture.service.prepare(1, &plain_agent(), program, &[]),
+            fixture
+                .service
+                .prepare(1, &plain_agent(), program, &[], None),
             GatePlan::Skip
         ));
-        let launch = launched(fixture.service.prepare(1, &claude(), program, &[]));
+        let launch = launched(fixture.service.prepare(1, &claude(), program, &[], None));
         assert_eq!(launch.args[0], "--settings");
         assert!(launch.args[1].contains(&format!("127.0.0.1:{}", fixture.service.port().unwrap())));
         assert_eq!(launch.env[0].0, TOKEN_ENV);
@@ -2281,8 +2310,26 @@ mod tests {
             context_inject: false,
             ..no_context.capabilities
         };
-        let launch = launched(fixture.service.prepare(2, &no_context, program, &[]));
+        let launch = launched(fixture.service.prepare(2, &no_context, program, &[], None));
         assert!(!launch.args[1].contains("UserPromptSubmit"));
+    }
+
+    #[test]
+    fn only_a_claude_code_that_knows_on_failure_gets_it() {
+        let fixture = fixture(DECISION_TIMEOUT);
+        fixture.service.configure(true);
+        let program = Path::new("claude.exe");
+        let hook_of = |version: Option<&str>| -> serde_json::Value {
+            let launch = launched(fixture.service.prepare(1, &claude(), program, &[], version));
+            let json: serde_json::Value = serde_json::from_str(&launch.args[1]).unwrap();
+            json["hooks"]["PreToolUse"][0]["hooks"][0].clone()
+        };
+        for version in [None, Some("2.1.294"), Some("unknown")] {
+            assert!(hook_of(version).get("onFailure").is_none(), "{version:?}");
+        }
+        for version in ["2.1.295", "2.1.325"] {
+            assert_eq!(hook_of(Some(version))["onFailure"], "block", "{version}");
+        }
     }
 
     #[test]
@@ -2293,17 +2340,17 @@ mod tests {
         let fixture = fixture(DECISION_TIMEOUT);
         fixture.service.configure(true);
         let program = Path::new(r"C:\npm\claude.cmd");
-        let launch = launched(fixture.service.prepare(1, &claude(), program, &[]));
+        let launch = launched(fixture.service.prepare(1, &claude(), program, &[], None));
         let path = PathBuf::from(&launch.args[1]);
         assert!(path.starts_with(fixture.settings.path()), "{path:?}");
         // What cmd.exe passes on unchanged, as the manager checks before the start.
         assert_eq!(crate::batch::check(program, &launch.args), Ok(()));
         let text = std::fs::read_to_string(&path).unwrap();
         let port = fixture.service.port().unwrap();
-        assert_eq!(text, gate::claude_settings(port, true));
+        assert_eq!(text, gate::claude_settings(port, true, false));
         assert!(!text.contains(launch.env[0].1.as_str()));
         // A second start reuses the file.
-        let again = launched(fixture.service.prepare(2, &claude(), program, &[]));
+        let again = launched(fixture.service.prepare(2, &claude(), program, &[], None));
         assert_eq!(again.args[1], launch.args[1]);
     }
 
@@ -2352,12 +2399,12 @@ mod tests {
         );
         service.configure(true);
         assert!(matches!(
-            service.prepare(1, &claude(), Path::new(r"C:\npm\claude.cmd"), &[]),
+            service.prepare(1, &claude(), Path::new(r"C:\npm\claude.cmd"), &[], None),
             GatePlan::Unavailable(GateStatus::Launcher)
         ));
         // A real program file still gets the gate inline.
         assert!(matches!(
-            service.prepare(1, &claude(), Path::new("claude.exe"), &[]),
+            service.prepare(1, &claude(), Path::new("claude.exe"), &[], None),
             GatePlan::Launch(_)
         ));
     }
@@ -2604,6 +2651,18 @@ mod tests {
             (200, String::new())
         );
         assert!(started.elapsed() < Duration::from_secs(1));
+        // With the gate off the overflow gets "no decision", not an error: Claude Code's hook
+        // blocks a call whose hook fails (`onFailure: "block"`).
+        fixture.service.configure(false);
+        assert_eq!(
+            post(port, ROUTE_PRE_TOOL_USE, Some(&token), &risky),
+            (200, String::new())
+        );
+        assert_eq!(
+            post(port, ROUTE_PRE_TOOL_USE_JSON, Some(&token), &risky),
+            (200, gate::EMPTY_JSON.to_owned())
+        );
+        fixture.service.configure(true);
         // Once the held connections close, session 1 is checked as before.
         drop(held);
         thread::sleep(Duration::from_millis(300));
@@ -3851,6 +3910,7 @@ mod tests {
             &agent_in("qwen_system_settings", true),
             Path::new("qwen.exe"),
             &[],
+            None,
         ));
         let port = fixture.service.port().unwrap();
         assert!(launch.prepend.is_empty() && launch.args.is_empty());
@@ -3886,6 +3946,7 @@ mod tests {
             &agent_in("gemini_system_settings", false),
             Path::new("gemini.exe"),
             &[],
+            None,
         ));
         let file = PathBuf::from(env_of(&launch, recipes::GEMINI_SETTINGS_ENV).unwrap());
         let settings: serde_json::Value =
@@ -3922,6 +3983,7 @@ mod tests {
             &agent_in("copilot_plugin", false),
             Path::new("copilot.exe"),
             &["--continue".to_owned()],
+            None,
         ));
         assert_eq!(launch.prepend[0], "--plugin-dir");
         let plugin = PathBuf::from(&launch.prepend[1]);
@@ -3955,6 +4017,7 @@ mod tests {
             &codex,
             Path::new("codex.exe"),
             &["resume".to_owned(), "--last".to_owned()],
+            None,
         ));
         assert_eq!(launch.prepend.len(), 3);
         assert_eq!(launch.prepend[0], recipes::CODEX_TRUST_FLAG);
@@ -3978,6 +4041,7 @@ mod tests {
             &codex,
             Path::new("codex.exe"),
             &[recipes::CODEX_TRUST_FLAG.to_owned()],
+            None,
         ));
         assert_eq!(own.prepend[0], "-c");
     }
@@ -3993,11 +4057,11 @@ mod tests {
         let shim = Path::new(r"C:\npm\codex.cmd");
         fixture.service.set_helper(helper_exe(true));
         assert!(matches!(
-            fixture.service.prepare(1, &codex, shim, &[]),
+            fixture.service.prepare(1, &codex, shim, &[], None),
             GatePlan::Unavailable(GateStatus::InstallPath)
         ));
         fixture.service.set_helper(helper_exe(false));
-        let launch = launched(fixture.service.prepare(1, &codex, shim, &[]));
+        let launch = launched(fixture.service.prepare(1, &codex, shim, &[], None));
         // What the manager checks before starting a cmd.exe launcher.
         assert_eq!(crate::batch::check(shim, &launch.prepend), Ok(()));
     }
@@ -4019,9 +4083,13 @@ mod tests {
         ] {
             assert!(
                 matches!(
-                    fixture
-                        .service
-                        .prepare(1, &agent_in(format, false), Path::new("x.exe"), &[]),
+                    fixture.service.prepare(
+                        1,
+                        &agent_in(format, false),
+                        Path::new("x.exe"),
+                        &[],
+                        None
+                    ),
                     GatePlan::Unavailable(GateStatus::InstallPath)
                 ),
                 "{format}"
@@ -4044,6 +4112,7 @@ mod tests {
                 &agent_in(format, false),
                 Path::new("x.exe"),
                 &[],
+                None,
             ));
         }
     }
@@ -4058,6 +4127,7 @@ mod tests {
                 &agent_in(format, false),
                 Path::new("pi.exe"),
                 &["--continue".to_owned()],
+                None,
             ));
             assert_eq!(launch.prepend.len(), 2, "{format}");
             assert_eq!(launch.prepend[0], "-e");
@@ -4093,6 +4163,7 @@ mod tests {
             &agent_in("opencode_plugin", false),
             Path::new("opencode.exe"),
             &["--continue".to_owned()],
+            None,
         ));
         assert!(launch.prepend.is_empty() && launch.args.is_empty());
         let config: serde_json::Value =
@@ -4128,6 +4199,7 @@ mod tests {
             &agent_in("droid_settings", false),
             Path::new("droid.exe"),
             &["--resume".to_owned()],
+            None,
         ));
         assert_eq!(launch.prepend[0], "--settings");
         assert_eq!(launch.prepend.len(), 2);
@@ -4164,6 +4236,7 @@ mod tests {
             &agent_in("pi_extension", false),
             shim,
             &[],
+            None,
         ));
         // What the manager checks before starting a cmd.exe launcher.
         assert_eq!(crate::batch::check(shim, &launch.prepend), Ok(()));
@@ -4229,6 +4302,7 @@ mod tests {
                 &agent_in(format, true),
                 Path::new("x.exe"),
                 &[],
+                None,
             ));
             for (name, _) in &launch.env {
                 assert!(
@@ -4262,6 +4336,7 @@ mod tests {
             &agent_in("qwen_system_settings", false),
             Path::new("qwen.exe"),
             &[],
+            None,
         ));
         let file = PathBuf::from(env_of(&launch, recipes::QWEN_SETTINGS_ENV).unwrap());
         assert!(!file.starts_with(&planted), "{file:?}");
@@ -4352,8 +4427,16 @@ mod tests {
                 assert!(answer.contains("could not read"), "{answer}");
             }
         }
-        // With the gate off nothing is held, and the request is refused as before.
+        // With the gate off nothing is held: "no decision", not an error, since Claude Code's
+        // hook blocks the call on any error (`onFailure`).
         fixture.service.configure(false);
-        assert_eq!(post(port, ROUTE_PRE_TOOL_USE, Some(&token), "{").0, 400);
+        assert_eq!(
+            post(port, ROUTE_PRE_TOOL_USE, Some(&token), "{"),
+            (200, String::new())
+        );
+        assert_eq!(
+            post(port, ROUTE_PRE_TOOL_USE_JSON, Some(&token), "{"),
+            (200, gate::EMPTY_JSON.to_owned())
+        );
     }
 }

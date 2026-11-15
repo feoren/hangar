@@ -66,6 +66,9 @@ pub struct CallInfo {
     pub per_item: bool,
     /// That call, when it is one call of [`Analysis::calls`].
     pub items: Option<usize>,
+    /// A cmd call in a script run with delayed expansion (`cmd /v:on /c ...`): only there is
+    /// `!name!` a variable; plain cmd prints it as written.
+    pub delayed: bool,
 }
 
 /// A word whose value Hangar cannot know (a substitution); it reads as a variable, so a path
@@ -145,6 +148,10 @@ struct Words {
     /// Open PowerShell script blocks, each with the piece of the piped `ForEach-Object` whose
     /// items its `$_` stands for (inherited by blocks nested in one).
     blocks: Vec<Option<usize>>,
+    /// Open cmd blocks (`(`): a `)` glued to a word closes one there.
+    parens: usize,
+    /// cmd's `start` of the current command has had its quoted window title.
+    titled: bool,
 }
 
 impl Words {
@@ -194,6 +201,7 @@ impl Words {
         };
         self.piped = false;
         self.braces = false;
+        self.titled = false;
         if self.params > 0 || self.brackets > 0 {
             // A `${` or `$[` left open: the shell reads on where the lexer stopped.
             self.unclosed = true;
@@ -565,6 +573,26 @@ fn lex_posix_in(text: &str, arithmetic: bool) -> Words {
                 }
             }
             ';' => w.end_command(),
+            // An extended glob (`--@(force|x)`, `+(a)`) is one word; a zsh glob qualifier that
+            // runs code (`*(e:'cmd':)`, `*(+fn)`) cannot be followed.
+            '(' if w.in_word && w.word.ends_with(['@', '+', '!', '?', '*']) => {
+                match extglob_end(&chars, i + 1) {
+                    Some(end) => {
+                        let inner = text_of(&chars, i + 1, end);
+                        if zsh_qualifier_runs_code(&inner) {
+                            w.unclosed = true;
+                        }
+                        w.push('(');
+                        w.push_str(&inner);
+                        w.push(')');
+                        i = end;
+                    }
+                    None => {
+                        w.unclosed = true;
+                        i = chars.len();
+                    }
+                }
+            }
             '&' if next == Some('>') => {
                 w.end_word();
                 i += 1;
@@ -635,7 +663,12 @@ fn lex_posix_in(text: &str, arithmetic: bool) -> Words {
                 w.here_string = true;
                 i += 2;
             }
+            // zsh's `=(...)` is a process substitution too (a temporary file); in bash it is a
+            // syntax error, so reading it as one costs nothing there.
             '<' | '>' if next == Some('(') => {
+                i = posix_substitution_as(&mut w, &chars, i + 2, true, PROCESS_FILE);
+            }
+            '=' if next == Some('(') && !w.in_word => {
                 i = posix_substitution_as(&mut w, &chars, i + 2, true, PROCESS_FILE);
             }
             '<' | '>' => {
@@ -749,9 +782,64 @@ fn posix_substitution_as(
         w.pieces.push(Piece::Arithmetic(text));
         w.push_str(value);
     } else {
+        // `$(pwd)` is the working folder, which Hangar places like `$PWD`.
+        let value = if value == UNKNOWN && is_pwd(&text) {
+            WORKING_FOLDER
+        } else {
+            value
+        };
         w.substitution(text, Dialect::Posix, value);
     }
     end
+}
+
+/// The working folder as a word: `$PWD`, also what `$(pwd)` and PowerShell's `$pwd` give.
+pub const WORKING_FOLDER: &str = "$PWD";
+
+/// Whether a substitution's script only prints the working folder.
+fn is_pwd(script: &str) -> bool {
+    matches!(
+        script.split_whitespace().collect::<Vec<_>>().as_slice(),
+        ["pwd"] | ["pwd", "-L" | "-P"] | ["/bin/pwd"]
+    )
+}
+
+/// The index of the `)` closing an extended glob's `(` before `start`, nested parens counted and
+/// quotes skipped; `None` when the line ends first.
+fn extglob_end(chars: &[char], start: usize) -> Option<usize> {
+    let mut depth = 1usize;
+    let mut i = start;
+    while let Some(&c) = chars.get(i) {
+        match c {
+            '\n' => return None,
+            '\\' => i += 1,
+            '\'' | '"' => {
+                i += 1;
+                while chars.get(i).is_some_and(|q| *q != c) {
+                    i += 1;
+                }
+            }
+            '(' => depth += 1,
+            ')' => {
+                depth -= 1;
+                if depth == 0 {
+                    return Some(i);
+                }
+            }
+            _ => {}
+        }
+        i += 1;
+    }
+    None
+}
+
+/// A zsh glob qualifier that runs shell code: `e` with any delimiter (`e:cmd:`, `e'cmd'`) or
+/// `+function`.
+fn zsh_qualifier_runs_code(inner: &str) -> bool {
+    inner.starts_with('+')
+        || inner.char_indices().any(|(at, c)| {
+            c == 'e' && inner[at + 1..].starts_with([':', '\'', '"', '[', '{', '|', '/'])
+        })
 }
 
 /// The delimiter word of a here-document from `start`: its text without quotes, whether any part
@@ -978,6 +1066,12 @@ fn lex_powershell(text: &str) -> Words {
         match c {
             ' ' | '\t' | '\r' => w.end_word(),
             '\n' | ';' => w.end_command(),
+            // The call operator at a command's start is a word of its own, so what it calls
+            // (`& (Get-Command git) push`) is read as a value; elsewhere `&` ends a command.
+            '&' if next != Some('&') && !w.in_word && w.words.is_empty() => {
+                w.push('&');
+                w.end_word();
+            }
             '&' => {
                 w.end_command();
                 if next == Some('&') {
@@ -1001,9 +1095,12 @@ fn lex_powershell(text: &str) -> Words {
                 }
             }
             // `Remove-Item -Recurse (Join-Path $HOME x)`: an argument in parentheses is a value
-            // Hangar cannot know, and what it runs is split on its own.
+            // Hangar cannot know, and what it runs is split on its own; plain literals and a
+            // `Join-Path` of plain words are read as their value.
             '(' if !w.words.is_empty() || w.in_word => {
-                i = match ps_literal_in_parens(&chars, i + 1) {
+                i = match ps_literal_in_parens(&chars, i + 1)
+                    .or_else(|| ps_join_path(&chars, i + 1))
+                {
                     Some((text, end)) => {
                         w.push_str(&text);
                         end
@@ -1011,6 +1108,8 @@ fn lex_powershell(text: &str) -> Words {
                     None => ps_substitution(&mut w, &chars, i + 1),
                 }
             }
+            // `@(...)`: an array; like `$(...)`, literals are their text.
+            '@' if next == Some('(') => i = ps_subexpression(&mut w, &chars, i + 2),
             // A here-string: `@'` or `@"` at the end of a line, up to a line starting with the
             // same quote and `@`.
             '@' if next.is_some_and(|q| ps_single(q) || ps_double(q)) => {
@@ -1135,13 +1234,12 @@ fn lex_powershell(text: &str) -> Words {
                             }
                         }
                         Some('`') => {
-                            if let Some(&escaped) = chars.get(i + 1) {
-                                w.word.push(escaped);
-                            }
-                            i += 2;
+                            let (text, taken) = ps_escape(&chars, i + 1);
+                            w.word.push_str(&text);
+                            i += 1 + taken;
                         }
                         Some('$') if chars.get(i + 1) == Some(&'(') => {
-                            i = ps_substitution(&mut w, &chars, i + 2) + 1;
+                            i = ps_subexpression(&mut w, &chars, i + 2) + 1;
                         }
                         Some(&other) => {
                             w.word.push(other);
@@ -1150,7 +1248,7 @@ fn lex_powershell(text: &str) -> Words {
                     }
                 }
             }
-            '$' if next == Some('(') => i = ps_substitution(&mut w, &chars, i + 2),
+            '$' if next == Some('(') => i = ps_subexpression(&mut w, &chars, i + 2),
             '`' => {
                 match next {
                     // A line continuation.
@@ -1168,22 +1266,225 @@ fn lex_powershell(text: &str) -> Words {
     w
 }
 
-/// `("..\build")`: a parenthesized argument that is one plain string literal, with nothing
-/// PowerShell would expand in it. Its text and the index of the closing parenthesis.
+/// `("..\build")`, `('a','b')`: a parenthesized argument of plain string literals, with nothing
+/// PowerShell would expand in them. Their text ([`ps_literal_list`]) and the index of the
+/// closing parenthesis.
 fn ps_literal_in_parens(chars: &[char], start: usize) -> Option<(String, usize)> {
     let end = closing_paren(chars, start, Dialect::PowerShell)?;
-    let inner: String = text_of(chars, start, end);
-    let inner = inner.trim();
-    let mut quotes = inner.chars();
-    let open = quotes.next()?;
-    let body = inner.get(open.len_utf8()..inner.len().checked_sub(1)?)?;
-    let closes = inner.ends_with(open) && inner.chars().count() >= 2;
-    let plain = match open {
-        '\'' => !body.contains('\''),
-        '"' => !body.contains(['"', '$', '`']),
-        _ => false,
+    ps_literal_list(&text_of(chars, start, end)).map(|text| (text, end))
+}
+
+/// `$(...)` or `@(...)` from `start` (after the paren); returns the index of its closing paren.
+/// Empty, it adds nothing (`--for$()ce`); plain literals are their text (`$('--force')`,
+/// `@('a','b')`); anything else runs and is an unknown value.
+fn ps_subexpression(w: &mut Words, chars: &[char], start: usize) -> usize {
+    if let Some(end) = closing_paren(chars, start, Dialect::PowerShell) {
+        let inner = text_of(chars, start, end);
+        if inner.trim().is_empty() {
+            w.start();
+            return end;
+        }
+        // `$(pwd)`, `$(Get-Location)`: the working folder.
+        let lower = inner.trim().to_ascii_lowercase();
+        if matches!(lower.as_str(), "pwd" | "get-location" | "gl" | "$pwd") {
+            w.push_str(WORKING_FOLDER);
+            return end;
+        }
+        if let Some(text) = ps_literal_list(&inner) {
+            w.push_str(&text);
+            return end;
+        }
+    }
+    ps_substitution(w, chars, start)
+}
+
+/// Plain PowerShell string literals separated by commas (`'a'`, `"b"`, `'a','b'`, `,'a'`),
+/// joined with commas, as PowerShell hands an array to a native program as one word each (the
+/// guard splits PowerShell words at commas). `None` for anything else, such as a double quoted
+/// string with a variable in it.
+fn ps_literal_list(inner: &str) -> Option<String> {
+    let chars: Vec<char> = inner.chars().collect();
+    let blank = |i: &mut usize| {
+        while chars.get(*i).is_some_and(|c| c.is_whitespace()) {
+            *i += 1;
+        }
     };
-    (closes && plain).then(|| (body.to_owned(), end))
+    let mut i = 0;
+    blank(&mut i);
+    // The unary comma: `,'a'` is an array of one.
+    if chars.get(i) == Some(&',') {
+        i += 1;
+    }
+    let mut items: Vec<String> = Vec::new();
+    loop {
+        blank(&mut i);
+        // A type cast in front (`[string]'x'`) keeps a string a string.
+        while chars.get(i) == Some(&'[') {
+            let close = chars[i..].iter().position(|c| *c == ']')? + i;
+            let name_ok = chars[i + 1..close]
+                .iter()
+                .all(|c| c.is_ascii_alphanumeric() || *c == '.' || *c == '_');
+            if !name_ok || close == i + 1 {
+                return None;
+            }
+            i = close + 1;
+            blank(&mut i);
+        }
+        let (text, next) = ps_plain_literal(&chars, i)?;
+        items.push(text);
+        i = next;
+        blank(&mut i);
+        match chars.get(i) {
+            None => break,
+            Some(',') => i += 1,
+            Some(_) => return None,
+        }
+    }
+    Some(items.join(","))
+}
+
+/// One plain string literal at `start`: its text and the index after its closing quote.
+fn ps_plain_literal(chars: &[char], start: usize) -> Option<(String, usize)> {
+    let open = *chars.get(start)?;
+    let single = ps_single(open);
+    if !single && !ps_double(open) {
+        return None;
+    }
+    let closes = |c: char| if single { ps_single(c) } else { ps_double(c) };
+    let mut text = String::new();
+    let mut i = start + 1;
+    loop {
+        let c = *chars.get(i)?;
+        if closes(c) {
+            if chars.get(i + 1).is_some_and(|n| closes(*n)) {
+                text.push(if single { '\'' } else { '"' });
+                i += 2;
+                continue;
+            }
+            return Some((text, i + 1));
+        }
+        match c {
+            '`' if !single => {
+                let (escaped, taken) = ps_escape(chars, i + 1);
+                text.push_str(&escaped);
+                i += 1 + taken;
+            }
+            // A variable or subexpression: not plain.
+            '$' if !single => return None,
+            other => {
+                text.push(other);
+                i += 1;
+            }
+        }
+    }
+}
+
+/// What a backtick escape in a PowerShell double quoted string stands for (`` `n ``, `` `t ``,
+/// `` `u{2d} ``, ...; any other character as itself), from `at` (after the backtick), and how
+/// many characters it takes.
+fn ps_escape(chars: &[char], at: usize) -> (String, usize) {
+    let Some(&c) = chars.get(at) else {
+        return (String::new(), 0);
+    };
+    let plain = |c: char| (c.to_string(), 1);
+    match c {
+        '0' => plain('\0'),
+        'a' => plain('\u{7}'),
+        'b' => plain('\u{8}'),
+        'e' => plain('\u{1b}'),
+        'f' => plain('\u{c}'),
+        'n' => plain('\n'),
+        'r' => plain('\r'),
+        't' => plain('\t'),
+        'v' => plain('\u{b}'),
+        'u' if chars.get(at + 1) == Some(&'{') => {
+            let digits: String = chars[at + 2..]
+                .iter()
+                .take(7)
+                .take_while(|d| d.is_ascii_hexdigit())
+                .collect();
+            let closed = chars.get(at + 2 + digits.len()) == Some(&'}');
+            match u32::from_str_radix(&digits, 16)
+                .ok()
+                .and_then(char::from_u32)
+            {
+                Some(decoded) if closed => (decoded.to_string(), digits.len() + 3),
+                _ => plain('u'),
+            }
+        }
+        other => plain(other),
+    }
+}
+
+/// `(Join-Path a b)` (also `-Path a -ChildPath b`) of plain words: the joined path and the index
+/// of the closing paren; `(Get-Command git)` and `(gcm git)` give the command's name, which
+/// `&` runs. Anything else (a nested command, other parameters) is `None`.
+fn ps_join_path(chars: &[char], start: usize) -> Option<(String, usize)> {
+    let end = closing_paren(chars, start, Dialect::PowerShell)?;
+    let inner = text_of(chars, start, end);
+    let lower = inner.trim_start().to_ascii_lowercase();
+    // Only a flat call is lexed here, so no nesting can recurse.
+    let known = ["join-path", "get-command", "gcm"]
+        .iter()
+        .any(|name| lower.starts_with(name));
+    if !known || inner.contains(['(', ')', '{', '}', '|', ';', '&', '@']) {
+        return None;
+    }
+    let words = lex_powershell(&inner);
+    let [Piece::Command(simple)] = words.pieces.as_slice() else {
+        return None;
+    };
+    if words.unclosed || !simple.redirects.is_empty() {
+        return None;
+    }
+    let name = simple.words.first()?;
+    if name.eq_ignore_ascii_case("get-command") || name.eq_ignore_ascii_case("gcm") {
+        return match simple.words.get(1..)? {
+            [command] if ps_param_rest(command).is_none() && !command.contains(UNKNOWN) => {
+                Some((command.clone(), end))
+            }
+            _ => None,
+        };
+    }
+    if !name.eq_ignore_ascii_case("join-path") {
+        return None;
+    }
+    let (mut path, mut child) = (None, None);
+    let mut args = simple.words.iter().skip(1);
+    while let Some(arg) = args.next() {
+        if is_ps_param(arg, "path", 2) {
+            path = Some(args.next()?);
+        } else if is_ps_param(arg, "childpath", 2) {
+            child = Some(args.next()?);
+        } else if ps_param_rest(arg).is_some() {
+            return None;
+        } else if path.is_none() {
+            path = Some(arg);
+        } else if child.is_none() {
+            child = Some(arg);
+        } else {
+            return None;
+        }
+    }
+    let (path, child) = (path?, child?);
+    if path.contains(UNKNOWN) || child.contains(UNKNOWN) {
+        return None;
+    }
+    Some((format!("{path}\\{child}"), end))
+}
+
+/// PowerShell's `$pwd` (variables ignore case) at the start of a word, as [`WORKING_FOLDER`].
+fn ps_named_pwd(word: &str) -> String {
+    for name in ["$pwd", "${pwd}"] {
+        let Some(head) = word.get(..name.len()) else {
+            continue;
+        };
+        let tail = &word[name.len()..];
+        if head.eq_ignore_ascii_case(name) && (tail.is_empty() || tail.starts_with(['\\', '/'])) {
+            return format!("{WORKING_FOLDER}{tail}");
+        }
+    }
+    word.to_owned()
 }
 
 fn ps_substitution(w: &mut Words, chars: &[char], start: usize) -> usize {
@@ -1235,9 +1536,14 @@ fn ps_closing_brace(chars: &[char], start: usize) -> Option<usize> {
 /// Whether a PowerShell word ends in a method that turns its string argument into a script.
 fn creates_script(word: &str) -> bool {
     let lower = word.to_ascii_lowercase();
-    ["scriptblock]::create", ".invokescript", ".newscriptblock"]
-        .iter()
-        .any(|method| lower.ends_with(method))
+    [
+        "scriptblock]::create",
+        ".invokescript",
+        ".newscriptblock",
+        ".expandstring",
+    ]
+    .iter()
+    .any(|method| lower.ends_with(method))
 }
 
 /// Where a here-string's text starts: only blanks may follow `@'` or `@"` (from `start`) on its
@@ -1275,14 +1581,13 @@ fn ps_here_string(w: &mut Words, chars: &[char], start: usize, double: bool) -> 
         line_start = c == '\n';
         match c {
             '`' if double => {
-                if let Some(&escaped) = chars.get(i + 1) {
-                    w.word.push(escaped);
-                    line_start = escaped == '\n';
-                }
-                i += 2;
+                let (text, taken) = ps_escape(chars, i + 1);
+                line_start = chars.get(i + 1) == Some(&'\n');
+                w.word.push_str(&text);
+                i += 1 + taken.max(1);
             }
             '$' if double && chars.get(i + 1) == Some(&'(') => {
-                i = ps_substitution(w, chars, i + 2) + 1;
+                i = ps_subexpression(w, chars, i + 2) + 1;
             }
             other => {
                 w.word.push(other);
@@ -1345,7 +1650,20 @@ fn lex_cmd(text: &str) -> Words {
                     }
                 }
             }
-            '(' | ')' if !w.in_word => w.end_command(),
+            '(' | ')' if !w.in_word => {
+                if c == '(' {
+                    w.parens += 1;
+                } else {
+                    w.parens = w.parens.saturating_sub(1);
+                }
+                w.end_command();
+            }
+            // Inside a block, a `)` ends the word it is glued to and the block
+            // (`if exist x (git push --force) else (echo)`).
+            ')' if w.parens > 0 => {
+                w.parens -= 1;
+                w.end_command();
+            }
             '<' | '>' => {
                 w.redirect();
                 while matches!(chars.get(i + 1), Some('>' | '&')) {
@@ -1355,11 +1673,33 @@ fn lex_cmd(text: &str) -> Words {
             '^' => {
                 match next {
                     Some('\n') | None => {}
+                    // The program parses its command line again, where the blank still parts
+                    // two words (measured: `git^ version` runs `git version`).
+                    Some(' ' | '\t') => w.end_word(),
                     Some(escaped) => w.push(escaped),
                 }
                 i += 1;
             }
+            // `start "title" ...`: cmd's `start` takes its first quoted argument as the window
+            // title, also one that looks like a program.
+            '"' if !w.in_word
+                && !w.titled
+                && w.words.len() == 1
+                && w.words[0].eq_ignore_ascii_case("start") =>
+            {
+                w.titled = true;
+                i += 1;
+                while i < chars.len() && chars[i] != '"' {
+                    i += 1;
+                }
+                if i >= chars.len() {
+                    w.unclosed = true;
+                }
+            }
             '"' => {
+                // A quoted program name ends at its closing quote (`"git"push` runs git with
+                // `push`), as cmd looks the program up.
+                let program = !w.in_word && w.words.is_empty();
                 w.start();
                 i += 1;
                 while i < chars.len() && chars[i] != '"' {
@@ -1368,6 +1708,8 @@ fn lex_cmd(text: &str) -> Words {
                 }
                 if i >= chars.len() {
                     w.unclosed = true;
+                } else if program {
+                    w.end_word();
                 }
             }
             '@' if !w.in_word && w.words.is_empty() => {}
@@ -1444,6 +1786,8 @@ fn cmd_edit_end(chars: &[char], start: usize) -> Option<usize> {
 #[derive(Default)]
 struct Splitter {
     analysis: Analysis,
+    /// The cmd script being split runs with delayed expansion.
+    delayed: bool,
 }
 
 impl Splitter {
@@ -1497,8 +1841,14 @@ impl Splitter {
                         items: for_each
                             .and_then(|call| self.analysis.info.get(call))
                             .and_then(|info| info.upstream),
+                        delayed: dialect == Dialect::Cmd && self.delayed,
                     };
-                    self.command(&simple.words, dialect, depth, &meta);
+                    let words = if dialect == Dialect::PowerShell {
+                        simple.words.iter().map(|word| ps_named_pwd(word)).collect()
+                    } else {
+                        simple.words
+                    };
+                    self.command(&words, dialect, depth, &meta);
                     let now = self.analysis.calls.len();
                     last = (now > at).then(|| now - 1);
                     call_of.push(last);
@@ -1524,6 +1874,67 @@ impl Splitter {
         self.analysis.info.push(meta.clone());
     }
 
+    /// Several readings of one script (see [`scripts_of`]), each split on its own.
+    fn scripts(&mut self, texts: &[String], dialect: Dialect, depth: usize) {
+        for text in texts {
+            self.script(text, dialect, depth);
+        }
+    }
+
+    /// `NAME=value` in front of a POSIX program: a variable a later program runs as a command
+    /// (`GIT_SSH_COMMAND`, `PROMPT_COMMAND`, ...) has its value read as a script; a startup file
+    /// a shell reads from a process (`BASH_ENV=<(...)`) is a script from stdin.
+    fn assignment(&mut self, word: &str, depth: usize) {
+        let Some((name, value)) = word.split_once('=') else {
+            return;
+        };
+        if STARTUP_FILE_VARIABLES.contains(&name) {
+            if value == PROCESS_FILE || is_stdin_path(value) {
+                self.analysis.stdin_script = true;
+            }
+        } else if COMMAND_VARIABLES.contains(&name) && !value.trim().is_empty() {
+            self.script(value, Dialect::Posix, depth + 1);
+        }
+    }
+
+    /// The substitutions in a word a bash builtin evaluates (an array subscript in `let`,
+    /// `declare`, `test -v`, `read`, ...), quoted or not, split as scripts of their own.
+    fn evaluated(&mut self, text: &str, depth: usize) {
+        if !text.contains("$(") && !text.contains('`') {
+            return;
+        }
+        let chars: Vec<char> = text.chars().collect();
+        let mut i = 0;
+        while i < chars.len() {
+            match chars[i] {
+                '\\' => i += 1,
+                '$' if chars.get(i + 1) == Some(&'(') => {
+                    let Some(end) = closing_paren(&chars, i + 2, Dialect::Posix) else {
+                        self.analysis.unclosed = true;
+                        return;
+                    };
+                    let inner = text_of(&chars, i + 2, end);
+                    if inner.starts_with('(') {
+                        self.arithmetic(&inner, depth + 1);
+                    } else {
+                        self.script(&inner, Dialect::Posix, depth + 1);
+                    }
+                    i = end;
+                }
+                '`' => {
+                    let Some(end) = closing_backtick(&chars, i + 1) else {
+                        self.analysis.unclosed = true;
+                        return;
+                    };
+                    self.script(&text_of(&chars, i + 1, end), Dialect::Posix, depth + 1);
+                    i = end;
+                }
+                _ => {}
+            }
+            i += 1;
+        }
+    }
+
     /// One simple command: wrappers in front of the program are skipped, inline scripts are
     /// split in turn, and what is left is one program call.
     fn command(&mut self, words: &[String], dialect: Dialect, depth: usize, meta: &CallInfo) {
@@ -1533,12 +1944,33 @@ impl Splitter {
         }
         let mut rest: &[String] = words;
         loop {
-            while rest.first().is_some_and(|word| is_assignment(word)) {
+            // Only POSIX shells take `NAME=value` in front of a program; cmd reads `cd=x` as
+            // `cd x`.
+            while let Some(word) = rest
+                .first()
+                .filter(|word| dialect != Dialect::Cmd && is_assignment(word))
+            {
+                if dialect == Dialect::Posix {
+                    self.assignment(word, depth);
+                }
                 rest = &rest[1..];
+            }
+            // `$x = git push`, `return git push`: PowerShell runs what follows.
+            if dialect == Dialect::PowerShell {
+                if let Some(after) = ps_after_assignments(rest) {
+                    self.command(&after, dialect, depth, meta);
+                    return;
+                }
             }
             let Some(first) = rest.first() else {
                 return;
             };
+            // A program word the shell reads as more than one word (`rd/s`, `cd..`, `=git`).
+            if let Some(mut respelled) = respelled(first, dialect) {
+                respelled.extend(rest[1..].iter().cloned());
+                self.command(&respelled, dialect, depth, meta);
+                return;
+            }
             let program = crate::command_guard::program_name(first);
             let args = &rest[1..];
             match program.as_str() {
@@ -1563,8 +1995,43 @@ impl Splitter {
                         }
                     }
                 }
+                // bash builtins that evaluate an array subscript or arithmetic in their
+                // arguments, also from a quoted word (`let 'a[$(cmd)]'`, `test -v 'a[$(cmd)]'`);
+                // the declaring ones only in the name before `=`.
+                "let" | "test" | "[" | "[[" | "unset" | "read" | "mapfile" | "readarray"
+                | "printf" | "declare" | "typeset" | "local" | "export" | "readonly"
+                    if dialect == Dialect::Posix =>
+                {
+                    // A nameref (`declare -n r='a[$(cmd)]'`) evaluates its value when used.
+                    let nameref = args.iter().any(|arg| {
+                        arg.strip_prefix('-')
+                            .is_some_and(|group| !group.starts_with('-') && group.contains('n'))
+                    });
+                    let declaring = !nameref
+                        && matches!(
+                            program.as_str(),
+                            "declare" | "typeset" | "local" | "export" | "readonly"
+                        );
+                    if program != "printf" || args.iter().any(|arg| arg.starts_with("-v")) {
+                        for arg in args {
+                            let evaluated = if declaring {
+                                arg.split_once('=').map_or(arg.as_str(), |(name, _)| name)
+                            } else {
+                                arg
+                            };
+                            self.evaluated(evaluated, depth);
+                        }
+                    }
+                    self.push(rest, meta);
+                    return;
+                }
                 "{" | "}" | "!" | "then" | "do" | "else" | "elif" | "if" | "while" | "until"
                 | "builtin" | "&" | "." | "call" | "noglob" | "busybox" => rest = args,
+                // zsh's prefixes `coproc`, `nocorrect` and `-`, and programs that only run the
+                // rest (`unbuffer`, `chronic`).
+                "coproc" | "nocorrect" | "-" if dialect == Dialect::Posix => rest = args,
+                "unbuffer" | "chronic" => rest = args,
+                "repeat" if dialect == Dialect::Posix => rest = args.get(1..).unwrap_or_default(),
                 "command" | "nohup" => rest = skip_options_with(args, "", &[]),
                 "exec" => rest = skip_options_with(args, "a", &[]),
                 "time" => rest = skip_options_with(args, "fo", &["--format", "--output"]),
@@ -1574,6 +2041,11 @@ impl Splitter {
                     rest = skip_options_with(args, "ioe", &["--input", "--output", "--error"])
                 }
                 "ionice" => rest = skip_options_with(args, "cnpPu", &["--class", "--classdata"]),
+                "caffeinate" => rest = skip_options_with(args, "tw", &[]),
+                "arch" => rest = skip_options(args, &["-arch", "-e", "-d"]),
+                "xcrun" => {
+                    rest = skip_options(args, &["--sdk", "-sdk", "--toolchain", "-toolchain"])
+                }
                 "trap" if dialect == Dialect::Posix => {
                     // `trap 'cmd' EXIT` runs its first argument as a script later.
                     if let Some(script) = skip_options(args, &[]).first().filter(|s| *s != "-") {
@@ -1632,10 +2104,89 @@ impl Splitter {
                     let after = skip_options_with(args, "sk", &["--signal", "--kill-after"]);
                     rest = after.get(1..).unwrap_or_default();
                 }
+                // `watch` hands its words to `sh -c` (with `-x` it runs them as they are, which
+                // the same reading covers).
+                "watch" => {
+                    let after = skip_options_with(args, "nq", &["--interval", "--equexit"]);
+                    if after.is_empty() {
+                        self.push(rest, meta);
+                    } else {
+                        let scripts = scripts_of(after, Dialect::Posix);
+                        self.scripts(&scripts, Dialect::Posix, depth + 1);
+                    }
+                    return;
+                }
+                // `flock [options] <file> <command...>` or `flock <file> -c <command line>`.
+                "flock" => {
+                    let after = skip_options_with(
+                        args,
+                        "wE",
+                        &["--timeout", "--wait", "--conflict-exit-code"],
+                    );
+                    match after.get(1).map(String::as_str) {
+                        Some("-c" | "--command") => {
+                            if let Some(script) = after.get(2) {
+                                self.script(script, Dialect::Posix, depth + 1);
+                            }
+                            return;
+                        }
+                        Some(_) => rest = &after[1..],
+                        None => {
+                            self.push(rest, meta);
+                            return;
+                        }
+                    }
+                }
+                // `parallel <command> ::: <values>`: each value becomes an argument, so the
+                // values are read as the command's arguments too.
+                "parallel" => {
+                    let after = skip_options(args, &["-j", "--jobs", "-S", "--sshlogin"]);
+                    let call: Vec<String> = after
+                        .iter()
+                        .filter(|word| !word.starts_with(":::"))
+                        .cloned()
+                        .collect();
+                    self.command(&call, dialect, depth + 1, meta);
+                    return;
+                }
+                // `script -c <command line>` runs it in a new shell.
+                "script" => {
+                    match script_command(args) {
+                        Some(script) => self.script(script, Dialect::Posix, depth + 1),
+                        None => self.push(rest, meta),
+                    }
+                    return;
+                }
+                // `ssh host <command...>`: the remote shell runs the words joined.
+                "ssh" => {
+                    let after = skip_options_with(args, "BbcDEeFIiJLlmOoPpQRSWw", &[]);
+                    if after.len() >= 2 {
+                        let scripts = scripts_of(&after[1..], Dialect::Posix);
+                        self.scripts(&scripts, Dialect::Posix, depth + 1);
+                    } else {
+                        self.push(rest, meta);
+                    }
+                    return;
+                }
                 "sh" | "bash" | "zsh" | "dash" | "ksh" | "ash" | "mksh" | "fish" => {
                     match shell_script(args) {
-                        ShellScript::Inline(script) => {
-                            self.script(script, Dialect::Posix, depth + 1)
+                        ShellScript::Inline(script, after) => {
+                            // From cmd a quote is no quote: `sh -c 'a && b'` gives sh the
+                            // unclosed `'a`, which sh rejects whole, so nothing of it runs.
+                            let rejected = dialect == Dialect::Cmd
+                                && !script.contains('\n')
+                                && !script.contains("<<")
+                                && lex_posix(script).unclosed;
+                            if !rejected {
+                                self.script(script, Dialect::Posix, depth + 1);
+                                match posix_positional(script, after) {
+                                    Positional::Same => {}
+                                    Positional::Read(text) => {
+                                        self.script(&text, Dialect::Posix, depth + 1)
+                                    }
+                                    Positional::Unreadable => self.analysis.truncated = true,
+                                }
+                            }
                         }
                         ShellScript::Stdin => {
                             self.analysis.stdin_script = true;
@@ -1647,8 +2198,8 @@ impl Splitter {
                 }
                 "pwsh" | "powershell" => {
                     match powershell_script(args, program == "powershell") {
-                        ShellScriptOwned::Inline(script) => {
-                            self.script(&script, Dialect::PowerShell, depth + 1)
+                        ShellScriptOwned::Inline(scripts) => {
+                            self.scripts(&scripts, Dialect::PowerShell, depth + 1)
                         }
                         ShellScriptOwned::Undecodable => {
                             self.analysis.unclosed = true;
@@ -1663,15 +2214,12 @@ impl Splitter {
                     return;
                 }
                 "cmd" => {
-                    match args
-                        .iter()
-                        .position(|a| ["/c", "/k", "/r"].iter().any(|s| a.eq_ignore_ascii_case(s)))
-                    {
-                        Some(position) => self.script(
-                            &script_of(&args[position + 1..], Dialect::Cmd),
-                            Dialect::Cmd,
-                            depth + 1,
-                        ),
+                    match cmd_script(args) {
+                        Some((scripts, delayed)) => {
+                            let outer = std::mem::replace(&mut self.delayed, delayed);
+                            self.scripts(&scripts, Dialect::Cmd, depth + 1);
+                            self.delayed = outer;
+                        }
                         None => {
                             self.analysis.stdin_script = true;
                             self.push(rest, meta);
@@ -1680,33 +2228,38 @@ impl Splitter {
                     return;
                 }
                 "eval" => {
-                    self.script(&script_of(args, dialect), dialect, depth + 1);
+                    self.scripts(&scripts_of(args, dialect), dialect, depth + 1);
                     return;
                 }
                 "iex" | "invoke-expression" => {
-                    let script = match args.first() {
+                    let scripts = match args.first() {
                         Some(name) if is_ps_param(name, "command", 1) => {
                             match ps_colon_value(name) {
                                 Some(value) => {
                                     let mut words = vec![value.to_owned()];
                                     words.extend(args[1..].iter().cloned());
-                                    script_of(&words, Dialect::PowerShell)
+                                    scripts_of(&words, Dialect::PowerShell)
                                 }
-                                None => script_of(&args[1..], Dialect::PowerShell),
+                                None => scripts_of(&args[1..], Dialect::PowerShell),
                             }
                         }
-                        _ => script_of(args, Dialect::PowerShell),
+                        _ => scripts_of(args, Dialect::PowerShell),
                     };
                     // `... | iex` runs what the pipe brings: not on the command line.
-                    if script.trim().is_empty() && meta.piped {
+                    if scripts.iter().all(|script| script.trim().is_empty()) && meta.piped {
                         self.analysis.stdin_script = true;
                         self.push(rest, meta);
                         return;
                     }
-                    self.script(&script, Dialect::PowerShell, depth + 1);
+                    self.scripts(&scripts, Dialect::PowerShell, depth + 1);
                     return;
                 }
                 "wsl" => {
+                    // `wsl ~` starts in the home folder; what follows is read as before.
+                    let args = match args.first() {
+                        Some(home) if home == "~" => &args[1..],
+                        _ => args,
+                    };
                     let after = skip_options(
                         args,
                         &[
@@ -1723,19 +2276,13 @@ impl Splitter {
                         Some("-e" | "--exec") => rest = &after[1..],
                         // Otherwise the words go to the default shell as one command line.
                         Some("--") => {
-                            self.script(
-                                &script_of(&after[1..], Dialect::Posix),
-                                Dialect::Posix,
-                                depth + 1,
-                            );
+                            let scripts = scripts_of(&after[1..], Dialect::Posix);
+                            self.scripts(&scripts, Dialect::Posix, depth + 1);
                             return;
                         }
                         Some(_) => {
-                            self.script(
-                                &script_of(after, Dialect::Posix),
-                                Dialect::Posix,
-                                depth + 1,
-                            );
+                            let scripts = scripts_of(after, Dialect::Posix);
+                            self.scripts(&scripts, Dialect::Posix, depth + 1);
                             return;
                         }
                         None => {
@@ -1744,6 +2291,11 @@ impl Splitter {
                             return;
                         }
                     }
+                }
+                // cmd knows only its own `start`; `Start-Process` there is an unknown program.
+                "start-process" | "saps" if dialect == Dialect::Cmd => {
+                    self.push(rest, meta);
+                    return;
                 }
                 "start" | "start-process" | "saps" => {
                     let call = started_program(args);
@@ -1762,6 +2314,388 @@ impl Splitter {
             }
         }
     }
+}
+
+/// Variables whose value a program runs as a shell command line (git's, the pager's, the
+/// editor's, bash's prompt hook).
+const COMMAND_VARIABLES: &[&str] = &[
+    "GIT_SSH_COMMAND",
+    "GIT_SSH",
+    "GIT_PAGER",
+    "GIT_EDITOR",
+    "GIT_SEQUENCE_EDITOR",
+    "GIT_EXTERNAL_DIFF",
+    "GIT_ASKPASS",
+    "SSH_ASKPASS",
+    "PAGER",
+    "EDITOR",
+    "VISUAL",
+    "PROMPT_COMMAND",
+];
+
+/// Variables naming a file a starting shell runs as a script.
+const STARTUP_FILE_VARIABLES: &[&str] = &["BASH_ENV", "ENV"];
+
+/// Assignment operators of PowerShell.
+const PS_ASSIGNMENTS: &[&str] = &["=", "+=", "-=", "*=", "/=", "%=", "??="];
+
+/// The words after PowerShell assignments in front of a pipeline (`$x = git ...`,
+/// `[string]$a, $b += ...`, `$x = $y = ...`, `$x=git`) and after `return` or `throw`, whose
+/// value is a pipeline too; `None` when there is none.
+fn ps_after_assignments(words: &[String]) -> Option<Vec<String>> {
+    let keyword =
+        |word: &str| word.eq_ignore_ascii_case("return") || word.eq_ignore_ascii_case("throw");
+    let first = words.first()?;
+    if !first.starts_with(['$', '[']) && !keyword(first) {
+        return None;
+    }
+    let mut words = words.to_vec();
+    let mut at = 0;
+    let mut changed = false;
+    loop {
+        if words.get(at).is_some_and(|word| keyword(word)) {
+            at += 1;
+            changed = true;
+            continue;
+        }
+        // Targets up to an operator, separated by commas.
+        let mut j = at;
+        let mut found: Option<(usize, Option<String>)> = None;
+        while let Some(word) = words.get(j) {
+            if word == "," {
+                j += 1;
+                continue;
+            }
+            if PS_ASSIGNMENTS.contains(&word.as_str()) {
+                if j > at {
+                    found = Some((j + 1, None));
+                }
+                break;
+            }
+            if let Some((target, value)) = ps_glued_assignment(word) {
+                if ps_lvalue(target.trim_end_matches(',')) {
+                    found = Some((j + 1, (!value.is_empty()).then(|| value.to_owned())));
+                }
+                break;
+            }
+            if !ps_lvalue(word.trim_end_matches(',')) {
+                break;
+            }
+            j += 1;
+        }
+        let Some((next, value)) = found else {
+            break;
+        };
+        changed = true;
+        at = next;
+        if let Some(value) = value {
+            // `$x=git`: the value starts the next part.
+            at -= 1;
+            words[at] = value;
+        }
+    }
+    changed.then(|| words.split_off(at.min(words.len())))
+}
+
+/// `$x=value`, `$x+=value`: the target and what follows the operator.
+fn ps_glued_assignment(word: &str) -> Option<(&str, &str)> {
+    let at = word.find('=')?;
+    let before = &word[..at];
+    let target = ["??", "+", "-", "*", "/", "%"]
+        .iter()
+        .find_map(|op| before.strip_suffix(op))
+        .unwrap_or(before);
+    (!target.is_empty()).then(|| (target, &word[at + 1..]))
+}
+
+/// A PowerShell assignment target: a variable with optional type casts in front and member or
+/// index access after it (`[string]$x`, `$x.y`, `$x[0]`, `${x}`, `$env:X`).
+fn ps_lvalue(word: &str) -> bool {
+    let mut rest = word;
+    while let Some(cast) = rest.strip_prefix('[') {
+        let mut depth = 1usize;
+        let mut end = None;
+        for (at, c) in cast.char_indices() {
+            match c {
+                '[' => depth += 1,
+                ']' => {
+                    depth -= 1;
+                    if depth == 0 {
+                        end = Some(at);
+                        break;
+                    }
+                }
+                _ => {}
+            }
+        }
+        let Some(end) = end else {
+            return false;
+        };
+        rest = &cast[end + 1..];
+    }
+    rest.len() >= 2 && rest.starts_with('$') && !rest.contains(['=', '(', ')']) && rest != UNKNOWN
+}
+
+/// cmd built-ins a switch or folder may be glued to (`rd/s`, `cmd/c`, `cd..`); longer names
+/// first, so `cmd.exe` is not read as `cmd`.
+const CMD_GLUED: &[&str] = &[
+    "cmd.exe",
+    "cmd",
+    "chdir",
+    "cd",
+    "rmdir",
+    "rd",
+    "del",
+    "erase",
+    "start",
+    "pushd",
+    "mkdir",
+    "md",
+    "format.com",
+    "format",
+];
+
+/// A program word the shell reads as more than one word: zsh's `=git` (the program's path),
+/// cmd's switch or folder glued to a built-in (`rd/s/q`, `cmd/c`, `cd..`, `cd\`, `cd=x`).
+fn respelled(first: &str, dialect: Dialect) -> Option<Vec<String>> {
+    match dialect {
+        Dialect::Posix => {
+            let name = first.trim_start_matches('=');
+            (name.len() != first.len() && !name.is_empty()).then(|| vec![name.to_owned()])
+        }
+        Dialect::Cmd => {
+            let lower = first.to_ascii_lowercase();
+            for name in CMD_GLUED {
+                let Some(tail) = lower.strip_prefix(name) else {
+                    continue;
+                };
+                let folder = matches!(*name, "cd" | "chdir");
+                if tail.starts_with(['/', '\\']) || (folder && tail.starts_with(['.', '='])) {
+                    let rest = first[name.len()..].trim_start_matches('=');
+                    let mut out = vec![first[..name.len()].to_owned()];
+                    if !rest.is_empty() {
+                        out.push(rest.to_owned());
+                    }
+                    return Some(out);
+                }
+            }
+            None
+        }
+        Dialect::PowerShell => None,
+    }
+}
+
+/// What `cmd` runs: the words after `/c`, `/k` or `/r` (also `//c` as Git Bash passes it, in a
+/// group `/q/c`, or glued `/cdir`), as [`scripts_of`] reads them, and whether `/v` or `/v:on`
+/// turns delayed expansion on. `None` without one: cmd reads its commands from stdin.
+fn cmd_script(args: &[String]) -> Option<(Vec<String>, bool)> {
+    let mut delayed = false;
+    for (at, arg) in args.iter().enumerate() {
+        if !arg.starts_with('/') {
+            continue;
+        }
+        let mut offset = 0;
+        for part in arg.split('/') {
+            let start = offset;
+            offset += part.len() + 1;
+            let lower = part.to_ascii_lowercase();
+            if lower == "v" || lower.starts_with("v:on") {
+                delayed = true;
+            }
+            if lower.starts_with(['c', 'k', 'r']) {
+                let glued = arg.get(start + 1..).unwrap_or_default();
+                let mut words = Vec::new();
+                if !glued.is_empty() {
+                    words.push(glued.to_owned());
+                }
+                words.extend(args[at + 1..].iter().cloned());
+                return Some((scripts_of(&words, Dialect::Cmd), delayed));
+            }
+        }
+    }
+    None
+}
+
+/// The command line of `script -c <line>` (also `-qc <line>`, `--command <line>`,
+/// `--command=<line>`); `None` without one.
+fn script_command(args: &[String]) -> Option<&str> {
+    let mut i = 0;
+    while let Some(arg) = args.get(i) {
+        if arg == "--" || !arg.starts_with('-') {
+            return None;
+        }
+        if arg == "--command" {
+            return args.get(i + 1).map(String::as_str);
+        }
+        if let Some(value) = arg.strip_prefix("--command=") {
+            return Some(value);
+        }
+        if !arg.starts_with("--") {
+            let group = &arg[1..];
+            if let Some(at) = group.find('c') {
+                let tail = &group[at + 1..];
+                return if tail.is_empty() {
+                    args.get(i + 1).map(String::as_str)
+                } else {
+                    Some(tail)
+                };
+            }
+            // Short options that take a value.
+            if group.ends_with(['E', 'o', 'm', 'I', 'O', 'B', 'T']) {
+                i += 1;
+            }
+        } else if matches!(
+            arg.as_str(),
+            "--echo"
+                | "--output-limit"
+                | "--logging-format"
+                | "--log-in"
+                | "--log-out"
+                | "--log-io"
+                | "--log-timing"
+        ) {
+            i += 1;
+        }
+        i += 1;
+    }
+    None
+}
+
+/// How an inline script reads the words after it.
+enum Positional {
+    /// It names none of them, or none follow.
+    Same,
+    /// The script with `$1`, `"$@"`, `$args[0]`, ... replaced by those words.
+    Read(String),
+    /// It reads them in a way Hangar does not follow (`shift`, `${@:2}`).
+    Unreadable,
+}
+
+/// `bash -c '<script>' <$0> <$1> ...`: the script with its positional parameters replaced by
+/// the words after it, an extra reading of the call.
+fn posix_positional(script: &str, args: &[String]) -> Positional {
+    if args.is_empty() || !script.contains('$') {
+        return Positional::Same;
+    }
+    let names_shift = script
+        .split(|c: char| !(c.is_ascii_alphanumeric() || c == '_'))
+        .any(|word| word == "shift");
+    if script.contains("${@:")
+        || script.contains("${*:")
+        || script.contains("BASH_ARGV")
+        || names_shift
+    {
+        return Positional::Unreadable;
+    }
+    // Inside double quotes a value keeps its characters with these escaped; outside them the
+    // same escapes give the characters too.
+    let escaped = |text: &str| -> String {
+        let mut out = String::new();
+        for c in text.chars() {
+            if matches!(c, '\\' | '"' | '$' | '`') {
+                out.push('\\');
+            }
+            out.push(c);
+        }
+        out
+    };
+    let after: &[String] = args.get(1..).unwrap_or_default();
+    let all = escaped(&after.join(" "));
+    let chars: Vec<char> = script.chars().collect();
+    let mut out = String::new();
+    let mut changed = false;
+    let mut i = 0;
+    while i < chars.len() {
+        // `"$@"` and `"${@}"`: one word per argument.
+        if let Some(form) = ["\"$@\"", "\"${@}\""].iter().find(|form| {
+            let len = form.chars().count();
+            chars
+                .get(i..i + len)
+                .is_some_and(|here| here.iter().copied().eq(form.chars()))
+        }) {
+            out.push_str(&join(after));
+            changed = true;
+            i += form.chars().count();
+            continue;
+        }
+        if chars[i] == '$' {
+            let braced = chars.get(i + 1) == Some(&'{');
+            let at = if braced { i + 2 } else { i + 1 };
+            let closed = !braced || chars.get(at + 1) == Some(&'}');
+            let end = if braced { at + 2 } else { at + 1 };
+            match chars.get(at).copied() {
+                Some('@' | '*') if closed => {
+                    out.push_str(&all);
+                    changed = true;
+                    i = end;
+                    continue;
+                }
+                Some(digit @ '0'..='9') if closed => {
+                    let index = digit as usize - '0' as usize;
+                    out.push_str(&escaped(args.get(index).map_or("", String::as_str)));
+                    changed = true;
+                    i = end;
+                    continue;
+                }
+                Some('@' | '*' | '0'..='9') => return Positional::Unreadable,
+                _ => {}
+            }
+        }
+        out.push(chars[i]);
+        i += 1;
+    }
+    if changed {
+        Positional::Read(out)
+    } else {
+        Positional::Same
+    }
+}
+
+/// `pwsh -CommandWithArgs '<script>' <args...>`: the script with `$args[n]`, `@args` and
+/// `$args` replaced by those words, an extra reading.
+fn powershell_positional(script: &str, args: &[String]) -> Option<String> {
+    if args.is_empty() || !script.to_ascii_lowercase().contains("args") {
+        return None;
+    }
+    let quoted = |word: &String| join_for(std::slice::from_ref(word), Dialect::PowerShell);
+    let all = join_for(args, Dialect::PowerShell);
+    let chars: Vec<char> = script.chars().collect();
+    let mut out = String::new();
+    let mut changed = false;
+    let mut i = 0;
+    while i < chars.len() {
+        let lead = chars[i];
+        let name: String = chars[i + 1..].iter().take(4).collect();
+        if matches!(lead, '$' | '@') && name.eq_ignore_ascii_case("args") {
+            let after = i + 5;
+            if lead == '$' && chars.get(after) == Some(&'[') {
+                let digits: String = chars[after + 1..]
+                    .iter()
+                    .take_while(|c| c.is_ascii_digit())
+                    .take(4)
+                    .collect();
+                if !digits.is_empty() && chars.get(after + 1 + digits.len()) == Some(&']') {
+                    let value = digits
+                        .parse::<usize>()
+                        .ok()
+                        .and_then(|index| args.get(index))
+                        .map(quoted)
+                        .unwrap_or_default();
+                    out.push_str(&value);
+                    changed = true;
+                    i = after + 2 + digits.len();
+                    continue;
+                }
+            }
+            out.push_str(&all);
+            changed = true;
+            i = after;
+            continue;
+        }
+        out.push(lead);
+        i += 1;
+    }
+    changed.then_some(out)
 }
 
 /// A file that is the shell's own stdin or a pipe of the running shell (`/dev/stdin`,
@@ -2004,7 +2938,8 @@ fn ps_param_rest(arg: &str) -> Option<&str> {
 }
 
 enum ShellScript<'a> {
-    Inline(&'a str),
+    /// The script and the words after it (`$0`, `$1`, ...).
+    Inline(&'a str, &'a [String]),
     /// A script file: what it runs is not on the command line, but it is not stdin either.
     File,
     Stdin,
@@ -2037,7 +2972,7 @@ fn shell_script(args: &[String]) -> ShellScript<'_> {
             }
         } else {
             return if wants {
-                ShellScript::Inline(arg)
+                ShellScript::Inline(arg, &args[i + 1..])
             } else if is_stdin_path(arg) {
                 ShellScript::Stdin
             } else {
@@ -2126,8 +3061,12 @@ fn started_program(args: &[String]) -> Vec<String> {
         } else if arg.starts_with('-') && arg.len() > 1 {
             i += if own_switch { 1 } else { 2 };
         } else if !found && arg.starts_with('/') && arg.len() <= 12 && !arg[1..].contains('/') {
-            // cmd's `start /d <folder>` takes a value; its other switches do not.
-            i += if arg.eq_ignore_ascii_case("/d") { 2 } else { 1 };
+            // cmd's `start /d <folder>`, `/affinity <mask>` and `/node <n>` take a value; its
+            // other switches do not.
+            let valued = ["/d", "/affinity", "/node"]
+                .iter()
+                .any(|switch| arg.eq_ignore_ascii_case(switch));
+            i += if valued { 2 } else { 1 };
         } else if arg.is_empty() {
             i += 1;
         } else {
@@ -2153,7 +3092,8 @@ fn started_program(args: &[String]) -> Vec<String> {
 }
 
 enum ShellScriptOwned {
-    Inline(String),
+    /// Every reading of the script (see [`scripts_of`]).
+    Inline(Vec<String>),
     Undecodable,
     File,
     Stdin,
@@ -2220,39 +3160,43 @@ fn powershell_script_from(args: &[String], windows_powershell: bool) -> ShellScr
         if ps_param_rest(arg).is_none() {
             // Windows PowerShell reads positional words as a command; pwsh as a script file.
             return if windows_powershell {
-                ShellScriptOwned::Inline(join_for(&args[i..], Dialect::PowerShell))
+                ShellScriptOwned::Inline(scripts_of(&args[i..], Dialect::PowerShell))
             } else {
                 ShellScriptOwned::File
             };
         }
         let rest = ps_param_rest(arg).unwrap_or_default();
         if is_ps_param(arg, "commandwithargs", 8) || rest.eq_ignore_ascii_case("cwa") {
-            if let Some(value) = ps_colon_value(arg) {
-                return ShellScriptOwned::Inline(value.to_owned());
-            }
-            return match args.get(i + 1) {
-                Some(script) if script == "-" => ShellScriptOwned::Stdin,
-                Some(script) => ShellScriptOwned::Inline(script.clone()),
-                None => ShellScriptOwned::Stdin,
+            let (script, after) = match ps_colon_value(arg) {
+                Some(value) => (value, args.get(i + 1..).unwrap_or_default()),
+                None => match args.get(i + 1) {
+                    Some(script) if script != "-" => {
+                        (script.as_str(), args.get(i + 2..).unwrap_or_default())
+                    }
+                    _ => return ShellScriptOwned::Stdin,
+                },
             };
+            let mut scripts = vec![script.to_owned()];
+            scripts.extend(powershell_positional(script, after));
+            return ShellScriptOwned::Inline(scripts);
         }
         if is_ps_param(arg, "command", 1) && !is_ps_param(arg, "configurationname", 3) {
             let rest = &args[i + 1..];
             if let Some(value) = ps_colon_value(arg) {
                 let mut words = vec![value.to_owned()];
                 words.extend(rest.iter().cloned());
-                return ShellScriptOwned::Inline(script_of(&words, Dialect::PowerShell));
+                return ShellScriptOwned::Inline(scripts_of(&words, Dialect::PowerShell));
             }
             return match rest {
                 [] => ShellScriptOwned::Stdin,
                 [one] if one == "-" => ShellScriptOwned::Stdin,
-                _ => ShellScriptOwned::Inline(script_of(rest, Dialect::PowerShell)),
+                _ => ShellScriptOwned::Inline(scripts_of(rest, Dialect::PowerShell)),
             };
         }
         if is_ps_param(arg, "encodedcommand", 1) || rest.eq_ignore_ascii_case("ec") {
             let text = ps_colon_value(arg).or_else(|| args.get(i + 1).map(String::as_str));
             return match text.and_then(decode_powershell) {
-                Some(script) => ShellScriptOwned::Inline(script),
+                Some(script) => ShellScriptOwned::Inline(vec![script]),
                 None => ShellScriptOwned::Undecodable,
             };
         }
@@ -2335,12 +3279,23 @@ fn base64_decode(text: &str) -> Option<Vec<u8>> {
     Some(out)
 }
 
-/// The command line a shell gets as its remaining arguments: one argument is the line itself
-/// (`cmd /c "a && b"`), several are joined.
-fn script_of(words: &[String], dialect: Dialect) -> String {
+/// The command lines a shell may get as its remaining arguments: one argument is the line
+/// itself (`cmd /c "a && b"`); several are read twice, re-quoted so each stays one word, and
+/// joined with blanks as they are, which is what cmd, PowerShell, `eval`, `wsl` and `ssh` do
+/// (`pwsh -c 'git push' '--force'` runs `git push --force`).
+fn scripts_of(words: &[String], dialect: Dialect) -> Vec<String> {
     match words {
-        [one] => one.clone(),
-        _ => join_for(words, dialect),
+        [] => Vec::new(),
+        [one] => vec![one.clone()],
+        _ => {
+            let quoted = join_for(words, dialect);
+            let raw = words.join(" ");
+            if raw == quoted {
+                vec![quoted]
+            } else {
+                vec![quoted, raw]
+            }
+        }
     }
 }
 
@@ -2594,12 +3549,14 @@ mod tests {
             r#"Remove-Item -Recurse (Join-Path $HOME "x")"#,
             Dialect::PowerShell,
         );
+        // A `Join-Path` of plain words is read as the path it makes.
         assert_eq!(
             analysis.calls,
-            vec![
-                vec!["Join-Path".to_owned(), "$HOME".into(), "x".into()],
-                vec!["Remove-Item".into(), "-Recurse".into(), UNKNOWN.into()],
-            ]
+            vec![vec![
+                "Remove-Item".to_owned(),
+                "-Recurse".into(),
+                r"$HOME\x".into()
+            ]]
         );
         // `$"..."` is a translated string, `$@` stays for the matcher.
         assert_eq!(
@@ -2905,9 +3862,8 @@ mod tests {
         );
         let analysis = split("$h = @{a=1}", Dialect::PowerShell);
         assert!(!analysis.unclosed);
-        assert!(analysis
-            .calls
-            .contains(&vec!["$h".to_owned(), "=".into(), "@{a=1}".into()]));
+        // The assignment is skipped; the value is the call.
+        assert!(analysis.calls.contains(&vec!["@{a=1}".to_owned()]));
         // A value of a hashtable may run a command.
         assert!(calls("$h = @{a=$(git push --force)}", Dialect::PowerShell).contains(&push_force()));
         assert!(split("echo ${env:x", Dialect::PowerShell).unclosed);

@@ -92,12 +92,15 @@ export interface CommandAsk {
 /** The translation key of each rule Hangar ships, built-in and default. */
 const RULE_KEYS: Readonly<Record<string, MessageKey>> = {
   "git-push-force": "guardRule.gitPushForce",
+  "git-push-delete": "guardRule.gitPushDelete",
   "git-reset-hard": "guardRule.gitResetHard",
   "git-clean-force": "guardRule.gitCleanForce",
   "rm-outside-project": "guardRule.rmOutsideProject",
   "remove-item-outside-project": "guardRule.removeItemOutsideProject",
   "del-outside-project": "guardRule.delOutsideProject",
   "sql-drop": "guardRule.sqlDrop",
+  dropdb: "guardRule.dropdb",
+  "mysqladmin-drop": "guardRule.mysqladminDrop",
   "format-disk": "guardRule.formatDisk",
   "hangar-too-complex": "guardRule.tooComplex",
   "hangar-stdin-script": "guardRule.stdinScript",
