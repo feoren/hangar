@@ -611,6 +611,9 @@ pub struct TeamActivity {
     /// (`TeamState::log_full`): no device or member can be admitted any more, everything else
     /// goes on.
     pub log_full: bool,
+    /// A teammate's signed record named a newer membership log than the relay hands this device,
+    /// also after fetching it again: the relay holds back log entries.
+    pub history_withheld: bool,
 }
 
 /// One of the signed-in person's devices in the verified log.

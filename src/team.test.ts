@@ -156,6 +156,7 @@ const ACTIVITY = {
   ],
   log: { index: 4, safetyNumber: ["12345", "67890", "13579", "24680", "11223", "44556"] },
   logFull: false,
+  historyWithheld: false,
 };
 
 const SAFETY = ["12345", "67890", "13579", "24680", "11223", "44556"];
@@ -238,9 +239,21 @@ describe("parseTeamStatus", () => {
     expect(parseTeamStatus({ ...admission, logSafetyNumber: undefined })).toBeNull();
     expect(parseTeamStatus({ ...admission, member: "" })).toBeNull();
     expect(parseTeamStatus({ ...admission, logIndex: -1 })).toBeNull();
+    // Without a reason (an older backend) or with an unknown one: the general text.
     expect(parseTeamStatus({ state: "waitingForKeyChange" })).toEqual({
       state: "waitingForKeyChange",
+      reason: "removal",
     });
+    expect(parseTeamStatus({ state: "waitingForKeyChange", reason: "later" })).toEqual({
+      state: "waitingForKeyChange",
+      reason: "removal",
+    });
+    for (const reason of ["removal", "memberLeft", "overdue"] as const) {
+      expect(parseTeamStatus({ state: "waitingForKeyChange", reason })).toEqual({
+        state: "waitingForKeyChange",
+        reason,
+      });
+    }
     expect(parseTeamStatus({ state: "needsAttention", reason: "ownerMismatch" })).toEqual({
       state: "needsAttention",
       reason: "ownerMismatch",
@@ -251,8 +264,14 @@ describe("parseTeamStatus", () => {
     if (admissionStatus === null) return;
     expect(statusKey(admissionStatus)).toBe("team.status.confirmAdmission");
     expect(statusTone(admissionStatus)).toBe("busy");
-    expect(statusLine({ state: "waitingForKeyChange" }, t)?.text).toBe(
+    expect(statusLine({ state: "waitingForKeyChange", reason: "removal" }, t)?.text).toBe(
       t("team.status.waitingForKeyChange"),
+    );
+    const left = statusLine({ state: "waitingForKeyChange", reason: "memberLeft" }, t);
+    expect(left?.text).toBe(t("team.status.memberLeftKeyUnchanged"));
+    expect(left?.tone).toBe("busy");
+    expect(statusKey({ state: "waitingForKeyChange", reason: "overdue" })).toBe(
+      "team.status.keyChangeOverdue",
     );
     expect(statusKey({ state: "needsAttention", reason: "ownerMismatch" })).toBe(
       "team.status.ownerMismatch",
@@ -948,6 +967,16 @@ describe("full team log", () => {
       false,
     );
     expect(parsePendingConfirmations([{ ...REQUEST, logFull: 1 }])).toBeNull();
+  });
+
+  it("reads the held back history flag, absent as none", () => {
+    expect(parseTeamActivity({ ...EMPTY_ACTIVITY, historyWithheld: true })?.historyWithheld).toBe(
+      true,
+    );
+    expect(
+      parseTeamActivity({ ...EMPTY_ACTIVITY, historyWithheld: undefined })?.historyWithheld,
+    ).toBe(false);
+    expect(parseTeamActivity({ ...EMPTY_ACTIVITY, historyWithheld: 1 })).toBeNull();
   });
 
   it("names the full log, the refused confirmation and the missing website owner", () => {

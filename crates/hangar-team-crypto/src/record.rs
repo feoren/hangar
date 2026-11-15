@@ -177,6 +177,10 @@ pub enum OpenError {
     AheadOfLog {
         /// The sender's head index.
         index: u64,
+        /// The record's signature verifies under the sender's current keys in this device's
+        /// log: a listed device, not the relay alone, names the newer head (the app tells a
+        /// relay that holds back log entries by it).
+        signed: bool,
     },
     /// The sender's log has another entry at `index` than this device's: the relay shows the
     /// two devices different logs. The app stops trusting the team and asks both people to
@@ -562,9 +566,22 @@ impl EpochCipher {
         let data = from_ciphertext(&sealed.data).ok_or(OpenError::Malformed)?;
         let parsed = parse(&data)?;
         let head = parsed.head;
-        let known = state
-            .hash_at(head.index)
-            .ok_or(OpenError::AheadOfLog { index: head.index })?;
+        let Some(known) = state.hash_at(head.index) else {
+            // The keys valid at that index are not known yet; the sender's current ones are the
+            // best this device can check the head against.
+            let signed = state
+                .key_periods(context.sender)
+                .last()
+                .filter(|p| p.removed_at.is_none() && !p.recovery)
+                .is_some_and(|p| {
+                    self.verify_parsed(context, &p.keys.sign, sealed, &parsed)
+                        .is_ok()
+                });
+            return Err(OpenError::AheadOfLog {
+                index: head.index,
+                signed,
+            });
+        };
         let periods = state.key_periods(context.sender);
         if periods.is_empty() {
             return Err(OpenError::UnknownSender);

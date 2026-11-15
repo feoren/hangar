@@ -1259,9 +1259,10 @@ impl Worker {
         }
     }
 
-    /// The project's members on the website, for an owner's or admin's device. `None` when
-    /// the website does not answer (or does not offer the list yet): the log's members then
-    /// stay as they are; nothing else depends on the list.
+    /// The project's members on the website, for every admitted device (an owner's or admin's
+    /// device follows it with log entries, any other one waits for a removal the relay may hold
+    /// back). `None` when the website does not answer, does not offer the list yet, or answers
+    /// with only part of it: the log's members then stay as they are and nobody counts as gone.
     async fn website_members(&self) -> Option<Vec<WebsiteMember>> {
         match self
             .service

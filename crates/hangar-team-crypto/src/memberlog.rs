@@ -67,7 +67,8 @@
 //!   at once from one that only removes devices added after the current epoch began.
 //! - A log has at most [`MAX_LOG_ENTRIES`] entries; the last [`RESERVED_LOG_ENTRIES`] places take
 //!   only remove member and rotate epoch entries, so an owner or admin can still remove the member
-//!   who filled the log and change the key. Every device verifies the whole log on each
+//!   who filled the log and change the key. The very last place takes only a rotate epoch entry,
+//!   so a removal always leaves room for the rotation it makes due. Every device verifies the whole log on each
 //!   connection, so its length must stay bounded.
 //! - A member id that was removed may be added again (the website decides who is a member); the
 //!   state records it ([`Member::readmitted_after`]) so the app can show it.
@@ -124,7 +125,8 @@ const SIGNATURE_LEN: usize = 64;
 /// the whole log on every connection; 8192 entries are a few thousand device lifecycles (add,
 /// remove, rotate).
 pub const MAX_LOG_ENTRIES: u64 = 8_192;
-/// The last places of [`MAX_LOG_ENTRIES`], which only remove member and rotate epoch entries take.
+/// The last places of [`MAX_LOG_ENTRIES`], which only remove member and rotate epoch entries take
+/// (the very last one only a rotate epoch entry).
 pub const RESERVED_LOG_ENTRIES: u64 = 64;
 
 const TAG_CREATE: u8 = 1;
@@ -1159,14 +1161,12 @@ impl TeamState {
         if body.prev != Some(self.head.hash) {
             return Err(LogError::PrevMismatch);
         }
-        let reserved = matches!(
-            body.kind,
-            EntryKind::RemoveMember { .. } | EntryKind::RotateEpoch { .. }
-        );
-        let room = if reserved {
-            self.max_entries
-        } else {
-            self.max_entries.saturating_sub(RESERVED_LOG_ENTRIES)
+        // A removal makes a rotation due, so it leaves the last place to that rotation: a log
+        // whose last entry removed a member could never change the key again.
+        let room = match body.kind {
+            EntryKind::RotateEpoch { .. } => self.max_entries,
+            EntryKind::RemoveMember { .. } => self.max_entries.saturating_sub(1),
+            _ => self.max_entries.saturating_sub(RESERVED_LOG_ENTRIES),
         };
         if body.index > room {
             return Err(LogError::LogFull);

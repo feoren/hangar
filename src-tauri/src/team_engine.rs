@@ -90,9 +90,9 @@ use sha2::{Digest as _, Sha256};
 use crate::claims::{LineRange, OverlapLevel};
 use crate::session::SessionId;
 use crate::team::{
-    hex, safety_groups, AttentionReason, DetailMark, HolderMark, LocalState, PendingConfirmation,
-    PendingKind, ReplayMark, SessionEnd, StopReason, StoredDevice, StoredKeys, TeamError,
-    TeamStatus,
+    hex, safety_groups, AttentionReason, DetailMark, HolderMark, KeyChangeWait, LocalState,
+    PendingConfirmation, PendingKind, ReplayMark, SessionEnd, StopReason, StoredDevice, StoredKeys,
+    TeamError, TeamStatus,
 };
 use crate::team_share::{
     self, DivergentDevice, LocalShare, LogSafety, OtherDetail, OwnDevice, PeerStatus, PeerView,
@@ -128,7 +128,7 @@ pub enum Effect {
     /// connection when the project is gone there (with `removal`, the relay said this member was
     /// removed: the keys go too). The answer to relay events only the website can confirm
     /// (`member.removed`, `member.role_changed`), at most once per [`WEBSITE_CHECK_EVERY_MS`],
-    /// and on an owner's or admin's device the regular member check.
+    /// and the regular member check of every admitted device.
     CheckWebsite { removal: bool, members: bool },
     /// Status or pending confirmations changed.
     Changed,
@@ -182,8 +182,8 @@ const HEARTBEAT_EVERY_MS: u64 = 60_000;
 /// floods).
 pub const WEBSITE_CHECK_EVERY_MS: u64 = 30_000;
 
-/// An owner's or admin's device compares the log's members with the website's this often, also
-/// without any relay event (the relay may withhold `member.removed`).
+/// Every admitted device compares the log's members with the website's this often, also without
+/// any relay event (the relay may withhold `member.removed` and the log's removal).
 pub const MEMBERS_CHECK_EVERY_MS: u64 = 10 * 60 * 1_000;
 
 /// A due rotation that is not urgent (it only removes devices added after the current epoch
@@ -191,6 +191,12 @@ pub const MEMBERS_CHECK_EVERY_MS: u64 = 10 * 60 * 1_000;
 /// member adding and removing devices of its own cannot keep the team changing keys. Removing a
 /// member, or a device from before the epoch, rotates at once.
 pub const DEFERRED_ROTATION_EVERY_MS: u64 = 10 * 60 * 1_000;
+
+/// How long the log may still name a member the website no longer lists before a device that
+/// cannot remove it stops sealing (measured on this device's clock from the first list that left
+/// the member out): an owner's or admin's device follows the list within
+/// [`MEMBERS_CHECK_EVERY_MS`], so a removal still missing after that was most likely held back.
+pub const DEPARTURE_GRACE_MS: u64 = 10 * 60 * 1_000;
 
 /// Refused `key.rotate` per connection; after that this device tries again only on the next
 /// connection. A refusal other than another rotation coming first (`conflict`, `staleEpoch`)
@@ -651,8 +657,9 @@ struct Divergent {
 /// How opening a sealed record went.
 enum Open {
     Opened(Opened),
-    /// The sender names a newer log or epoch: fetch the log and try once more.
-    Later,
+    /// The sender names a newer log or epoch: fetch the log and try once more. With the log
+    /// index a listed device signed as its head (`OpenError::AheadOfLog` with `signed`).
+    Later(Option<u64>),
     /// The signed sender's log differs from this device's at an index both verified.
     Fork,
     Failed,
@@ -700,7 +707,7 @@ pub struct EngineSetup {
     /// Website checks the relay's events ask for go out at most this often (milliseconds;
     /// [`WEBSITE_CHECK_EVERY_MS`] in the app).
     pub website_every_ms: u64,
-    /// An owner's or admin's device compares the members this often (milliseconds;
+    /// Every admitted device compares the members this often (milliseconds;
     /// [`MEMBERS_CHECK_EVERY_MS`] in the app).
     pub members_every_ms: u64,
 }
@@ -717,12 +724,20 @@ pub struct Engine {
     /// The website's member list as last read; `None` before the first read and after a member
     /// entry the relay refused (until the next read).
     roster: Option<Roster>,
-    /// When the last [`Effect::CheckWebsite`] went out (clock milliseconds).
+    /// When the last [`Effect::CheckWebsite`] a relay event (or a device the list does not name)
+    /// asked for went out (clock milliseconds).
     website_checked_at: Option<u64>,
     /// A website check waits for [`WEBSITE_CHECK_EVERY_MS`] to pass; with `website_removal`
     /// the relay said this member was removed.
     website_wanted: bool,
     website_removal: bool,
+    /// When the member list was last asked for (clock milliseconds), for the regular check
+    /// every `members_every_ms`. Kept apart from the events' rate, so the check on connecting
+    /// never delays the one a removal event asks for.
+    members_checked_at: Option<u64>,
+    /// The member list is wanted with the next check: a new connection, an admission just
+    /// confirmed, or the regular interval.
+    members_wanted: bool,
     /// The log head index when the member list now being read was asked for.
     roster_asked_at: Option<u64>,
     website_every_ms: u64,
@@ -812,6 +827,19 @@ pub struct Engine {
     promotions: Vec<PendingConfirmation>,
     /// The most log entries the verifier takes: `MAX_LOG_ENTRIES`, smaller only in tests.
     max_log_entries: u64,
+    /// Members the verified log names but the website's list left out, with the moment (clock
+    /// milliseconds) this device first saw that; kept across connections ([`DEPARTURE_GRACE_MS`]).
+    departed: BTreeMap<MemberId, u64>,
+    /// When this device first saw a rotation due that is not urgent (clock milliseconds); kept
+    /// across connections until the log no longer says one is due.
+    deferred_since: Option<u64>,
+    /// The highest log index a listed device signed as its head while this device's log ended
+    /// before it, with the number of the log fetch that must reach it.
+    ahead: Option<(u64, u64)>,
+    /// Log fetches started, to tell the fetch after [`Engine::ahead`] was noted.
+    log_fetches: u64,
+    /// A fetch after a signed newer head did not reach it: the relay holds back log entries.
+    history_withheld: bool,
 }
 
 impl std::fmt::Debug for Engine {
@@ -889,6 +917,8 @@ impl Engine {
             roster: None,
             website_checked_at: None,
             website_wanted: false,
+            members_checked_at: None,
+            members_wanted: false,
             website_removal: false,
             roster_asked_at: None,
             website_every_ms: setup.website_every_ms,
@@ -936,6 +966,11 @@ impl Engine {
             unknown_fetch_at: None,
             rotated_at: None,
             promotions: Vec::new(),
+            departed: BTreeMap::new(),
+            deferred_since: None,
+            ahead: None,
+            log_fetches: 0,
+            history_withheld: false,
         }
     }
 
@@ -987,6 +1022,15 @@ impl Engine {
                 .is_some_and(|r| role_rank(r) <= role_rank(Role::Admin))
     }
 
+    /// Whether this device reads the website's member list: any device in the log whose
+    /// admission the person confirmed. An owner's or admin's device follows it with log entries;
+    /// any other device notices when the log keeps a member the website removed
+    /// ([`DEPARTURE_GRACE_MS`]), so a relay that withholds the removal cannot keep the old key
+    /// in use for good.
+    fn reads_members(&self) -> bool {
+        self.keys.admitted && self.in_log()
+    }
+
     /// Asks for a website check; `removal`: the relay said this member was removed. At most one
     /// per [`WEBSITE_CHECK_EVERY_MS`]: a later wish waits for the next ping after that.
     fn want_website(&mut self, removal: bool) -> Vec<Effect> {
@@ -995,22 +1039,37 @@ impl Engine {
         self.website_due()
     }
 
-    fn website_due(&mut self) -> Vec<Effect> {
-        if !self.website_wanted {
+    /// Asks for the member list with the next check (it goes out at once): on a new connection,
+    /// after the admission was confirmed and every `members_every_ms`. Those are bounded by the
+    /// reconnect backoff and the interval, not by the events' rate.
+    fn want_members(&mut self) -> Vec<Effect> {
+        if !self.reads_members() {
             return Vec::new();
         }
+        self.members_wanted = true;
+        self.website_due()
+    }
+
+    fn website_due(&mut self) -> Vec<Effect> {
         let now = (self.now)();
         let recent = self
             .website_checked_at
             .is_some_and(|at| now >= at && now - at < self.website_every_ms);
-        if recent {
+        let event = self.website_wanted && !recent;
+        if !event && !self.members_wanted {
             return Vec::new();
         }
-        self.website_checked_at = Some(now);
-        self.website_wanted = false;
-        let removal = std::mem::take(&mut self.website_removal);
-        let members = self.manages();
+        let removal = if event {
+            self.website_checked_at = Some(now);
+            self.website_wanted = false;
+            std::mem::take(&mut self.website_removal)
+        } else {
+            false
+        };
+        self.members_wanted = false;
+        let members = self.reads_members();
         if members {
+            self.members_checked_at = Some(now);
             self.roster_asked_at = self.verifier.state().map(|s| s.head().index);
         }
         vec![Effect::CheckWebsite { removal, members }]
@@ -1180,15 +1239,20 @@ impl Engine {
             self.unknown_fetch_at = Some((self.now)());
             effects.extend(self.sync_log());
         }
-        // The member check of an owner's or admin's device, also when the relay says nothing.
+        // The member check, also when the relay says nothing.
         let now = (self.now)();
         let stale = self
-            .website_checked_at
+            .members_checked_at
             .is_none_or(|at| now < at || now - at >= self.members_every_ms);
-        if self.synced && stale && self.manages() {
-            self.website_wanted = true;
+        if self.synced && stale && self.reads_members() {
+            self.members_wanted = true;
         }
         effects.extend(self.website_due());
+        // A departure or a deferred rotation that waits may have run past its time.
+        let sharing = matches!(self.status, TeamStatus::Connected { .. });
+        if sharing && self.synced && !self.syncing && !self.manages() && self.overdue_at(now) {
+            effects.extend(self.reconcile());
+        }
         // A due rotation that waited (a refusal, or the interval of a deferred one) is tried
         // again from here.
         self.rotate_hold = false;
@@ -1317,8 +1381,13 @@ impl Engine {
             ServerMessage::MemberLogEntries(page) => effects.extend(self.on_entries(page)),
             ServerMessage::Devices(list) => {
                 self.devices_get = false;
-                self.update_pending(list.devices);
+                let unlisted = self.update_pending(list.devices);
                 effects.push(Effect::Changed);
+                // Someone joined on the website after its list was read: read it again (within
+                // the check's rate) so the person is offered without waiting for the next round.
+                if unlisted && self.manages() {
+                    effects.extend(self.want_website(false));
+                }
             }
             ServerMessage::MemberLogAppended(_) => effects.extend(self.sync_log()),
             ServerMessage::KeyRotated(rotated) => {
@@ -1494,6 +1563,7 @@ impl Engine {
             return Vec::new();
         }
         self.syncing = true;
+        self.log_fetches = self.log_fetches.saturating_add(1);
         let after = self.verifier.state().map_or(0, |s| s.head().index);
         vec![self.frame(
             Op::LogGet,
@@ -1566,6 +1636,9 @@ impl Engine {
             }
         }
         let mut effects = Vec::new();
+        if self.check_withheld(head.map_or(0, |h| h.index)) {
+            effects.push(Effect::Changed);
+        }
         let first = !self.synced;
         if first {
             effects.push(Effect::Settled);
@@ -1604,10 +1677,9 @@ impl Engine {
         effects.extend(self.poll_devices());
         effects.extend(self.retry_stashed());
         effects.extend(self.drain_tasks());
-        // An owner's or admin's device compares the members with the website's on every new
-        // connection (within the check's rate).
-        if first && self.manages() {
-            effects.extend(self.want_website(false));
+        // Every admitted device compares the members with the website's on every new connection.
+        if first {
+            effects.extend(self.want_members());
         }
         effects
     }
@@ -1701,6 +1773,7 @@ impl Engine {
             return effects;
         }
         effects.extend(self.wrap_queued());
+        let overdue = self.overdue_key_change(manager);
         let Some(state) = self.verifier.state() else {
             return effects;
         };
@@ -1709,7 +1782,13 @@ impl Engine {
             // the current key may be in the removed one's hands, so nothing new is sealed. A
             // rotation that only removes devices added after the epoch began does not hold
             // sharing: their member had the key anyway (`TeamState::rotation_urgent`).
-            self.status = TeamStatus::WaitingForKeyChange;
+            self.status = TeamStatus::WaitingForKeyChange {
+                reason: KeyChangeWait::Removal,
+            };
+            return effects;
+        }
+        if let Some(reason) = overdue {
+            self.status = TeamStatus::WaitingForKeyChange { reason };
             return effects;
         }
         self.status = TeamStatus::Connected {
@@ -1782,9 +1861,7 @@ impl Engine {
         self.keys.admitted = true;
         let mut effects = vec![Effect::StoreKeys];
         effects.extend(self.reconcile());
-        if self.manages() {
-            effects.extend(self.want_website(false));
-        }
+        effects.extend(self.want_members());
         Ok(effects)
     }
 
@@ -1809,6 +1886,9 @@ impl Engine {
         let Some(role) = state.effective_role(&me.member, self.website_role) else {
             return Vec::new();
         };
+        // A removal needs the place after it for the rotation it makes due (the log refuses it
+        // otherwise as well).
+        let removal_fits = state.head().index.saturating_add(2) <= self.max_log_entries;
         // A list that names neither this member nor the log's owner is not this project's
         // member list (an empty answer, ids of another kind): it removes nobody.
         if !roster.members.contains_key(&me.member) || !roster.members.contains_key(state.owner()) {
@@ -1822,7 +1902,7 @@ impl Engine {
                 continue;
             }
             match roster.members.get(member) {
-                None if entry.added_at <= roster.at => {
+                None if entry.added_at <= roster.at && removal_fits => {
                     candidates.push(EntryKind::RemoveMember {
                         member: member.clone(),
                     });
@@ -1922,6 +2002,110 @@ impl Engine {
         let now = (self.now)();
         self.rotated_at
             .is_none_or(|at| now < at || now - at >= DEFERRED_ROTATION_EVERY_MS)
+    }
+
+    /// Why a device that cannot change the key stops sealing although the log asks for no urgent
+    /// rotation, if it does: the log still names a member the website removed
+    /// [`DEPARTURE_GRACE_MS`] ago (the relay may hold back the remove member entry), or a
+    /// rotation that waits ([`DEFERRED_ROTATION_EVERY_MS`]) is overdue because no owner or admin
+    /// made it. Both are measured from this device's first observation on its own clock.
+    fn overdue_key_change(&mut self, manager: bool) -> Option<KeyChangeWait> {
+        let now = (self.now)();
+        let state = self.verifier.state()?;
+        let me = self.me.as_ref()?;
+        // Departures: only from a list that names this member and the log's owner (the same
+        // sanity rule as for removals), and never a member the log added after the list was
+        // asked for. Without a list nothing new is concluded; departures the log has carried
+        // out are forgotten.
+        let usable = self.roster.as_ref().filter(|r| {
+            r.members.contains_key(&me.member) && r.members.contains_key(state.owner())
+        });
+        match usable {
+            Some(roster) => {
+                let missing: BTreeSet<&MemberId> = state
+                    .members()
+                    .iter()
+                    .filter(|(member, entry)| {
+                        **member != me.member
+                            && *member != state.owner()
+                            && entry.added_at <= roster.at
+                            && !roster.members.contains_key(*member)
+                    })
+                    .map(|(member, _)| member)
+                    .collect();
+                self.departed.retain(|member, _| missing.contains(member));
+                for member in missing {
+                    self.departed.entry(member.clone()).or_insert(now);
+                }
+            }
+            None => self
+                .departed
+                .retain(|member, _| state.member(member).is_some()),
+        }
+        let deferred = state.rotation_due() && !state.rotation_urgent();
+        if !deferred {
+            self.deferred_since = None;
+        } else if self.deferred_since.is_none() {
+            self.deferred_since = Some(now);
+        }
+        // An owner's or admin's device removes the member and rotates itself.
+        if manager {
+            return None;
+        }
+        if self.departure_overdue(now) {
+            return Some(KeyChangeWait::MemberLeft);
+        }
+        if self.deferred_overdue(now) {
+            return Some(KeyChangeWait::Overdue);
+        }
+        None
+    }
+
+    /// Whether a departure or a deferred rotation this device noted has run past its time at
+    /// `now` (the ping then decides again).
+    fn overdue_at(&self, now: u64) -> bool {
+        self.departure_overdue(now) || self.deferred_overdue(now)
+    }
+
+    fn departure_overdue(&self, now: u64) -> bool {
+        self.departed
+            .values()
+            .any(|since| now >= *since && now - since >= DEPARTURE_GRACE_MS)
+    }
+
+    fn deferred_overdue(&self, now: u64) -> bool {
+        self.deferred_since
+            .is_some_and(|since| now >= since && now - since >= DEFERRED_ROTATION_EVERY_MS)
+    }
+
+    /// A listed device signed a head this device's log has not reached; the next log fetch
+    /// must reach it.
+    fn note_ahead(&mut self, ahead: Option<u64>) {
+        let Some(index) = ahead else {
+            return;
+        };
+        if self.ahead.is_some_and(|(known, _)| known >= index) {
+            return;
+        }
+        // `stash` starts the next fetch right after (or after the running one).
+        let next = self.log_fetches.saturating_add(1);
+        self.ahead = Some((index, next));
+    }
+
+    /// After a log fetch ended at `head`: whether the notice that the relay holds back log
+    /// entries changed. Reaching the signed head ends it; a fetch that started after the head
+    /// was noted and still ends before it raises it.
+    fn check_withheld(&mut self, head: u64) -> bool {
+        let before = self.history_withheld;
+        match self.ahead {
+            Some((index, _)) if head >= index => {
+                self.ahead = None;
+                self.history_withheld = false;
+            }
+            Some((_, fetch)) if self.log_fetches >= fetch => self.history_withheld = true,
+            _ => {}
+        }
+        before != self.history_withheld
     }
 
     /// A new epoch for every device; the secret is stored before `key.rotate` leaves.
@@ -2144,21 +2328,23 @@ impl Engine {
             if !new_member || role_rank(role) > role_rank(Role::Admin) {
                 return None;
             }
-            // The website's role when it named one an owner may grant; otherwise member (the
-            // owner's device writes a later change with `reconcile_members`).
-            let listed = self
+            // Only someone the website's list names, when this device has one: the relay alone
+            // must not get anyone offered for admission.
+            if self
                 .roster
                 .as_ref()
-                .and_then(|r| r.members.get(&info.holder.member).copied().flatten());
-            let new_role = match listed {
-                Some(Role::Admin) if role == Role::Owner => Role::Admin,
-                _ => Role::Member,
-            };
+                .is_some_and(|r| !r.members.contains_key(&info.holder.member))
+            {
+                return None;
+            }
+            // Always as a member: a higher role on the website becomes its own confirmation on
+            // the owner's device (`reconcile_members`, `PendingKind::RoleChange`), so confirming
+            // a new device never makes anyone an admin unseen.
             (
                 PendingKind::NewMember,
                 EntryKind::AddMember {
                     member: info.holder.member.clone(),
-                    role: new_role,
+                    role: Role::Member,
                     devices: vec![entry],
                 },
             )
@@ -2173,10 +2359,20 @@ impl Engine {
         }
     }
 
-    fn update_pending(&mut self, devices: Vec<DeviceInfo>) {
+    /// The waiting devices from `devices.get`; `true` when one belongs to a new member the
+    /// website's list does not name (yet).
+    fn update_pending(&mut self, devices: Vec<DeviceInfo>) -> bool {
         let mut pending = Vec::new();
+        let mut unlisted = false;
         for info in devices {
             let Some((kind, _, log_full)) = self.confirmation_body(&info) else {
+                unlisted |= self.verifier.state().is_some_and(|s| {
+                    s.member(&info.holder.member).is_none()
+                        && self
+                            .roster
+                            .as_ref()
+                            .is_some_and(|r| !r.members.contains_key(&info.holder.member))
+                });
                 continue;
             };
             let keys = DevicePublicKeys {
@@ -2207,6 +2403,7 @@ impl Engine {
             });
         }
         self.pending = pending;
+        unlisted
     }
 
     pub fn has_request(&self, id: &str) -> bool {
@@ -2561,7 +2758,7 @@ impl Engine {
         older: bool,
     ) -> Open {
         let Some(state) = self.verifier.state() else {
-            return Open::Later;
+            return Open::Later(None);
         };
         let current = state.current_epoch().map_or(0, |e| e.epoch.0);
         if sealed.epoch.0 < current && !older {
@@ -2572,7 +2769,7 @@ impl Engine {
         let Some(secret) = self.keys.epochs.get(&sealed.epoch) else {
             // An epoch this device has no key for yet (a rotation under way) comes later.
             return if sealed.epoch.0 > current {
-                Open::Later
+                Open::Later(None)
             } else {
                 Open::Failed
             };
@@ -2588,7 +2785,7 @@ impl Engine {
         };
         match cipher.open_verified(state, &context, sealed) {
             Ok(opened) => Open::Opened(opened),
-            Err(OpenError::AheadOfLog { .. }) => Open::Later,
+            Err(OpenError::AheadOfLog { index, signed }) => Open::Later(signed.then_some(index)),
             Err(OpenError::Fork { .. }) => Open::Fork,
             Err(error) => {
                 eprintln!("hangar: team record not opened: {error}");
@@ -2743,12 +2940,13 @@ impl Engine {
                         None => eprintln!("hangar: a teammate's status was not readable"),
                     }
                 }
-                Open::Later if first => {
+                Open::Later(ahead) if first => {
+                    self.note_ahead(ahead);
                     return self.stash(ServerMessage::PresenceUpdate(update));
                 }
                 // Only a record the listed sender signed reports a fork (`open_verified`).
                 Open::Fork => return self.diverged(&update.holder),
-                Open::Later | Open::Failed => {}
+                Open::Later(_) | Open::Failed => {}
             }
         }
         // At most one entry per device the log lists (`listed` above keeps out the others).
@@ -2883,11 +3081,12 @@ impl Engine {
                         }
                     }
                 }
-                Open::Later if first => {
+                Open::Later(ahead) if first => {
+                    self.note_ahead(ahead);
                     return self.stash(ServerMessage::ClaimOverlap(overlap));
                 }
                 Open::Fork => return self.diverged(&overlap.other.holder),
-                Open::Later | Open::Failed => {}
+                Open::Later(_) | Open::Failed => {}
             }
         }
         let hint = overlap
@@ -3002,6 +3201,7 @@ impl Engine {
                 })
             }),
             log_full: self.verifier.state().is_some_and(TeamState::log_full),
+            history_withheld: self.history_withheld,
         }
     }
 
@@ -3877,7 +4077,7 @@ impl Engine {
             true,
         ) {
             Open::Opened(opened) => opened,
-            Open::Later => return NoteOpen::Later,
+            Open::Later(_) => return NoteOpen::Later,
             Open::Fork => return NoteOpen::Fork,
             Open::Failed => return NoteOpen::Keep,
         };
@@ -4545,6 +4745,9 @@ mod tests {
         task_events: Vec<String>,
         /// Every `task.reserve` received.
         reserves: Vec<TaskReserve>,
+        /// Log entries after this index are never handed to this device (a relay holding back
+        /// part of the history).
+        withhold: Option<(Holder, u64)>,
     }
 
     fn team() -> TeamId {
@@ -4576,6 +4779,7 @@ mod tests {
                 clock: 10_000_000,
                 task_events: Vec::new(),
                 reserves: Vec::new(),
+                withhold: None,
             }
         }
 
@@ -4781,10 +4985,15 @@ mod tests {
                     }),
                 )),
                 ClientMessage::MemberLogGet(get) => {
+                    let hidden = self
+                        .withhold
+                        .as_ref()
+                        .filter(|(from, _)| from == sender)
+                        .map_or(u64::MAX, |(_, after)| *after);
                     let entries = self
                         .entries
                         .iter()
-                        .filter(|e| e.index > get.after)
+                        .filter(|e| e.index > get.after && e.index <= hidden)
                         .cloned()
                         .collect::<Vec<_>>();
                     own.push(self.text(
@@ -5903,12 +6112,12 @@ mod tests {
         for _ in 0..100 {
             checks.extend(website_checks(&b1.engine.on_text(&removed)));
         }
-        assert_eq!(checks, vec![(true, false)]);
+        assert_eq!(checks, vec![(true, true)]);
         // The next one waits for a ping after the interval, with the removal remembered.
         assert!(website_checks(&b1.engine.ping()).is_empty());
         b1.clock
             .fetch_add(WEBSITE_CHECK_EVERY_MS, std::sync::atomic::Ordering::SeqCst);
-        assert_eq!(website_checks(&b1.engine.ping()), vec![(true, false)]);
+        assert_eq!(website_checks(&b1.engine.ping()), vec![(true, true)]);
         assert!(website_checks(&b1.engine.ping()).is_empty());
     }
 
@@ -6129,7 +6338,12 @@ mod tests {
             .unwrap();
         run(&mut relay, &mut [&mut b1, &mut b2], vec![(0, remove)]);
         assert_eq!(b2.ended, Some(SessionEnd::Stop(StopReason::Removed)));
-        assert_eq!(b1.engine.status(false), TeamStatus::WaitingForKeyChange);
+        assert_eq!(
+            b1.engine.status(false),
+            TeamStatus::WaitingForKeyChange {
+                reason: KeyChangeWait::Removal
+            }
+        );
         let shared = b1
             .engine
             .set_share(share("Bob", 7, "Codex", &[("src/a.rs", 1, 2)]));
@@ -6144,6 +6358,270 @@ mod tests {
         run(&mut relay, &mut [&mut a1, &mut b1], vec![(0, hello)]);
         assert_eq!(connected(&b1), (3, 2, 2));
         assert!(relay.claim_sets > claims);
+    }
+
+    fn listing(members: &[(&str, Role)]) -> Vec<WebsiteMember> {
+        members
+            .iter()
+            .map(|(member, role)| WebsiteMember {
+                member: MemberId::new(*member).unwrap(),
+                role: Some(*role),
+            })
+            .collect()
+    }
+
+    fn website(role: Role, members: Option<Vec<WebsiteMember>>) -> Website {
+        Website {
+            role,
+            owner: Some(MemberId::new("alice").unwrap()),
+            members,
+        }
+    }
+
+    fn advance(client: &Client, ms: u64) {
+        client
+            .clock
+            .fetch_add(ms, std::sync::atomic::Ordering::SeqCst);
+    }
+
+    fn appended_kind(effects: &[Effect]) -> EntryKind {
+        effects
+            .iter()
+            .find_map(|e| match e {
+                Effect::Send(ClientFrame {
+                    message: ClientMessage::MemberLogAppend(append),
+                    ..
+                }) => Some(EntryBody::decode_unverified(&append.entry).unwrap().kind),
+                _ => None,
+            })
+            .expect("a member log entry")
+    }
+
+    #[test]
+    fn a_new_member_the_website_lists_as_admin_joins_as_member_and_waits_for_the_promotion() {
+        let mut relay = Relay::new();
+        let mut a1 = client("alice", "a1", Role::Owner);
+        let mut b1 = client("bob", "b1", Role::Member);
+        let hello = a1.engine.hello(ticket());
+        run(&mut relay, &mut [&mut a1, &mut b1], vec![(0, hello)]);
+        // The website lists bob as an admin before his first device asks to join.
+        a1.engine.roster_asked_at = Some(a1.engine.state().unwrap().head().index);
+        let list = listing(&[("alice", Role::Owner), ("bob", Role::Admin)]);
+        let effects = a1.engine.set_website(website(Role::Owner, Some(list)));
+        assert!(sends(&effects).is_empty(), "{:?}", sends(&effects));
+        let hello = b1.engine.hello(ticket());
+        run(&mut relay, &mut [&mut a1, &mut b1], vec![(1, hello)]);
+        let poll = a1.engine.poll_devices();
+        run(&mut relay, &mut [&mut a1, &mut b1], vec![(0, poll)]);
+        let pending = a1.engine.pending();
+        assert_eq!(pending.len(), 1);
+        assert_eq!(pending[0].kind, PendingKind::NewMember);
+        // Confirming the device admits bob as a member, whatever the website says.
+        let confirm = a1.engine.confirm(&pending[0].id).unwrap();
+        assert!(matches!(
+            appended_kind(&confirm),
+            EntryKind::AddMember {
+                role: Role::Member,
+                ..
+            }
+        ));
+        run(&mut relay, &mut [&mut a1, &mut b1], vec![(0, confirm)]);
+        let bob = MemberId::new("bob").unwrap();
+        let bob_role = |c: &Client| c.engine.state().unwrap().member(&bob).unwrap().role;
+        assert_eq!(bob_role(&a1), Role::Member);
+        assert_eq!(bob_role(&b1), Role::Member);
+        // The admin role is a confirmation of its own.
+        let pending = a1.engine.pending();
+        assert_eq!(pending.len(), 1);
+        assert_eq!(pending[0].kind, PendingKind::RoleChange);
+        assert_eq!(pending[0].member, "bob");
+        let confirm = a1.engine.confirm(&pending[0].id).unwrap();
+        run(&mut relay, &mut [&mut a1, &mut b1], vec![(0, confirm)]);
+        assert_eq!(bob_role(&a1), Role::Admin);
+        assert!(a1.engine.pending().is_empty());
+    }
+
+    #[test]
+    fn only_people_the_website_lists_are_offered_for_admission() {
+        let mut relay = Relay::new();
+        let mut a1 = client("alice", "a1", Role::Owner);
+        let mut b1 = client("bob", "b1", Role::Member);
+        let hello = a1.engine.hello(ticket());
+        run(&mut relay, &mut [&mut a1, &mut b1], vec![(0, hello)]);
+        a1.engine.roster_asked_at = Some(a1.engine.state().unwrap().head().index);
+        let alone = listing(&[("alice", Role::Owner)]);
+        let effects = a1.engine.set_website(website(Role::Owner, Some(alone)));
+        run(&mut relay, &mut [&mut a1, &mut b1], vec![(0, effects)]);
+        let hello = b1.engine.hello(ticket());
+        run(&mut relay, &mut [&mut a1, &mut b1], vec![(1, hello)]);
+        // The list was just read, for an event and regularly.
+        let now = a1.clock.load(std::sync::atomic::Ordering::SeqCst);
+        a1.engine.website_checked_at = Some(now);
+        a1.engine.members_checked_at = Some(now);
+        let poll = a1.engine.poll_devices();
+        run(&mut relay, &mut [&mut a1, &mut b1], vec![(0, poll)]);
+        // The relay names bob's device; the website does not name bob.
+        assert!(a1.engine.pending().is_empty());
+        // That makes the owner's device read the list again at the next ping after the
+        // interval, not only with the regular member check.
+        advance(&a1, WEBSITE_CHECK_EVERY_MS);
+        assert_eq!(website_checks(&a1.engine.ping()), vec![(false, true)]);
+        let both = listing(&[("alice", Role::Owner), ("bob", Role::Member)]);
+        let effects = a1.engine.set_website(website(Role::Owner, Some(both)));
+        run(&mut relay, &mut [&mut a1, &mut b1], vec![(0, effects)]);
+        let poll = a1.engine.poll_devices();
+        run(&mut relay, &mut [&mut a1, &mut b1], vec![(0, poll)]);
+        let pending = a1.engine.pending();
+        assert_eq!(pending.len(), 1);
+        assert_eq!(pending[0].kind, PendingKind::NewMember);
+    }
+
+    /// Alice, bob and carol; the website removes carol, alice's device writes the removal and
+    /// the rotation, and the relay hands neither to bob's device. Returns bob's log head.
+    fn withheld_removal() -> (Relay, Client, Client, u64) {
+        let (mut relay, mut a1, mut b1) = team_of_two();
+        let mut c1 = carol_joins(&mut relay, &mut a1, &mut b1);
+        assert_eq!(connected(&b1), (1, 3, 3));
+        let head = b1.engine.state().unwrap().head().index;
+        relay.withhold = Some((b1.holder.clone(), head));
+        a1.engine.roster_asked_at = Some(head);
+        let list = listing(&[("alice", Role::Owner), ("bob", Role::Member)]);
+        let effects = a1.engine.set_website(website(Role::Owner, Some(list)));
+        assert!(matches!(
+            appended_kind(&effects),
+            EntryKind::RemoveMember { .. }
+        ));
+        run(
+            &mut relay,
+            &mut [&mut a1, &mut b1, &mut c1],
+            vec![(0, effects)],
+        );
+        assert_eq!(connected(&a1), (2, 2, 2));
+        assert_eq!(connected(&b1), (1, 3, 3), "bob's device never saw it");
+        (relay, a1, b1, head)
+    }
+
+    #[test]
+    fn a_removal_the_relay_withholds_stops_member_devices_after_the_grace_period() {
+        let (mut relay, _a1, mut b1, head) = withheld_removal();
+        // Bob's device reads the website's list as well, on connecting and every interval.
+        b1.engine.roster_asked_at = Some(head);
+        let list = listing(&[("alice", Role::Owner), ("bob", Role::Member)]);
+        let effects = b1.engine.set_website(website(Role::Member, Some(list)));
+        assert!(sends(&effects).is_empty(), "{:?}", sends(&effects));
+        assert_eq!(connected(&b1).0, 1);
+        advance(&b1, DEPARTURE_GRACE_MS - 1);
+        b1.engine.ping();
+        assert_eq!(connected(&b1).0, 1, "within the grace period");
+        advance(&b1, 1);
+        b1.engine.ping();
+        assert_eq!(
+            b1.engine.status(false),
+            TeamStatus::WaitingForKeyChange {
+                reason: KeyChangeWait::MemberLeft
+            }
+        );
+        let shared = b1
+            .engine
+            .set_share(share("Bob", 7, "Codex", &[("src/a.rs", 1, 2)]));
+        assert!(sends(&shared).is_empty(), "{:?}", sends(&shared));
+        // The relay hands the history over: the new key opens and sharing goes on.
+        relay.withhold = None;
+        let sync = b1.engine.sync_log();
+        run(&mut relay, &mut [&mut b1], vec![(0, sync)]);
+        assert_eq!(connected(&b1), (2, 2, 2));
+    }
+
+    #[test]
+    fn without_the_websites_member_list_a_member_device_goes_on() {
+        let (_relay, _a1, mut b1, _head) = withheld_removal();
+        // The website answers without a member list (an older server answers 404): absence
+        // is no removal.
+        let effects = b1.engine.set_website(website(Role::Member, None));
+        assert!(sends(&effects).is_empty(), "{:?}", sends(&effects));
+        for _ in 0..3 {
+            advance(&b1, DEPARTURE_GRACE_MS);
+            let checks = website_checks(&b1.engine.ping());
+            assert_eq!(checks, vec![(false, true)], "it keeps asking");
+            b1.engine.set_website(website(Role::Member, None));
+        }
+        assert_eq!(connected(&b1), (1, 3, 3));
+    }
+
+    #[test]
+    fn a_deferred_rotation_no_owner_or_admin_makes_stops_member_devices_after_its_interval() {
+        let mut relay = Relay::new();
+        let mut a1 = client("alice", "a1", Role::Owner);
+        let mut b1 = client("bob", "b1", Role::Member);
+        let mut b2 = client("bob", "b2", Role::Member);
+        let hello = a1.engine.hello(ticket());
+        run(&mut relay, &mut [&mut a1, &mut b1], vec![(0, hello)]);
+        let hello = b1.engine.hello(ticket());
+        run(&mut relay, &mut [&mut a1, &mut b1], vec![(1, hello)]);
+        let poll = a1.engine.poll_devices();
+        run(&mut relay, &mut [&mut a1, &mut b1], vec![(0, poll)]);
+        let pending = a1.engine.pending().into_iter().next().unwrap();
+        let confirm = a1.engine.confirm(&pending.id).unwrap();
+        run(&mut relay, &mut [&mut a1, &mut b1], vec![(0, confirm)]);
+        // Bob adds a second device after the key was handed out, then removes it while no
+        // owner or admin is online: due, not urgent.
+        let hello = b2.engine.hello(ticket());
+        run(&mut relay, &mut [&mut b1, &mut b2], vec![(1, hello)]);
+        let poll = b1.engine.poll_devices();
+        run(&mut relay, &mut [&mut b1, &mut b2], vec![(0, poll)]);
+        let pending = b1.engine.pending().into_iter().next().unwrap();
+        let confirm = b1.engine.confirm(&pending.id).unwrap();
+        run(&mut relay, &mut [&mut b1, &mut b2], vec![(0, confirm)]);
+        assert_eq!(connected(&b2), (1, 2, 3));
+        let remove = b1
+            .engine
+            .remove_own_device(&DeviceId::new("b2").unwrap())
+            .unwrap();
+        run(&mut relay, &mut [&mut b1, &mut b2], vec![(0, remove)]);
+        let state = b1.engine.state().unwrap();
+        assert!(state.rotation_due() && !state.rotation_urgent());
+        assert_eq!(connected(&b1).0, 1);
+        advance(&b1, DEFERRED_ROTATION_EVERY_MS - 1);
+        b1.engine.ping();
+        assert_eq!(connected(&b1).0, 1, "within the interval sharing goes on");
+        advance(&b1, 1);
+        b1.engine.ping();
+        assert_eq!(
+            b1.engine.status(false),
+            TeamStatus::WaitingForKeyChange {
+                reason: KeyChangeWait::Overdue
+            }
+        );
+        let shared = b1
+            .engine
+            .set_share(share("Bob", 7, "Codex", &[("src/a.rs", 1, 2)]));
+        assert!(sends(&shared).is_empty(), "{:?}", sends(&shared));
+        // The owner's device comes back and changes the key: bob's device shares again.
+        advance(&a1, DEFERRED_ROTATION_EVERY_MS);
+        let hello = a1.engine.hello(ticket());
+        run(&mut relay, &mut [&mut a1, &mut b1], vec![(0, hello)]);
+        assert_eq!(connected(&b1), (2, 2, 2));
+    }
+
+    #[test]
+    fn a_signed_newer_head_the_relay_does_not_hand_over_shows_held_back_history() {
+        let (mut relay, mut a1, mut b1) = team_of_two();
+        let head = b1.engine.state().unwrap().head().index;
+        relay.withhold = Some((b1.holder.clone(), head));
+        let _c1 = carol_joins(&mut relay, &mut a1, &mut b1);
+        assert!(a1.engine.state().unwrap().head().index > head);
+        // Fetches without a signed newer head say nothing.
+        assert!(!b1.engine.activity().history_withheld);
+        let effects = b1.engine.on_text(&honest_status(&relay, &mut a1));
+        assert!(log_get(&effects).is_some(), "{effects:?}");
+        run(&mut relay, &mut [&mut b1], vec![(0, effects)]);
+        assert!(b1.engine.activity().history_withheld);
+        assert_eq!(connected(&b1).0, 1, "a notice, no stop");
+        // Once the relay hands the entries over, the notice goes.
+        relay.withhold = None;
+        let sync = b1.engine.sync_log();
+        run(&mut relay, &mut [&mut b1], vec![(0, sync)]);
+        assert!(!b1.engine.activity().history_withheld);
     }
 
     #[test]
@@ -6326,7 +6804,12 @@ mod tests {
             queue.push(a1.engine.ping());
         }
         assert_eq!(rotations, 2);
-        assert_eq!(a1.engine.status(false), TeamStatus::WaitingForKeyChange);
+        assert_eq!(
+            a1.engine.status(false),
+            TeamStatus::WaitingForKeyChange {
+                reason: KeyChangeWait::Removal
+            }
+        );
         drop(b1);
     }
 
@@ -6385,7 +6868,9 @@ mod tests {
         reserve(&mut relay, &mut [&mut a1, &mut b1], 0, "Fix login", None);
         let task = b1.engine.activity().tasks[0].task.clone();
         assert!(b1.engine.attempts.is_empty());
-        b1.engine.status = TeamStatus::WaitingForKeyChange;
+        b1.engine.status = TeamStatus::WaitingForKeyChange {
+            reason: KeyChangeWait::Removal,
+        };
         assert_eq!(b1.engine.ask_release(&task).err(), Some(TeamError::Busy));
         assert!(
             b1.engine.attempts.is_empty(),

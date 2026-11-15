@@ -15,7 +15,8 @@ the app wires storage and transport later; the relay depends on it for the membe
 checks. Byte formats are in each module's doc comment; this page records the decisions and the
 threat model. Not reviewed externally yet: a review is a release blocker. Hardened after an
 internal security review (2026-11-09); the findings' ids (H1 to L7) are cited below. A second
-round on the app side (2026-11-15, ids M1 to N9 with the prefix "round 2") is cited the same way.
+round on the app side (2026-11-15, ids M1 to N9 with the prefix "round 2") is cited the same way,
+and so is a third (2026-11-15, ids M-1 to N-4, prefix "round 3").
 
 ## Building blocks
 
@@ -100,7 +101,10 @@ A.2.1 test.
   `key.rotate`, and one member cannot fill the team's device budget.
 - **Log length** (round 2, M1). A log has at most `MAX_LOG_ENTRIES` (8192) entries; the last
   `RESERVED_LOG_ENTRIES` (64) places take only remove member and rotate epoch entries, so an
-  owner or admin can still remove the member who filled the log and change the key. Beyond,
+  owner or admin can still remove the member who filled the log and change the key. The very
+  last place takes only a rotate epoch entry (round 3, N-3): a remove member entry needs a place
+  after it for the rotation it makes due, so a log can never end with a removal it cannot follow
+  with a key change; an owner's or admin's device does not even try such a removal. Beyond,
   `LogError::LogFull` (`limit`); the relay refuses such appends through the same verifier, and a
   client given a longer log than that stops with `AttentionReason::LogFull`. Every device
   verifies the whole log on each connection, so its length must stay bounded; 8192 entries are a
@@ -215,8 +219,45 @@ A.2.1 test.
   new member). The list failing (no answer, an older
   server without the endpoint) only skips this step; a relay that refuses such an entry stops
   further ones until the next list. A list that names neither the reading member nor the log's
-  owner (an empty answer, ids of another kind) removes nobody. Members are never removed by hand in the app; a person
-  removes a lost device of their own ("Remove device" in the Team view, `device.remove`).
+  owner (an empty answer, ids of another kind) removes nobody. A list that says it is only part
+  of one (round 3, N-2: `next`, `next_cursor` or `cursor` set, `has_more` other than `false`,
+  `total` other than the number of entries, `page` without such a `total`) counts as no answer,
+  for `/members` and for `/projects` alike, so a partial list never removes a member and never
+  makes a project look gone (which would retire the team's keys). Members are never removed by
+  hand in the app; a person removes a lost device of their own ("Remove device" in the Team
+  view, `device.remove`).
+- **New members join as members** (round 3, M-1). Confirming a new member's first device always
+  writes the add member entry with the member role, whatever the website lists; a higher role
+  there then shows as its own confirmation on the owner's device (`PendingKind::RoleChange`), so
+  confirming a device never makes anyone an admin unseen (before, a card without any role on it
+  admitted an admin). When the device has the website's list, only someone it names is offered
+  for admission at all (round 3, N-4): a device of anyone else the relay reports stays hidden
+  and makes the device read the list again (within the 30 second rate), so a person who just
+  joined on the website is offered soon.
+- **Every admitted device watches the website's list** (round 3, M-2). A relay that withholds a
+  remove member entry and the rotation after it from some devices would let a member the
+  website removed keep reading what those devices seal. So every device whose admission the
+  person confirmed reads the member list too (on each connection and every 10 minutes, same
+  rate as owners and admins; these regular reads have their own budget apart from the 30 second
+  rate of event checks, so reading the list on connecting never delays the check a
+  `member.removed` of this member asks for). When the log still names a member the list left out (only a list
+  that names this member and the log's owner, never a member the log added after the list was
+  asked for) for longer than `DEPARTURE_GRACE_MS` (10 minutes on this device's clock, from the
+  first list that left the member out), a device that cannot remove members itself seals
+  nothing new (`TeamStatus::WaitingForKeyChange` with `KeyChangeWait::MemberLeft`: "the team
+  key has not been changed since a member left; waiting for the owner or an admin"); receiving
+  goes on. It ends when the log removes the member (then the urgent rotation decides), or when
+  the list names the member again. Without a list (no answer, a server without the endpoint)
+  nothing is concluded and sharing goes on; absence of the list is no removal. A read that fails
+  after a list was read keeps the last list in force until the next one answers. Observations
+  live in memory: a restart of the app starts the grace period again.
+- **Held back history is shown** (round 3, M-2). A teammate's record whose log head lies beyond
+  this device's log makes it fetch the log (`AheadOfLog`). When the record's signature verifies
+  under the sender's current keys (`AheadOfLog { signed: true }`; the keys valid at that index
+  are not known yet, so the current ones are the best check) and the next log fetch still ends
+  before that head, the Team view says calmly that the server holds back part of the team
+  history (`TeamActivity::history_withheld`); it goes once a fetch reaches the head. It is a
+  notice only and stops nothing: a member could sign a head far ahead and raise it on purpose.
 - **Admission is confirmed** (third review, H2). A device the log lists but that another device
   admitted shares nothing (no presence, claims, reservations, confirmations, removals) until the
   person compares two numbers with the admitting device and confirms: that device's safety
@@ -249,8 +290,17 @@ A.2.1 test.
   checked on each ping), and sharing goes on meanwhile. Whether the removed device ever received
   a `key.wrap` is not used: a member may wrap to its own devices (`relay::check_wrap`), and the
   relay's `key.wrapped` events are unsigned. Accepted consequence: a lost device added after the
-  epoch began keeps the current key for up to 10 more minutes of sharing. Removing a member, or a
-  device from before the epoch, rotates at once as before.
+  epoch began keeps the current key for up to 10 more minutes of sharing while an owner or admin
+  is online. Without one the wait is bounded too (round 3, N-1): a device that cannot rotate
+  notes when it first saw the deferred rotation, and `DEFERRED_ROTATION_EVERY_MS` later it treats
+  it as urgent and seals nothing new (`KeyChangeWait::Overdue`) until an owner or admin rotates;
+  so such a device keeps the key for at most about 10 minutes of sharing, however long the
+  managers stay away. Removing a member, or a device from before the epoch, rotates at once as
+  before.
+- **Rejected confirmations are remembered up to a bound** (round 3, info). The state file keeps
+  the ids of rejected device and role confirmations, at most 256, oldest dropped first. A relay
+  or member that makes more than 256 different requests can bring an old rejected one back into
+  view; it still needs a person to confirm it, so the bound stays.
 - **Rotation retries are bounded** (round 2, N3). A refused `key.rotate` counts per connection;
   after two refusals the device does not rotate again until it reconnects. A refusal other than
   `conflict` or `staleEpoch` (another rotation came first, which the log decides at once) waits
@@ -294,9 +344,10 @@ A.2.1 test.
   `memberlog.append`.
 - Rotating a device's own X25519 key is future work (L4): today a device keeps its keys until it
   is removed and added again under a new id.
-- Follow the website's member list on an owner's or admin's device, show the admission check
-  before the first share, and seal nothing while a rotation is due that this device cannot make
-  (decisions above).
+- Follow the website's member list on an owner's or admin's device, watch it on every other
+  admitted device, show the admission check before the first share, and seal nothing while a
+  rotation is due that this device cannot make, or while a departure or a deferred rotation is
+  overdue (decisions above).
 
 ## Trust of relay events in the app
 
@@ -336,7 +387,9 @@ Adds to the relay's view in [[team-protocol]] (threat model section):
   member without that member's consent, even as owner or admin.
 - **Can** withhold new log entries or fork the log per member: detected when a record crosses
   the fork, or by comparing log safety numbers; the sides of a fork cannot read each other's
-  records. It can replay old records (the app's `ReplayGuard` refuses them where order holds),
+  records. Withholding a removal ends in a stop of sealing on every device that watches the
+  website's list (10 minutes after it first saw the departure); withholding entries a teammate
+  signed a head for shows as held back history. It can replay old records (the app's `ReplayGuard` refuses them where order holds),
   and drop or delay anything.
 - **Members** keep what they saw after removal; the next rotation locks them out of new content.
   A removed device can still seal records naming an old log head until the next rotation (the
@@ -348,7 +401,8 @@ Adds to the relay's view in [[team-protocol]] (threat model section):
 
 ## Tests
 
-68 unit tests (round 2 added the log cap with its reserved places and `rotation_urgent`): whole-team flows where every entry passes the relay's `admit` (a removal through
+69 unit tests (round 2 added the log cap with its reserved places and `rotation_urgent`, round 3
+the last place kept for the rotation and the signed flag of `AheadOfLog`): whole-team flows where every entry passes the relay's `admit` (a removal through
 `admit_device_remove`) and a client's `apply` with the same verdict (create, add, rotate as one
 unit, unwrap on every device, records across devices, removal and history, `key.wrap` with
 garbage packages first, recovery and its limits), every log rule and binding, proofs and
@@ -438,8 +492,12 @@ Further questions from the hardening round:
   new devices and members (see Log length). A log compaction or an owner-signed restart of the
   log would remove that dead end; neither is designed yet.
 - The website must offer `GET /api/v1/projects/{id}/members` (members with their roles, for any
-  member of the project) for the log to follow removals on the website; until it does, a member
-  removed there keeps receiving new epoch keys (server work, outside this repository).
+  member of the project, not only owners and admins) for the log to follow removals on the
+  website and for member devices to notice a withheld removal; until it does, a member removed
+  there keeps receiving new epoch keys (server work, outside this repository).
+- **Server requirement** (round 3, N-2): `/members` and `/projects` must answer with the whole
+  list in one response. A response with paging markers is refused as incomplete, so paging
+  would turn off following the website.
 - Ownership changes on the website stop the team (`OwnerMismatch`) until ownership transfer
   exists in the log.
 - Ownership transfer is not part of version 1 (L7).
