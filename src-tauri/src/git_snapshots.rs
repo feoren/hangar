@@ -3245,8 +3245,15 @@ mod tests {
         )
         .unwrap();
         let done = clean_up(&fx.env(), Some(&keep));
-        assert_eq!(done.side_repos, 1);
-        assert!(!side.exists());
+        // Gone for sure only where its drive can be seen (a local drive letter); on Unix a side
+        // repository with fresh snapshots stays (`a_missing_drive_keeps_its_snapshots`).
+        if cfg!(windows) {
+            assert_eq!(done.side_repos, 1);
+            assert!(!side.exists());
+        } else {
+            assert_eq!(done.side_repos, 0);
+            assert!(side.exists());
+        }
     }
 
     /// A link (junction on Windows) at `link` to the folder `target`.

@@ -235,6 +235,8 @@ pub fn system_local_day(secs: i64) -> Option<Day> {
 /// The day of `secs` in the user's time zone (`TZ` or the system zone), daylight saving included.
 #[cfg(unix)]
 pub fn system_local_day(secs: i64) -> Option<Day> {
+    // `time_t` is 64 bits on the supported targets but 32 bits on some Unix ones.
+    #[allow(clippy::useless_conversion)]
     let time: libc::time_t = secs.try_into().ok()?;
     // SAFETY: `tm` is a plain C struct for which all zero bytes are a valid value.
     let mut tm: libc::tm = unsafe { std::mem::zeroed() };
