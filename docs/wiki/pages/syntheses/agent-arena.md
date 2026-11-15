@@ -53,6 +53,13 @@ ordinary sessions.
 Every call checks the worktree record like `remove_worktree` (shape, inside Hangar's worktrees
 folder, local git folders) and additionally that the branch is an arena branch.
 
+**Errors:** an `ArenaError` of its own reaches the window as `[arena_<kind>] English text` (the
+form of `ManagerError`); errors passed through from git and worktree keep their text without a
+code. `arenaErrorText` (`src/arena.ts`) shows each code as a translated sentence, the common git
+errors as for `create_worktree`, and anything else as "Unknown error", so no English text reaches
+the user. `arena_program_not_found` keeps the fixed text `The program <name> was not found`, from
+which the window reads the program name.
+
 **Diff stats:** `git diff --numstat --no-renames <base> --` in the worktree covers committed,
 staged and unstaged changes; new files come from `ls-files --others --exclude-standard` (ignored
 files such as build output stay out) and are counted by lines in Hangar (a NUL byte or more than

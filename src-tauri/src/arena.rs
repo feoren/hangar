@@ -81,9 +81,36 @@ pub enum ArenaError {
     Spawn(String),
 }
 
+impl ArenaError {
+    /// Stable code the frontend translates (`arenaErrorText` in arena.ts). Errors passed through
+    /// from git and worktree keep their own text and have none.
+    fn code(&self) -> Option<&'static str> {
+        match self {
+            Self::Worktree(_) | Self::Git(_) => None,
+            Self::Count => Some("arena_count"),
+            Self::NoCommit => Some("arena_no_commit"),
+            Self::NotArena => Some("arena_not_arena"),
+            Self::Missing => Some("arena_missing"),
+            Self::NothingToApply => Some("arena_nothing_to_apply"),
+            Self::TooLarge => Some("arena_too_large"),
+            Self::Apply(_) => Some("arena_apply"),
+            Self::Copy { .. } => Some("arena_copy"),
+            Self::Command(_) => Some("arena_command"),
+            Self::ProgramNotFound(_) => Some("arena_program_not_found"),
+            Self::Batch(_) => Some("arena_unsafe_batch"),
+            Self::Spawn(_) => Some("arena_spawn"),
+        }
+    }
+}
+
+/// Errors reach the frontend as readable text, prefixed with `[code] ` when they have a code
+/// (the same form as `ManagerError`).
 impl Serialize for ArenaError {
     fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
-        serializer.serialize_str(&self.to_string())
+        match self.code() {
+            Some(code) => serializer.serialize_str(&format!("[{code}] {self}")),
+            None => serializer.serialize_str(&self.to_string()),
+        }
     }
 }
 
@@ -878,6 +905,68 @@ mod tests {
     use super::*;
     use crate::git::tests::{git, git_ok, init_repo};
     use crate::test_support::TempDir;
+
+    fn serialized(error: &ArenaError) -> String {
+        match serde_json::to_value(error) {
+            Ok(serde_json::Value::String(text)) => text,
+            other => panic!("not a string: {other:?}"),
+        }
+    }
+
+    #[test]
+    fn own_errors_carry_a_stable_code() {
+        let cases = [
+            (ArenaError::Count, "arena_count"),
+            (ArenaError::NoCommit, "arena_no_commit"),
+            (ArenaError::NotArena, "arena_not_arena"),
+            (ArenaError::Missing, "arena_missing"),
+            (ArenaError::NothingToApply, "arena_nothing_to_apply"),
+            (ArenaError::TooLarge, "arena_too_large"),
+            (ArenaError::Apply("conflict".to_owned()), "arena_apply"),
+            (
+                ArenaError::Copy {
+                    path: "a.txt".to_owned(),
+                    reason: "outside".to_owned(),
+                },
+                "arena_copy",
+            ),
+            (ArenaError::Command("empty".to_owned()), "arena_command"),
+            (
+                ArenaError::ProgramNotFound("pnpm".to_owned()),
+                "arena_program_not_found",
+            ),
+            (
+                ArenaError::Batch(UnsafeBatch {
+                    part: batch::Part::Argument(1),
+                    found: '&',
+                }),
+                "arena_unsafe_batch",
+            ),
+            (ArenaError::Spawn("denied".to_owned()), "arena_spawn"),
+        ];
+        let mut codes = BTreeSet::new();
+        for (error, code) in &cases {
+            assert_eq!(error.code(), Some(*code), "{error}");
+            assert_eq!(serialized(error), format!("[{code}] {error}"));
+            assert!(codes.insert(*code), "duplicate code {code}");
+        }
+    }
+
+    #[test]
+    fn missing_program_names_it_in_a_fixed_form() {
+        // arena.ts reads the program back from exactly this text.
+        assert_eq!(
+            serialized(&ArenaError::ProgramNotFound("pnpm".to_owned())),
+            "[arena_program_not_found] The program pnpm was not found"
+        );
+    }
+
+    #[test]
+    fn passed_through_errors_keep_their_own_text() {
+        let error = ArenaError::Git(GitError::InvalidCommit);
+        assert_eq!(error.code(), None);
+        assert_eq!(serialized(&error), error.to_string());
+    }
 
     fn labels(names: &[&str]) -> Vec<String> {
         names.iter().map(|name| (*name).to_owned()).collect()

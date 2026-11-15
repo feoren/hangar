@@ -183,10 +183,15 @@ export function removalErrorNotice(
  */
 export function createErrorText(error: unknown, t: Translate): string {
   const message = errorText(error);
+  return knownWorktreeErrorText(message, t) ?? t("worktree.createFailed", { error: message });
+}
+
+/** The translated sentence for a common git or worktree error, `null` for any other. */
+export function knownWorktreeErrorText(message: string, t: Translate): string | null {
   if (message.includes("git was not found")) return t("worktree.noGit");
   if (message.includes("not inside a git repository")) return t("worktree.notRepo");
   if (message.includes("network share or device")) return t("worktree.share");
-  return t("worktree.createFailed", { error: message });
+  return null;
 }
 
 /**

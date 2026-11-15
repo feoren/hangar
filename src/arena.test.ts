@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  arenaErrorText,
   arenaProblem,
   canApply,
   clockText,
@@ -21,6 +22,7 @@ import {
   type DiffStat,
   type Standing,
 } from "./arena";
+import { createTranslator } from "./i18n";
 
 const SHA = "a".repeat(40);
 const worktree = (agent: string) => ({
@@ -208,5 +210,51 @@ describe("comparison", () => {
     expect(arenaProblem("fix it", 5, "C:\\src")).toBe("agents");
     expect(arenaProblem("fix it", 2, null)).toBe("folder");
     expect(arenaProblem("fix it", 4, "C:\\src")).toBeNull();
+  });
+});
+
+describe("arenaErrorText", () => {
+  const de = createTranslator("de");
+
+  it("translates every code of the backend", () => {
+    const cases: [string, string][] = [
+      ["[arena_count] An arena needs 2 to 4 agents", de("arena.errorCount", { min: 2, max: 4 })],
+      ["[arena_no_commit] The repository has no commit yet", de("arena.errorNoCommit")],
+      ["[arena_not_arena] This worktree does not belong to an arena", de("arena.errorNotArena")],
+      ["[arena_missing] The contestant's worktree no longer exists", de("arena.errorMissing")],
+      ["[arena_nothing_to_apply] The contestant changed nothing", de("arena.errorNothing")],
+      ["[arena_too_large] The changes are too large to take over", de("arena.errorTooLarge")],
+      ["[arena_apply] git could not apply the changes: patch failed", de("arena.errorApply")],
+      ["[arena_copy] a.txt cannot be taken over: outside", de("arena.errorCopy")],
+      ["[arena_command] The test command is not usable: empty", de("arena.errorCommand")],
+      ["[arena_unsafe_batch] Argument 1 contains '&'", de("arena.errorUnsafe")],
+      ["[arena_spawn] The test command could not be started: denied", de("arena.errorSpawn")],
+    ];
+    for (const [message, text] of cases) expect(arenaErrorText(message, de)).toBe(text);
+    expect(de("arena.errorCount", { min: 2, max: 4 })).toBe("Eine Arena braucht 2 bis 4 Agenten.");
+  });
+
+  it("names the missing program", () => {
+    expect(arenaErrorText("[arena_program_not_found] The program pnpm was not found", de)).toBe(
+      "pnpm wurde nicht gefunden. Ist es installiert und im PATH?",
+    );
+    expect(arenaErrorText("[arena_program_not_found] Something else", de)).toBe(
+      de("arena.errorNoProgram"),
+    );
+  });
+
+  it("translates common git errors passed through", () => {
+    expect(arenaErrorText("git was not found on PATH", de)).toBe(de("worktree.noGit"));
+    expect(arenaErrorText("This folder is not inside a git repository", de)).toBe(
+      de("worktree.notRepo"),
+    );
+  });
+
+  it("never shows English for anything else", () => {
+    const unknown = de("error.unknown");
+    expect(arenaErrorText("[arena_later] A new kind", de)).toBe(unknown);
+    expect(arenaErrorText("fatal: bad object HEAD", de)).toBe(unknown);
+    expect(arenaErrorText(new Error("invoke failed"), de)).toBe(unknown);
+    expect(arenaErrorText(null, de)).toBe(unknown);
   });
 });

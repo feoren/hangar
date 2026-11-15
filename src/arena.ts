@@ -5,7 +5,9 @@
 
 import type { Worktree } from "./api";
 import type { AttentionState } from "./attention";
-import { parseWorktree } from "./worktree";
+import { splitBackendError } from "./backendError";
+import type { MessageKey, Translate } from "./i18n";
+import { knownWorktreeErrorText, parseWorktree } from "./worktree";
 
 export const ARENA_MIN = 2;
 export const ARENA_MAX = 4;
@@ -327,4 +329,41 @@ export function others(
   existing: ReadonlySet<number>,
 ): Contestant[] {
   return arena.contestants.filter((c) => c.sessionId !== winnerId && existing.has(c.sessionId));
+}
+
+/** Codes of `ArenaError` (arena.rs) with a sentence of their own. */
+const ERROR_MESSAGES: ReadonlyMap<string, MessageKey> = new Map<string, MessageKey>([
+  ["arena_no_commit", "arena.errorNoCommit"],
+  ["arena_not_arena", "arena.errorNotArena"],
+  ["arena_missing", "arena.errorMissing"],
+  ["arena_nothing_to_apply", "arena.errorNothing"],
+  ["arena_too_large", "arena.errorTooLarge"],
+  ["arena_apply", "arena.errorApply"],
+  ["arena_copy", "arena.errorCopy"],
+  ["arena_command", "arena.errorCommand"],
+  ["arena_unsafe_batch", "arena.errorUnsafe"],
+  ["arena_spawn", "arena.errorSpawn"],
+]);
+
+/** The backend's fixed text for `arena_program_not_found` (pinned by a test in arena.rs). */
+const PROGRAM_NOT_FOUND = /^The program (.+) was not found$/;
+
+/**
+ * Clear text for a failed arena command, in the window's language. The backend answers
+ * `[code] English text`; known codes and common git errors get their own sentence, anything
+ * else a general one, so no English reaches the user.
+ */
+export function arenaErrorText(error: unknown, t: Translate): string {
+  if (typeof error !== "string") return t("error.unknown");
+  const split = splitBackendError(error);
+  if (split === null) return knownWorktreeErrorText(error, t) ?? t("error.unknown");
+  if (split.code === "arena_count") {
+    return t("arena.errorCount", { min: ARENA_MIN, max: ARENA_MAX });
+  }
+  if (split.code === "arena_program_not_found") {
+    const program = PROGRAM_NOT_FOUND.exec(split.text)?.[1];
+    return program === undefined ? t("arena.errorNoProgram") : t("arena.errorProgram", { program });
+  }
+  const key = ERROR_MESSAGES.get(split.code);
+  return key === undefined ? t("error.unknown") : t(key);
 }

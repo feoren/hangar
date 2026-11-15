@@ -61,6 +61,7 @@ import { Badge } from "./Badge";
 import { broadcastCandidates, defaultTargets, sendToTargets } from "./broadcast";
 import { BroadcastDialog } from "./BroadcastDialog";
 import {
+  arenaErrorText,
   contestantState,
   newContestant,
   others,
@@ -2657,7 +2658,7 @@ export function App() {
         } else if (discard) {
           api.arenaDiscard(worktree).catch((e: unknown) => {
             setWorktreeNotice({
-              message: tr("arena.discardFailed", { error: errorText(e) }),
+              message: tr("arena.discardFailed", { error: arenaErrorText(e, tr) }),
               path: worktree.path,
               copied: false,
             });
@@ -4109,7 +4110,10 @@ export function App() {
           }));
         })
         .catch((e: unknown) => {
-          updateContestant(id, (c) => ({ ...c, tests: { kind: "error", message: errorText(e) } }));
+          updateContestant(id, (c) => ({
+            ...c,
+            tests: { kind: "error", message: arenaErrorText(e, t) },
+          }));
         });
     },
     [updateContestant, t],
@@ -4144,7 +4148,7 @@ export function App() {
         ),
       );
     } catch (e) {
-      return createErrorText(e, t);
+      return arenaErrorText(e, t);
     }
     if (setup === null) return t("error.unknown");
     const failures: string[] = [];
@@ -4195,7 +4199,7 @@ export function App() {
       );
       return outcome ?? t("error.unknown");
     } catch (e) {
-      return errorText(e);
+      return arenaErrorText(e, t);
     }
   };
 
