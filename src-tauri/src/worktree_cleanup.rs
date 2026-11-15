@@ -217,12 +217,31 @@ pub fn classify(facts: &Facts) -> CleanupState {
     }
 }
 
-/// A session's folder is `path` or lies inside it.
+/// A session's folder is `path` or lies inside it, by the text or, when that differs, by the
+/// resolved paths: a session may name the worktree through a junction, a symlink or an 8.3
+/// short name, and removing the folder under it would lose its work. Paths on a network share
+/// are compared by their text alone, so the check never reaches out to another host.
 pub fn in_use(path: &Path, occupied: &[PathBuf]) -> bool {
     let key = git::path_key(path);
-    occupied
+    if occupied
         .iter()
         .any(|folder| git::key_within(&git::path_key(folder), &key))
+    {
+        return true;
+    }
+    let resolved = |path: &Path| {
+        (!git::is_remote(path))
+            .then(|| fs::canonicalize(path).ok())
+            .flatten()
+            .map(|real| git::path_key(&real))
+    };
+    let Some(real) = resolved(path) else {
+        return false;
+    };
+    occupied
+        .iter()
+        .filter_map(|folder| resolved(folder))
+        .any(|folder| git::key_within(&folder, &real))
 }
 
 /// How long a freshly created worktree counts as in use without a session in it. Starting a
@@ -936,6 +955,43 @@ mod tests {
         assert!(!in_use(&path, &[tmp.path().join("wt-other")]));
         assert!(!in_use(&path, &[tmp.path().to_path_buf()]));
         assert!(!in_use(&path, &[]));
+    }
+
+    #[cfg(unix)]
+    fn link_dir(target: &Path, link: &Path) -> bool {
+        std::os::unix::fs::symlink(target, link).is_ok()
+    }
+
+    /// A junction needs no privilege on Windows, unlike a directory symlink.
+    #[cfg(windows)]
+    fn link_dir(target: &Path, link: &Path) -> bool {
+        std::process::Command::new("cmd")
+            .args(["/D", "/C", "mklink", "/J"])
+            .arg(link)
+            .arg(target)
+            .stdout(std::process::Stdio::null())
+            .status()
+            .is_ok_and(|status| status.success())
+    }
+
+    /// A session that works in the worktree through a link (junction, symlink) occupies it as
+    /// much as one that names it directly.
+    #[test]
+    fn sessions_reaching_the_folder_through_a_link_occupy_it() {
+        let tmp = TempDir::new("cleanup-in-use-link");
+        let path = tmp.path().join("wt");
+        fs::create_dir_all(path.join("sub")).unwrap();
+        let link = tmp.path().join("linked");
+        assert!(link_dir(&path, &link), "the link could not be made");
+        assert!(in_use(&path, std::slice::from_ref(&link)));
+        assert!(in_use(&path, &[link.join("sub")]));
+        // The other way round: the worktree is listed under the link's name.
+        assert!(in_use(&link, std::slice::from_ref(&path)));
+        let other = tmp.path().join("other");
+        fs::create_dir_all(&other).unwrap();
+        assert!(!in_use(&path, &[other]));
+        // A folder that no longer exists is compared by its text alone.
+        assert!(!in_use(&tmp.path().join("gone"), &[link]));
     }
 
     #[test]

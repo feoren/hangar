@@ -780,3 +780,15 @@ Pages changed: [[agent-commands]].
 ## [2026-11-14] query | Stall hint on battery
 The stall hint now follows the power saving mode: `pollInterval("stall")` gives 10 s on AC and 30 s on battery, and `StallMonitor.setSampleInterval` restarts its timer without resetting the time since the last progress. It keeps its own timer on the injected clock instead of `PollTimer`.
 Pages changed: [[power-detection]], [[queued-messages-and-stall-hint]].
+
+## [2026-11-15] update | Git hooks off by default, capped reads, more redaction
+Every git call now passes `core.hooksPath` below the git program file and `hook.<event>.enabled=false`
+for every event (config-defined hooks of git 2.54+), so no repository hook runs
+(shared notes staged conflicts with `git add` and could run `post-index-change`); only the commit
+of the Changes panel opts in. Files below `.git`, notes and the file viewer read regular files
+only, capped, without following a final link or blocking on a FIFO. The work log no longer
+follows a `.git` file to another share, and the daily review asks a repository on a share only for
+sessions on that share. The excerpt filter masks `.netrc` passwords, XML secret elements,
+multi-word `password:` values and Slack and Discord webhook URLs. Worktree cleanup compares
+resolved paths too.
+Pages changed: [[agent-workflow-features]], [[commit-history]], [[0011-work-log-and-daily-review]], [[file-viewer]].
