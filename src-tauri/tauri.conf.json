@@ -39,6 +39,9 @@
       "icons/icon.icns",
       "icons/icon.ico"
     ],
+    "macOS": {
+      "entitlements": "Entitlements.plist"
+    },
     "windows": {
       "nsis": {
         "installMode": "currentUser",

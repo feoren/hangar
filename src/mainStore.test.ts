@@ -45,6 +45,11 @@ function memoryStorage(initial: Record<string, string> = {}) {
   };
 }
 
+/** The preferences as a Hangar from before dictation stored them. */
+function withoutDictation(prefs: MainPrefs): Record<string, unknown> {
+  return Object.fromEntries(Object.entries(prefs).filter(([key]) => key !== "dictationEnabled"));
+}
+
 function backend(
   switches: unknown,
   queue: unknown,
@@ -299,6 +304,7 @@ describe("start and notice preferences", () => {
     notifyDesktop: true,
     chime: false,
     quietHours: { enabled: true, from: 1320, to: 420 },
+    dictationEnabled: false,
   };
   /** What a viewer of the same origin could write to the old places after the migration. */
   const PLANTED = {
@@ -321,6 +327,11 @@ describe("start and notice preferences", () => {
     expect(parseMainPrefs({ ...MINE, startMode: "root" })).toBeNull();
     expect(parseMainPrefs({ ...MINE, lastProgram: "a\u0007b" })).toBeNull();
     expect(parseMainPrefs({ ...MINE, chime: "no" })).toBeNull();
+    expect(parseMainPrefs({ ...MINE, dictationEnabled: "yes" })).toBeNull();
+    // A file from before dictation: the choice is left open for the migration.
+    const older = withoutDictation(MINE);
+    expect(parseMainPrefs(older)?.dictationEnabled).toBeNull();
+    expect(parseMainPrefs({ ...MINE, dictationEnabled: null })?.dictationEnabled).toBeNull();
     // Folders and quiet hours are read as the menu and the settings read them.
     expect(parseMainPrefs({ ...MINE, recent: ["/r", "a\nb"] })?.recent).toEqual(["/r"]);
   });
@@ -413,5 +424,47 @@ describe("start and notice preferences", () => {
       fake,
     );
     expect(saved.prefs).toEqual([{ ...MINE, lastProgram: null, recent: ["/r"] }]);
+  });
+
+  it("takes the old dictation key over once, also into a file from before dictation", async () => {
+    const text = JSON.stringify({
+      language: "de",
+      dictation: { enabled: true, model: "small", language: "de" },
+    });
+    // Nothing stored yet: with the rest of the preferences.
+    let storage = memoryStorage({ [SETTINGS_STORAGE_KEY]: text });
+    let legacy = legacyMainPrefs(storage, text);
+    expect(legacy.dictationEnabled).toBe(true);
+    let { fake, saved } = backend(null, null);
+    expect((await loadMainPrefs(legacy, fake, storage)).dictationEnabled).toBe(true);
+    expect(saved.prefs.map((prefs) => prefs.dictationEnabled)).toEqual([true]);
+    expect(JSON.parse(storage.store.get(SETTINGS_STORAGE_KEY) ?? "")).toEqual({
+      language: "de",
+      dictation: { model: "small", language: "de" },
+    });
+    // A file from before dictation: the old key is added to what the backend holds.
+    storage = memoryStorage({ [SETTINGS_STORAGE_KEY]: text });
+    legacy = legacyMainPrefs(storage, text);
+    const older = withoutDictation(MINE);
+    ({ fake, saved } = backend(null, null, null, null, older));
+    expect(await loadMainPrefs(legacy, fake, storage)).toEqual({ ...MINE, dictationEnabled: true });
+    expect(saved.prefs).toEqual([{ ...MINE, dictationEnabled: true }]);
+    expect(JSON.parse(storage.store.get(SETTINGS_STORAGE_KEY) ?? "")).toEqual({
+      language: "de",
+      dictation: { model: "small", language: "de" },
+    });
+  });
+
+  it("never turns the dictation key on from what a viewer planted later", async () => {
+    const text = JSON.stringify({ language: "de", dictation: { enabled: true } });
+    const storage = memoryStorage({ [SETTINGS_STORAGE_KEY]: text });
+    const { fake, saved } = backend(null, null, null, null, MINE);
+    const legacy = legacyMainPrefs(storage, text);
+    expect((await loadMainPrefs(legacy, fake, storage)).dictationEnabled).toBe(false);
+    expect(saved.prefs).toEqual([]);
+    expect(JSON.parse(storage.store.get(SETTINGS_STORAGE_KEY) ?? "")).toEqual({
+      language: "de",
+      dictation: {},
+    });
   });
 });

@@ -18,7 +18,7 @@ use crate::daily_review::{self, DailyReview, ReviewError};
 use crate::desktop;
 use crate::dictation::model::ModelId;
 use crate::dictation::whisper::Language;
-use crate::dictation::{self, DictationError, DictationService, DictationStatus};
+use crate::dictation::{self, DictationError, DictationService, DictationStatus, DictationText};
 use crate::export::{self, ExportError, Format};
 use crate::file_tree::{self, FileTree, FileTreeError, FolderListing, PathIndex};
 use crate::file_viewer::{
@@ -3120,21 +3120,38 @@ pub fn take_update_results(
 // Local dictation (dictation/)
 // ------------------------------------------------------------------------------------------
 
-/// State of dictation for the model the window chose, and which models are installed.
-#[tauri::command]
-pub fn dictation_status(dictation: State<'_, DictationService>, model: ModelId) -> DictationStatus {
-    dictation.status(model)
+/// The capabilities grant dictation to the main window alone; this holds even if a capability
+/// file grew by mistake.
+fn dictation_main(window: &tauri::Window) -> Result<(), DictationError> {
+    panel_window::check_main(window.label()).map_err(|_| DictationError::WrongWindow)
 }
 
-/// Opens the microphone; the text later goes to session `id` (event `dictation-text`).
+/// State of dictation for the model the window chose, which models are installed and whether
+/// a microphone is there. Off the main thread: asking the audio system for its default input
+/// device may take a moment.
+#[tauri::command]
+pub async fn dictation_status(
+    window: tauri::Window,
+    app: tauri::AppHandle,
+    model: ModelId,
+) -> Result<DictationStatus, DictationError> {
+    dictation_main(&window)?;
+    tauri::async_runtime::spawn_blocking(move || app.state::<DictationService>().status(model))
+        .await
+        .map_err(|_| DictationError::Microphone)
+}
+
+/// Opens the microphone; the text later waits for session `id` (`dictation_take_text`).
 /// Async because opening the device takes a moment.
 #[tauri::command]
 pub async fn dictation_start(
+    window: tauri::Window,
     app: tauri::AppHandle,
     id: SessionId,
     model: ModelId,
     language: Language,
 ) -> Result<(), DictationError> {
+    dictation_main(&window)?;
     tauri::async_runtime::spawn_blocking(move || {
         let known = app
             .state::<SessionManager>()
@@ -3152,16 +3169,34 @@ pub async fn dictation_start(
 
 /// Closes the microphone and transcribes; nothing happens when no recording runs.
 #[tauri::command]
-pub fn dictation_stop(dictation: State<'_, DictationService>) {
+pub fn dictation_stop(
+    window: tauri::Window,
+    dictation: State<'_, DictationService>,
+) -> Result<(), DictationError> {
+    dictation_main(&window)?;
     dictation.stop();
+    Ok(())
+}
+
+/// The transcripts not yet taken, oldest first, each handed out once. The `dictation-text`
+/// signal says that one is waiting.
+#[tauri::command]
+pub fn dictation_take_text(
+    window: tauri::Window,
+    dictation: State<'_, DictationService>,
+) -> Result<Vec<DictationText>, DictationError> {
+    dictation_main(&window)?;
+    Ok(dictation.take_texts())
 }
 
 /// Downloads a speech model (pinned file and SHA-256). The window asks for consent first.
 #[tauri::command]
 pub async fn dictation_install_model(
+    window: tauri::Window,
     app: tauri::AppHandle,
     model: ModelId,
 ) -> Result<(), DictationError> {
+    dictation_main(&window)?;
     let service = app.state::<DictationService>().inner().clone();
     dictation::install(&service, model).await
 }
@@ -3169,9 +3204,11 @@ pub async fn dictation_install_model(
 /// Deletes a speech model's file.
 #[tauri::command]
 pub fn dictation_remove_model(
+    window: tauri::Window,
     dictation: State<'_, DictationService>,
     model: ModelId,
 ) -> Result<(), DictationError> {
+    dictation_main(&window)?;
     dictation.remove(model)
 }
 

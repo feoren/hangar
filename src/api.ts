@@ -727,13 +727,18 @@ export const api = {
   configureTray: (enabled: boolean, labels: TrayLabels) =>
     invoke<null>("configure_tray", { enabled, labels }),
 
-  /** Dictation state for `model` and which models are installed (`parseDictationStatus`). */
+  /**
+   * Dictation state for `model`, which models are installed and whether a microphone is there
+   * (`parseDictationStatus`).
+   */
   dictationStatus: (model: DictationModel) => invoke<unknown>("dictation_status", { model }),
-  /** Opens the microphone; the text goes to session `id` later. Rejects with an error kind. */
+  /** Opens the microphone; the text waits for session `id` later. Rejects with an error kind. */
   dictationStart: (id: number, model: DictationModel, language: DictationLanguage) =>
     invoke<null>("dictation_start", { id, model, language }),
   /** Closes the microphone and transcribes; harmless when nothing records. */
   dictationStop: () => invoke<null>("dictation_stop"),
+  /** The transcripts waiting, each handed out once (`parseDictationTexts`). */
+  dictationTakeText: () => invoke<unknown>("dictation_take_text"),
   /** Downloads a speech model after the user agreed. Rejects with an error kind. */
   dictationInstallModel: (model: DictationModel) =>
     invoke<null>("dictation_install_model", { model }),
@@ -789,7 +794,11 @@ export const GATE_CHANGED = "gate-changed";
 export const ACCOUNT_CHANGED = "account-changed";
 /** Signal without payload: the team snapshot changed; read it with `teamSnapshot`. */
 export const TEAM_CHANGED = "team-changed";
-/** Dictation: the state (`parseDictationStatus`), the input level and the finished text. */
+/**
+ * Dictation signals. Status and text carry nothing, since other webviews may hear them: read the
+ * state with `dictationStatus` and the finished text with `dictationTakeText`. The level carries
+ * one number from 0 to 1 (`parseLevel`).
+ */
 export const DICTATION_STATUS = "dictation-status";
 export const DICTATION_LEVEL = "dictation-level";
 export const DICTATION_TEXT = "dictation-text";

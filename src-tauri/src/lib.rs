@@ -266,17 +266,20 @@ pub fn run() -> tauri::Result<()> {
                 local_dir.join("models"),
                 std::sync::Arc::new(dictation::audio::CpalSource),
                 std::sync::Arc::new(dictation::whisper::Whisper),
+                // Signals only, like the gate's: a listener in any window receives events emitted
+                // to the main one. The main window reads the state and the dictated text through
+                // `dictation_status` and `dictation_take_text`; the level is a bare number.
                 std::sync::Arc::new(move |notice| {
                     let main = panel_window::MAIN_LABEL;
                     let _ = match notice {
-                        dictation::Notice::Status(status) => {
-                            events.emit_to(main, dictation::STATUS_EVENT, status)
+                        dictation::Notice::Changed => {
+                            events.emit_to(main, dictation::STATUS_EVENT, ())
                         }
                         dictation::Notice::Level(level) => {
                             events.emit_to(main, dictation::LEVEL_EVENT, level)
                         }
-                        dictation::Notice::Text(text) => {
-                            events.emit_to(main, dictation::TEXT_EVENT, text)
+                        dictation::Notice::TextReady => {
+                            events.emit_to(main, dictation::TEXT_EVENT, ())
                         }
                     };
                 }),
@@ -547,6 +550,7 @@ pub fn run() -> tauri::Result<()> {
             commands::dictation_status,
             commands::dictation_start,
             commands::dictation_stop,
+            commands::dictation_take_text,
             commands::dictation_install_model,
             commands::dictation_remove_model,
         ])

@@ -3,16 +3,17 @@
 //! reaches an agent or the machine ([`ProtectedSettings`]: the paste warning, automatic updates,
 //! HANGAR.md for every agent, the snippets), the workspace templates (program and folder of
 //! each session they start) and the start and notice preferences ([`MainPrefs`]: private or team
-//! start, the last program, the favorite and recent folders, session restore, and whether and when
-//! a waiting session shows itself).
+//! start, the last program, the favorite and recent folders, session restore, whether and when
+//! a waiting session shows itself, and whether the dictation key is on).
 //!
 //! The panel and file viewer windows share the main window's origin and with it its
 //! `localStorage`. A compromised viewer (a crafted Markdown file) could otherwise turn the gate
 //! off for the next start, queue a message or plant a snippet that Hangar later pastes into an
 //! agent session, switch the paste warning or updates off, plant a template that starts a
 //! program in a folder of its choice, point the next start at such a folder, start it private
-//! (without the gate), or silence the notices of a session that waits for the person. Here the files sit in the local app data folder, written
-//! atomically ([`crate::persist::write_atomic`]) and validated on reading and on writing; the
+//! (without the gate), silence the notices of a session that waits for the person, or turn the
+//! dictation key on, so that holding it opens the microphone. Here the files sit in the local app
+//! data folder, written atomically ([`crate::persist::write_atomic`]) and validated on reading and on writing; the
 //! commands answer the main window only ([`check_main`]).
 //!
 //! `None` from a load means nothing was stored yet: the main window then migrates the values it
@@ -334,6 +335,10 @@ pub struct MainPrefs {
     pub notify_desktop: bool,
     pub chime: bool,
     pub quiet_hours: QuietHours,
+    /// Holding the dictation key opens the microphone. `None`: a file from before dictation; the
+    /// window then takes over its old localStorage value once and stores it here.
+    #[serde(default)]
+    pub dictation_enabled: Option<bool>,
 }
 
 impl Default for MainPrefs {
@@ -349,6 +354,7 @@ impl Default for MainPrefs {
             notify_desktop: true,
             chime: true,
             quiet_hours: QuietHours::default(),
+            dictation_enabled: Some(false),
         }
     }
 }
@@ -745,6 +751,7 @@ mod tests {
                 from: 0,
                 to: 1439,
             },
+            dictation_enabled: Some(true),
         }
     }
 
@@ -761,8 +768,15 @@ mod tests {
                 "favorites": ["C:\\Work\\Repo"], "recent": ["/home/a/repo", "C:\\Work\\Repo"],
                 "restoreSessions": false, "attentionEnabled": false, "taskbarFlash": false,
                 "notifyDesktop": false, "chime": false,
-                "quietHours": { "enabled": true, "from": 0, "to": 1439 } })
+                "quietHours": { "enabled": true, "from": 0, "to": 1439 },
+                "dictationEnabled": true })
         );
+        // A file from before dictation still loads, with the choice left open for the migration.
+        let older = r#"{"startMode":"team","lastProgram":null,"favorites":[],"recent":[],"restoreSessions":false,"attentionEnabled":true,"taskbarFlash":true,"notifyDesktop":true,"chime":true,"quietHours":{"enabled":false,"from":0,"to":0}}"#;
+        std::fs::write(tmp.path().join(PREFS_FILE), older).unwrap();
+        let loaded = store.load_prefs().unwrap();
+        assert!(!loaded.restore_sessions);
+        assert_eq!(loaded.dictation_enabled, None);
         // The defaults are stored too: the migration ran.
         store.save_prefs(MainPrefs::default()).unwrap();
         assert_eq!(store.load_prefs(), Some(MainPrefs::default()));
@@ -770,6 +784,11 @@ mod tests {
         assert_eq!(defaults.start_mode, StartMode::Private);
         assert!(defaults.restore_sessions && defaults.attention_enabled && defaults.chime);
         assert!(defaults.taskbar_flash && defaults.notify_desktop);
+        assert_eq!(
+            defaults.dictation_enabled,
+            Some(false),
+            "dictation stays off"
+        );
         // Damaged or foreign content: stored, but the defaults.
         for foreign in [
             r#"{"startMode":"root"}"#,

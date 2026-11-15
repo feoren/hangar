@@ -46,6 +46,9 @@ pub trait Capture: Send {
 /// second while recording.
 pub trait AudioSource: Send + Sync {
     fn open(&self, level: Box<dyn Fn(f32) + Send>) -> Result<Box<dyn Capture>, CaptureError>;
+    /// Whether the system has an input device right now. Asked when the window reads the status,
+    /// so the settings can say "no microphone" before anything is downloaded.
+    fn has_input(&self) -> bool;
 }
 
 /// Averages the channels of each frame into one.
@@ -279,6 +282,11 @@ fn build_stream(
 }
 
 impl AudioSource for CpalSource {
+    fn has_input(&self) -> bool {
+        use cpal::traits::HostTrait as _;
+        cpal::default_host().default_input_device().is_some()
+    }
+
     fn open(&self, level: Box<dyn Fn(f32) + Send>) -> Result<Box<dyn Capture>, CaptureError> {
         let (ready_tx, ready_rx) = mpsc::channel::<Result<(Arc<Shared>, u32, u16), CaptureError>>();
         let (stop_tx, stop_rx) = mpsc::channel::<()>();

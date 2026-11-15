@@ -67,6 +67,30 @@ export function terminalKeyAction(
   return { kind: "terminal" };
 }
 
+type TailKey = Pick<
+  KeyboardEvent,
+  "type" | "key" | "code" | "repeat" | "ctrlKey" | "shiftKey" | "altKey" | "metaKey"
+>;
+
+/**
+ * The tail of a dictation hold. Released Shift (or Ctrl) before Space, the held Space keeps
+ * repeating as Ctrl+Space, which xterm sends as NUL, or as a plain space. `armed` runs from the
+ * chord's keydown to the release of Space; meanwhile repeated Space events are swallowed. A fresh
+ * Space press (no repeat) disarms, so a lost keyup never keeps it armed.
+ */
+export function dictationTail(
+  armed: boolean,
+  event: TailKey,
+  dictation: boolean,
+): { armed: boolean; swallow: boolean } {
+  if (!dictation) return { armed: false, swallow: false };
+  if (event.code !== "Space") return { armed, swallow: false };
+  if (event.type === "keyup") return { armed: false, swallow: false };
+  if (isDictationChord(event)) return { armed: true, swallow: false };
+  if (armed && event.repeat) return { armed: true, swallow: true };
+  return { armed: false, swallow: false };
+}
+
 /** Shift+Enter alone; never while an IME composes text, where Enter confirms the composition. */
 function isShiftEnter(event: KeyInfo): boolean {
   return (

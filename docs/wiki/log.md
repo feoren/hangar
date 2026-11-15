@@ -912,3 +912,7 @@ Pages changed: [[local-dictation]] (new), [[overview]], index.
 ## [2026-11-15] update | Dictation acceptance fixes
 A quick tap no longer reads as a blocked microphone (no buffer yet is judged only after 500 ms), each transcript ends with one space so consecutive holds form a sentence, and the page records why the dictation choices stay in localStorage. `release.py` no longer refuses the tracked `.cargo/config.toml` as a hidden build input.
 Pages changed: [[local-dictation]], [[release-rollout]].
+
+## [2026-11-15] update | Dictation security and acceptance review
+The dictation state and text go out as payload-free signals; the main window reads `dictation_status` and takes each transcript once through the new `dictation_take_text` (queue of 8). The level stays a number payload, with the reason on the page. Every dictation command checks the main window itself. Whether the key is on moved to the backend's `MainPrefs` with a one-time migration from localStorage; the model hash is checked once per run before the first load; a recording without stop ends after the cap plus 5 s and the window stops a stale one when it loads; the status names whether a microphone is there; repeated Space after an early Shift release no longer reaches the program; macOS gets the audio-input entitlement; licenses of whisper.cpp, ggml, whisper-rs and cpal listed.
+Pages changed: [[local-dictation]].

@@ -1220,6 +1220,7 @@ export function App() {
       favorites: folders.favorites,
       recent: folders.recent,
       ...noticesOf(settings),
+      dictationEnabled: settings.dictationEnabled,
     };
     const text = JSON.stringify(next);
     if (text === savedPrefs.current) return;
@@ -1604,8 +1605,8 @@ export function App() {
     problem: DictationProblem;
   } | null>(null);
   useEffect(() => {
-    setDictationKeyActive(settings.dictation.enabled);
-  }, [settings.dictation.enabled]);
+    setDictationKeyActive(settings.dictationEnabled);
+  }, [settings.dictationEnabled]);
   useEffect(() => {
     if (dictationProblem === null) return;
     const timer = window.setTimeout(() => {
@@ -1616,6 +1617,7 @@ export function App() {
     };
   }, [dictationProblem]);
   useDictationKey({
+    enabled: settings.dictationEnabled,
     prefs: settings.dictation,
     status: dictationStatus,
     target: () => activeIdRef.current,

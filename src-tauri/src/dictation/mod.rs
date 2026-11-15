@@ -1,7 +1,7 @@
 //! Local dictation: hold a key, speak, the text lands in the session's prompt. Recognition runs
 //! on this machine (whisper.cpp); the only network use is the model download the user agreed to.
 //! Audio stays in memory, is capped at 60 s, wiped after use and never logged or stored; the
-//! transcript goes to the window once and is not kept either.
+//! transcript waits for the main window in a small queue and is handed out once.
 //!
 //! The window asks for the text to go into the session it named on key down; it pastes it there
 //! through its usual paste path (bracketed paste, control characters stripped), without Enter.
@@ -10,21 +10,34 @@ pub mod audio;
 pub mod model;
 pub mod whisper;
 
+use std::collections::VecDeque;
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
+use std::time::Duration;
 
 use serde::{Serialize, Serializer};
 
 use crate::lock;
 use crate::session::SessionId;
 use audio::{AudioSource, Capture, CaptureError, Recording};
-use model::{ModelError, ModelId};
+use model::{ModelError, ModelId, VerifiedModels};
 use whisper::{Language, Transcriber};
 
-/// Events to the main window.
+/// Events to the main window. Status and text are bare signals: a listener in any window receives
+/// events emitted to the main one, so the state and the dictated text are read through
+/// `dictation_status` and `dictation_take_text`, which only the main window may call. The level
+/// carries one number from 0 to 1 (see `docs/wiki/pages/syntheses/local-dictation.md`).
 pub const STATUS_EVENT: &str = "dictation-status";
 pub const LEVEL_EVENT: &str = "dictation-level";
 pub const TEXT_EVENT: &str = "dictation-text";
+
+/// Transcripts not yet taken by the window, at most. A window that never asks keeps only the
+/// newest; each one is a single recording of at most a minute.
+pub const MAX_WAITING_TEXTS: usize = 8;
+
+/// How long a recording may run before the backend stops it on its own: the cap plus a margin. A
+/// window reloaded while the key was held never sends its stop.
+pub const RECORDING_DEADLINE: Duration = Duration::from_secs(audio::MAX_SECONDS as u64 + 5);
 
 /// What the service is doing. `Idle` is shown as `Ready` or `NotInstalled`, depending on the
 /// chosen model ([`DictationState`]).
@@ -149,6 +162,9 @@ pub struct DictationStatus {
     pub models: Vec<ModelView>,
     /// Host the models come from, for the consent dialog.
     pub source: &'static str,
+    /// The system has an input device. Without one the settings say so instead of offering a
+    /// download.
+    pub microphone: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize)]
@@ -158,15 +174,21 @@ pub struct DictationText {
     pub text: String,
 }
 
-/// What the service tells the window.
+/// What the service tells the window. Only the level carries data (a number, see
+/// [`STATUS_EVENT`]); the window reads the rest through main-window commands.
+#[derive(Debug, Clone, Copy, PartialEq)]
 pub enum Notice {
-    Status(DictationStatus),
+    /// The state changed: read `dictation_status`.
+    Changed,
     Level(f32),
-    Text(DictationText),
+    /// A transcript waits: read `dictation_take_text`.
+    TextReady,
 }
 
 #[derive(Debug, thiserror::Error, PartialEq, Eq)]
 pub enum DictationError {
+    #[error("Only the main window may do this")]
+    WrongWindow,
     #[error("Dictation is busy")]
     Busy,
     #[error("The speech model is not installed")]
@@ -189,6 +211,7 @@ impl DictationError {
     /// Stable name for the window, which shows its own translated text.
     pub fn kind(&self) -> &'static str {
         match self {
+            Self::WrongWindow => "wrongWindow",
             Self::Busy => "busy",
             Self::NotInstalled => "notInstalled",
             Self::UnknownSession => "unknownSession",
@@ -262,6 +285,8 @@ struct Active {
     capture: Option<Box<dyn Capture>>,
     /// Stop arrived while the microphone was still opening.
     stop_requested: bool,
+    /// Tells this recording apart from later ones, for the deadline.
+    generation: u64,
 }
 
 struct Core {
@@ -270,6 +295,8 @@ struct Core {
     active: Option<Active>,
     /// Last download progress reported, in whole percent.
     reported_percent: u32,
+    /// Counts the recordings, for [`Active::generation`].
+    recordings: u64,
 }
 
 struct Shared {
@@ -278,6 +305,11 @@ struct Shared {
     transcriber: Arc<dyn Transcriber>,
     notify: Notify,
     core: Mutex<Core>,
+    /// Transcripts the window has not taken yet, oldest first.
+    texts: Mutex<VecDeque<DictationText>>,
+    verified: VerifiedModels,
+    /// [`RECORDING_DEADLINE`]; shorter in tests.
+    deadline: Duration,
 }
 
 /// Owns the dictation state. Cheap to clone; all clones share it.
@@ -293,6 +325,16 @@ impl DictationService {
         transcriber: Arc<dyn Transcriber>,
         notify: Notify,
     ) -> Self {
+        Self::with_deadline(models_dir, source, transcriber, notify, RECORDING_DEADLINE)
+    }
+
+    fn with_deadline(
+        models_dir: PathBuf,
+        source: Arc<dyn AudioSource>,
+        transcriber: Arc<dyn Transcriber>,
+        notify: Notify,
+        deadline: Duration,
+    ) -> Self {
         Self {
             shared: Arc::new(Shared {
                 models_dir,
@@ -304,7 +346,11 @@ impl DictationService {
                     selected: ModelId::Base,
                     active: None,
                     reported_percent: 0,
+                    recordings: 0,
                 }),
+                texts: Mutex::new(VecDeque::new()),
+                verified: VerifiedModels::default(),
+                deadline,
             }),
         }
     }
@@ -313,7 +359,27 @@ impl DictationService {
         &self.shared.models_dir
     }
 
-    fn snapshot(&self, core: &Core) -> DictationStatus {
+    fn publish(&self) {
+        (self.shared.notify)(Notice::Changed);
+    }
+
+    /// Applies `event`; `false` (and no change) when it is not allowed right now.
+    fn apply(&self, core: &mut Core, event: Event) -> bool {
+        match next(&core.phase, event) {
+            Some(phase) => {
+                core.phase = phase;
+                self.publish();
+                true
+            }
+            None => false,
+        }
+    }
+
+    /// The state for `selected`, the models and whether a microphone is there. The device query
+    /// runs here only, when the window asks, never on every change; the core is not locked
+    /// meanwhile.
+    pub fn status(&self, selected: ModelId) -> DictationStatus {
+        let microphone = self.shared.source.has_input();
         let dir = &self.shared.models_dir;
         let models: Vec<ModelView> = model::MODELS
             .iter()
@@ -325,34 +391,31 @@ impl DictationService {
             .collect();
         let installed = models
             .iter()
-            .any(|view| view.id == core.selected && view.installed);
+            .any(|view| view.id == selected && view.installed);
+        let mut core = lock(&self.shared.core);
+        core.selected = selected;
         DictationStatus {
             state: view(&core.phase, installed),
             models,
             source: model::SOURCE_HOST,
+            microphone,
         }
     }
 
-    fn publish(&self, core: &Core) {
-        (self.shared.notify)(Notice::Status(self.snapshot(core)));
+    /// Every transcript waiting, oldest first, each handed out once.
+    pub fn take_texts(&self) -> Vec<DictationText> {
+        lock(&self.shared.texts).drain(..).collect()
     }
 
-    /// Applies `event`; `false` (and no change) when it is not allowed right now.
-    fn apply(&self, core: &mut Core, event: Event) -> bool {
-        match next(&core.phase, event) {
-            Some(phase) => {
-                core.phase = phase;
-                self.publish(core);
-                true
+    fn push_text(&self, text: DictationText) {
+        {
+            let mut texts = lock(&self.shared.texts);
+            if texts.len() == MAX_WAITING_TEXTS {
+                texts.pop_front();
             }
-            None => false,
+            texts.push_back(text);
         }
-    }
-
-    pub fn status(&self, selected: ModelId) -> DictationStatus {
-        let mut core = lock(&self.shared.core);
-        core.selected = selected;
-        self.snapshot(&core)
+        (self.shared.notify)(Notice::TextReady);
     }
 
     /// Opens the microphone for `session`. Returns once it records (or failed to open).
@@ -362,7 +425,7 @@ impl DictationService {
         model: ModelId,
         language: Language,
     ) -> Result<(), DictationError> {
-        {
+        let generation = {
             let mut core = lock(&self.shared.core);
             core.selected = model;
             if !model::installed(&self.shared.models_dir, model::spec(model)) {
@@ -371,14 +434,18 @@ impl DictationService {
             if !self.apply(&mut core, Event::Record(session)) {
                 return Err(DictationError::Busy);
             }
+            core.recordings += 1;
+            let generation = core.recordings;
             core.active = Some(Active {
                 session,
                 model,
                 language,
                 capture: None,
                 stop_requested: false,
+                generation,
             });
-        }
+            generation
+        };
         // Opening a device takes a moment; the lock is free meanwhile so a quick key release
         // (stop) is not blocked behind it.
         let notify = self.shared.notify.clone();
@@ -399,6 +466,8 @@ impl DictationService {
                 drop(core);
                 if stop_now {
                     self.stop();
+                } else {
+                    self.arm_deadline(generation);
                 }
                 Ok(())
             }
@@ -415,13 +484,37 @@ impl DictationService {
         }
     }
 
+    /// Stops recording `generation` once the deadline passed, should the window never send its
+    /// stop (reloaded or crashed while the key was held).
+    fn arm_deadline(&self, generation: u64) {
+        let service = self.clone();
+        let deadline = self.shared.deadline;
+        let spawned = std::thread::Builder::new()
+            .name("dictation-deadline".to_owned())
+            .spawn(move || {
+                std::thread::sleep(deadline);
+                service.finish_recording(Some(generation));
+            });
+        if let Err(error) = spawned {
+            eprintln!("hangar: dictation deadline not set: {error}");
+        }
+    }
+
     /// Closes the microphone and transcribes on a worker thread. Does nothing when not
-    /// recording, so the window may call it on every key release and on blur.
+    /// recording, so the window may call it on every key release, on blur and when it loads.
     pub fn stop(&self) {
+        self.finish_recording(None);
+    }
+
+    /// [`Self::stop`]; with `only`, just when that recording still runs.
+    fn finish_recording(&self, only: Option<u64>) {
         let mut core = lock(&self.shared.core);
         let Some(active) = core.active.as_mut() else {
             return;
         };
+        if only.is_some_and(|generation| generation != active.generation) {
+            return;
+        }
         let Some(capture) = active.capture.take() else {
             active.stop_requested = true;
             return;
@@ -467,7 +560,18 @@ impl DictationService {
             finish(Event::Discard);
             return;
         }
-        let path = model::path(&self.shared.models_dir, model::spec(model));
+        let spec = model::spec(model);
+        let dir = &self.shared.models_dir;
+        if let Err(error) = self.shared.verified.ensure(dir, spec) {
+            // Not the pinned file any more: removed, so the window offers the download again
+            // instead of failing on every recording.
+            if error == ModelError::Mismatch {
+                let _ = model::remove(dir, spec);
+            }
+            finish(Event::TranscribeFailed(error.to_string()));
+            return;
+        }
+        let path = model::path(dir, spec);
         let result = self
             .shared
             .transcriber
@@ -477,7 +581,7 @@ impl DictationService {
             Ok(raw) => {
                 let text = clean_transcript(&raw);
                 if !text.is_empty() {
-                    (self.shared.notify)(Notice::Text(DictationText { session, text }));
+                    self.push_text(DictationText { session, text });
                 }
                 finish(Event::Transcribed);
             }
@@ -508,7 +612,13 @@ impl DictationService {
         self.apply(&mut core, Event::Progress(percent as f32 / 100.0));
     }
 
-    pub fn end_install(&self, result: &Result<PathBuf, ModelError>) {
+    pub fn end_install(&self, model: ModelId, result: &Result<PathBuf, ModelError>) {
+        if result.is_ok() {
+            // The download's hash just matched: no second read before the first load.
+            self.shared
+                .verified
+                .mark(&self.shared.models_dir, model::spec(model));
+        }
         let mut core = lock(&self.shared.core);
         let event = match result {
             Ok(_) => Event::Installed,
@@ -523,6 +633,7 @@ impl DictationService {
             return Err(DictationError::Busy);
         }
         model::remove(&self.shared.models_dir, model::spec(model))?;
+        self.shared.verified.forget(model);
         self.apply(&mut core, Event::Removed);
         Ok(())
     }
@@ -542,7 +653,7 @@ pub async fn install(service: &DictationService, model: ModelId) -> Result<(), D
         }
         Err(error) => Err(error),
     };
-    service.end_install(&result);
+    service.end_install(model, &result);
     result.map(|_| ()).map_err(DictationError::from)
 }
 
@@ -716,6 +827,10 @@ mod tests {
                 .clone()
                 .map(|samples| Box::new(FakeCapture(samples)) as Box<dyn Capture>)
         }
+
+        fn has_input(&self) -> bool {
+            self.0 != Err(CaptureError::NoMicrophone)
+        }
     }
 
     struct FakeTranscriber(Result<String, whisper::TranscribeError>);
@@ -741,6 +856,16 @@ mod tests {
         transcriber: FakeTranscriber,
         installed: bool,
     ) -> (DictationService, mpsc::Receiver<Notice>, PathBuf) {
+        make_service_with(name, source, transcriber, installed, RECORDING_DEADLINE)
+    }
+
+    fn make_service_with(
+        name: &str,
+        source: FakeSource,
+        transcriber: FakeTranscriber,
+        installed: bool,
+        deadline: Duration,
+    ) -> (DictationService, mpsc::Receiver<Notice>, PathBuf) {
         let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
             .join("..")
             .join("tests")
@@ -748,35 +873,48 @@ mod tests {
             .join(format!("dictation-service-{name}-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(&dir).unwrap();
-        if installed {
-            let spec = model::spec(ModelId::Base);
-            let file = std::fs::File::create(model::path(&dir, spec)).unwrap();
-            file.set_len(spec.bytes).unwrap();
-        }
         let (tx, rx) = mpsc::channel();
         let tx = Mutex::new(tx);
-        let service = DictationService::new(
+        let service = DictationService::with_deadline(
             dir.clone(),
             Arc::new(source),
             Arc::new(transcriber),
             Arc::new(move |notice| {
                 let _ = lock(&tx).send(notice);
             }),
+            deadline,
         );
+        if installed {
+            install_fake_model(&service, &dir);
+        }
         (service, rx, dir)
     }
 
-    /// Waits for the state to settle back after a stop; returns the text sent, if any.
-    fn settle(rx: &mpsc::Receiver<Notice>) -> (Option<DictationText>, DictationState) {
-        let mut text = None;
+    /// A file of the pinned size, taken as checked: hashing 60 MB of zeros would only fail.
+    fn install_fake_model(service: &DictationService, dir: &std::path::Path) {
+        let spec = model::spec(ModelId::Base);
+        let file = std::fs::File::create(model::path(dir, spec)).unwrap();
+        file.set_len(spec.bytes).unwrap();
+        drop(file);
+        service.shared.verified.mark(dir, spec);
+    }
+
+    /// Waits for the state to settle back after a stop; returns the text waiting, if any.
+    fn settle(
+        service: &DictationService,
+        rx: &mpsc::Receiver<Notice>,
+    ) -> (Option<DictationText>, DictationState) {
         loop {
             match rx.recv_timeout(Duration::from_secs(5)).expect("no notice") {
-                Notice::Text(t) => text = Some(t),
-                Notice::Status(status) => match status.state {
+                Notice::Changed => match service.status(ModelId::Base).state {
                     DictationState::Recording { .. } | DictationState::Transcribing { .. } => {}
-                    state => return (text, state),
+                    state => {
+                        let mut texts = service.take_texts();
+                        assert!(texts.len() <= 1, "{texts:?}");
+                        return (texts.pop(), state);
+                    }
                 },
-                Notice::Level(_) => {}
+                Notice::Level(_) | Notice::TextReady => {}
             }
         }
     }
@@ -796,7 +934,7 @@ mod tests {
             Err(DictationError::Busy)
         );
         service.stop();
-        let (text, state) = settle(&rx);
+        let (text, state) = settle(&service, &rx);
         assert_eq!(
             text,
             Some(DictationText {
@@ -820,7 +958,7 @@ mod tests {
         );
         service.start(1, ModelId::Base, Language::Auto).unwrap();
         service.stop();
-        let (text, state) = settle(&rx);
+        let (text, state) = settle(&service, &rx);
         assert_eq!(text, None);
         assert_eq!(state, DictationState::Ready);
         let _ = std::fs::remove_dir_all(dir);
@@ -836,7 +974,7 @@ mod tests {
         );
         service.start(1, ModelId::Base, Language::Auto).unwrap();
         service.stop();
-        assert_eq!(settle(&rx).1, DictationState::PermissionDenied);
+        assert_eq!(settle(&service, &rx).1, DictationState::PermissionDenied);
         let _ = std::fs::remove_dir_all(dir);
     }
 
@@ -863,6 +1001,10 @@ mod tests {
             ) -> Result<Box<dyn Capture>, CaptureError> {
                 Ok(Box::new(TapCapture))
             }
+
+            fn has_input(&self) -> bool {
+                true
+            }
         }
         // The helper only provides the folder with an installed model here.
         let (_, _, dir) = make_service(
@@ -883,7 +1025,7 @@ mod tests {
         );
         service.start(1, ModelId::Base, Language::Auto).unwrap();
         service.stop();
-        assert_eq!(settle(&events), (None, DictationState::Ready));
+        assert_eq!(settle(&service, &events), (None, DictationState::Ready));
         let _ = std::fs::remove_dir_all(dir);
     }
 
@@ -915,10 +1057,9 @@ mod tests {
             service.start(1, ModelId::Base, Language::Auto),
             Err(DictationError::NoMicrophone)
         );
-        assert_eq!(
-            service.status(ModelId::Base).state,
-            DictationState::NoMicrophone
-        );
+        let status = service.status(ModelId::Base);
+        assert_eq!(status.state, DictationState::NoMicrophone);
+        assert!(!status.microphone);
         // The model can be removed again, and then the state says so.
         service.remove(ModelId::Base).unwrap();
         assert_eq!(
@@ -938,9 +1079,115 @@ mod tests {
         );
         service.start(1, ModelId::Base, Language::En).unwrap();
         service.stop();
-        let (text, state) = settle(&rx);
+        let (text, state) = settle(&service, &rx);
         assert_eq!(text, None);
         assert!(matches!(state, DictationState::Error { .. }), "{state:?}");
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn the_status_names_the_microphone() {
+        let (service, _rx, dir) = make_service(
+            "mic",
+            FakeSource(Ok(voice())),
+            FakeTranscriber(Ok("x".into())),
+            false,
+        );
+        let json = serde_json::to_value(service.status(ModelId::Base)).unwrap();
+        assert_eq!(json["microphone"], serde_json::json!(true));
+        assert_eq!(json["source"], serde_json::json!("huggingface.co"));
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    /// The window that was reloaded while the key was held never sends its stop; the backend
+    /// closes the microphone on its own and keeps what was said.
+    #[test]
+    fn a_recording_without_stop_ends_at_the_deadline() {
+        let (service, rx, dir) = make_service_with(
+            "deadline",
+            FakeSource(Ok(voice())),
+            FakeTranscriber(Ok("up to here".into())),
+            true,
+            Duration::from_millis(50),
+        );
+        service.start(3, ModelId::Base, Language::De).unwrap();
+        let (text, state) = settle(&service, &rx);
+        assert_eq!(
+            text.map(|t| (t.session, t.text)),
+            Some((3, "up to here".into()))
+        );
+        assert_eq!(state, DictationState::Ready);
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    /// An old deadline never ends a later recording.
+    #[test]
+    fn a_deadline_stops_only_its_own_recording() {
+        let (service, rx, dir) = make_service(
+            "generation",
+            FakeSource(Ok(voice())),
+            FakeTranscriber(Ok("one".into())),
+            true,
+        );
+        service.start(1, ModelId::Base, Language::De).unwrap();
+        service.stop();
+        let _ = settle(&service, &rx);
+        service.start(1, ModelId::Base, Language::De).unwrap();
+        service.finish_recording(Some(1));
+        assert_eq!(
+            service.status(ModelId::Base).state,
+            DictationState::Recording { session: 1 }
+        );
+        service.finish_recording(Some(2));
+        assert_eq!(settle(&service, &rx).1, DictationState::Ready);
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn waiting_texts_are_handed_out_once_and_bounded() {
+        let (service, rx, dir) = make_service(
+            "texts",
+            FakeSource(Ok(voice())),
+            FakeTranscriber(Ok("x".into())),
+            false,
+        );
+        for i in 0..=MAX_WAITING_TEXTS {
+            service.push_text(DictationText {
+                session: i as SessionId,
+                text: format!("t{i}"),
+            });
+        }
+        assert_eq!(rx.try_iter().count(), MAX_WAITING_TEXTS + 1);
+        let texts = service.take_texts();
+        assert_eq!(texts.len(), MAX_WAITING_TEXTS);
+        assert_eq!(texts[0].text, "t1", "the oldest went first");
+        assert!(service.take_texts().is_empty());
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    /// A model file that no longer matches its hash never reaches whisper; it is removed, so the
+    /// window offers the download again.
+    #[test]
+    fn a_changed_model_file_is_refused_and_removed() {
+        let (service, rx, dir) = make_service(
+            "mismatch",
+            FakeSource(Ok(voice())),
+            FakeTranscriber(Ok("x".into())),
+            true,
+        );
+        service.shared.verified.forget(ModelId::Base);
+        service.start(1, ModelId::Base, Language::Auto).unwrap();
+        service.stop();
+        let (text, state) = settle(&service, &rx);
+        assert_eq!(text, None);
+        assert!(matches!(state, DictationState::Error { .. }), "{state:?}");
+        assert!(!model::installed(&dir, model::spec(ModelId::Base)));
+        assert_eq!(
+            service.status(ModelId::Base).state,
+            DictationState::Error {
+                message: ModelError::Mismatch.to_string()
+            }
+        );
         let _ = std::fs::remove_dir_all(dir);
     }
 }

@@ -30,6 +30,8 @@ export interface DictationStatus {
   models: DictationModelInfo[];
   /** Host the models come from, named in the consent dialog. */
   source: string;
+  /** The system has an input device; without one the settings say so instead of a download. */
+  microphone: boolean;
 }
 
 /** Rust `DictationText`: what to paste into which session. */
@@ -38,28 +40,31 @@ export interface DictationText {
   text: string;
 }
 
-/** The user's choices, stored with the settings. */
+/**
+ * Model and language, stored with the settings in localStorage. Whether the key is on lives with
+ * the backend's preferences (`dictationEnabled`, mainStore.ts): another window that rewrote that
+ * could make the next hold of the key open the microphone.
+ */
 export interface DictationPrefs {
-  /** Off: the key goes to the program in the terminal as before. */
-  enabled: boolean;
   model: DictationModel;
   language: DictationLanguage;
 }
 
 /**
- * Off until the user turns it on and agrees to the download. `base`: measured 0.5 s for 10 s of
- * speech against 1.7 to 3 s for `small` (docs/wiki/raw/2026-11-12-dictation-measurement.md).
+ * `base`: measured 0.5 s for 10 s of speech against 1.7 to 3 s for `small`
+ * (docs/wiki/raw/2026-11-12-dictation-measurement.md).
  */
 export const DEFAULT_DICTATION: DictationPrefs = {
-  enabled: false,
   model: "base",
   language: "auto",
 };
 
+/** Until the backend answered: no download offered, and no "no microphone" either. */
 export const EMPTY_DICTATION_STATUS: DictationStatus = {
   state: { kind: "notInstalled" },
   models: [],
   source: "huggingface.co",
+  microphone: true,
 };
 
 function isModel(value: unknown): value is DictationModel {
@@ -82,7 +87,6 @@ export function parseDictationPrefs(value: unknown): DictationPrefs {
   const raw = record(value);
   if (raw === null) return DEFAULT_DICTATION;
   return {
-    enabled: typeof raw.enabled === "boolean" ? raw.enabled : DEFAULT_DICTATION.enabled,
     model: isModel(raw.model) ? raw.model : DEFAULT_DICTATION.model,
     language: isLanguage(raw.language) ? raw.language : DEFAULT_DICTATION.language,
   };
@@ -136,13 +140,40 @@ export function parseDictationStatus(value: unknown): DictationStatus | null {
     }
   }
   const source = typeof raw.source === "string" ? raw.source : EMPTY_DICTATION_STATUS.source;
-  return { state, models, source };
+  if (typeof raw.microphone !== "boolean") return null;
+  return { state, models, source, microphone: raw.microphone };
 }
 
 export function parseDictationText(value: unknown): DictationText | null {
   const raw = record(value);
   if (raw === null || !isSessionId(raw.session) || typeof raw.text !== "string") return null;
   return { session: raw.session, text: raw.text };
+}
+
+/** What `dictation_take_text` answered: the valid transcripts, oldest first. */
+export function parseDictationTexts(value: unknown): DictationText[] {
+  if (!Array.isArray(value)) return [];
+  const texts: DictationText[] = [];
+  for (const item of value) {
+    const text = parseDictationText(item);
+    if (text !== null) texts.push(text);
+  }
+  return texts;
+}
+
+/**
+ * The dictation key as the backend keeps it (`dictationEnabled` of the main preferences); an older
+ * Hangar kept it in the stored settings text (`dictation.enabled`), read once for the migration.
+ */
+export function legacyDictationEnabled(settingsText: string | null): boolean {
+  let raw: unknown;
+  try {
+    raw = settingsText === null ? null : JSON.parse(settingsText);
+  } catch {
+    return false;
+  }
+  const dictation = record(record(raw)?.dictation);
+  return dictation?.enabled === true;
 }
 
 /**
@@ -196,4 +227,55 @@ export function failureAfter(
     default:
       return null;
   }
+}
+
+/**
+ * Takes the waiting transcripts and hands each non-blank one to `onText`, oldest first. The
+ * `dictation-text` signal carries nothing; this is the only way the text reaches the window.
+ */
+export async function takeDictationTexts(
+  take: () => Promise<unknown>,
+  onText: (text: DictationText) => void,
+): Promise<void> {
+  let answer: unknown;
+  try {
+    answer = await take();
+  } catch {
+    return;
+  }
+  for (const text of parseDictationTexts(answer)) {
+    if (text.text !== "") onText(text);
+  }
+}
+
+/**
+ * Status reads that answer in another order than they were asked: only the newest answer counts.
+ * `next` numbers a read, `current` tells whether its answer is still wanted.
+ */
+export class LatestOnly {
+  private last = 0;
+
+  next(): number {
+    this.last += 1;
+    return this.last;
+  }
+
+  current(ticket: number): boolean {
+    return ticket === this.last;
+  }
+}
+
+/**
+ * A window that loads (first start or a reload while the key was held) has no hold running, so a
+ * recording the backend still runs belongs to no key: it is stopped. The backend's deadline
+ * catches the case where this call never comes. Texts that finished while no window listened are
+ * dropped first: otherwise the next dictation would paste them along, long after they were
+ * spoken. The stop comes after that, so the text of the recording it ends still arrives.
+ */
+export async function endStaleRecording(
+  stop: () => Promise<unknown>,
+  take: () => Promise<unknown>,
+): Promise<void> {
+  await take().catch(() => undefined);
+  await stop().catch(() => undefined);
 }

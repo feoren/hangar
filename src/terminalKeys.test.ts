@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { AGENT_NEWLINE, terminalKeyAction } from "./terminalKeys";
+import { AGENT_NEWLINE, dictationTail, terminalKeyAction } from "./terminalKeys";
 
 function key(code: string, mods: { ctrl?: boolean; shift?: boolean; alt?: boolean } = {}) {
   const letter = code.startsWith("Key") ? code.slice(3).toLowerCase() : code;
@@ -126,5 +126,53 @@ describe("terminal keys", () => {
     // Ctrl+Space alone stays with the shell (set mark) and the IME.
     const ctrlSpace = { ...key("Space", { ctrl: true }), key: " " };
     expect(terminalKeyAction(ctrlSpace, false, false, false, true)).toEqual({ kind: "terminal" });
+  });
+});
+
+describe("dictation tail", () => {
+  const space = (type: string, mods: { ctrl?: boolean; shift?: boolean }, repeat = false) => ({
+    ...key("Space", mods),
+    key: " ",
+    type,
+    repeat,
+  });
+
+  it("swallows the repeats of Space after Shift went up first, until Space is released", () => {
+    let armed = false;
+    const step = (event: ReturnType<typeof space>) => {
+      const result = dictationTail(armed, event, true);
+      armed = result.armed;
+      return result.swallow;
+    };
+    expect(step(space("keydown", { ctrl: true, shift: true }))).toBe(false);
+    expect(step(space("keydown", { ctrl: true, shift: true }, true))).toBe(false);
+    // Shift is up, Space still held: Ctrl+Space repeats, which xterm would send as NUL.
+    expect(step(space("keydown", { ctrl: true }, true))).toBe(true);
+    expect(step(space("keypress", { ctrl: true }, true))).toBe(true);
+    // Ctrl up too: plain repeated spaces are swallowed as well.
+    expect(step(space("keydown", {}, true))).toBe(true);
+    expect(step(space("keyup", {}))).toBe(false);
+    // Space released: the next press goes to the program again.
+    expect(step(space("keydown", { ctrl: true }, true))).toBe(false);
+  });
+
+  it("leaves Space alone without a hold, off, or on a fresh press", () => {
+    expect(dictationTail(false, space("keydown", { ctrl: true }, true), true)).toEqual({
+      armed: false,
+      swallow: false,
+    });
+    expect(dictationTail(true, space("keydown", { ctrl: true }, true), false)).toEqual({
+      armed: false,
+      swallow: false,
+    });
+    // A press without repeat means Space was released meanwhile (its keyup got lost).
+    expect(dictationTail(true, space("keydown", { ctrl: true }), true)).toEqual({
+      armed: false,
+      swallow: false,
+    });
+    expect(dictationTail(true, { ...space("keydown", {}, true), code: "KeyA" }, true)).toEqual({
+      armed: true,
+      swallow: false,
+    });
   });
 });
