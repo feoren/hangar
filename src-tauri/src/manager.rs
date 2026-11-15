@@ -29,6 +29,7 @@ use crate::cli_session::{self, Plan};
 use crate::install_source::{self, PlanInput, SystemProbe, UpdatePlan};
 use crate::instructions::{self, StartPrompt, StartPrompts};
 use crate::lock;
+use crate::no_links::{self, FolderPlace};
 use crate::output::{Batcher, Flow, Utf8Carry};
 use crate::proctree::{self, ProcTree, TreeUsage};
 use crate::profile::Profile;
@@ -328,26 +329,56 @@ fn os_error_code(text: &str) -> Option<i32> {
     rest[..rest.find(')')?].parse().ok()
 }
 
-/// Windows network shares (`\\host\share`, `\\?\UNC\...`) and device or verbatim namespaces
-/// (`\\.\...`, `\\?\...` other than a drive). Checked before the folder is touched at all: even
-/// asking a share whether a folder exists hands the user's credentials to its host.
-pub fn is_network_or_device(path: &Path) -> bool {
-    use std::path::{Component, Prefix};
-    matches!(
-        path.components().next(),
-        Some(Component::Prefix(prefix)) if matches!(
-            prefix.kind(),
-            Prefix::UNC(..) | Prefix::VerbatimUNC(..) | Prefix::DeviceNS(_) | Prefix::Verbatim(_)
-        )
-    )
+pub use crate::no_links::is_network_or_device;
+
+/// A session's working folder must be a local folder or one on a mapped drive the user chose:
+/// not a share or device path and not reached through a link that leads to one. Checked before
+/// anything else touches the folder ([`no_links::folder_place`]).
+pub fn check_cwd(cwd: &Path) -> Result<(), ManagerError> {
+    match no_links::folder_place(cwd) {
+        FolderPlace::Local => Ok(()),
+        FolderPlace::Remote => Err(ManagerError::RemoteCwd(cwd.to_owned())),
+        // A relative folder would be resolved against Hangar's own working folder, which is
+        // nothing the user chose.
+        FolderPlace::NotAFolder => Err(ManagerError::BadCwd(cwd.to_owned())),
+    }
 }
 
 /// Whether the child must not find programs in its working folder (Windows,
-/// [`NO_CWD_IN_EXE_PATH`]): update sessions, every agent from the catalog and every
-/// `.cmd`/`.bat` launcher. Only the user's own profiles keep the lookup: those are the shells
-/// (cmd.exe, PowerShell, WSL), where calling a program in the folder is what the user means.
-pub fn no_cwd_lookup(kind: SessionKind, source: Source, batch: bool) -> bool {
-    kind == SessionKind::Update || source == Source::Catalog || batch
+/// [`NO_CWD_IN_EXE_PATH`]): update sessions, every agent from the catalog, every `.cmd`/`.bat`
+/// launcher and every program that is not an interactive shell. Decided on the resolved
+/// `program`, not on where the profile came from: a user profile may well start an agent
+/// (`command = "claude"`). Only a shell keeps the lookup, where calling a program in the folder
+/// is what the user means.
+pub fn no_cwd_lookup(kind: SessionKind, source: Source, batch: bool, program: &Path) -> bool {
+    kind == SessionKind::Update
+        || source == Source::Catalog
+        || batch
+        || !is_interactive_shell(program)
+}
+
+/// Shells by file name (case-insensitive, with or without `.exe`): cmd, Windows PowerShell,
+/// PowerShell 7, WSL, Git Bash and the Unix shells a user may start on Windows. Anything else,
+/// above all an agent CLI, counts as a program that runs commands on the user's behalf.
+pub fn is_interactive_shell(program: &Path) -> bool {
+    const SHELLS: &[&str] = &[
+        "cmd",
+        "powershell",
+        "pwsh",
+        "wsl",
+        "bash",
+        "sh",
+        "zsh",
+        "fish",
+        "nu",
+        "git-bash",
+    ];
+    let Some(name) = program.file_name().and_then(|name| name.to_str()) else {
+        return false;
+    };
+    let name = name.to_ascii_lowercase();
+    let stem = name.strip_suffix(".exe").unwrap_or(&name);
+    SHELLS.contains(&stem)
 }
 
 enum Message {
@@ -1170,9 +1201,10 @@ impl SessionManager {
     /// Restarting the session repeats the update. If an update is already running for the
     /// profile, the result is [`ManagerError::UpdateRunning`].
     ///
-    /// The working folder is the profile's fixed folder, otherwise the user's home folder, never one
-    /// chosen by the frontend: on Windows `npm.cmd` looks for `node` in the current folder first, and
-    /// a foreign project could plant a `node.cmd` there.
+    /// The working folder is always the user's home folder: neither the frontend nor the profile's
+    /// fixed folder chooses it ([`updates::update_agent`] drops that folder), so no foreign
+    /// project's `.npmrc` or `pip.conf` steers the installer. On Windows the update also runs
+    /// without the program lookup in its folder ([`no_cwd_lookup`]).
     pub fn create_update(
         &self,
         profile_id: &str,
@@ -1247,15 +1279,7 @@ impl SessionManager {
             .clone()
             .or(cwd)
             .unwrap_or_else(|| self.home.clone());
-        // Before anything touches the folder: see is_network_or_device.
-        if is_network_or_device(&cwd) {
-            return Err(ManagerError::RemoteCwd(cwd));
-        }
-        // A relative folder would be resolved against Hangar's own working folder, which is
-        // nothing the user chose.
-        if !cwd.is_absolute() || !cwd.is_dir() {
-            return Err(ManagerError::BadCwd(cwd));
-        }
+        check_cwd(&cwd)?;
 
         let id = self.next_id.fetch_add(1, Ordering::Relaxed);
         // Register first, then start: if the process exits at once, the threads find their session.
@@ -1546,7 +1570,9 @@ impl SessionManager {
         Ok(())
     }
 
-    /// Ends all sessions, for example when the app closes.
+    /// Ends all sessions when the app closes, and returns only once every tree got its last
+    /// signal ([`proctree::end_all`]): on Unix at most [`proctree::KILL_GRACE`] for all sessions
+    /// together, then SIGKILL, so no program that ignores SIGHUP outlives Hangar.
     pub fn shutdown(&self) {
         let entries: Vec<Entry> = {
             let mut sessions = lock(&self.shared.sessions);
@@ -1556,10 +1582,20 @@ impl SessionManager {
             }
             entries
         };
-        for runtime in entries.into_iter().filter_map(|e| e.runtime) {
+        let runtimes: Vec<Runtime> = entries.into_iter().filter_map(|e| e.runtime).collect();
+        let mut trees = Vec::new();
+        for runtime in &runtimes {
             runtime.flow.close();
-            let _ = runtime.kill();
+            match &runtime.tree {
+                Some(tree) => trees.push(Arc::clone(tree)),
+                // Failure usually means the process was already gone.
+                None => {
+                    let _ = lock(&runtime.killer).kill();
+                }
+            }
         }
+        proctree::end_all(&trees);
+        drop(runtimes);
     }
 }
 
@@ -1671,7 +1707,7 @@ fn spawn(
     let mut command = CommandBuilder::new(&program);
     command.args(&args);
     command.cwd(cwd);
-    let no_cwd_lookup = no_cwd_lookup(launch.kind, agent.source, batch);
+    let no_cwd_lookup = no_cwd_lookup(launch.kind, agent.source, batch, &program);
     crate::child_env::apply(&mut command, &profile.env, no_cwd_lookup);
     // Straight into the child's environment; the values are not kept anywhere else.
     for (name, value) in
@@ -1738,8 +1774,10 @@ fn spawn(
         // Measured here, not in the batcher: there backpressure can delay the report.
         let at = Instant::now();
         // ConPTY closes the output only once the pseudo console is closed. Without this
-        // the read thread would never reach EOF on Windows.
-        lock(&master_wait).take();
+        // the read thread would never reach EOF on Windows. Closing it can block until ConPTY
+        // has flushed, so it happens outside the lock that resize and kill also take.
+        let master = lock(&master_wait).take();
+        drop(master);
         let _ = tx.send(Message::Exited(code, at));
     })?;
 
@@ -2022,23 +2060,55 @@ mod tests {
     }
 
     #[test]
-    fn only_the_users_own_profiles_keep_the_program_lookup_in_the_folder() {
+    fn only_shells_of_the_users_own_profiles_keep_the_program_lookup_in_the_folder() {
         use SessionKind::{Agent as A, Update as U};
-        // (kind, source, batch) -> protected
+        let shell = Path::new(r"C:\Windows\System32\cmd.exe");
+        let agent = Path::new(r"C:\Users\x\.local\bin\claude.exe");
+        // (kind, source, batch, program) -> protected
         let table = [
-            (A, Source::User, false, false),
-            (A, Source::User, true, true),
-            (A, Source::Catalog, false, true),
-            (A, Source::Catalog, true, true),
-            (U, Source::User, false, true),
-            (U, Source::Catalog, false, true),
+            (A, Source::User, false, shell, false),
+            (A, Source::User, true, shell, true),
+            // A user profile that starts an agent (`command = "claude"`) is protected as well.
+            (A, Source::User, false, agent, true),
+            (A, Source::Catalog, false, shell, true),
+            (A, Source::Catalog, false, agent, true),
+            (A, Source::Catalog, true, agent, true),
+            (U, Source::User, false, shell, true),
+            (U, Source::Catalog, false, agent, true),
         ];
-        for (kind, source, batch, expected) in table {
+        for (kind, source, batch, program, expected) in table {
             assert_eq!(
-                no_cwd_lookup(kind, source, batch),
+                no_cwd_lookup(kind, source, batch, program),
                 expected,
-                "{kind:?} {source:?} batch={batch}"
+                "{kind:?} {source:?} batch={batch} {program:?}"
             );
+        }
+    }
+
+    #[test]
+    fn shells_are_known_by_their_file_name() {
+        for shell in [
+            r"C:\Windows\System32\cmd.exe",
+            r"C:\Windows\System32\WindowsPowerShell\v1.0\PowerShell.EXE",
+            r"C:\Program Files\PowerShell\7\pwsh.exe",
+            r"C:\Windows\System32\wsl.exe",
+            r"C:\Program Files\Git\bin\bash.exe",
+            r"C:\Program Files\Git\git-bash.exe",
+            r"C:\tools\nu.exe",
+            "/bin/sh",
+            "/usr/bin/zsh",
+            "/usr/local/bin/fish",
+        ] {
+            assert!(is_interactive_shell(Path::new(shell)), "{shell}");
+        }
+        for program in [
+            r"C:\Users\x\.local\bin\claude.exe",
+            r"C:\tools\cmd-agent.exe",
+            r"C:\tools\bash.cmd",
+            "/usr/bin/codex",
+            "",
+        ] {
+            assert!(!is_interactive_shell(Path::new(program)), "{program}");
         }
     }
 
@@ -2101,6 +2171,33 @@ mod tests {
         }
         for local in [r"C:\work", r"\\?\C:\work", r"D:\", r"relative\folder"] {
             assert!(!is_network_or_device(Path::new(local)), "{local}");
+        }
+    }
+
+    #[test]
+    fn working_folders_must_be_local_folders() {
+        let here = std::env::current_dir().unwrap();
+        assert!(check_cwd(&here).is_ok());
+        assert!(matches!(
+            check_cwd(Path::new("relative")),
+            Err(ManagerError::BadCwd(_))
+        ));
+        assert!(matches!(
+            check_cwd(&here.join("hangar-missing-folder")),
+            Err(ManagerError::BadCwd(_))
+        ));
+        #[cfg(windows)]
+        for remote in [
+            r"\\hangar-test.invalid\share",
+            "//hangar-test.invalid/share/x",
+        ] {
+            assert!(
+                matches!(
+                    check_cwd(Path::new(remote)),
+                    Err(ManagerError::RemoteCwd(_))
+                ),
+                "{remote}"
+            );
         }
     }
 

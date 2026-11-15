@@ -1290,7 +1290,7 @@ impl NotesStore {
     /// storage, never directly from the frontend; it starts as argv without a shell.
     pub fn reveal(&self, folder: &NoteFolder) -> Result<(), NotesError> {
         let dir = self.folder_dir(folder)?;
-        crate::desktop::open(&dir, crate::desktop::Target::Folder).map_err(io_error(&dir))
+        crate::desktop::open_folder(&dir).map_err(io_error(&dir))
     }
 }
 

@@ -137,6 +137,12 @@ const COMMANDS: &[&str] = &[
     "team_release_task",
     "team_ask_release",
     "team_answer_release",
+    "security_switches",
+    "save_security_switches",
+    "load_message_queue",
+    "save_message_queue",
+    "set_panel_session",
+    "take_update_results",
 ];
 
 fn main() {

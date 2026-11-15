@@ -74,7 +74,10 @@ export function isCheckDue(
   return now - lastAttemptAt >= interval || now < lastAttemptAt;
 }
 
-/** Event after an update session ended and the version was read again. */
+/**
+ * Signal without payload after an update session ended and the version was read again; the main
+ * window takes the results with `takeUpdateResults` (they name program paths).
+ */
 export const PROGRAM_UPDATE_RESULT = "program-update-result";
 
 const MAX_VERSION_LENGTH = 40;

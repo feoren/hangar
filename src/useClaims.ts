@@ -34,12 +34,22 @@ export function useClaims(
     if (fresh.length > 0) onFreshRef.current(fresh);
   });
 
+  // Only the answer to the newest read counts: two reads may answer out of order.
+  const reads = useRef(0);
+  const read = useRef((value: Promise<unknown>) => {
+    const ticket = ++reads.current;
+    return value.then((snapshot) => {
+      if (ticket === reads.current) accept.current(snapshot);
+    });
+  });
+
   useEffect(() => {
     let disposed = false;
     let stop: (() => void) | null = null;
     try {
-      listen(CLAIMS_CHANGED, (event) => {
-        accept.current(event.payload);
+      // The event carries no snapshot (any window could listen to it); the main window reads it.
+      listen(CLAIMS_CHANGED, () => {
+        read.current(api.claimsSnapshot()).catch(() => undefined);
       })
         .then((unlisten) => {
           if (disposed) unlisten();
@@ -56,17 +66,11 @@ export function useClaims(
   }, []);
 
   useEffect(() => {
-    let current = true;
-    api
-      .configureClaims(enabled)
-      .then(() => (enabled ? api.claimsSnapshot() : EMPTY_CLAIMS))
-      .then((value) => {
-        if (current) accept.current(value);
-      })
+    read
+      .current(
+        api.configureClaims(enabled).then(() => (enabled ? api.claimsSnapshot() : EMPTY_CLAIMS)),
+      )
       .catch(() => undefined);
-    return () => {
-      current = false;
-    };
   }, [enabled]);
 
   return snapshot;

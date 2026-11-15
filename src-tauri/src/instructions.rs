@@ -194,18 +194,42 @@ pub fn check_args(
 pub fn instruction_args(spec: &[String], instructions: &Instructions) -> Vec<String> {
     let toml_text = toml::Value::String(instructions.text.clone()).to_string();
     let file = instructions.path.to_string_lossy();
-    spec.iter()
-        .map(|arg| {
-            arg.replace(TOML_TEXT, &toml_text)
-                .replace(TEXT, &instructions.text)
-                .replace(FILE, &file)
-        })
-        .collect()
+    let values = [
+        (TOML_TEXT, toml_text.as_str()),
+        (TEXT, instructions.text.as_str()),
+        (FILE, file.as_ref()),
+    ];
+    spec.iter().map(|arg| fill(arg, &values)).collect()
 }
 
 /// `spec` with the first prompt filled in.
 pub fn prompt_args(spec: &[String], prompt: &str) -> Vec<String> {
-    spec.iter().map(|arg| arg.replace(PROMPT, prompt)).collect()
+    spec.iter()
+        .map(|arg| fill(arg, &[(PROMPT, prompt)]))
+        .collect()
+}
+
+/// `arg` with every placeholder replaced in one pass from left to right. A value is never
+/// scanned again: `HANGAR.md` or a prompt that mentions `{file}` stays as written.
+fn fill(arg: &str, values: &[(&str, &str)]) -> String {
+    let mut out = String::with_capacity(arg.len());
+    let mut rest = arg;
+    while !rest.is_empty() {
+        match values.iter().find(|(name, _)| rest.starts_with(name)) {
+            Some((name, value)) => {
+                out.push_str(value);
+                rest = &rest[name.len()..];
+            }
+            None => {
+                let mut chars = rest.chars();
+                if let Some(c) = chars.next() {
+                    out.push(c);
+                }
+                rest = chars.as_str();
+            }
+        }
+    }
+    out
 }
 
 /// `spec` hands over the file's text itself rather than its path.
@@ -399,6 +423,34 @@ mod tests {
         assert_eq!(
             prompt_args(&strings(&["{prompt}"]), "Check upstream."),
             strings(&["Check upstream."])
+        );
+    }
+
+    #[test]
+    fn placeholders_inside_the_text_stay_as_they_are() {
+        // HANGAR.md may itself mention a placeholder; it is text, never filled in a second time.
+        let text = instructions("Write {file} and {text} and {toml_text} literally.");
+        assert_eq!(
+            instruction_args(&strings(&["--append-system-prompt={text}"]), &text),
+            strings(&["--append-system-prompt=Write {file} and {text} and {toml_text} literally."])
+        );
+        let codex = instruction_args(&strings(&["developer_instructions={toml_text}"]), &text);
+        let parsed: toml::Table = toml::from_str(&codex[0]).unwrap();
+        assert_eq!(
+            parsed["developer_instructions"].as_str(),
+            Some(text.text.as_str())
+        );
+        let file = Instructions {
+            text: String::new(),
+            path: PathBuf::from("/config/{text}/HANGAR.md"),
+        };
+        assert_eq!(
+            instruction_args(&strings(&["--read={file}"]), &file),
+            strings(&["--read=/config/{text}/HANGAR.md"])
+        );
+        assert_eq!(
+            prompt_args(&strings(&["{prompt}"]), "say {prompt} and {text}"),
+            strings(&["say {prompt} and {text}"])
         );
     }
 

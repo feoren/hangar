@@ -1,6 +1,9 @@
 // App settings (language, appearance, attention, program details, updates).
 // Layout and font size live separately in layout.ts. Stored per machine in localStorage; if storage
-// is missing or its content is invalid, the defaults apply.
+// is missing or its content is invalid, the defaults apply. The security switches (claims, gate,
+// command guard) are the exception: the panel and file viewer windows share this localStorage, so
+// the backend keeps them for the main window alone (mainStore.ts); they are neither read from nor
+// written to localStorage here.
 
 import { DEFAULT_DOT_ANIMATION, parseDotAnimation, type DotAnimation } from "./dotAnimation";
 import { clamp } from "./layout";
@@ -24,7 +27,19 @@ import { DEFAULT_LOOKS, parseStateLooks, type StateLooks } from "./stateLook";
 import { isThemeSetting, type ThemeSetting } from "./theme";
 import { DEFAULT_VIEWER_THEME, parseViewerTheme, type ViewerTheme } from "./viewerThemes";
 
-const STORAGE_KEY = "hangar.settings";
+export const SETTINGS_STORAGE_KEY = "hangar.settings";
+
+/** Settings the backend keeps (mainStore.ts), never localStorage. */
+export const SECURITY_SWITCH_KEYS = [
+  "claimsEnabled",
+  "gateEnabled",
+  "commandGuardEnabled",
+] as const;
+
+export type SecuritySwitchKey = (typeof SECURITY_SWITCH_KEYS)[number];
+
+/** The security switches as the backend stores them (`main_store.rs`). */
+export type SecuritySwitches = Record<SecuritySwitchKey, boolean>;
 
 export const QUIET_SECONDS = { min: 1, max: 30, default: 3 } as const;
 /**
@@ -287,9 +302,10 @@ export function parseSettings(text: string | null, fallbackLanguage: Language): 
         ? clampScrollbackLines(lines)
         : defaults.scrollbackLines,
     subAgentExcerpts: flag("subAgentExcerpts"),
-    claimsEnabled: flag("claimsEnabled"),
-    gateEnabled: flag("gateEnabled"),
-    commandGuardEnabled: flag("commandGuardEnabled"),
+    // Never from localStorage: any window of this origin could have written them there.
+    claimsEnabled: defaults.claimsEnabled,
+    gateEnabled: defaults.gateEnabled,
+    commandGuardEnabled: defaults.commandGuardEnabled,
     hangarMd: flag("hangarMd"),
     worktreeUpstreamCheck: flag("worktreeUpstreamCheck"),
     warnMultilinePaste: flag("warnMultilinePaste"),
@@ -311,7 +327,7 @@ export function gateActive(settings: Pick<Settings, "claimsEnabled" | "gateEnabl
 
 export function loadSettings(fallbackLanguage: Language): Settings {
   try {
-    return parseSettings(localStorage.getItem(STORAGE_KEY), fallbackLanguage);
+    return parseSettings(localStorage.getItem(SETTINGS_STORAGE_KEY), fallbackLanguage);
   } catch {
     return defaultSettings(fallbackLanguage);
   }
@@ -320,7 +336,7 @@ export function loadSettings(fallbackLanguage: Language): Settings {
 /** Are settings already stored? Tells existing users apart from the very first start. */
 export function hasStoredSettings(): boolean {
   try {
-    return localStorage.getItem(STORAGE_KEY) !== null;
+    return localStorage.getItem(SETTINGS_STORAGE_KEY) !== null;
   } catch {
     return false;
   }
@@ -328,8 +344,56 @@ export function hasStoredSettings(): boolean {
 
 export function saveSettings(settings: Settings): void {
   try {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(settings));
+    localStorage.setItem(SETTINGS_STORAGE_KEY, JSON.stringify(withoutSwitches(settings)));
   } catch {
     // Without storage, the defaults apply again on the next start.
+  }
+}
+
+/** The settings as stored in localStorage: without the security switches. */
+export function withoutSwitches(settings: Settings): Record<string, unknown> {
+  const switches: readonly string[] = SECURITY_SWITCH_KEYS;
+  return Object.fromEntries(Object.entries(settings).filter(([key]) => !switches.includes(key)));
+}
+
+/** The switches of `settings`. */
+export function switchesOf(settings: SecuritySwitches): SecuritySwitches {
+  return {
+    claimsEnabled: settings.claimsEnabled,
+    gateEnabled: settings.gateEnabled,
+    commandGuardEnabled: settings.commandGuardEnabled,
+  };
+}
+
+/**
+ * The switches an older Hangar kept in the stored settings text, for the one migration to the
+ * backend (mainStore.ts); missing or invalid values are on.
+ */
+export function legacySwitches(text: string | null): SecuritySwitches {
+  const defaults = switchesOf(defaultSettings("en"));
+  let raw: unknown = null;
+  try {
+    raw = text === null ? null : JSON.parse(text);
+  } catch {
+    return defaults;
+  }
+  if (typeof raw !== "object" || raw === null || Array.isArray(raw)) return defaults;
+  const flag = (key: SecuritySwitchKey): boolean => {
+    const value: unknown = Reflect.get(raw, key);
+    return typeof value === "boolean" ? value : defaults[key];
+  };
+  return {
+    claimsEnabled: flag("claimsEnabled"),
+    gateEnabled: flag("gateEnabled"),
+    commandGuardEnabled: flag("commandGuardEnabled"),
+  };
+}
+
+/** The stored settings text, read once at start for [`legacySwitches`]. */
+export function readStoredSettingsText(): string | null {
+  try {
+    return localStorage.getItem(SETTINGS_STORAGE_KEY);
+  } catch {
+    return null;
   }
 }

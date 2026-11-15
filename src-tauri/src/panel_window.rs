@@ -109,6 +109,8 @@ pub fn placement(bounds: Option<Bounds>, monitors: &[Area]) -> Placement {
 pub enum PanelWindowError {
     #[error("Only the panel window may send panel messages")]
     WrongWindow,
+    #[error("Only the main window may do this")]
+    NotMain,
     #[error("Invalid panel message: {0}")]
     Invalid(&'static str),
     #[error("Panel window: {0}")]
@@ -160,6 +162,38 @@ impl PanelMessage {
     }
 }
 
+/// The session the main window last handed to the panel window (its active session, the one the
+/// panel's tabs show). Commands the panel may call with a session id answer for that session
+/// only, so a compromised panel cannot read or change another session's repository or files.
+/// The main window may name any session.
+#[derive(Debug, Default)]
+pub struct PanelScope(std::sync::Mutex<Option<u64>>);
+
+impl PanelScope {
+    /// Set by the main window whenever it sends the panel its context; `None`: no session.
+    pub fn set(&self, session: Option<u64>) {
+        *crate::lock(&self.0) = session;
+    }
+
+    /// Whether the window labelled `label` may address session `id`.
+    pub fn allows(&self, label: &str, id: u64) -> bool {
+        match label {
+            MAIN_LABEL => true,
+            LABEL => *crate::lock(&self.0) == Some(id),
+            _ => false,
+        }
+    }
+}
+
+/// Only the main window may hand the panel a session.
+pub fn check_main(label: &str) -> Result<(), PanelWindowError> {
+    if label == MAIN_LABEL {
+        Ok(())
+    } else {
+        Err(PanelWindowError::NotMain)
+    }
+}
+
 /// Only the window labelled `panel` may send; the main window has no use for it.
 pub fn check_sender(label: &str) -> Result<(), PanelWindowError> {
     if label == LABEL {
@@ -175,6 +209,25 @@ mod tests {
 
     fn parse(json: &str) -> Result<PanelMessage, serde_json::Error> {
         serde_json::from_str(json)
+    }
+
+    #[test]
+    fn the_panel_addresses_only_the_session_it_was_handed() {
+        let scope = PanelScope::default();
+        // Nothing handed yet: the panel reaches no session, the main window every one.
+        assert!(!scope.allows(LABEL, 1));
+        assert!(scope.allows(MAIN_LABEL, 1));
+        scope.set(Some(4));
+        assert!(scope.allows(LABEL, 4));
+        assert!(!scope.allows(LABEL, 5));
+        assert!(scope.allows(MAIN_LABEL, 5));
+        for other in ["file-viewer-1", "Panel", ""] {
+            assert!(!scope.allows(other, 4), "{other}");
+        }
+        scope.set(None);
+        assert!(!scope.allows(LABEL, 4));
+        assert!(check_main(MAIN_LABEL).is_ok());
+        assert!(matches!(check_main(LABEL), Err(PanelWindowError::NotMain)));
     }
 
     #[test]

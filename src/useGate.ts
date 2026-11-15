@@ -23,11 +23,13 @@ export const gateReady: Promise<void> = setup.ready;
 
 /**
  * `guard`: the command guard's setting, sent whenever it changes; the backend applies it to
- * running sessions at once, so no start waits for it.
+ * running sessions at once, so no start waits for it. `null` for either: not known yet (the
+ * switches load from the backend, mainStore.ts); nothing is sent until it is, and the restore
+ * waits for the gate's first setting (`gateReady`).
  */
 export function useGate(
-  enabled: boolean,
-  guard: boolean,
+  enabled: boolean | null,
+  guard: boolean | null,
   onFresh: (decisions: PendingDecision[]) => void,
 ): GateSnapshot {
   const [snapshot, setSnapshot] = useState<GateSnapshot>(EMPTY_GATE);
@@ -78,6 +80,7 @@ export function useGate(
   }, []);
 
   useEffect(() => {
+    if (enabled === null) return;
     let current = true;
     // Turned off, the backend allows every waiting decision; its snapshot then has none left.
     setup
@@ -90,6 +93,7 @@ export function useGate(
   }, [enabled]);
 
   useEffect(() => {
+    if (guard === null) return;
     api.configureCommandGuard(guard).catch(() => undefined);
   }, [guard]);
 

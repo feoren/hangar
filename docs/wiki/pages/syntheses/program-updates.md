@@ -4,7 +4,7 @@ type: synthesis
 tags: [updates, contract, network]
 sources: ["[[update-sources]]", "[[update-installers]]", "[[github-conditional-requests]]", "[[app-execution-alias]]"]
 created: 2026-11-07
-updated: 2026-11-12
+updated: 2026-11-15
 ---
 
 # Showing and running program updates (contract)
@@ -80,7 +80,10 @@ command are the same.
 
 ### Event `program-update-result`
 After an update session exits (also after a restart of it), the backend clears the version cache,
-sends `exit`, then reads the version again on a thread of its own and emits
+sends `exit`, then reads the version again on a thread of its own, keeps the result (at most 32,
+oldest dropped) and emits `program-update-result` without payload: a listener of any window
+receives events emitted to the main one, and `copies` names program paths. The main window then
+calls `take_update_results` (main window only), which hands out each waiting result once:
 
 ```ts
 type UpdateOutcome = {

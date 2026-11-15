@@ -60,9 +60,15 @@ listener), editor in `src/QueueDialog.tsx`.
   after a stall only when its start had reached the program.
 - The "done" that sends the message raises no chime, flash, desktop notification, phone push or
   done notice: the session goes on working.
-- Persistence: `localStorage` key `hangar.queuedMessages`, an object of session key to text,
-  written once the restore ran, only for sessions that exist (or were remembered before a UI
-  reload), cleared when "Remember sessions" is off.
+- Persistence: in the backend, `queued-messages.json` in the local app data folder (an object of
+  session key to text, `src-tauri/src/main_store.rs`), through `load_message_queue` and
+  `save_message_queue`, which only the main window may call. Not `localStorage`: the panel and
+  file viewer windows share it, and a compromised viewer could queue a text Hangar later pastes
+  into an agent session. Keys must be UUIDs, texts non-empty and at most 20 000 UTF-16 units, at
+  most 512 entries; a damaged file gives no messages. Written once the restore ran and the stored
+  messages were read, only for sessions that exist (or were remembered before a UI reload),
+  cleared when "Remember sessions" is off. The old `localStorage` key `hangar.queuedMessages` is
+  migrated once (while the backend has stored nothing) and then removed (`src/mainStore.ts`).
 
 > [!note] Why not in `workspace.json`
 > The backend's `Workspace` and `SavedSession` use `deny_unknown_fields`

@@ -1140,3 +1140,48 @@ fn resolving_conflicts_runs_no_repository_hook() {
         "git did not run the hook; the test is void"
     );
 }
+
+/// The panel window names the folder: a share or device path is refused before git runs or any
+/// lookup reaches its host.
+#[test]
+fn share_folders_are_refused_before_they_are_touched() {
+    let tmp = TempDir::new("project-notes-share");
+    let (notes, _) = store(tmp.path());
+    let started = std::time::Instant::now();
+    #[cfg(windows)]
+    let shares = [
+        r"\hangar-test.invalid\share\project",
+        "//hangar-test.invalid/share/project",
+        r"\?\UNC\hangar-test.invalid\share",
+    ];
+    #[cfg(not(windows))]
+    let shares: [&str; 0] = [];
+    for share in shares {
+        let folder = NoteFolder {
+            path: Some(PathBuf::from(share)),
+            shared: true,
+        };
+        assert!(
+            matches!(
+                ProjectNotes::folder_path(&folder),
+                Err(ProjectNotesError::NotRepository)
+            ),
+            "{share}"
+        );
+        assert!(matches!(
+            notes.list_notes(&folder),
+            Err(ProjectNotesError::NotRepository)
+        ));
+        assert!(matches!(
+            notes.status(&folder, LABEL, UNTITLED),
+            Err(ProjectNotesError::NotRepository)
+        ));
+    }
+    let relative = NoteFolder {
+        path: Some(PathBuf::from("relative")),
+        shared: true,
+    };
+    assert!(ProjectNotes::folder_path(&relative).is_err());
+    // A name lookup or SMB connection attempt would take seconds.
+    assert!(started.elapsed() < Duration::from_secs(1));
+}

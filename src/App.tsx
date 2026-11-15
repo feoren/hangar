@@ -169,14 +169,13 @@ import { pollInterval } from "./power";
 import { observeResources, setResourcesEnabled } from "./useSessionResources";
 import {
   discardMessage,
-  loadStoredQueue,
+  EMPTY_QUEUE,
   guardedEnd,
   phaseEnded,
   phaseEnd,
   saveMessage,
   queueMessage,
   restoredQueue,
-  saveStoredQueue,
   storedQueue,
   workStarted,
   type MessageQueue,
@@ -236,11 +235,16 @@ import {
   utf8Bytes,
   type ExportFormat,
 } from "./sessionExport";
+import { loadQueuedMessages, loadSecuritySwitches, saveQueuedMessages } from "./mainStore";
 import {
   gateActive,
   hasStoredSettings,
+  legacySwitches,
   loadSettings,
+  readStoredSettingsText,
   saveSettings,
+  switchesOf,
+  type SecuritySwitches,
   type Settings,
 } from "./settings";
 import { SettingsDialog } from "./SettingsDialog";
@@ -585,9 +589,24 @@ export function App() {
   const appGrid = useRef<HTMLDivElement>(null);
   useSidebarMotion(appGrid, layout.collapsed, layout.sidebarWidth);
   useWindowResizing();
+  /** What an older version stored of the security switches, read before anything saves. */
+  const [oldSwitches] = useState(() => legacySwitches(readStoredSettingsText()));
   const [settings, setSettings] = useState<Settings>(() =>
     loadSettings(detectLanguage(navigator.language)),
   );
+  /**
+   * The security switches as the backend keeps them (mainStore.ts); `null` until they are read.
+   * Until then the gate and the command guard are not configured.
+   */
+  const savedSwitches = useRef<SecuritySwitches | null>(null);
+  const [switchesReady, setSwitchesReady] = useState(false);
+  useEffect(() => {
+    void loadSecuritySwitches(oldSwitches).then((switches) => {
+      savedSwitches.current = switches;
+      setSettings((current) => ({ ...current, ...switches }));
+      setSwitchesReady(true);
+    });
+  }, [oldSwitches]);
   const grouping = settings.sessionGrouping;
   // The session list follows the sidebar's grouping, so cycling and the rail match it.
   useEffect(() => {
@@ -684,13 +703,22 @@ export function App() {
    * Queued messages per session key (messageQueue.ts). The ref is the truth the attention
    * listener reads and writes outside React; the state renders it.
    */
-  const [queue, setQueue] = useState<MessageQueue>(() => restoredQueue(loadStoredQueue()));
+  const [queue, setQueue] = useState<MessageQueue>(EMPTY_QUEUE);
   const queueRef = useRef<MessageQueue>(queue);
   const changeQueue = useCallback((next: MessageQueue) => {
     if (next === queueRef.current) return;
     queueRef.current = next;
     setQueue(next);
   }, []);
+  /** The stored messages are back from the backend; only then is the queue saved again. */
+  const [queueLoaded, setQueueLoaded] = useState(false);
+  useEffect(() => {
+    void loadQueuedMessages().then((stored) => {
+      // A message queued while the backend answered wins over the stored one.
+      changeQueue(new Map([...restoredQueue(stored), ...queueRef.current]));
+      setQueueLoaded(true);
+    });
+  }, [changeQueue]);
   /** The queued message editor: for which session, and where the menu was (`null`: centered). */
   const [queueEditor, setQueueEditor] = useState<{
     id: number;
@@ -1084,6 +1112,23 @@ export function App() {
     saveSettings(settings);
   }, [settings]);
 
+  // The switches go to the backend, the one place other windows cannot write to.
+  useEffect(() => {
+    if (!switchesReady) return;
+    const next = switchesOf(settings);
+    const saved = savedSwitches.current;
+    if (
+      saved !== null &&
+      saved.claimsEnabled === next.claimsEnabled &&
+      saved.gateEnabled === next.gateEnabled &&
+      saved.commandGuardEnabled === next.commandGuardEnabled
+    ) {
+      return;
+    }
+    savedSwitches.current = next;
+    api.saveSecuritySwitches(next).catch(() => undefined);
+  }, [settings, switchesReady]);
+
   useEffect(() => {
     setCurrentLanguage(settings.language);
     document.documentElement.lang = settings.language;
@@ -1235,7 +1280,10 @@ export function App() {
   });
   // The gate: a pending decision plays the chime, flashes the taskbar and sends a desktop
   // notification once, under the same settings as a session that starts waiting.
-  const gate = useGate(gateActive(settings), settings.commandGuardEnabled, (fresh) => {
+  // Not configured before the switches are read from the backend (`null`).
+  const gateSetting = switchesReady ? gateActive(settings) : null;
+  const guardSetting = switchesReady ? settings.commandGuardEnabled : null;
+  const gate = useGate(gateSetting, guardSetting, (fresh) => {
     const current = noticesAt(settingsRef.current, new Date());
     if (!current.attentionEnabled) return;
     const watched = windowWatched();
@@ -2759,9 +2807,9 @@ export function App() {
   // Queued messages come back with their sessions: stored per session key, only for sessions that
   // are restored (or were remembered before a reload), and only once the restore has run.
   useEffect(() => {
-    if (!restored) return;
+    if (!restored || !queueLoaded) return;
     if (!settings.restoreSessions) {
-      saveStoredQueue({});
+      saveQueuedMessages({}).catch(() => undefined);
       return;
     }
     const keys = new Set<string>();
@@ -2770,8 +2818,8 @@ export function App() {
       if (key !== undefined) keys.add(key);
     }
     for (const saved of rememberedWorkspace.current?.sessions ?? []) keys.add(saved.key);
-    saveStoredQueue(storedQueue(queue, (key) => keys.has(key)));
-  }, [queue, state.sessions, restored, settings.restoreSessions]);
+    saveQueuedMessages(storedQueue(queue, (key) => keys.has(key))).catch(() => undefined);
+  }, [queue, state.sessions, restored, queueLoaded, settings.restoreSessions]);
 
   useEffect(() => {
     if (!restored || !settings.restoreSessions) return;
@@ -2916,9 +2964,18 @@ export function App() {
       })
         .then(keep)
         .catch(() => undefined);
-      listen(PROGRAM_UPDATE_RESULT, (event) => {
-        const outcome = parseUpdateOutcome(event.payload);
-        if (outcome !== null) updateResultRef.current(outcome);
+      // A bare signal: the results name program paths, so they come from a main-only command.
+      listen(PROGRAM_UPDATE_RESULT, () => {
+        api
+          .takeUpdateResults()
+          .then((results) => {
+            if (!Array.isArray(results)) return;
+            for (const result of results) {
+              const outcome = parseUpdateOutcome(result);
+              if (outcome !== null) updateResultRef.current(outcome);
+            }
+          })
+          .catch(() => undefined);
       })
         .then(keep)
         .catch(() => undefined);
@@ -3072,7 +3129,12 @@ export function App() {
     const text = JSON.stringify(payload);
     if (!force && text === panelSent.current) return;
     panelSent.current = text;
-    emitTo(PANEL_WINDOW_LABEL, PANEL_CONTEXT, payload).catch(() => undefined);
+    // The panel may address this session only; the backend learns it before the panel does.
+    api
+      .setPanelSession(context.activeId)
+      .catch(() => undefined)
+      .then(() => emitTo(PANEL_WINDOW_LABEL, PANEL_CONTEXT, payload))
+      .catch(() => undefined);
   }, []);
   const teamActivities = teamStore.activities;
   useEffect(() => {
