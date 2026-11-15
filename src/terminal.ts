@@ -47,6 +47,7 @@ import { arrowsToColumn, clickMovesCursor, type ClickCell } from "./terminalClic
 import { terminalKeyAction } from "./terminalKeys";
 import { TerminalLinks, type LinkRequest } from "./terminalLinkProvider";
 import { guardSecondaryClick } from "./terminalMouse";
+import { InputStalled, settleStalled } from "./sessionInput";
 import { setupUnicode } from "./terminalUnicode";
 import {
   createFontLoader,
@@ -133,7 +134,7 @@ export class SessionTerminal {
    * stay empty.
    */
   private pendingInput = "";
-  /** Last write to the backend; broadcast waits for it before sending Enter. */
+  /** Last write to the backend (may reject); broadcast waits for it before sending Enter. */
   private lastWrite: Promise<unknown> = Promise.resolve();
   /** New terminal sizes for the PTY, once a drag rests (ptySize.ts). */
   private readonly ptySize = new PtySizeSync((id, size) => {
@@ -728,11 +729,15 @@ export class SessionTerminal {
 
   /**
    * Like `pasteText`, but resolves once the backend has the text. Used by "Send to several",
-   * which sends Enter afterwards as a separate write.
+   * which sends Enter afterwards as a separate write; rejects when the program did not take the
+   * text (`InputStalled`), so no Enter follows a paste that did not arrive.
    */
   pasteAndWait(text: string): Promise<void> {
+    const before = this.lastWrite;
     this.pasteText(text);
-    return this.lastWrite.then(ignore, ignore);
+    // Nothing sent (blank text, or before the ID is known): an earlier write's fate is not ours.
+    if (this.lastWrite === before) return Promise.resolve();
+    return settleStalled(this.lastWrite);
   }
 
   /** Enter, as if typed: runs what was pasted before. */
@@ -778,7 +783,13 @@ export class SessionTerminal {
       this.pendingInput += data;
       return;
     }
-    this.lastWrite = api.write(this.id, data).catch(ignore);
+    const write = api.write(this.id, data);
+    this.lastWrite = write;
+    write.catch((error: unknown) => {
+      if (error instanceof InputStalled && !this.disposed) {
+        this.writeNotice(`[${t("terminal.inputStalled")}]`);
+      }
+    });
   }
 
   private handlePaste(event: ClipboardEvent): void {

@@ -314,8 +314,11 @@ pub fn run() -> tauri::Result<()> {
                         .map(|info| (info.id, info.title))
                         .collect()
                 },
-                move |snapshot| {
-                    let _ = events.emit_to(panel_window::MAIN_LABEL, gate_service::EVENT, snapshot);
+                // Only a signal: a listener in any window receives events emitted to the main
+                // one, and the held edits name files and commands. The main window reads the
+                // snapshot through `gate_snapshot`, which only it may call.
+                move |_snapshot| {
+                    let _ = events.emit_to(panel_window::MAIN_LABEL, gate_service::EVENT, ());
                 },
             );
             gate.load_rules(gate_rules_file);

@@ -271,6 +271,44 @@ fn input_reaches_the_process() {
     manager.close(info.id).unwrap();
 }
 
+/// One write carries at most `MAX_WRITE` bytes; a program that does not read its input fills the
+/// bounded queue, and further writes are answered with `Busy` instead of piling up in memory.
+#[test]
+fn input_is_bounded() {
+    let manager = manager();
+    let (tx, _rx) = channel();
+    let info = manager
+        .create("sleep", None, SIZE, move |e| tx.send(e).unwrap_or(()))
+        .unwrap();
+    let too_large = "x".repeat(hangar_lib::manager::MAX_WRITE + 1);
+    assert!(matches!(
+        manager.write(info.id, &too_large),
+        Err(ManagerError::InputTooLarge { .. })
+    ));
+    // The sleeping program never reads: the PTY's buffer fills, then the queue.
+    let chunk = "y".repeat(hangar_lib::manager::MAX_WRITE);
+    let busy =
+        (0..64).any(|_| matches!(manager.write(info.id, &chunk), Err(ManagerError::Busy(_))));
+    assert!(busy, "the input queue never filled up");
+    manager.close(info.id).unwrap();
+}
+
+/// Sizes beyond what any window shows are clamped before they reach the PTY.
+#[test]
+fn huge_sizes_are_clamped() {
+    let manager = manager();
+    let (tx, _rx) = channel();
+    let huge = TermSize {
+        cols: u16::MAX,
+        rows: u16::MAX,
+    };
+    let info = manager
+        .create("sleep", None, huge, move |e| tx.send(e).unwrap_or(()))
+        .unwrap();
+    manager.resize(info.id, huge).unwrap();
+    manager.close(info.id).unwrap();
+}
+
 /// The resources of a session cover its process tree: memory of the running program, and CPU
 /// time that never shrinks between two readings.
 #[test]
@@ -660,9 +698,21 @@ fn update_session_does_not_search_programs_in_working_folder() {
     std::fs::create_dir_all(&dir).unwrap();
     std::fs::write(dir.join("probe.cmd"), "@echo HANGAR-FOLDER-PROBE\r\n").unwrap();
     let mut prog = profile("probe", "cmd", &["/d", "/c", "probe"]);
-    prog.cwd = Some(dir.clone());
     prog.update_hint = Some(hint("cmd /d /c probe"));
-    let manager = SessionManager::new(vec![prog], Vec::new(), std::env::temp_dir());
+    // A profile with a fixed folder: its update still runs in the home folder, where npm and
+    // pip find no project configuration of a foreign repository.
+    let mut fixed = profile("fixed", "cmd", &["/d", "/c", "exit 0"]);
+    fixed.cwd = Some(std::env::temp_dir());
+    fixed.update_hint = Some(hint("cmd /d /c exit 0"));
+    // The home folder holds the probe: an update starts there and must still not find it.
+    let manager = SessionManager::new(vec![prog, fixed], Vec::new(), dir.clone());
+
+    let (tx, rx) = channel();
+    let update = manager
+        .create_update("fixed", SIZE, move |e| tx.send(e).unwrap_or(()))
+        .unwrap();
+    assert_eq!(update.cwd, dir, "update sessions run in the home folder");
+    collect_until_exit(&manager, update.id, &rx);
 
     let (tx, rx) = channel();
     let agent = manager
@@ -983,6 +1033,107 @@ fn cmd_launcher_does_not_search_node_in_working_folder() {
             "counter check {id}: {output:?}"
         );
     }
+}
+
+/// Every catalog agent, not only `.cmd` launchers, starts without the program lookup in its
+/// working folder: the programs an agent runs from there (`cmd /c marker`) cannot pick up a
+/// `marker.bat` a foreign project planted. A user profile (a shell) still finds it (counter
+/// check).
+#[cfg(windows)]
+#[test]
+fn catalog_agent_does_not_search_programs_in_working_folder() {
+    // See update_session_does_not_search_programs_in_working_folder.
+    std::env::remove_var("NoDefaultCurrentDirectoryInExePath");
+    let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("..")
+        .join("tests")
+        .join(".tmp")
+        .join(format!("pty-cwd-lookup-{}", std::process::id()));
+    let work = root.join("x");
+    let _ = std::fs::remove_dir_all(&root);
+    std::fs::create_dir_all(&work).unwrap();
+    let work = std::fs::canonicalize(&work).unwrap();
+    let work = std::path::PathBuf::from(work.to_string_lossy().trim_start_matches(r"\\?\"));
+    std::fs::write(
+        work.join("marker.bat"),
+        "@type nul > hangar-marker-ran.txt\r\n",
+    )
+    .unwrap();
+    let ran = work.join("hangar-marker-ran.txt");
+    let manager = SessionManager::new(
+        vec![profile("shell", "cmd", &["/d", "/c", "marker"])],
+        vec![catalog_agent(
+            "agentlike",
+            &["cmd"],
+            &["/d", "/c", "marker"],
+        )],
+        std::env::temp_dir(),
+    );
+    let run = |id: &str| {
+        let (tx, rx) = channel();
+        let info = manager
+            .create(id, Some(work.clone()), SIZE, move |e| {
+                tx.send(e).unwrap_or(())
+            })
+            .unwrap();
+        collect_until_exit(&manager, info.id, &rx)
+    };
+
+    let (output, _) = run("agentlike");
+    assert!(!ran.exists(), "planted marker.bat ran: {output:?}");
+
+    let (output, _) = run("shell");
+    assert!(ran.exists(), "counter check: {output:?}");
+    std::fs::remove_dir_all(&root).unwrap();
+}
+
+/// Closing a session ends its whole tree on Unix, also a program that ignores SIGHUP: after the
+/// grace period the rest gets SIGKILL.
+#[cfg(unix)]
+#[test]
+fn close_kills_a_tree_that_ignores_sighup() {
+    let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("..")
+        .join("tests")
+        .join(".tmp")
+        .join(format!("pty-sighup-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&root);
+    std::fs::create_dir_all(&root).unwrap();
+    let pid_file = root.join("pid");
+    let script = format!(
+        "trap '' HUP; sleep 1000 & echo $! > '{}'; echo HANGAR-READY; wait",
+        pid_file.display()
+    );
+    let manager = SessionManager::new(
+        vec![profile("stubborn", "sh", &["-c", script.as_str()])],
+        Vec::new(),
+        std::env::temp_dir(),
+    );
+    let (tx, rx) = channel();
+    let info = manager
+        .create("stubborn", None, SIZE, move |e| tx.send(e).unwrap_or(()))
+        .unwrap();
+    wait_for_output(&manager, info.id, &rx, "HANGAR-READY");
+    let pid = std::fs::read_to_string(&pid_file)
+        .unwrap()
+        .trim()
+        .to_owned();
+    manager.close(info.id).unwrap();
+    // Gone, or a zombie waiting for init: `ps` prints nothing, or a state starting with Z.
+    let alive = || {
+        let out = std::process::Command::new("ps")
+            .args(["-o", "stat=", "-p", &pid])
+            .output()
+            .unwrap();
+        let state = String::from_utf8_lossy(&out.stdout).trim().to_owned();
+        !state.is_empty() && !state.starts_with('Z')
+    };
+    let deadline = Instant::now() + hangar_lib::proctree::KILL_GRACE + Duration::from_secs(8);
+    while alive() && Instant::now() < deadline {
+        std::thread::sleep(Duration::from_millis(100));
+    }
+    assert!(!alive(), "sleep {pid} survived the close");
+    std::fs::remove_dir_all(&root).unwrap();
 }
 
 /// portable-pty quotes by MSVC rules, but cmd.exe interprets `&`, `|`, `%` … itself

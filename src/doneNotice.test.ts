@@ -35,14 +35,14 @@ describe("parseChangedCount", () => {
 
 describe("doneFileCount", () => {
   it("asks the backend for the count of the session's folder only", async () => {
-    const ask = vi.fn((cwd: string) => Promise.resolve<unknown>(cwd === "C:\\app" ? 3 : null));
-    await expect(doneFileCount("C:\\app", ask)).resolves.toBe(3);
-    expect(ask).toHaveBeenCalledWith("C:\\app");
+    const ask = vi.fn((id: number) => Promise.resolve<unknown>(id === 7 ? 3 : null));
+    await expect(doneFileCount(7, ask)).resolves.toBe(3);
+    expect(ask).toHaveBeenCalledWith(7);
   });
 
   it("offers nothing outside a repository or without changes", async () => {
     for (const answer of [null, 0]) {
-      const count = await doneFileCount("/home/ada/notes", () => Promise.resolve<unknown>(answer));
+      const count = await doneFileCount(2, () => Promise.resolve<unknown>(answer));
       expect(count).toBe(0);
       expect(
         offersDoneNotice({
@@ -58,7 +58,7 @@ describe("doneFileCount", () => {
 
   it("passes a git error on, so the caller shows nothing", async () => {
     await expect(
-      doneFileCount("/x", () => Promise.reject(new Error("git not found"))),
+      doneFileCount(3, () => Promise.reject(new Error("git not found"))),
     ).rejects.toThrow("git not found");
   });
 });

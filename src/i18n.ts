@@ -460,6 +460,11 @@ const de = {
   "terminal.unknownProfile":
     "[Das Programm „{name}“ gibt es nicht mehr. Du kannst die Session schließen.]",
   "terminal.startFailed": "[Start nicht möglich: {error}]",
+  "terminal.inputStalled":
+    "Das Programm nimmt gerade keine Eingabe an; was noch nicht gesendet war, wurde verworfen.",
+  "terminal.remoteFolder":
+    "Sessions starten nur in lokalen Ordnern, nicht auf Netzlaufwerken wie \\\\server\\freigabe.",
+  "terminal.missingFolder": "Den Arbeitsordner gibt es nicht.",
   "notes.title": "Notizen",
   "notes.show": "Notizen einblenden",
   "notes.hide": "Notizen ausblenden",
@@ -2062,6 +2067,11 @@ const en: Record<MessageKey, string> = {
   "terminal.notInstalled": "[{name} is not installed. Install it, then restart the session.]",
   "terminal.unknownProfile": "[The program “{name}” no longer exists. You can close the session.]",
   "terminal.startFailed": "[Could not start: {error}]",
+  "terminal.inputStalled":
+    "The program is not taking input right now; whatever was not sent yet was dropped.",
+  "terminal.remoteFolder":
+    "Sessions start only in local folders, not on network drives like \\\\server\\share.",
+  "terminal.missingFolder": "The working folder does not exist.",
   "notes.title": "Notes",
   "notes.show": "Show notes",
   "notes.hide": "Hide notes",
@@ -3643,6 +3653,11 @@ const el: Record<MessageKey, string> = {
   "terminal.unknownProfile":
     "[Το πρόγραμμα «{name}» δεν υπάρχει πια. Μπορείς να κλείσεις τη συνεδρία.]",
   "terminal.startFailed": "[Η εκκίνηση δεν ήταν δυνατή: {error}]",
+  "terminal.inputStalled":
+    "Το πρόγραμμα δεν δέχεται είσοδο αυτή τη στιγμή· ό,τι δεν είχε σταλεί ακόμη απορρίφθηκε.",
+  "terminal.remoteFolder":
+    "Οι συνεδρίες ξεκινούν μόνο σε τοπικούς φακέλους, όχι σε μονάδες δικτύου όπως \\\\server\\share.",
+  "terminal.missingFolder": "Ο φάκελος εργασίας δεν υπάρχει.",
   "notes.title": "Σημειώσεις",
   "notes.show": "Εμφάνιση σημειώσεων",
   "notes.hide": "Απόκρυψη σημειώσεων",
@@ -5262,6 +5277,11 @@ const es: Record<MessageKey, string> = {
   "terminal.notInstalled": "[{name} no está instalado. Instálalo y luego reinicia la sesión.]",
   "terminal.unknownProfile": "[El programa «{name}» ya no existe. Puedes cerrar la sesión.]",
   "terminal.startFailed": "[No se pudo iniciar: {error}]",
+  "terminal.inputStalled":
+    "El programa no acepta entradas ahora mismo; lo que aún no se había enviado se descartó.",
+  "terminal.remoteFolder":
+    "Las sesiones solo se inician en carpetas locales, no en unidades de red como \\\\servidor\\recurso.",
+  "terminal.missingFolder": "La carpeta de trabajo no existe.",
   "notes.title": "Notas",
   "notes.show": "Mostrar notas",
   "notes.hide": "Ocultar notas",
@@ -6865,6 +6885,11 @@ const fr: Record<MessageKey, string> = {
   "terminal.notInstalled": "[{name} n’est pas installé. Installe-le, puis redémarre la session.]",
   "terminal.unknownProfile": "[Le programme « {name} » n’existe plus. Tu peux fermer la session.]",
   "terminal.startFailed": "[Démarrage impossible : {error}]",
+  "terminal.inputStalled":
+    "Le programme n'accepte aucune saisie pour l'instant ; ce qui n'était pas encore envoyé a été abandonné.",
+  "terminal.remoteFolder":
+    "Les sessions démarrent uniquement dans des dossiers locaux, pas sur des lecteurs réseau comme \\\\serveur\\partage.",
+  "terminal.missingFolder": "Le dossier de travail n'existe pas.",
   "notes.title": "Notes",
   "notes.show": "Afficher les notes",
   "notes.hide": "Masquer les notes",
@@ -8483,6 +8508,11 @@ const it: Record<MessageKey, string> = {
   "terminal.notInstalled": "[{name} non è installato. Installalo e poi riavvia la sessione.]",
   "terminal.unknownProfile": "[Il programma «{name}» non esiste più. Puoi chiudere la sessione.]",
   "terminal.startFailed": "[Avvio non riuscito: {error}]",
+  "terminal.inputStalled":
+    "Il programma non accetta input al momento; ciò che non era ancora stato inviato è stato scartato.",
+  "terminal.remoteFolder":
+    "Le sessioni si avviano solo in cartelle locali, non su unità di rete come \\\\server\\condivisione.",
+  "terminal.missingFolder": "La cartella di lavoro non esiste.",
   "notes.title": "Note",
   "notes.show": "Mostra note",
   "notes.hide": "Nascondi note",
@@ -10088,6 +10118,11 @@ const ja: Record<MessageKey, string> = {
   "terminal.unknownProfile":
     "[プログラム「{name}」はもう存在しません。セッションを閉じてかまいません。]",
   "terminal.startFailed": "[起動できません: {error}]",
+  "terminal.inputStalled":
+    "プログラムは現在入力を受け付けていません。まだ送信されていない入力は破棄されました。",
+  "terminal.remoteFolder":
+    "セッションはローカルフォルダーでのみ開始できます。\\\\server\\share のようなネットワークドライブでは開始できません。",
+  "terminal.missingFolder": "作業フォルダーが存在しません。",
   "notes.title": "メモ",
   "notes.show": "メモを表示",
   "notes.hide": "メモを隠す",
@@ -11684,6 +11719,11 @@ const pl: Record<MessageKey, string> = {
     "[{name} nie jest zainstalowany. Zainstaluj go, a potem uruchom sesję ponownie.]",
   "terminal.unknownProfile": "[Program „{name}” już nie istnieje. Możesz zamknąć sesję.]",
   "terminal.startFailed": "[Nie udało się uruchomić: {error}]",
+  "terminal.inputStalled":
+    "Program nie przyjmuje teraz danych wejściowych; to, czego jeszcze nie wysłano, zostało odrzucone.",
+  "terminal.remoteFolder":
+    "Sesje uruchamiają się tylko w folderach lokalnych, nie na dyskach sieciowych takich jak \\\\serwer\\udzial.",
+  "terminal.missingFolder": "Folder roboczy nie istnieje.",
   "notes.title": "Notatki",
   "notes.show": "Pokaż notatki",
   "notes.hide": "Ukryj notatki",
@@ -13272,6 +13312,11 @@ const pt: Record<MessageKey, string> = {
   "terminal.notInstalled": "[{name} não está instalado. Instale-o e depois reinicie a sessão.]",
   "terminal.unknownProfile": "[O programa “{name}” não existe mais. Você pode fechar a sessão.]",
   "terminal.startFailed": "[Não foi possível iniciar: {error}]",
+  "terminal.inputStalled":
+    "O programa não está aceitando entrada agora; o que ainda não tinha sido enviado foi descartado.",
+  "terminal.remoteFolder":
+    "As sessões só iniciam em pastas locais, não em unidades de rede como \\\\servidor\\compartilhamento.",
+  "terminal.missingFolder": "A pasta de trabalho não existe.",
   "notes.title": "Notas",
   "notes.show": "Mostrar notas",
   "notes.hide": "Ocultar notas",
@@ -14867,6 +14912,11 @@ const ru: Record<MessageKey, string> = {
   "terminal.notInstalled": "[{name} не установлен. Установи его и перезапусти сеанс.]",
   "terminal.unknownProfile": "[Программы «{name}» больше нет. Можешь закрыть сеанс.]",
   "terminal.startFailed": "[Не удалось запустить: {error}]",
+  "terminal.inputStalled":
+    "Программа сейчас не принимает ввод; то, что ещё не было отправлено, отброшено.",
+  "terminal.remoteFolder":
+    "Сеансы запускаются только в локальных папках, а не на сетевых дисках вроде \\\\server\\share.",
+  "terminal.missingFolder": "Рабочая папка не существует.",
   "notes.title": "Заметки",
   "notes.show": "Показать заметки",
   "notes.hide": "Скрыть заметки",
@@ -16447,6 +16497,11 @@ const tr: Record<MessageKey, string> = {
   "terminal.notInstalled": "[{name} kurulu değil. Kur, sonra oturumu yeniden başlat.]",
   "terminal.unknownProfile": "[“{name}” programı artık yok. Oturumu kapatabilirsin.]",
   "terminal.startFailed": "[Başlatılamadı: {error}]",
+  "terminal.inputStalled":
+    "Program şu anda girdi kabul etmiyor; henüz gönderilmemiş olanlar atıldı.",
+  "terminal.remoteFolder":
+    "Oturumlar yalnızca yerel klasörlerde başlar, \\\\sunucu\\paylasim gibi ağ sürücülerinde başlamaz.",
+  "terminal.missingFolder": "Çalışma klasörü yok.",
   "notes.title": "Notlar",
   "notes.show": "Notları göster",
   "notes.hide": "Notları gizle",
@@ -18003,6 +18058,10 @@ const zh: Record<MessageKey, string> = {
   "terminal.notInstalled": "[{name} 未安装。请先安装，然后重新启动会话。]",
   "terminal.unknownProfile": "[程序“{name}”已不存在。可以关闭此会话。]",
   "terminal.startFailed": "[无法启动：{error}]",
+  "terminal.inputStalled": "程序目前不接受输入；尚未发送的内容已丢弃。",
+  "terminal.remoteFolder":
+    "会话只能在本地文件夹中启动，不能在 \\\\server\\share 这样的网络驱动器上启动。",
+  "terminal.missingFolder": "工作文件夹不存在。",
   "notes.title": "笔记",
   "notes.show": "显示笔记",
   "notes.hide": "隐藏笔记",

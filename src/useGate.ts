@@ -37,6 +37,15 @@ export function useGate(
     onFreshRef.current = onFresh;
   });
 
+  // Only the answer to the newest read counts: two reads may answer out of order.
+  const reads = useRef(0);
+  const read = useRef(() => {
+    const ticket = ++reads.current;
+    return api.gateSnapshot().then((value) => {
+      if (ticket === reads.current) accept.current(value);
+    });
+  });
+
   const accept = useRef((value: unknown) => {
     const parsed = parseGateSnapshot(value);
     if (parsed === null) return;
@@ -50,8 +59,9 @@ export function useGate(
     let disposed = false;
     let stop: (() => void) | null = null;
     try {
-      listen(GATE_CHANGED, (event) => {
-        accept.current(event.payload);
+      // The event carries no snapshot (any window could listen to it); the main window reads it.
+      listen(GATE_CHANGED, () => {
+        read.current().catch(() => undefined);
       })
         .then((unlisten) => {
           if (disposed) unlisten();
@@ -72,10 +82,7 @@ export function useGate(
     // Turned off, the backend allows every waiting decision; its snapshot then has none left.
     setup
       .configure(enabled)
-      .then(() => api.gateSnapshot())
-      .then((value) => {
-        if (current) accept.current(value);
-      })
+      .then(() => (current ? read.current() : undefined))
       .catch(() => undefined);
     return () => {
       current = false;

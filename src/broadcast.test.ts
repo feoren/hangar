@@ -151,3 +151,24 @@ describe("blockedFor", () => {
     expect(blockedFor(on, "one\ntwo")).toBe(false);
   });
 });
+
+describe("sendToTargets with a stalled paste", () => {
+  it("sends no Enter where the paste did not arrive and rejects", async () => {
+    const events: string[] = [];
+    const target = (name: string, arrived: Promise<void>): BroadcastTarget => ({
+      bracketedPaste: () => true,
+      pasteAndWait: () => arrived,
+      submit: () => {
+        events.push(`enter ${name}`);
+      },
+    });
+    const done = sendToTargets(
+      [target("a", Promise.resolve()), target("b", Promise.reject(new Error("stalled")))],
+      "hi",
+      () => Promise.resolve(),
+    );
+    await expect(done).rejects.toThrow("stalled");
+    await Promise.resolve();
+    expect(events).toEqual(["enter a"]);
+  });
+});

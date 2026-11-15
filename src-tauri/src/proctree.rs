@@ -12,6 +12,11 @@
 
 use std::time::Duration;
 
+/// Unix: how long a program gets after SIGHUP before the rest of its tree gets SIGKILL
+/// ([`ProcTree::terminate_tree`]).
+#[cfg_attr(windows, allow(dead_code))]
+pub const KILL_GRACE: Duration = Duration::from_secs(2);
+
 #[cfg(windows)]
 pub use windows::ProcTree;
 
@@ -210,6 +215,15 @@ mod windows {
             }
         }
 
+        /// Nothing to do: the job handle names the tree, never a process id that could be
+        /// reused once the child was waited for.
+        pub fn mark_reaped(&self) {}
+
+        /// The job ends every process at once; there is no grace to wait for.
+        pub fn terminate_tree(self: &std::sync::Arc<Self>) -> io::Result<()> {
+            self.terminate()
+        }
+
         pub fn terminate(&self) -> io::Result<()> {
             // SAFETY: `self.job` is valid until Drop.
             if unsafe { TerminateJobObject(self.job, 1) } == 0 {
@@ -257,10 +271,17 @@ mod windows {
 #[cfg(unix)]
 mod unix {
     use std::io;
+    use std::sync::atomic::{AtomicBool, Ordering};
+    use std::sync::Arc;
+
+    use super::KILL_GRACE;
 
     #[derive(Debug)]
     pub struct ProcTree {
         group: libc::pid_t,
+        /// The child (the group's leader) was waited for. Its id may belong to another process
+        /// group once the last member is gone, so the group is no longer signalled.
+        reaped: AtomicBool,
     }
 
     impl ProcTree {
@@ -273,15 +294,129 @@ mod unix {
         pub fn attach(pid: u32) -> io::Result<Self> {
             let group = libc::pid_t::try_from(pid)
                 .map_err(|e| io::Error::new(io::ErrorKind::InvalidInput, e))?;
-            Ok(Self { group })
+            // Group 0 or 1 would make killpg reach the caller's own group or every process.
+            if group <= 1 {
+                return Err(io::Error::new(
+                    io::ErrorKind::InvalidInput,
+                    "not a child process id",
+                ));
+            }
+            Ok(Self {
+                group,
+                reaped: AtomicBool::new(false),
+            })
         }
 
+        /// Called by whoever waited for the child, right after the wait returned.
+        pub fn mark_reaped(&self) {
+            self.reaped.store(true, Ordering::SeqCst);
+        }
+
+        /// SIGHUP to the group, like a terminal that hangs up. Nothing once the child was
+        /// reaped ([`Self::mark_reaped`]).
         pub fn terminate(&self) -> io::Result<()> {
+            self.signal(libc::SIGHUP)
+        }
+
+        /// [`Self::terminate`], then after [`KILL_GRACE`] SIGKILL to whatever is left: the group
+        /// while its leader was not reaped, and on Linux every process still in the child's
+        /// terminal session (an interactive shell puts each job into a group of its own, and a
+        /// program may ignore SIGHUP). The grace runs on a thread of its own; the caller does
+        /// not wait. Only for callers that report the reaping through [`Self::mark_reaped`].
+        pub fn terminate_tree(self: &Arc<Self>) -> io::Result<()> {
+            let result = self.terminate();
+            #[cfg(target_os = "linux")]
+            super::linux::signal_session(self.group, libc::SIGHUP);
+            let tree = Arc::clone(self);
+            let spawned = std::thread::Builder::new()
+                .name(format!("proctree-kill-{}", self.group))
+                .spawn(move || {
+                    std::thread::sleep(KILL_GRACE);
+                    let _ = tree.signal(libc::SIGKILL);
+                    #[cfg(target_os = "linux")]
+                    super::linux::signal_session(tree.group, libc::SIGKILL);
+                });
+            if let Err(error) = spawned {
+                eprintln!("hangar: no SIGKILL after the grace period: {error}");
+            }
+            result
+        }
+
+        fn signal(&self, signal: libc::c_int) -> io::Result<()> {
+            // A small race stays between the wait in another thread and its mark_reaped; the
+            // id is only reused after every member of the group is gone as well.
+            if self.reaped.load(Ordering::SeqCst) {
+                return Ok(());
+            }
             // SAFETY: killpg is a plain system call without memory access.
-            if unsafe { libc::killpg(self.group, libc::SIGHUP) } != 0 {
-                return Err(io::Error::last_os_error());
+            if unsafe { libc::killpg(self.group, signal) } != 0 {
+                let error = io::Error::last_os_error();
+                // The group is already gone: nothing left to end.
+                if error.raw_os_error() == Some(libc::ESRCH) {
+                    return Ok(());
+                }
+                return Err(error);
             }
             Ok(())
+        }
+    }
+
+    #[cfg(test)]
+    mod tests {
+        use super::*;
+        use std::os::unix::process::CommandExt;
+        use std::process::Command;
+        use std::time::{Duration, Instant};
+
+        fn ends_within(child: &mut std::process::Child, limit: Duration) -> bool {
+            let deadline = Instant::now() + limit;
+            while Instant::now() < deadline {
+                if matches!(child.try_wait(), Ok(Some(_))) {
+                    return true;
+                }
+                std::thread::sleep(Duration::from_millis(20));
+            }
+            false
+        }
+
+        #[test]
+        fn a_reaped_child_is_never_signalled_again() {
+            let mut child = Command::new("sleep")
+                .arg("0")
+                .process_group(0)
+                .spawn()
+                .unwrap();
+            let tree = ProcTree::attach(child.id()).unwrap();
+            child.wait().unwrap();
+            tree.mark_reaped();
+            assert!(tree.terminate().is_ok());
+            assert!(Arc::new(tree).terminate_tree().is_ok());
+        }
+
+        #[test]
+        fn a_program_that_ignores_sighup_is_killed_after_the_grace() {
+            let mut child = Command::new("sh")
+                .args(["-c", "trap '' HUP; sleep 1000 & wait"])
+                .process_group(0)
+                .spawn()
+                .unwrap();
+            let tree = Arc::new(ProcTree::attach(child.id()).unwrap());
+            std::thread::sleep(Duration::from_millis(300));
+            tree.terminate_tree().unwrap();
+            assert!(
+                !ends_within(&mut child, Duration::from_millis(500)),
+                "SIGHUP alone ended a program that ignores it"
+            );
+            assert!(
+                ends_within(&mut child, KILL_GRACE + Duration::from_secs(5)),
+                "still running after SIGKILL"
+            );
+        }
+
+        #[test]
+        fn process_ids_zero_and_one_are_refused() {
+            assert!(ProcTree::attach(0).is_err());
+            assert!(ProcTree::attach(1).is_err());
         }
     }
 }
@@ -294,6 +429,36 @@ mod linux {
     use std::time::Duration;
 
     use super::{stat, ProcTree, TreeUsage};
+
+    /// Sends `signal` to every process whose terminal session is `session`, the child's own
+    /// (it is the session leader, so its id names the session). A session id is not reused
+    /// while a process of that session lives, so a listed member is one of ours.
+    pub fn signal_session(session: libc::pid_t, signal: libc::c_int) {
+        // SAFETY: getpid only reads the caller's own id.
+        let own = unsafe { libc::getpid() };
+        if session <= 1 || session == own {
+            return;
+        }
+        let Ok(entries) = std::fs::read_dir("/proc") else {
+            return;
+        };
+        for entry in entries.flatten() {
+            let Ok(pid) = entry.file_name().to_string_lossy().parse::<libc::pid_t>() else {
+                continue;
+            };
+            if pid <= 1 || pid == own {
+                continue;
+            }
+            let Ok(text) = std::fs::read_to_string(entry.path().join("stat")) else {
+                continue;
+            };
+            if stat::parse(&text).is_some_and(|fields| fields.session == i64::from(session)) {
+                // SAFETY: kill is a plain system call without memory access; a process that
+                // ended meanwhile only yields ESRCH.
+                unsafe { libc::kill(pid, signal) };
+            }
+        }
+    }
 
     pub fn usages(trees: &[std::sync::Arc<ProcTree>]) -> Vec<Option<TreeUsage>> {
         // SAFETY: sysconf only reads system configuration.

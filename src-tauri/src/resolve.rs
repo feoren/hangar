@@ -17,8 +17,8 @@ pub fn resolve_program(
 ) -> Option<PathBuf> {
     let candidates = extension_candidates(command, pathext);
     let direct = Path::new(command);
-    if direct.is_absolute() || command.contains('/') || command.contains('\\') {
-        return find_with_extensions(direct, &candidates);
+    if has_separator(command) {
+        return absolute(direct).and_then(|direct| find_with_extensions(direct, &candidates));
     }
     std::env::split_paths(path?)
         .filter(|dir| dir.is_absolute())
@@ -30,8 +30,9 @@ pub fn resolve_program(
 pub fn resolve_all(command: &str, path: Option<&OsStr>, pathext: Option<&OsStr>) -> Vec<PathBuf> {
     let candidates = extension_candidates(command, pathext);
     let direct = Path::new(command);
-    if direct.is_absolute() || command.contains('/') || command.contains('\\') {
-        return find_with_extensions(direct, &candidates)
+    if has_separator(command) {
+        return absolute(direct)
+            .and_then(|direct| find_with_extensions(direct, &candidates))
             .into_iter()
             .collect();
     }
@@ -42,6 +43,17 @@ pub fn resolve_all(command: &str, path: Option<&OsStr>, pathext: Option<&OsStr>)
         .filter(|dir| dir.is_absolute())
         .filter_map(|dir| find_with_extensions(&dir.join(command), &candidates))
         .collect()
+}
+
+/// A path rather than a bare name (`C:\x`, `./x`, `bin/x`). A bare name is searched on the PATH.
+fn has_separator(command: &str) -> bool {
+    Path::new(command).is_absolute() || command.contains('/') || command.contains('\\')
+}
+
+/// Only an absolute path counts, as in `updates::split_command`: a relative one (`./x`,
+/// `tools\x`) would be resolved against Hangar's own working folder, which nobody chose.
+fn absolute(path: &Path) -> Option<&Path> {
+    path.is_absolute().then_some(path)
 }
 
 fn find_with_extensions(base: &Path, extensions: &[OsString]) -> Option<PathBuf> {
@@ -179,6 +191,30 @@ mod tests {
         assert_eq!(resolve_program("claude.exe", Some(&path), None), Some(exe));
         // Windows file systems are case-insensitive; the extension in the command may be upper case.
         assert!(resolve_program("CLAUDE.EXE", Some(&path), None).is_some());
+    }
+
+    /// A relative path with a separator would depend on Hangar's working folder: refused,
+    /// whether or not such a file exists there.
+    #[test]
+    fn relative_program_paths_are_refused() {
+        let relative = PathBuf::from(format!(
+            "../tests/.tmp/resolve-relprog-{}",
+            std::process::id()
+        ));
+        let _ = std::fs::remove_dir_all(&relative);
+        std::fs::create_dir_all(&relative).unwrap();
+        let file = if cfg!(windows) { "tool.exe" } else { "tool" };
+        std::fs::write(relative.join(file), b"").unwrap();
+        let command = relative.join("tool");
+        let command = command.to_str().unwrap();
+        assert_eq!(resolve_program(command, None, None), None);
+        assert!(resolve_all(command, None, None).is_empty());
+        for other in ["./tool", "bin/tool", r"bin\tool", r"..\tool"] {
+            assert_eq!(resolve_program(other, None, None), None, "{other}");
+        }
+        let absolute = std::fs::canonicalize(&relative).unwrap().join("tool");
+        assert!(resolve_program(absolute.to_str().unwrap(), None, None).is_some());
+        std::fs::remove_dir_all(&relative).unwrap();
     }
 
     #[test]

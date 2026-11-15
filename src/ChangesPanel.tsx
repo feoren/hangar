@@ -96,17 +96,18 @@ export function ChangesPanel(props: Props) {
     send.current = props.onSendToAgent;
   });
   const reload = `${trigger}\n${String(manual)}`;
-  const key = `${cwd ?? ""}\n${reload}\n${view}`;
+  const key = `${cwd ?? ""}\n${String(props.sessionId)}\n${reload}\n${view}`;
 
   useEffect(() => {
     latest.current = key;
-    if (cwd === null || view !== "open") return;
+    const id = props.sessionId;
+    if (cwd === null || id === null || view !== "open") return;
     const settle = (load: Load) => {
       // An older answer that arrives late must not replace a newer one.
       if (latest.current === key) setAnswer({ key, cwd, load });
     };
     api
-      .gitDiff(cwd)
+      .gitDiff(id)
       .then((value) => {
         const result = parseGitDiff(value);
         settle(
@@ -286,11 +287,12 @@ export function ChangesPanel(props: Props) {
             onComment={props.agent ? onComment : undefined}
           />
         </>
-      ) : cwd === null ? (
+      ) : cwd === null || props.sessionId === null ? (
         <p className="changes-message">{t("changes.noSession")}</p>
       ) : (
         <CommitHistory
-          key={cwd}
+          key={`${cwd}\n${String(props.sessionId)}`}
+          sessionId={props.sessionId}
           cwd={cwd}
           reload={reload}
           language={props.language}

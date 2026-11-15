@@ -29,12 +29,14 @@ Version scheme (docs/wiki/pages/decisions/0002-version-scheme.md, following de.w
   so every release must raise the major, minor or revision number.
 
 1. Sets the version in src-tauri/tauri.conf.json, src-tauri/Cargo.toml and package.json.
-2. Builds with `pnpm tauri build`, with updater signing switched off and without the updater key in
-   its environment (no build script or dependency ever sees it). Afterwards a separate
-   `pnpm tauri signer sign --app-version <version>` signs the finished installer, the only process
+2. Builds with `tauri build` (the CLI's tauri.js run by node.exe directly, never through the
+   pnpm.cmd shim, so no argument passes cmd.exe), with updater signing switched off and without
+   the updater key in its environment (no build script or dependency ever sees it). Afterwards a separate
+   `tauri signer sign --app-version <version>` signs the finished installer, the only process
    that gets the private key (default: %USERPROFILE%\.tauri\hangar.key, override with
    HANGAR_SIGNING_KEY) and TAURI_SIGNING_PRIVATE_KEY_PASSWORD. The signature is the same `.sig`
    next to the installer that `tauri build` writes, with the version in its trusted comment.
+   Its key id must match the public key in tauri.conf.json, otherwise the script aborts.
 3. Puts everything to upload under release/<version>/:
      Hangar_<x.y.z-build>_x64-setup.exe   installer for this version (target of the update URL)
      Hangar-Setup.exe                 same file under a fixed name for the download link
@@ -57,7 +59,7 @@ Authenticode code signing of the installer (against the SmartScreen warning), op
                            e.g. ["signtool.exe","sign","/sha1","<thumbprint>","/fd","sha256",
                            "/tr","http://time.certum.pl","/td","sha256","%1"].
   Without these variables the script builds unsigned as before and says so. With them, the setting
-  goes to `pnpm tauri build` as a --config file (tauri.conf.json stays unchanged), and after the
+  goes to `tauri build` as a --config file (tauri.conf.json stays unchanged), and after the
   build Get-AuthenticodeSignature checks the installer and the program: without a valid, timestamped
   signature the script aborts. Process and vendors: docs/wiki/pages/syntheses/release-rollout.md.
 
@@ -65,6 +67,7 @@ No dependencies beyond Python 3 and the project toolchain. Never prints keys, th
 signing commands.
 """
 import argparse
+import base64
 import datetime
 import hashlib
 import json
@@ -91,6 +94,8 @@ GITHUB_REPO = "feoren/hangar"
 # Older installations only poll this server; it gets a copy of latest.json (see release-rollout.md).
 LEGACY_UPDATE_URL = "https://hangar.feoren.com/download/"
 DEFAULT_KEY = Path.home() / ".tauri" / "hangar.key"
+# The Tauri CLI's own entry point; run with node.exe, not through a .cmd shim.
+TAURI_JS = ROOT / "node_modules" / "@tauri-apps" / "cli" / "tauri.js"
 BASE_VERSION = re.compile(r"^(\d+)\.(\d+)\.(\d+)$")
 FULL_VERSION = re.compile(r"^(\d+)\.(\d+)\.(\d+)(?:\+(\d+))?$")
 DEFAULT_TIMESTAMP_URL = "http://time.certum.pl"
@@ -525,16 +530,28 @@ def build_config(signing):
     return config
 
 
+def tauri_command(*args):
+    """argv for the Tauri CLI: node.exe with the CLI's tauri.js, then `args`.
+
+    pnpm and npx are .cmd files on Windows; CreateProcess runs those through cmd.exe, which
+    interprets `&`, `%` and quotes in every argument (BatBadBut). node.exe takes the argv as is.
+    """
+    node = shutil.which("node")
+    if not node:
+        fail("node not found")
+    if Path(node).suffix.lower() in (".cmd", ".bat"):
+        fail("node resolves to a cmd.exe script (%s); install Node.js itself" % node)
+    if not TAURI_JS.is_file():
+        fail("Tauri CLI missing: %s (run pnpm install)" % TAURI_JS)
+    return [node, str(TAURI_JS), *args]
+
+
 def build(signing):
-    pnpm = shutil.which("pnpm")
-    if not pnpm:
-        fail("pnpm not found")
     env = without_updater_key(os.environ)
-    command = [pnpm, "tauri", "build"]
+    command = tauri_command("build")
     config_file = None
     try:
-        # A file instead of a JSON argument: on Windows pnpm is a .cmd file, and cmd.exe mangles
-        # quotes in arguments. It also keeps the value out of the process list.
+        # A file instead of a JSON argument keeps the value out of the process list.
         # `tauri build --config` accepts JSON strings or file paths.
         with tempfile.NamedTemporaryFile(
             "w", encoding="utf-8", suffix=".json", prefix="hangar-sign-", delete=False
@@ -547,7 +564,45 @@ def build(signing):
         if config_file is not None:
             config_file.unlink(missing_ok=True)
     if result.returncode != 0:
-        fail("pnpm tauri build failed (exit code %d)" % result.returncode)
+        fail("tauri build failed (exit code %d)" % result.returncode)
+
+
+def minisign_key_id(encoded):
+    """The 8-byte key id of a Tauri updater signature or public key, as hex.
+
+    Both are base64 of minisign's text form: a comment line, then base64 of two algorithm bytes,
+    the key id and the key or signature. None when the text has another shape.
+    """
+    try:
+        text = base64.b64decode(encoded.strip(), validate=True).decode("utf-8")
+        lines = text.splitlines()
+        blob = base64.b64decode(lines[1].strip(), validate=True)
+    except (ValueError, IndexError, UnicodeDecodeError):
+        return None
+    if len(blob) < 10:
+        return None
+    return blob[2:10].hex().upper()
+
+
+def updater_pubkey():
+    """The public key the app checks updates against (tauri.conf.json, plugins.updater.pubkey)."""
+    return read_json(TAURI_CONF)["plugins"]["updater"]["pubkey"]
+
+
+def signature_key_problem(signature_text, pubkey):
+    """None when the signature was made with the key whose public half the app ships."""
+    signed = minisign_key_id(signature_text)
+    if signed is None:
+        return "the updater signature cannot be read"
+    shipped = minisign_key_id(pubkey)
+    if shipped is None:
+        return "the updater public key in tauri.conf.json cannot be read"
+    if signed != shipped:
+        return (
+            "the installer was signed with key %s, but the app trusts only key %s; "
+            "installed copies would refuse this update" % (signed, shipped)
+        )
+    return None
 
 
 def sign_update(key_path, setup, version):
@@ -557,9 +612,6 @@ def sign_update(key_path, setup, version):
     into the signed trusted comment, as `tauri build` does (`version:<version>`); the updater
     compares it with the version latest.json announces.
     """
-    pnpm = shutil.which("pnpm")
-    if not pnpm:
-        fail("pnpm not found")
     env = without_updater_key(os.environ)
     # Tauri accepts a path or the content; the content avoids trouble with spaces in the path.
     env["TAURI_SIGNING_PRIVATE_KEY"] = key_path.read_text(encoding="utf-8").strip()
@@ -574,12 +626,18 @@ def sign_update(key_path, setup, version):
     signature = setup.with_name(setup.name + ".sig")
     # Only a signature written by this run counts.
     signature.unlink(missing_ok=True)
-    command = [pnpm, "tauri", "signer", "sign", "--app-version", version, str(setup)]
+    command = tauri_command("signer", "sign", "--app-version", version, str(setup))
     result = subprocess.run(command, cwd=ROOT, env=env, check=False, stdin=subprocess.DEVNULL)
     if result.returncode != 0:
-        fail("pnpm tauri signer sign failed (exit code %d)" % result.returncode)
+        fail("tauri signer sign failed (exit code %d)" % result.returncode)
     if not signature.is_file():
         fail("updater signature missing: %s" % signature)
+    # A wrong key file would sign without complaint, and every installed copy would then refuse
+    # the update; caught here before anything is published.
+    problem = signature_key_problem(signature.read_text(encoding="utf-8"), updater_pubkey())
+    if problem:
+        signature.unlink(missing_ok=True)
+        fail(problem)
     return signature
 
 

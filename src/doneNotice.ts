@@ -31,14 +31,14 @@ export function parseChangedCount(answer: unknown): number {
 }
 
 /**
- * Changed files in `cwd` for the notice, asked through `count` (`api.gitChangedCount`). Rejects
- * when git fails, so the caller shows nothing, as before.
+ * Changed files in the folder of session `id` for the notice, asked through `count`
+ * (`api.gitChangedCount`). Rejects when git fails, so the caller shows nothing, as before.
  */
 export async function doneFileCount(
-  cwd: string,
-  count: (cwd: string) => Promise<unknown>,
+  id: number,
+  count: (id: number) => Promise<unknown>,
 ): Promise<number> {
-  return parseChangedCount(await count(cwd));
+  return parseChangedCount(await count(id));
 }
 
 /**

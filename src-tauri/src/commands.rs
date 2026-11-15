@@ -539,11 +539,14 @@ pub fn list_sessions(manager: Manager<'_>) -> Vec<SessionInfo> {
 /// gets the agent gate and never reaches the team. `instructions`: hand the agent `HANGAR.md`
 /// (Settings); `start_prompt`: a first prompt by name, whose text comes from the catalog, never
 /// from the window. Both apply only where the program takes them ([`crate::instructions`]).
+///
+/// Async on a blocking thread: the start searches the PATH, may wait for the WSL detection and
+/// the version query of the gate, and spawns a process; on the main thread that would freeze
+/// the window.
 #[tauri::command]
 #[allow(clippy::too_many_arguments)] // One Tauri command, one argument per field of the call.
-pub fn create_session(
-    manager: Manager<'_>,
-    work_log: State<'_, WorkLog>,
+pub async fn create_session(
+    app: tauri::AppHandle,
     profile_id: String,
     cwd: Option<PathBuf>,
     size: TermSize,
@@ -554,29 +557,35 @@ pub fn create_session(
     instructions: Option<bool>,
     start_prompt: Option<StartPrompt>,
 ) -> Result<SessionInfo, ManagerError> {
-    let session = Arc::new(OnceLock::new());
-    let sink = work_log_sink(
-        work_log.inner().clone(),
-        Arc::clone(&session),
-        channel_sink(on_event),
-    );
-    // Optional, so existing calls without the later arguments stay valid.
-    let info = manager.create_requested(
-        &profile_id,
-        cwd,
-        size,
-        resume.unwrap_or(false),
-        cli_session_id.as_deref(),
-        mode.unwrap_or_default(),
-        StartRequest {
-            instructions: instructions.unwrap_or(false),
-            prompt: start_prompt,
-        },
-        sink,
-    )?;
-    let _ = session.set(info.id);
-    log_started(&work_log, &manager, &info);
-    Ok(info)
+    tauri::async_runtime::spawn_blocking(move || {
+        let manager = app.state::<SessionManager>();
+        let work_log = app.state::<WorkLog>();
+        let session = Arc::new(OnceLock::new());
+        let sink = work_log_sink(
+            work_log.inner().clone(),
+            Arc::clone(&session),
+            channel_sink(on_event),
+        );
+        // Optional, so existing calls without the later arguments stay valid.
+        let info = manager.create_requested(
+            &profile_id,
+            cwd,
+            size,
+            resume.unwrap_or(false),
+            cli_session_id.as_deref(),
+            mode.unwrap_or_default(),
+            StartRequest {
+                instructions: instructions.unwrap_or(false),
+                prompt: start_prompt,
+            },
+            sink,
+        )?;
+        let _ = session.set(info.id);
+        log_started(&work_log, &manager, &info);
+        Ok(info)
+    })
+    .await
+    .map_err(|error| ManagerError::Task(error.to_string()))?
 }
 
 /// Opens exactly this machine's `HANGAR.md` in the default editor; if it is missing, it is
@@ -628,13 +637,20 @@ pub async fn create_update_session(
     .map_err(|error| ManagerError::Task(error.to_string()))?
 }
 
+/// `false` when the session's input queue is full (its program does not read right now); the
+/// window sends the same text again a moment later. At most [`crate::manager::MAX_WRITE`] bytes
+/// per call: the window splits a larger paste.
 #[tauri::command]
 pub fn write_session(
     manager: Manager<'_>,
     id: SessionId,
     data: String,
-) -> Result<(), ManagerError> {
-    manager.write(id, &data)
+) -> Result<bool, ManagerError> {
+    match manager.write(id, &data) {
+        Ok(()) => Ok(true),
+        Err(ManagerError::Busy(_)) => Ok(false),
+        Err(error) => Err(error),
+    }
 }
 
 #[tauri::command]
@@ -656,36 +672,40 @@ pub fn kill_session(manager: Manager<'_>, id: SessionId) -> Result<(), ManagerEr
     manager.kill(id)
 }
 
+/// Async on a blocking thread, like [`create_session`].
 #[tauri::command]
-pub fn restart_session(
+pub async fn restart_session(
     app: tauri::AppHandle,
-    manager: Manager<'_>,
-    watchers: State<'_, Watchers>,
-    work_log: State<'_, WorkLog>,
     id: SessionId,
     size: TermSize,
     on_event: Channel<SessionEvent>,
 ) -> Result<SessionInfo, ManagerError> {
-    // Restarting an update session repeats the update; after that it behaves like a start.
-    let update_profile = manager
-        .list()
-        .into_iter()
-        .find(|info| info.id == id && info.kind == SessionKind::Update)
-        .map(|info| info.profile_id);
-    let info = if let Some(profile_id) = update_profile {
-        let watch = UpdateWatch::new(&app, &profile_id);
-        let _ = watch.session.set(id);
-        manager.restart(id, size, update_sink(app, on_event, watch))
-    } else {
-        let session = Arc::new(OnceLock::from(id));
-        let sink = work_log_sink(work_log.inner().clone(), session, channel_sink(on_event));
-        manager.restart(id, size, sink)
-    }?;
-    log_started(&work_log, &manager, &info);
-    // The restart runs under a new conversation id; a watch would keep following the old one.
-    // The window starts a new watch with the returned `SessionInfo` if it wants one.
-    watchers.stop(id);
-    Ok(info)
+    tauri::async_runtime::spawn_blocking(move || {
+        let manager = app.state::<SessionManager>();
+        let work_log = app.state::<WorkLog>();
+        // Restarting an update session repeats the update; after that it behaves like a start.
+        let update_profile = manager
+            .list()
+            .into_iter()
+            .find(|info| info.id == id && info.kind == SessionKind::Update)
+            .map(|info| info.profile_id);
+        let info = if let Some(profile_id) = update_profile {
+            let watch = UpdateWatch::new(&app, &profile_id);
+            let _ = watch.session.set(id);
+            manager.restart(id, size, update_sink(app.clone(), on_event, watch))
+        } else {
+            let session = Arc::new(OnceLock::from(id));
+            let sink = work_log_sink(work_log.inner().clone(), session, channel_sink(on_event));
+            manager.restart(id, size, sink)
+        }?;
+        log_started(&work_log, &manager, &info);
+        // The restart runs under a new conversation id; a watch would keep following the old
+        // one. The window starts a new watch with the returned `SessionInfo` if it wants one.
+        app.state::<Watchers>().stop(id);
+        Ok(info)
+    })
+    .await
+    .map_err(|error| ManagerError::Task(error.to_string()))?
 }
 
 #[tauri::command]
@@ -1569,20 +1589,71 @@ pub async fn git_repo_places(
         .map_err(|error| GitError::Task(error.to_string()))?
 }
 
-#[tauri::command]
-pub async fn git_diff(cwd: PathBuf) -> Result<GitDiff, GitError> {
-    tauri::async_runtime::spawn_blocking(move || git::diff(&Git::locate()?, &cwd))
-        .await
-        .map_err(|error| GitError::Task(error.to_string()))?
+/// A git read of a session's folder failed: the session is unknown, or git itself failed.
+#[derive(Debug, thiserror::Error)]
+pub enum SessionGitError {
+    #[error("Unknown session {0}")]
+    UnknownSession(SessionId),
+    #[error(transparent)]
+    Git(#[from] GitError),
 }
 
-/// How many files `git_diff` would list for `cwd` (`None`: no repository), for the notice when a
-/// session is done; costs one `git status` instead of the whole diff.
+impl Serialize for SessionGitError {
+    fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        serializer.serialize_str(&self.to_string())
+    }
+}
+
+/// The working folder of session `id`. The git reads name a session, never a folder: git runs
+/// programs a repository's config names (fsmonitor, filters), so a window must not be able to
+/// point it at any folder it likes, and the side panel cannot start sessions at all.
+pub fn session_folder(manager: &SessionManager, id: SessionId) -> Result<PathBuf, SessionGitError> {
+    manager
+        .list()
+        .into_iter()
+        .find(|info| info.id == id)
+        .map(|info| info.cwd)
+        .ok_or(SessionGitError::UnknownSession(id))
+}
+
+/// Runs one git read in the folder of session `id` (with `root`: the main folder of its
+/// repository, as `git_repo_places` names it) on a blocking thread.
+async fn session_git<T: Send + 'static>(
+    manager: &SessionManager,
+    id: SessionId,
+    root: bool,
+    work: impl FnOnce(&Git, &std::path::Path) -> Result<T, GitError> + Send + 'static,
+) -> Result<T, SessionGitError> {
+    let cwd = session_folder(manager, id)?;
+    tauri::async_runtime::spawn_blocking(move || {
+        let folder = if root {
+            let key = cwd.to_string_lossy().into_owned();
+            git::repo_places(std::slice::from_ref(&key))?
+                .remove(&key)
+                .flatten()
+                .map_or(cwd, |place| PathBuf::from(place.root))
+        } else {
+            cwd
+        };
+        Ok(work(&Git::locate()?, &folder)?)
+    })
+    .await
+    .map_err(|error| SessionGitError::Git(GitError::Task(error.to_string())))?
+}
+
 #[tauri::command]
-pub async fn git_changed_count(cwd: PathBuf) -> Result<Option<u32>, GitError> {
-    tauri::async_runtime::spawn_blocking(move || git::changed_count(&Git::locate()?, &cwd))
-        .await
-        .map_err(|error| GitError::Task(error.to_string()))?
+pub async fn git_diff(manager: Manager<'_>, id: SessionId) -> Result<GitDiff, SessionGitError> {
+    session_git(&manager, id, false, git::diff).await
+}
+
+/// How many files `git_diff` would list for the session's folder (`None`: no repository), for
+/// the notice when a session is done; costs one `git status` instead of the whole diff.
+#[tauri::command]
+pub async fn git_changed_count(
+    manager: Manager<'_>,
+    id: SessionId,
+) -> Result<Option<u32>, SessionGitError> {
+    session_git(&manager, id, false, git::changed_count).await
 }
 
 /// The user's own commits in the repositories of `folders`, for the activity calendar
@@ -1626,25 +1697,34 @@ pub async fn daily_review(
     .map_err(|error| ReviewError::Task(error.to_string()))?
 }
 
-/// One page of the commits reachable from HEAD (git_history.rs); `limit` is clamped to 1..=100.
+/// One page of the commits reachable from HEAD of the session's folder (git_history.rs); with
+/// `root`, of its repository's main folder (the project overview). `limit` is clamped to 1..=100.
 #[tauri::command]
-pub async fn git_log(cwd: PathBuf, skip: u32, limit: u32) -> Result<GitLog, GitError> {
-    tauri::async_runtime::spawn_blocking(move || {
-        git_history::log(&Git::locate()?, &cwd, skip, limit)
+pub async fn git_log(
+    manager: Manager<'_>,
+    id: SessionId,
+    skip: u32,
+    limit: u32,
+    root: Option<bool>,
+) -> Result<GitLog, SessionGitError> {
+    session_git(&manager, id, root.unwrap_or(false), move |git, cwd| {
+        git_history::log(git, cwd, skip, limit)
     })
     .await
-    .map_err(|error| GitError::Task(error.to_string()))?
 }
 
 /// The changes of one commit against its first parent, in the shape of `git_diff`'s answer plus
 /// the commit's header. `sha` must be 7 to 64 hex characters.
 #[tauri::command]
-pub async fn git_commit_diff(cwd: PathBuf, sha: String) -> Result<GitCommitDiff, GitError> {
-    tauri::async_runtime::spawn_blocking(move || {
-        git_history::commit_diff(&Git::locate()?, &cwd, &sha)
+pub async fn git_commit_diff(
+    manager: Manager<'_>,
+    id: SessionId,
+    sha: String,
+) -> Result<GitCommitDiff, SessionGitError> {
+    session_git(&manager, id, false, move |git, cwd| {
+        git_history::commit_diff(git, cwd, &sha)
     })
     .await
-    .map_err(|error| GitError::Task(error.to_string()))?
 }
 
 /// The working folder of a session, for the git actions: the window names only the session.
@@ -2050,6 +2130,11 @@ pub async fn create_worktree(
     cwd: PathBuf,
     label: String,
 ) -> Result<Worktree, WorktreeError> {
+    // No session exists yet, so the folder comes from the window; at least never a share or a
+    // device, which git would contact before any other check (manager::is_network_or_device).
+    if crate::manager::is_network_or_device(&cwd) {
+        return Err(GitError::InvalidPath("a network share or device path").into());
+    }
     let base = worktrees_dir(&store);
     tauri::async_runtime::spawn_blocking(move || {
         let created = worktree::create(&Git::locate()?, &base, &cwd, &label)?;
@@ -2646,4 +2731,22 @@ pub async fn configure_tray(
     labels: TrayLabels,
 ) -> Result<(), TrayError> {
     tray::configure(&app, enabled, &labels)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// The git reads find the folder through the session; an id the manager does not know is
+    /// refused before git runs anywhere.
+    #[test]
+    fn git_reads_refuse_an_unknown_session() {
+        let manager = SessionManager::new(Vec::new(), Vec::new(), std::env::temp_dir());
+        let error = session_folder(&manager, 42).unwrap_err();
+        assert!(matches!(error, SessionGitError::UnknownSession(42)));
+        assert_eq!(
+            serde_json::to_value(&error).unwrap(),
+            serde_json::json!("Unknown session 42")
+        );
+    }
 }

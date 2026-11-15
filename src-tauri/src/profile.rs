@@ -237,6 +237,11 @@ fn check_environment(profile: &Profile) -> Result<(), &'static str> {
     {
         return Err("env names must not be empty or contain '=' or NUL");
     }
+    // A NUL ends the value in the OS block: the child would get something else than written,
+    // and std panics on such a value when it builds the environment.
+    if profile.env.values().any(|value| value.contains('\0')) {
+        return Err("env values must not contain NUL");
+    }
     let mut seen = HashSet::new();
     for name in &profile.secret_env {
         if !crate::secrets::is_valid_name(name) {
@@ -337,6 +342,16 @@ pub fn reload(dir: &Path) -> Result<Vec<Profile>, ProfileProblem> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn env_values_with_nul_are_refused() {
+        let with = |value: &str| {
+            format!("[[profile]]\nid = 'x'\nname = 'X'\ncommand = 'x'\nenv = {{ MARK = \"{value}\" }}\n")
+        };
+        let error = parse(&with("hangar\\u0000marker")).unwrap_err();
+        assert!(error.to_string().contains("NUL"), "{error}");
+        assert!(parse(&with("hangar marker")).is_ok());
+    }
 
     #[test]
     fn default_profiles_of_both_platforms_are_valid() {

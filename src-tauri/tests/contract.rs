@@ -271,7 +271,8 @@ fn panel_window_capability_is_narrow() {
 }
 
 /// A file viewer window reads the one file the backend bound to it and nothing else: no
-/// sessions, no notes, no other files, no events of its own.
+/// sessions, no notes, no other files, no events at all (listening would let it read every event
+/// the app emits, since a listener for any target receives events meant for the main window).
 #[test]
 fn file_viewer_capability_is_narrow() {
     let commands = build_commands();
@@ -293,8 +294,6 @@ fn file_viewer_capability_is_narrow() {
             "allow-file-viewer-open-link",
             "allow-file-viewer-stamp",
             "clipboard-manager:allow-write-text",
-            "core:event:allow-listen",
-            "core:event:allow-unlisten",
             "core:window:allow-close",
             "core:window:allow-set-focus",
             "core:window:allow-set-title",
