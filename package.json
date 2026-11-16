@@ -1,7 +1,7 @@
 {
   "name": "hangar",
   "private": true,
-  "version": "0.9.0+533",
+  "version": "0.10.0",
   "buildNumberBase": 84,
   "type": "module",
   "packageManager": "pnpm@12.18.0",
