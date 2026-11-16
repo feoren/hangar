@@ -52,6 +52,7 @@ import { lookClass, type LookState } from "./stateLook";
 import { formatDuration } from "./statusLine";
 
 export const ROW_PRESET_NAMES: Record<RowPreset, MessageKey> = {
+  hangar: "rowStyle.hangar",
   standard: "rowStyle.standard",
   pill: "rowStyle.pill",
   avatar: "rowStyle.avatar",

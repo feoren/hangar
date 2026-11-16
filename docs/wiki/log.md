@@ -1066,3 +1066,7 @@ Pages changed: [[crew-column]].
 ## [2026-11-16] update | Show the crew again from the session menu
 A hidden crew could only come back through Settings. The session menu and quick access now
 offer "Show crew" and "Hide crew" for sessions with sub-agents. Pages changed: [[crew-column]].
+
+## [2026-11-16] update | Row preset "Hangar"
+Added the owner's own session row from Hangar 0.8.0 as the first row preset, `hangar`, read from
+that app's stored `rowLayout` and checked against its window. Pages changed: [[session-row-layout]].

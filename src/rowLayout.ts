@@ -147,6 +147,7 @@ export const DEFAULT_ROW_LAYOUT: RowLayout = layout([
 
 /** The row styles of earlier versions, now starting points for the builder. */
 export const ROW_PRESETS = [
+  "hangar",
   "standard",
   "pill",
   "avatar",
@@ -177,6 +178,17 @@ const STANDARD_LINES = DEFAULT_ROW_LAYOUT.lines.map((line) => [line.left, line.r
  * "columns" (share and run time at the title line's end; no column names above the list).
  */
 const PRESETS: Record<RowPreset, RowLayout> = {
+  // The row the owner built in 0.8.0: state as a pill beside the title, branch and run time,
+  // load as pills with the tokens, the context in segments at the bottom.
+  hangar: layout(
+    [
+      [["title", "signs"], ["state"]],
+      [["folder"], ["branch", "runtime"]],
+      [["load"], ["tokens"]],
+      [["context"], []],
+    ],
+    { state: "pill", program: "avatar", load: "pills", context: "segments" },
+  ),
   standard: DEFAULT_ROW_LAYOUT,
   pill: layout(STANDARD_LINES, { state: "pill" }),
   avatar: layout(STANDARD_LINES, { program: "avatar" }),

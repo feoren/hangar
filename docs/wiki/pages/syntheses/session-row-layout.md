@@ -55,6 +55,11 @@ elements and map to the closest layout:
 
 `card` now shows the state dot on the avatar's corner, as the avatar form always does.
 
+A fifteenth preset, `hangar`, comes first in the list: the row the owner built with the builder
+in Hangar 0.8.0 (title and signs with the state as a pill; folder with branch and run time; load
+as pills with the tokens; context in segments). It is a starting point like the others and does
+not change the default row.
+
 ## Rendering (`src/SessionRow.tsx`, styles.css "Row layout")
 
 - Each line is a flex row: left elements, a zero-width spacer (`.row-push`) that pushes the

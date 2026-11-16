@@ -387,6 +387,7 @@ const de = {
   "settings.rowStyle": "Session-Zeile",
   "settings.rowStyleHelp":
     "Ordne die Teile jeder Session-Zeile selbst an: ziehen, oder anklicken und mit den Pfeilen verschieben. Gruppen und Baumlinien bleiben, wie sie sind.",
+  "rowStyle.hangar": "Hangar",
   "rowStyle.standard": "Standard",
   "rowStyle.pill": "Status-Pill",
   "rowStyle.avatar": "Programm-Avatar",
@@ -2373,6 +2374,7 @@ const en: Record<MessageKey, string> = {
   "settings.rowStyle": "Session row",
   "settings.rowStyleHelp":
     "Arrange the parts of each session row yourself: drag them, or click one and move it with the arrows. Groups and tree lines stay as they are.",
+  "rowStyle.hangar": "Hangar",
   "rowStyle.standard": "Standard",
   "rowStyle.pill": "Status pill",
   "rowStyle.avatar": "Program avatar",
@@ -4327,6 +4329,7 @@ const el: Record<MessageKey, string> = {
   "settings.rowStyle": "Γραμμή συνεδρίας",
   "settings.rowStyleHelp":
     "Τακτοποίησε μόνος σου τα μέρη κάθε γραμμής συνεδρίας: σύρε τα, ή κάνε κλικ σε ένα και μετακίνησέ το με τα βέλη. Οι ομάδες και οι γραμμές δέντρου μένουν ως έχουν.",
+  "rowStyle.hangar": "Hangar",
   "rowStyle.standard": "Τυπική",
   "rowStyle.pill": "Σήμα κατάστασης",
   "rowStyle.avatar": "Εικονίδιο προγράμματος",
@@ -6333,6 +6336,7 @@ const es: Record<MessageKey, string> = {
   "settings.rowStyle": "Fila de sesión",
   "settings.rowStyleHelp":
     "Ordena tú mismo las partes de cada fila de sesión: arrástralas, o haz clic en una y muévela con las flechas. Los grupos y las líneas del árbol no cambian.",
+  "rowStyle.hangar": "Hangar",
   "rowStyle.standard": "Estándar",
   "rowStyle.pill": "Píldora de estado",
   "rowStyle.avatar": "Avatar del programa",
@@ -8315,6 +8319,7 @@ const fr: Record<MessageKey, string> = {
   "settings.rowStyle": "Ligne de session",
   "settings.rowStyleHelp":
     "Dispose toi-même les éléments de chaque ligne de session : glisse-les, ou clique sur l'un d'eux et déplace-le avec les flèches. Les groupes et les lignes de l'arbre restent tels quels.",
+  "rowStyle.hangar": "Hangar",
   "rowStyle.standard": "Standard",
   "rowStyle.pill": "Pastille d'état",
   "rowStyle.avatar": "Avatar du programme",
@@ -10318,6 +10323,7 @@ const it: Record<MessageKey, string> = {
   "settings.rowStyle": "Riga della sessione",
   "settings.rowStyleHelp":
     "Disponi tu le parti di ogni riga della sessione: trascinale, oppure fai clic su una e spostala con le frecce. Gruppi e linee dell'albero restano come sono.",
+  "rowStyle.hangar": "Hangar",
   "rowStyle.standard": "Standard",
   "rowStyle.pill": "Pillola di stato",
   "rowStyle.avatar": "Avatar del programma",
@@ -12306,6 +12312,7 @@ const ja: Record<MessageKey, string> = {
   "settings.rowStyle": "セッション行",
   "settings.rowStyleHelp":
     "各セッション行の要素を自分で並べます。ドラッグするか、クリックして矢印で移動します。グループとツリーの線はそのままです。",
+  "rowStyle.hangar": "Hangar",
   "rowStyle.standard": "標準",
   "rowStyle.pill": "状態ピル",
   "rowStyle.avatar": "プログラムアイコン",
@@ -14280,6 +14287,7 @@ const pl: Record<MessageKey, string> = {
   "settings.rowStyle": "Wiersz sesji",
   "settings.rowStyleHelp":
     "Ułóż sam elementy każdego wiersza sesji: przeciągnij je albo kliknij jeden i przesuń go strzałkami. Grupy i linie drzewa pozostają bez zmian.",
+  "rowStyle.hangar": "Hangar",
   "rowStyle.standard": "Standardowy",
   "rowStyle.pill": "Pigułka stanu",
   "rowStyle.avatar": "Ikona programu",
@@ -16245,6 +16253,7 @@ const pt: Record<MessageKey, string> = {
   "settings.rowStyle": "Linha da sessão",
   "settings.rowStyleHelp":
     "Organize você mesmo as partes de cada linha da sessão: arraste-as, ou clique em uma e mova-a com as setas. Grupos e linhas da árvore ficam como estão.",
+  "rowStyle.hangar": "Hangar",
   "rowStyle.standard": "Padrão",
   "rowStyle.pill": "Pílula de estado",
   "rowStyle.avatar": "Avatar do programa",
@@ -18220,6 +18229,7 @@ const ru: Record<MessageKey, string> = {
   "settings.rowStyle": "Строка сеанса",
   "settings.rowStyleHelp":
     "Расставь элементы каждой строки сеанса сам: перетащи их или нажми на элемент и двигай его стрелками. Группы и линии дерева остаются как есть.",
+  "rowStyle.hangar": "Hangar",
   "rowStyle.standard": "Стандарт",
   "rowStyle.pill": "Значок состояния",
   "rowStyle.avatar": "Значок программы",
@@ -20175,6 +20185,7 @@ const tr: Record<MessageKey, string> = {
   "settings.rowStyle": "Oturum satırı",
   "settings.rowStyleHelp":
     "Her oturum satırının parçalarını kendin düzenle: sürükle ya da birine tıklayıp oklarla taşı. Gruplar ve ağaç çizgileri olduğu gibi kalır.",
+  "rowStyle.hangar": "Hangar",
   "rowStyle.standard": "Standart",
   "rowStyle.pill": "Durum hapı",
   "rowStyle.avatar": "Program simgesi",
@@ -22109,6 +22120,7 @@ const zh: Record<MessageKey, string> = {
   "settings.rowStyle": "会话行",
   "settings.rowStyleHelp":
     "自己排列每个会话行的各个部分：拖动它们，或点击一个后用箭头移动。分组和树线保持不变。",
+  "rowStyle.hangar": "Hangar",
   "rowStyle.standard": "标准",
   "rowStyle.pill": "状态胶囊",
   "rowStyle.avatar": "程序图标",

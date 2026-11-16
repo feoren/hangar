@@ -8,6 +8,7 @@ import {
   loadSummary,
   matchingPreset,
   parseRowLayout,
+  sameLayout,
   placeElement,
   planRow,
   presetLayout,
@@ -189,6 +190,38 @@ describe("moving a stored row style to its layout once", () => {
     expect(presetLayout("tiles").forms.load).toBe("tiles");
     expect(presetLayout("segments").forms.context).toBe("segments");
     expect(presetLayout("avatar").forms.program).toBe("avatar");
+  });
+
+  it("offers the owner's own row first, under the app's name", () => {
+    const hangar = presetLayout("hangar");
+    expect(ROW_PRESETS[0]).toBe("hangar");
+    expect(lines(hangar)).toEqual([
+      "title signs | state",
+      "folder | branch runtime",
+      "load | tokens",
+      "context |",
+    ]);
+    // Exactly what Hangar 0.8.0 stored for the row the owner built.
+    const stored = {
+      lines: [
+        { left: ["title", "signs"], right: ["state"] },
+        { left: ["folder"], right: ["branch", "runtime"] },
+        { left: ["load"], right: ["tokens"] },
+        { left: ["context"], right: [] },
+      ],
+      forms: {
+        state: "pill",
+        program: "avatar",
+        folder: "text",
+        branch: "text",
+        load: "pills",
+        context: "segments",
+      },
+      frame: "flat",
+      density: "normal",
+    };
+    expect(sameLayout(parseRowLayout(stored, undefined), hangar)).toBe(true);
+    expect(matchingPreset(parseRowLayout(stored, undefined))).toBe("hangar");
   });
 
   it("gives every preset its own layout, each element at most once and the title always", () => {
