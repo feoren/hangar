@@ -1,7 +1,7 @@
 [
   {
     "version": "0.9.0",
-    "date": null,
+    "date": "2026-11-16",
     "items": [
       {
         "de": "Sub-Agenten: Wähl das Modell je Agent und ein Standardmodell für alle, in Claude Code und Codex. Deine Sub-Agenten stehen jetzt auch in Codex bereit.",
