@@ -1750,7 +1750,8 @@ const de = {
   "account.serverApply": "Übernehmen",
   "account.serverOfficial": "Offizieller Dienst",
   "account.serverSaved": "Server geändert.",
-  "account.fail.denied": "Die Anmeldung wurde im Browser abgelehnt.",
+  "account.fail.denied":
+    "Die Anmeldung wurde abgelehnt oder gilt nicht mehr. Klick auf „Erneut versuchen“ für einen neuen Code.",
   "account.fail.expired": "Der Code ist abgelaufen. Versuch es noch einmal.",
   "account.fail.refused": "Der Server hat die Anmeldung abgelehnt.",
   "account.fail.network": "Der Server ist nicht erreichbar.",
@@ -3747,7 +3748,8 @@ const en: Record<MessageKey, string> = {
   "account.serverApply": "Apply",
   "account.serverOfficial": "Official service",
   "account.serverSaved": "Server changed.",
-  "account.fail.denied": "The sign-in was declined in the browser.",
+  "account.fail.denied":
+    "The sign-in was declined or is no longer valid. Click “Try again” for a new code.",
   "account.fail.expired": "The code expired. Try again.",
   "account.fail.refused": "The server refused the sign-in.",
   "account.fail.network": "The server cannot be reached.",
@@ -5777,7 +5779,8 @@ const el: Record<MessageKey, string> = {
   "account.serverApply": "Εφαρμογή",
   "account.serverOfficial": "Επίσημη υπηρεσία",
   "account.serverSaved": "Ο διακομιστής άλλαξε.",
-  "account.fail.denied": "Η σύνδεση απορρίφθηκε στο πρόγραμμα περιήγησης.",
+  "account.fail.denied":
+    "Η σύνδεση απορρίφθηκε ή δεν ισχύει πια. Πάτησε «Δοκίμασε ξανά» για νέο κωδικό.",
   "account.fail.expired": "Ο κωδικός έληξε. Δοκίμασε ξανά.",
   "account.fail.refused": "Ο διακομιστής απέρριψε τη σύνδεση.",
   "account.fail.network": "Ο διακομιστής δεν είναι προσβάσιμος.",
@@ -7801,7 +7804,8 @@ const es: Record<MessageKey, string> = {
   "account.serverApply": "Aplicar",
   "account.serverOfficial": "Servicio oficial",
   "account.serverSaved": "Servidor cambiado.",
-  "account.fail.denied": "El inicio de sesión se rechazó en el navegador.",
+  "account.fail.denied":
+    "El inicio de sesión se rechazó o ya no es válido. Pulsa «Reintentar» para obtener un código nuevo.",
   "account.fail.expired": "El código caducó. Inténtalo de nuevo.",
   "account.fail.refused": "El servidor rechazó el inicio de sesión.",
   "account.fail.network": "No se puede contactar con el servidor.",
@@ -9837,7 +9841,8 @@ const fr: Record<MessageKey, string> = {
   "account.serverApply": "Appliquer",
   "account.serverOfficial": "Service officiel",
   "account.serverSaved": "Serveur modifié.",
-  "account.fail.denied": "La connexion a été refusée dans le navigateur.",
+  "account.fail.denied":
+    "La connexion a été refusée ou n’est plus valable. Clique sur « Réessayer » pour obtenir un nouveau code.",
   "account.fail.expired": "Le code a expiré. Réessaie.",
   "account.fail.refused": "Le serveur a refusé la connexion.",
   "account.fail.network": "Le serveur est injoignable.",
@@ -11863,7 +11868,8 @@ const it: Record<MessageKey, string> = {
   "account.serverApply": "Applica",
   "account.serverOfficial": "Servizio ufficiale",
   "account.serverSaved": "Server cambiato.",
-  "account.fail.denied": "L'accesso è stato rifiutato nel browser.",
+  "account.fail.denied":
+    "L'accesso è stato rifiutato o non è più valido. Fai clic su «Riprova» per un nuovo codice.",
   "account.fail.expired": "Il codice è scaduto. Riprova.",
   "account.fail.refused": "Il server ha rifiutato l'accesso.",
   "account.fail.network": "Il server non è raggiungibile.",
@@ -13884,7 +13890,8 @@ const ja: Record<MessageKey, string> = {
   "account.serverApply": "適用",
   "account.serverOfficial": "公式サービス",
   "account.serverSaved": "サーバーを変更しました。",
-  "account.fail.denied": "ブラウザーでサインインが拒否されました。",
+  "account.fail.denied":
+    "サインインが拒否されたか、無効になりました。「再試行」をクリックすると新しいコードが表示されます。",
   "account.fail.expired": "コードの有効期限が切れました。もう一度お試しください。",
   "account.fail.refused": "サーバーがサインインを拒否しました。",
   "account.fail.network": "サーバーに接続できません。",
@@ -15882,7 +15889,8 @@ const pl: Record<MessageKey, string> = {
   "account.serverApply": "Zastosuj",
   "account.serverOfficial": "Oficjalna usługa",
   "account.serverSaved": "Serwer zmieniony.",
-  "account.fail.denied": "Logowanie zostało odrzucone w przeglądarce.",
+  "account.fail.denied":
+    "Logowanie zostało odrzucone lub jest już nieważne. Kliknij „Spróbuj ponownie”, aby dostać nowy kod.",
   "account.fail.expired": "Kod wygasł. Spróbuj ponownie.",
   "account.fail.refused": "Serwer odrzucił logowanie.",
   "account.fail.network": "Serwer jest nieosiągalny.",
@@ -17895,7 +17903,8 @@ const pt: Record<MessageKey, string> = {
   "account.serverApply": "Aplicar",
   "account.serverOfficial": "Serviço oficial",
   "account.serverSaved": "Servidor alterado.",
-  "account.fail.denied": "O login foi recusado no navegador.",
+  "account.fail.denied":
+    "O login foi recusado ou já não vale. Clique em “Tentar de novo” para receber um código novo.",
   "account.fail.expired": "O código expirou. Tente de novo.",
   "account.fail.refused": "O servidor recusou o login.",
   "account.fail.network": "O servidor não está acessível.",
@@ -19889,7 +19898,8 @@ const ru: Record<MessageKey, string> = {
   "account.serverApply": "Применить",
   "account.serverOfficial": "Официальный сервис",
   "account.serverSaved": "Сервер изменён.",
-  "account.fail.denied": "Вход отклонён в браузере.",
+  "account.fail.denied":
+    "Вход отклонён или больше не действует. Нажми «Повторить», чтобы получить новый код.",
   "account.fail.expired": "Срок действия кода истёк. Попробуй ещё раз.",
   "account.fail.refused": "Сервер отклонил вход.",
   "account.fail.network": "Сервер недоступен.",
@@ -21877,7 +21887,8 @@ const tr: Record<MessageKey, string> = {
   "account.serverApply": "Uygula",
   "account.serverOfficial": "Resmî hizmet",
   "account.serverSaved": "Sunucu değiştirildi.",
-  "account.fail.denied": "Oturum açma tarayıcıda reddedildi.",
+  "account.fail.denied":
+    "Oturum açma reddedildi ya da artık geçerli değil. Yeni kod için “Tekrar dene”ye tıkla.",
   "account.fail.expired": "Kodun süresi doldu. Tekrar dene.",
   "account.fail.refused": "Sunucu oturum açmayı reddetti.",
   "account.fail.network": "Sunucuya ulaşılamıyor.",
@@ -23788,7 +23799,7 @@ const zh: Record<MessageKey, string> = {
   "account.serverApply": "应用",
   "account.serverOfficial": "官方服务",
   "account.serverSaved": "服务器已更改。",
-  "account.fail.denied": "登录已在浏览器中被拒绝。",
+  "account.fail.denied": "登录已被拒绝或已失效。点击“重试”获取新代码。",
   "account.fail.expired": "代码已过期。请重试。",
   "account.fail.refused": "服务器拒绝了登录。",
   "account.fail.network": "无法连接服务器。",

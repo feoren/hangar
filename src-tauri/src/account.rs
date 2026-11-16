@@ -855,8 +855,12 @@ impl DevicePoll {
                 self.interval = (self.interval + SLOW_DOWN_STEP).min(MAX_INTERVAL);
                 PollStep::Wait(self.interval)
             }
-            PollResponse::OAuth(OAuthCode::AccessDenied, _) => failed(FailKind::Denied, None),
-            PollResponse::OAuth(OAuthCode::ExpiredToken, _) => failed(FailKind::Expired, None),
+            PollResponse::OAuth(OAuthCode::AccessDenied, detail) => {
+                failed(FailKind::Denied, detail)
+            }
+            PollResponse::OAuth(OAuthCode::ExpiredToken, detail) => {
+                failed(FailKind::Expired, detail)
+            }
             PollResponse::OAuth(_, detail) => failed(FailKind::Refused, detail),
             PollResponse::Transient => {
                 self.failures = self.failures.saturating_add(1);
@@ -874,7 +878,9 @@ impl DevicePoll {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub enum FailKind {
-    /// The person declined in the browser.
+    /// Declined in the browser, or the approval no longer counts (the account was disabled,
+    /// changed its password or ended its sessions after it); `detail` carries the server's reason
+    /// when it gives one.
     Denied,
     /// The code expired before it was confirmed.
     Expired,
@@ -1679,6 +1685,21 @@ mod tests {
     }
 
     #[test]
+    fn expiry_keeps_the_servers_reason() {
+        let mut poll = DevicePoll::new(Some(5), 600);
+        match poll.on_response(PollResponse::OAuth(
+            OAuthCode::ExpiredToken,
+            Some("Start again.".into()),
+        )) {
+            PollStep::Failed(reason) => {
+                assert_eq!(reason.kind, FailKind::Expired);
+                assert_eq!(reason.detail.as_deref(), Some("Start again."));
+            }
+            other => panic!("{other:?}"),
+        }
+    }
+
+    #[test]
     fn polling_ends_on_refusal_and_backs_off_on_errors() {
         let mut poll = DevicePoll::new(Some(5), 600);
         for (code, kind) in [
@@ -1688,7 +1709,11 @@ mod tests {
             (OAuthCode::InvalidScope, FailKind::Refused),
         ] {
             match poll.on_response(PollResponse::OAuth(code, Some("why".into()))) {
-                PollStep::Failed(reason) => assert_eq!(reason.kind, kind),
+                PollStep::Failed(reason) => {
+                    assert_eq!(reason.kind, kind);
+                    // The server's reason reaches the window, for refusals and denials alike.
+                    assert_eq!(reason.detail.as_deref(), Some("why"));
+                }
                 other => panic!("{other:?}"),
             }
         }
