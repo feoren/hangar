@@ -2101,8 +2101,20 @@ impl InstanceLock {
             }
             Err(fs::TryLockError::Error(error)) => return Err(error),
         };
+        // Unlocked, not only closed: see the Drop below.
+        let _ = gate.unlock();
         drop(gate);
         Ok((Self { _file: file }, ran))
+    }
+}
+
+impl Drop for InstanceLock {
+    /// A lock belongs to the open file, not to one handle: a child process another thread forks
+    /// (git, an agent) holds a copy of the handle until it runs its program, and closing ours
+    /// alone would leave the lock held by that copy for a moment. Unlocking releases it for
+    /// every copy at once.
+    fn drop(&mut self) {
+        let _ = self._file.unlock();
     }
 }
 
@@ -3587,6 +3599,21 @@ mod tests {
         // This one now holds it shared: a later start does not clean up.
         let (_third, ran) = InstanceLock::enter(&fx.folder, || {}).unwrap();
         assert!(!ran);
+    }
+
+    /// A copy of the lock's handle (a child process forked by another thread gets one until it
+    /// runs its program) must not keep the lock once the instance lets go of it.
+    #[test]
+    fn a_released_lock_is_free_although_a_copy_of_its_handle_lives_on() {
+        let dir = TempDir::new("snapshot-lock-copy");
+        let folder = dir.path().join("snapshots");
+        let (lock, ran) = InstanceLock::enter(&folder, || {}).unwrap();
+        assert!(ran);
+        let copy = lock._file.try_clone().unwrap();
+        drop(lock);
+        let (_next, ran) = InstanceLock::enter(&folder, || {}).unwrap();
+        assert!(ran, "the copied handle still held the lock");
+        drop(copy);
     }
 
     /// The clean-up packs the side repository without copying the user's objects into it, and
