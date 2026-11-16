@@ -1,6 +1,8 @@
-// Settings, Sub-agents: Claude Code's sub-agent definitions with their figures. One row per
-// name (global and project files of that name together), a figure picker below the row whose
-// figure was clicked, and a form for a new definition from pasted text or a loaded file.
+// Settings, Sub-agents: Claude Code's sub-agent definitions with their figures and models, Codex
+// CLI's own definitions, the default model per program and the copies of the user's
+// definitions in other programs. One row per name (global and project files of that name
+// together), a figure picker below the row whose figure was clicked, and a form for a new
+// definition from pasted text or a loaded file.
 
 import { useEffect, useRef, useState } from "react";
 
@@ -25,9 +27,35 @@ import {
   type FigureErrorCode,
   type FigureInput,
   type FigureView,
+  type CodexDef,
+  type Library,
+  type SyncIssue,
+  type SyncIssueKind,
   type LibraryEntry,
 } from "./subAgentLibrary";
-import { applyFigures, refreshLibrary, useSubAgentLibrary } from "./subAgentLibraryStore";
+import {
+  applyFigures,
+  refreshLibrary,
+  syncLibrary,
+  useSubAgentLibrary,
+} from "./subAgentLibraryStore";
+import { ModelField } from "./SubAgentModelField";
+import {
+  backupsOf,
+  codexSuggestions,
+  copiesOf,
+  failures,
+  issuesOf,
+  NO_CHOICE,
+  ownCodexDefs,
+  parseSubAgentSettings,
+  provides,
+  withModel,
+  withProvide,
+  type DefProgram,
+  type ModelChoice,
+  type SubAgentSettings,
+} from "./subAgentModels";
 
 const PROBLEM_TEXTS: Record<DefProblemKind, MessageKey> = {
   tooLarge: "subAgentLib.problem.tooLarge",
@@ -40,6 +68,8 @@ const PROBLEM_TEXTS: Record<DefProblemKind, MessageKey> = {
   link: "subAgentLib.problem.link",
   unreadable: "subAgentLib.problem.unreadable",
   tooMany: "subAgentLib.problem.tooMany",
+  notToml: "subAgentLib.problem.notToml",
+  missingInstructions: "subAgentLib.problem.missingInstructions",
 };
 
 const FIGURE_ERROR_TEXTS: Record<FigureErrorCode, MessageKey> = {
@@ -67,16 +97,19 @@ function readFile(file: File, as: "text" | "base64"): Promise<string> {
   });
 }
 
+const PROGRAM_NAMES: Record<DefProgram, string> = { claude: "Claude Code", codex: "Codex CLI" };
+
 export function SubAgentSettings() {
   const t = useT();
   const { library, error } = useSubAgentLibrary();
   const [picking, setPicking] = useState<string | null>(null);
   const [creating, setCreating] = useState(false);
   const entries = libraryEntries(library);
+  const ownCodex = ownCodexDefs(library);
 
-  // Files may have changed outside Hangar since the last look.
+  // Files may have changed outside Hangar since the last look; the copies follow them.
   useEffect(() => {
-    void refreshLibrary();
+    void syncLibrary();
   }, []);
 
   return (
@@ -85,7 +118,10 @@ export function SubAgentSettings() {
         {t("subAgentLib.intro")}
       </p>
       {error !== null && <p className="muted error-text">{error}</p>}
-      {entries.length === 0 && !creating && <p className="muted">{t("subAgentLib.empty")}</p>}
+      <ModelDefaults library={library} />
+      {entries.length === 0 && ownCodex.length === 0 && !creating && (
+        <p className="muted">{t("subAgentLib.empty")}</p>
+      )}
       <ul className="sub-agent-list">
         {entries.map((entry) => (
           <SubAgentRow
@@ -97,6 +133,9 @@ export function SubAgentSettings() {
             }}
           />
         ))}
+        {ownCodex.map((def) => (
+          <CodexRow key={`${def.folder ?? ""}/${def.file}`} def={def} />
+        ))}
       </ul>
       {library.problems.length > 0 && (
         <details className="sub-agent-problems">
@@ -105,7 +144,10 @@ export function SubAgentSettings() {
           </summary>
           <ul>
             {library.problems.map((problem) => (
-              <li key={`${problem.folder ?? ""}/${problem.file}`} className="muted">
+              <li
+                key={`${problem.program}/${problem.folder ?? ""}/${problem.file}`}
+                className="muted"
+              >
                 <code>{problem.file}</code>
                 {problem.folder !== null && ` (${folderName(problem.folder)})`}:{" "}
                 {t(PROBLEM_TEXTS[problem.problem])}
@@ -137,6 +179,203 @@ export function SubAgentSettings() {
   );
 }
 
+/**
+ * The default model of every sub-agent per installed program, and whether the user's
+ * definitions go to the other programs. Only programs installed here are shown.
+ */
+function ModelDefaults({ library }: { library: Library }) {
+  const t = useT();
+  const [settings, setSettings] = useState<SubAgentSettings | null>(null);
+  const [message, setMessage] = useState<string | null>(null);
+
+  useEffect(() => {
+    let live = true;
+    api
+      .subAgentSettings()
+      .then((value) => {
+        if (live) setSettings(parseSubAgentSettings(value));
+      })
+      .catch((e: unknown) => {
+        if (live) setMessage(errorText(e));
+      });
+    return () => {
+      live = false;
+    };
+  }, []);
+
+  if (settings === null || library.installed.length === 0) {
+    return message === null ? null : <p className="muted error-text">{message}</p>;
+  }
+  const save = (next: SubAgentSettings) => {
+    setMessage(null);
+    const before = settings;
+    setSettings(next);
+    api
+      .saveSubAgentSettings(next)
+      .then(() => syncLibrary())
+      .catch((e: unknown) => {
+        setSettings(before);
+        setMessage(errorText(e));
+      });
+  };
+  const suggestions = codexSuggestions(library, library.codexModels);
+  return (
+    <div className="sub-agent-defaults" role="group" aria-labelledby="sub-agent-defaults-title">
+      <h4 id="sub-agent-defaults-title" className="settings-subtitle">
+        {t("subAgentLib.defaults")}
+      </h4>
+      {library.installed.map((program) => (
+        <div key={program} className="sub-agent-default">
+          <span className="sub-agent-default-name">{PROGRAM_NAMES[program]}</span>
+          <ModelField
+            program={program}
+            value={settings.models[program] ?? NO_CHOICE}
+            suggestions={program === "codex" ? suggestions : []}
+            label={t("subAgentLib.defaultFor", { program: PROGRAM_NAMES[program] })}
+            onChange={(choice) => {
+              save(withModel(settings, program, choice));
+            }}
+          />
+        </div>
+      ))}
+      <p className="muted settings-help">{t("subAgentLib.defaultsHelp")}</p>
+      {/* Providing the definitions is no model setting: its own line and help below the models. */}
+      {library.targets.map((target) => (
+        <div key={target.program} className="sub-agent-provide">
+          <label className="check">
+            <input
+              type="checkbox"
+              checked={!settings.provideOff.includes(target.program)}
+              aria-describedby={`sub-agent-provide-help-${target.program}`}
+              onChange={(event) => {
+                save(withProvide(settings, target.program, event.currentTarget.checked));
+              }}
+            />
+            <span>{t("subAgentLib.provide", { program: PROGRAM_NAMES[target.program] })}</span>
+          </label>
+          <p id={`sub-agent-provide-help-${target.program}`} className="muted settings-help">
+            {t("subAgentLib.provideHelp")}
+          </p>
+          <IssueList issues={failures(library, target.program)} />
+        </div>
+      ))}
+      {message !== null && <p className="muted error-text">{message}</p>}
+    </div>
+  );
+}
+
+/** A model change of one file; a project's file only after the question in the row. */
+function useModelChange(onError: (message: string) => void) {
+  const t = useT();
+  const [pending, setPending] = useState<{
+    program: DefProgram;
+    name: string;
+    folder: string;
+    choice: ModelChoice;
+  } | null>(null);
+  const send = (
+    program: DefProgram,
+    name: string,
+    folder: string | null,
+    choice: ModelChoice,
+    confirmed: boolean,
+  ) => {
+    api
+      .setSubAgentModel({ program, name, folder, ...choice, confirmed })
+      .then(() => refreshLibrary())
+      .catch((e: unknown) => {
+        const error = parseDefError(e);
+        if (error?.kind === "model") onError(t("subAgentLib.modelInvalid"));
+        else onError(error?.message ?? errorText(e));
+      });
+  };
+  const change = (
+    program: DefProgram,
+    name: string,
+    folder: string | null,
+    choice: ModelChoice,
+  ) => {
+    if (folder !== null) setPending({ program, name, folder, choice });
+    else send(program, name, null, choice, false);
+  };
+  const question =
+    pending === null ? null : (
+      <div className="settings-row sub-agent-confirm" role="group">
+        <span>{t("subAgentLib.modelProjectConfirm", { folder: folderName(pending.folder) })}</span>
+        <button
+          type="button"
+          className="primary-button"
+          onClick={() => {
+            send(pending.program, pending.name, pending.folder, pending.choice, true);
+            setPending(null);
+          }}
+        >
+          {t("subAgentLib.modelChange")}
+        </button>
+        <button
+          type="button"
+          className="secondary-button"
+          onClick={() => {
+            setPending(null);
+          }}
+        >
+          {t("common.cancel")}
+        </button>
+      </div>
+    );
+  return { change, question };
+}
+
+const ISSUE_TEXTS: Record<SyncIssueKind, MessageKey> = {
+  unreadable: "subAgentLib.issue.unreadable",
+  io: "subAgentLib.issue.io",
+  offMachine: "subAgentLib.issue.offMachine",
+  noBackupName: "subAgentLib.issue.noBackupName",
+  tracked: "subAgentLib.issue.tracked",
+  link: "subAgentLib.issue.link",
+};
+
+function issueText(issue: SyncIssue, t: ReturnType<typeof useT>): string {
+  return t(ISSUE_TEXTS[issue.kind], { folder: folderName(issue.folder ?? "~") });
+}
+
+/** What the copy runs left alone, file and reason, below the switch. */
+export function IssueList({ issues }: { issues: SyncIssue[] }) {
+  const t = useT();
+  if (issues.length === 0) return null;
+  return (
+    <ul className="sub-agent-issues" role="status">
+      {issues.map((issue) => (
+        <li key={`${issue.folder ?? ""}/${issue.file}/${issue.kind}`} className="muted error-text">
+          <code>{issue.file}</code>
+          {issue.folder !== null && ` (${folderName(issue.folder)})`}: {issueText(issue, t)}
+        </li>
+      ))}
+    </ul>
+  );
+}
+
+/**
+ * Where a copy stands, as a short line: provided, replaced with every backup named, or why it
+ * is missing.
+ */
+function copyText(
+  copy: CodexDef | undefined,
+  issue: SyncIssue | undefined,
+  t: ReturnType<typeof useT>,
+): string {
+  if (copy === undefined) {
+    return issue === undefined ? t("subAgentLib.copyMissing") : issueText(issue, t);
+  }
+  const backups = backupsOf(copy);
+  if (backups.length === 0) return t("subAgentLib.copyProvided");
+  const place =
+    copy.folder === null ? "~/.codex/agents" : `${folderName(copy.folder)}/.codex/agents`;
+  return t("subAgentLib.copyReplaced", {
+    backup: backups.map((backup) => `${place}/${backup}`).join(", "),
+  });
+}
+
 function SubAgentRow({
   entry,
   picking,
@@ -147,9 +386,10 @@ function SubAgentRow({
   onPick: () => void;
 }) {
   const t = useT();
-  const { figures } = useSubAgentLibrary();
+  const { library, figures } = useSubAgentLibrary();
   const [confirming, setConfirming] = useState(false);
   const [problem, setProblem] = useState<string | null>(null);
+  const models = useModelChange(setProblem);
   const figure = figureFor(entry.name, entry.def.color, figures);
   const places = [
     ...(entry.global === null ? [] : [t("subAgentLib.global")]),
@@ -164,10 +404,6 @@ function SubAgentRow({
       ),
     ),
   ];
-  const meta = [
-    ...places,
-    ...(entry.def.model === null ? [] : [t("subAgentLib.model", { model: entry.def.model })]),
-  ].join(" · ");
   const fail = (e: unknown) => {
     setProblem(parseDefError(e)?.message ?? errorText(e));
   };
@@ -183,6 +419,16 @@ function SubAgentRow({
       .then(() => refreshLibrary())
       .catch(fail);
   };
+  const def = entry.global ?? entry.def;
+  // Copies exist of global definitions only, and only for programs Hangar hands them to.
+  const copies =
+    entry.global === null || !provides(library, "codex") ? null : copiesOf(library, entry.name);
+  const globalCopy = copies?.find((copy) => copy.scope === "global");
+  const projectCopies =
+    copies?.filter((copy) => copy.scope !== "global" && backupsOf(copy).length > 0) ?? [];
+  const issues = copies === null ? [] : issuesOf(library, entry.name);
+  const globalIssue = issues.find((issue) => issue.scope === "global");
+  const projectIssues = issues.filter((issue) => issue.scope !== "global");
 
   return (
     <li className="sub-agent-row">
@@ -199,11 +445,62 @@ function SubAgentRow({
       <div className="sub-agent-text">
         <div className="sub-agent-head">
           <strong className="sub-agent-name">{entry.name}</strong>
-          <span className="muted sub-agent-meta">{meta}</span>
+          <span className="muted sub-agent-meta">{places.join(" · ")}</span>
         </div>
         <p className="sub-agent-description" title={entry.def.description}>
           {entry.def.description}
         </p>
+        <div className="sub-agent-models">
+          <span className="sub-agent-model">
+            <span className="muted">{PROGRAM_NAMES.claude}</span>
+            <ModelField
+              program="claude"
+              value={{ model: def.model, effort: null }}
+              label={t("subAgentLib.modelOf", { name: entry.name })}
+              onChange={(choice) => {
+                setProblem(null);
+                models.change(
+                  "claude",
+                  entry.name,
+                  def.scope === "global" ? null : def.folder,
+                  choice,
+                );
+              }}
+            />
+          </span>
+          {copies !== null && (
+            <span className="sub-agent-model">
+              <span className="muted">{PROGRAM_NAMES.codex}</span>
+              {globalCopy !== undefined && (
+                <ModelField
+                  program="codex"
+                  value={{ model: globalCopy.model, effort: globalCopy.effort }}
+                  suggestions={codexSuggestions(library, library.codexModels)}
+                  label={t("subAgentLib.modelIn", {
+                    name: entry.name,
+                    program: PROGRAM_NAMES.codex,
+                  })}
+                  onChange={(choice) => {
+                    setProblem(null);
+                    models.change("codex", entry.name, null, choice);
+                  }}
+                />
+              )}
+              <span className="muted sub-agent-copy">{copyText(globalCopy, globalIssue, t)}</span>
+            </span>
+          )}
+        </div>
+        {projectCopies.map((copy) => (
+          <p key={`${copy.folder ?? ""}/${copy.file}`} className="muted sub-agent-copy">
+            {PROGRAM_NAMES.codex}: {copyText(copy, undefined, t)}
+          </p>
+        ))}
+        {projectIssues.map((issue) => (
+          <p key={`${issue.folder ?? ""}/${issue.file}`} className="muted sub-agent-copy">
+            {PROGRAM_NAMES.codex}: {issueText(issue, t)}
+          </p>
+        ))}
+        {models.question}
         <div className="sub-agent-actions">
           <button
             type="button"
@@ -249,6 +546,50 @@ function SubAgentRow({
   );
 }
 
+/** A Codex CLI definition of the user's own: its model and effort; it never starts as an agent. */
+function CodexRow({ def }: { def: CodexDef }) {
+  const t = useT();
+  const { library, figures } = useSubAgentLibrary();
+  const [problem, setProblem] = useState<string | null>(null);
+  const models = useModelChange(setProblem);
+  const place =
+    def.folder === null
+      ? t("subAgentLib.global")
+      : t("subAgentLib.project", { folder: folderName(def.folder) });
+  return (
+    <li className="sub-agent-row">
+      <span className="sub-agent-figure-button">
+        <AgentFigure figure={figureFor(def.name, null, figures)} size={96} crop="full" />
+      </span>
+      <div className="sub-agent-text">
+        <div className="sub-agent-head">
+          <strong className="sub-agent-name">{def.name}</strong>
+          <span className="sub-agent-badge">{PROGRAM_NAMES.codex}</span>
+          <span className="muted sub-agent-meta">{place}</span>
+        </div>
+        <p className="sub-agent-description" title={def.description}>
+          {def.description}
+        </p>
+        <div className="sub-agent-models">
+          <span className="sub-agent-model">
+            <ModelField
+              program="codex"
+              value={{ model: def.model, effort: def.effort }}
+              suggestions={codexSuggestions(library, library.codexModels)}
+              label={t("subAgentLib.modelOf", { name: def.name })}
+              onChange={(choice) => {
+                setProblem(null);
+                models.change("codex", def.name, def.folder, choice);
+              }}
+            />
+          </span>
+        </div>
+        {models.question}
+        {problem !== null && <p className="muted error-text">{problem}</p>}
+      </div>
+    </li>
+  );
+}
 /** `chosen`: the figure the user picked; a figure only derived from the name marks none. */
 function FigurePicker({ name, chosen }: { name: string; chosen: FigureView | undefined }) {
   const t = useT();

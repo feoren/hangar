@@ -4,6 +4,20 @@
     "date": null,
     "items": [
       {
+        "de": "Sub-Agenten: Wähl das Modell je Agent und ein Standardmodell für alle, in Claude Code und Codex. Deine Sub-Agenten stehen jetzt auch in Codex bereit.",
+        "en": "Sub-agents: pick a model per agent and a default for all of them, in Claude Code and Codex. Your sub-agents are now ready in Codex too.",
+        "el": "Υπο-πράκτορες: διάλεξε μοντέλο ανά πράκτορα και ένα προεπιλεγμένο για όλους, σε Claude Code και Codex. Οι υπο-πράκτορές σου είναι πλέον και στο Codex.",
+        "es": "Subagentes: elige un modelo por agente y uno predeterminado para todos, en Claude Code y Codex. Tus subagentes ya están también en Codex.",
+        "fr": "Sous-agents : choisis un modèle par agent et un modèle par défaut pour tous, dans Claude Code et Codex. Tes sous-agents sont aussi prêts dans Codex.",
+        "it": "Sotto-agenti: scegli un modello per agente e uno predefinito per tutti, in Claude Code e Codex. I tuoi sotto-agenti ora sono pronti anche in Codex.",
+        "ja": "サブエージェント：Claude Code と Codex で、エージェントごとのモデルと全体の既定モデルを選べます。あなたのサブエージェントは Codex でも使えます。",
+        "pl": "Podagenci: wybierz model dla każdego agenta i domyślny dla wszystkich, w Claude Code i Codex. Twoi podagenci są teraz gotowi także w Codex.",
+        "pt": "Subagentes: escolha um modelo por agente e um padrão para todos, no Claude Code e no Codex. Seus subagentes agora também estão no Codex.",
+        "ru": "Субагенты: выбирай модель для каждого агента и общую по умолчанию, в Claude Code и Codex. Твои субагенты теперь доступны и в Codex.",
+        "tr": "Alt ajanlar: Claude Code ve Codex’te her ajan için bir model ve hepsi için varsayılan seç. Alt ajanların artık Codex’te de hazır.",
+        "zh": "子代理：在 Claude Code 和 Codex 中为每个代理选择模型，并为全部设置默认模型。你的子代理现在也可在 Codex 中使用。"
+      },
+      {
         "de": "Neue Crew-Spalte: Arbeitende Sub-Agents stehen als Figuren neben dem Terminal, sagen in einer Sprechblase, was sie tun, und zeigen ihren Zustand am Sockel.",
         "en": "New crew column: working sub-agents stand as figures next to the terminal, say in a speech bubble what they do, and show their state on their plinth.",
         "el": "Νέα στήλη πληρώματος: οι υπο-πράκτορες στέκονται ως φιγούρες δίπλα στο τερματικό, λένε σε φούσκα τι κάνουν και δείχνουν την κατάσταση στη βάση τους.",

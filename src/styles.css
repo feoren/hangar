@@ -12687,6 +12687,92 @@ body.session-dragging .session-actions {
   margin-bottom: 12px;
 }
 
+/* Models (SubAgentModelField.tsx): small fields in one line per program, wrapping when narrow. */
+.sub-agent-defaults {
+  margin: 0 0 14px;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+}
+
+.sub-agent-defaults .settings-subtitle {
+  margin-top: 0;
+}
+
+.sub-agent-default {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 12px;
+  align-items: center;
+  margin-bottom: 6px;
+}
+
+.sub-agent-default-name {
+  min-width: 96px;
+  font-weight: 600;
+}
+
+.sub-agent-provide {
+  margin-top: 10px;
+  padding-top: 10px;
+  border-top: 1px solid var(--border);
+}
+
+.sub-agent-provide .settings-help {
+  margin: 4px 0 0;
+}
+
+.sub-agent-models {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 16px;
+  align-items: center;
+  margin-bottom: 4px;
+}
+
+.sub-agent-model,
+.model-field,
+.model-text {
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  align-items: center;
+}
+
+.sub-agent-settings .select.compact {
+  min-width: 0;
+  padding: 2px 6px;
+}
+
+.sub-agent-settings .text-input.compact {
+  width: 150px;
+  padding: 2px 6px;
+}
+
+.sub-agent-settings .secondary-button.compact {
+  padding: 2px 8px;
+}
+
+.sub-agent-issues {
+  margin: 4px 0 0;
+  padding-left: 18px;
+  font-size: 12px;
+}
+
+.sub-agent-copy {
+  margin: 0;
+  font-size: 12px;
+}
+
+.sub-agent-badge {
+  padding: 0 6px;
+  font-size: 11px;
+  line-height: 18px;
+  color: var(--muted);
+  border: 1px solid var(--border);
+  border-radius: 9px;
+}
+
 .sub-agent-problems ul {
   margin: 6px 0 0;
   padding-left: 18px;

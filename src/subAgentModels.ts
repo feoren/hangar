@@ -1,0 +1,167 @@
+// Models of sub-agents, as Settings > Sub-agents chooses them: per definition and as a default
+// per program for every session Hangar starts. Pure; the backend checks everything again
+// (agent_models.rs). Contract: docs/wiki/pages/syntheses/sub-agent-library.md.
+
+import type { CodexDef, Library, SyncIssue } from "./subAgentLibrary";
+
+/** Rust `DefProgram`: whose definitions and how its sessions take a default model. */
+export type DefProgram = "claude" | "codex";
+
+export const DEF_PROGRAMS: readonly DefProgram[] = ["claude", "codex"];
+
+export function isDefProgram(value: unknown): value is DefProgram {
+  return value === "claude" || value === "codex";
+}
+
+/** Claude Code's model aliases offered (Rust `CLAUDE_ALIASES`); Fable costs clearly more. */
+export const CLAUDE_ALIASES = ["opus", "sonnet", "haiku", "fable"] as const;
+/** Codex CLI's reasoning efforts offered (Rust `CODEX_EFFORTS`). */
+export const CODEX_EFFORTS = ["minimal", "low", "medium", "high", "xhigh"] as const;
+export const MAX_MODEL_LENGTH = 64;
+
+/** The backend's rule (`agent_models::valid_model`): a plain id, never `inherit`. */
+export function validModel(value: string): boolean {
+  return (
+    value.length <= MAX_MODEL_LENGTH &&
+    /^[A-Za-z0-9][A-Za-z0-9._:-]*$/.test(value) &&
+    value.toLowerCase() !== "inherit"
+  );
+}
+
+/** Rust `ModelChoice`; `null` leaves the program's own choice. */
+export interface ModelChoice {
+  model: string | null;
+  effort: string | null;
+}
+
+export const NO_CHOICE: ModelChoice = { model: null, effort: null };
+
+/** Rust `SubAgentSettings`. */
+export interface SubAgentSettings {
+  models: Partial<Record<DefProgram, ModelChoice>>;
+  /** Programs that get no copies of the user's definitions. */
+  provideOff: DefProgram[];
+}
+
+export const DEFAULT_SETTINGS: SubAgentSettings = { models: {}, provideOff: [] };
+
+function field(value: object, name: string): unknown {
+  return name in value ? Reflect.get(value, name) : undefined;
+}
+
+function text(value: unknown): string | null {
+  return typeof value === "string" && value.length <= MAX_MODEL_LENGTH ? value : null;
+}
+
+function parseChoice(value: unknown): ModelChoice | null {
+  if (typeof value !== "object" || value === null) return null;
+  const model = text(field(value, "model"));
+  const effort = text(field(value, "effort"));
+  return model === null && effort === null ? null : { model, effort };
+}
+
+/** Checks `sub_agent_settings`' answer; anything unexpected gives the defaults' part. */
+export function parseSubAgentSettings(value: unknown): SubAgentSettings {
+  if (typeof value !== "object" || value === null) return DEFAULT_SETTINGS;
+  const models: Partial<Record<DefProgram, ModelChoice>> = {};
+  const raw = field(value, "models");
+  if (typeof raw === "object" && raw !== null) {
+    for (const program of DEF_PROGRAMS) {
+      const choice = parseChoice(field(raw, program));
+      if (choice !== null) models[program] = choice;
+    }
+  }
+  const off = field(value, "provideOff");
+  const provideOff = Array.isArray(off) ? DEF_PROGRAMS.filter((p) => off.includes(p)) : [];
+  return { models, provideOff };
+}
+
+/** `settings` with the default of `program` set; an empty choice removes it. */
+export function withModel(
+  settings: SubAgentSettings,
+  program: DefProgram,
+  choice: ModelChoice,
+): SubAgentSettings {
+  const models: Partial<Record<DefProgram, ModelChoice>> = {};
+  for (const other of DEF_PROGRAMS) {
+    const kept = other === program ? choice : settings.models[other];
+    if (kept !== undefined && (kept.model !== null || kept.effort !== null)) models[other] = kept;
+  }
+  return { ...settings, models };
+}
+
+/** `settings` with copies for `program` on or off. */
+export function withProvide(
+  settings: SubAgentSettings,
+  program: DefProgram,
+  on: boolean,
+): SubAgentSettings {
+  const rest = settings.provideOff.filter((entry) => entry !== program);
+  return { ...settings, provideOff: on ? rest : [...rest, program] };
+}
+
+/** Value of the Claude model field for "another id", never a model. */
+export const OTHER_MODEL = "\u0000other";
+
+/**
+ * The entries of the Claude model field: the session's model, the aliases, a value the file
+ * holds that is none of them (shown as it is, so nothing is lost) and "another id".
+ */
+export function claudeOptions(current: string | null): string[] {
+  const aliases: string[] = [...CLAUDE_ALIASES];
+  const known = current === null || aliases.includes(current);
+  return ["", ...aliases, ...(known ? [] : [current]), OTHER_MODEL];
+}
+
+/** The efforts offered, with a value the file holds that is none of them. */
+export function effortOptions(current: string | null): string[] {
+  const efforts: string[] = [...CODEX_EFFORTS];
+  const known = current === null || efforts.includes(current);
+  return ["", ...efforts, ...(known ? [] : [current])];
+}
+
+/** Model suggestions for Codex CLI: its main model and every model its definitions name. */
+export function codexSuggestions(library: Library, mainModels: readonly string[]): string[] {
+  const all = [...mainModels, ...library.codexDefs.map((def) => def.model)];
+  return [...new Set(all.filter((model): model is string => model !== null && validModel(model)))];
+}
+
+/** Hangar's copies of the definition `name` (the global one first). */
+export function copiesOf(library: Library, name: string): CodexDef[] {
+  const copies = library.codexDefs.filter((def) => def.managed && def.name === name);
+  return [
+    ...copies.filter((def) => def.scope === "global"),
+    ...copies.filter((def) => def.scope !== "global"),
+  ];
+}
+
+/** The Codex CLI definitions of the user's own: not Hangar's copies. */
+export function ownCodexDefs(library: Library): CodexDef[] {
+  return library.codexDefs.filter((def) => !def.managed);
+}
+
+/** Whether copies go to `program` on this machine (installed, not switched off). */
+export function provides(library: Library, program: DefProgram): boolean {
+  return library.targets.some((target) => target.program === program && target.enabled);
+}
+
+/** What the newest copy runs left alone for the definition `name`. */
+export function issuesOf(library: Library, name: string): SyncIssue[] {
+  return library.syncIssues.filter((issue) => issue.name === name);
+}
+
+/**
+ * The failures of `program`'s copy runs, for the list below its switch. A tracked project file
+ * is no failure: the row of its definition names it.
+ */
+export function failures(library: Library, program: DefProgram): SyncIssue[] {
+  return library.syncIssues.filter(
+    (issue) => issue.program === program && issue.kind !== "tracked",
+  );
+}
+
+/** The backups beside a copy, the one its marker names first. */
+export function backupsOf(copy: CodexDef): string[] {
+  const all = copy.backup === null ? copy.backups : [copy.backup, ...copy.backups];
+  return [...new Set(all)];
+}

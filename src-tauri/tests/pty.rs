@@ -1,11 +1,13 @@
 //! Integration tests with a real PTY (ConPTY on Windows, Unix PTY elsewhere):
 //! echo, exit code, size, kill, restart, start from the agent catalog.
 
+use std::collections::BTreeMap;
 use std::sync::mpsc::{channel, Receiver};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use hangar_lib::agent_catalog::{self, CatalogAgent};
+use hangar_lib::agent_models::{DefProgram, ModelChoice};
 use hangar_lib::install_source::{Packages, Reason, SelfUpdate};
 use hangar_lib::instructions::StartPrompt;
 use hangar_lib::manager::{
@@ -494,6 +496,49 @@ fn catalog_agent_starts_with_first_found_command_and_restarts() {
         .unwrap();
     let (output, _) = collect_until_exit(&manager, info.id, &rx3);
     assert!(output.contains("hangar-echo-ok"), "Output: {output:?}");
+}
+
+#[test]
+fn the_default_sub_agent_model_reaches_each_new_process() {
+    let (command, args): (&str, &[&str]) = if cfg!(windows) {
+        (
+            "cmd",
+            &["/d", "/c", "echo MODEL=[%CLAUDE_CODE_SUBAGENT_MODEL%]"],
+        )
+    } else {
+        (
+            "sh",
+            &["-c", "echo \"MODEL=[$CLAUDE_CODE_SUBAGENT_MODEL]\""],
+        )
+    };
+    let toml = format!(
+        "[[agent]]\nid = \"subclaude\"\nname = \"Sub\"\ncommands = [{command:?}]\nargs = {args:?}\nagent_program = \"claude\"\n"
+    );
+    let catalog = agent_catalog::parse(&toml).unwrap();
+    std::env::remove_var("CLAUDE_CODE_SUBAGENT_MODEL");
+    let manager = SessionManager::new(Vec::new(), catalog, std::env::temp_dir());
+    let choice = |model: &str| ModelChoice {
+        model: Some(model.to_owned()),
+        effort: None,
+    };
+    manager.set_sub_agent_models(BTreeMap::from([(DefProgram::Claude, choice("sonnet"))]));
+    let (tx, rx) = channel();
+    let info = manager
+        .create("subclaude", None, SIZE, move |e| tx.send(e).unwrap_or(()))
+        .unwrap();
+    let (output, _) = collect_until_exit(&manager, info.id, &rx);
+    assert!(output.contains("MODEL=[sonnet]"), "Output: {output:?}");
+    wait_for_status(&manager, info.id, Status::Exited);
+
+    // A change applies to the next process of the session, a restart.
+    manager.set_sub_agent_models(BTreeMap::from([(DefProgram::Claude, choice("haiku"))]));
+    let (tx2, rx2) = channel();
+    manager
+        .restart(info.id, SIZE, move |e| tx2.send(e).unwrap_or(()))
+        .unwrap();
+    let (output, _) = collect_until_exit(&manager, info.id, &rx2);
+    assert!(output.contains("MODEL=[haiku]"), "Output: {output:?}");
+    assert_eq!(manager.installed_programs(), [DefProgram::Claude]);
 }
 
 // --- Update sessions (create_update) ---

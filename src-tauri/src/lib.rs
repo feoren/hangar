@@ -7,6 +7,8 @@ pub mod agent_catalog;
 pub mod agent_commands;
 pub mod agent_defs;
 pub mod agent_figures;
+pub mod agent_models;
+pub mod agent_provision;
 pub mod arena;
 pub mod avatar;
 pub mod batch;
@@ -16,6 +18,7 @@ pub mod claims;
 pub mod claims_service;
 pub mod cli_session;
 pub mod clipboard_image;
+pub mod codex_agents;
 pub mod command_guard;
 pub mod command_split;
 mod commands;
@@ -352,7 +355,32 @@ pub fn run() -> tauri::Result<()> {
             app.manage(work_log);
             // The security switches and queued messages: only the main window reads and writes
             // them, unlike `localStorage`, which the panel and viewer windows share.
-            app.manage(main_store::MainStore::new(local_dir.clone()));
+            let main_store = main_store::MainStore::new(local_dir.clone());
+            // The default model of every sub-agent per program, for every session started from
+            // now on; then the copies of the user's definitions in the other installed programs
+            // are brought up to date (agent_provision.rs), off the main thread.
+            let sub_agents = main_store.load_sub_agents();
+            app.state::<SessionManager>()
+                .set_sub_agent_models(sub_agents.models.clone());
+            let provision = app.handle().clone();
+            // No session runs yet: the stored start places are the projects known so far.
+            let prefs = main_store.load_prefs().unwrap_or_default();
+            let start_places: Vec<std::path::PathBuf> = prefs
+                .favorites
+                .iter()
+                .chain(&prefs.recent)
+                .map(std::path::PathBuf::from)
+                .collect();
+            std::thread::spawn(move || {
+                let manager = provision.state::<SessionManager>();
+                agent_provision::sync_installed(
+                    manager.home(),
+                    &start_places,
+                    &manager.installed_programs(),
+                    &sub_agents.provide_off,
+                );
+            });
+            app.manage(main_store);
             // Snapshots of sessions that will not come back, side repositories of repositories
             // that are gone, leftover temporary indexes (git_snapshots.rs). Other snapshot calls
             // wait until this is done.
@@ -626,6 +654,10 @@ pub fn run() -> tauri::Result<()> {
             commands::dictation_remove_model,
             commands::sub_agent_library,
             commands::create_sub_agent,
+            commands::sync_sub_agents,
+            commands::set_sub_agent_model,
+            commands::sub_agent_settings,
+            commands::save_sub_agent_settings,
             commands::delete_sub_agent,
             commands::open_sub_agent,
             commands::sub_agent_figures,

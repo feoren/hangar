@@ -77,6 +77,10 @@ pub struct CatalogAgent {
     /// How the program starts as one of its sub-agent definitions (see [`Prompting::agent_args`]).
     #[serde(default)]
     pub agent_args: Option<Vec<String>>,
+    /// Which sub-agent definitions the program reads and how it takes a default model for them
+    /// (see [`Prompting::agent_program`]).
+    #[serde(default)]
+    pub agent_program: Option<crate::agent_models::DefProgram>,
     /// Verified commands of the program for the session menu (see [`crate::agent_commands`]).
     #[serde(default)]
     pub agent_commands: Vec<crate::agent_commands::AgentCommand>,
@@ -98,6 +102,10 @@ pub struct Prompting {
     /// definition `{agent}` (Claude Code `--agent <name>`, `agent_defs.rs`). `None`: the program
     /// cannot start as one, and the window offers none.
     pub agent_args: Option<Vec<String>>,
+    /// The program's sub-agent definitions (format and folder) and how its sessions take a
+    /// default model for them ([`crate::agent_models`]); it gets copies of the user's Claude
+    /// Code definitions when that is not Claude Code itself ([`crate::agent_provision`]).
+    pub agent_program: Option<crate::agent_models::DefProgram>,
 }
 
 /// What Hangar's agent gate (team service step B, `gate.rs`) can do with a program. All false
@@ -554,6 +562,7 @@ impl Agent {
                 instruction_args: agent.instruction_args,
                 prompt_args: agent.prompt_args,
                 agent_args: agent.agent_args,
+                agent_program: agent.agent_program,
             },
         }
     }
@@ -613,6 +622,7 @@ impl Agent {
             ),
             agent_commands: self.profile.agent_commands.clone(),
             takes_agent: self.prompting.agent_args.is_some(),
+            agent_program: self.prompting.agent_program,
         }
     }
 }
@@ -661,6 +671,8 @@ pub struct ProfileView {
     pub agent_commands: Vec<crate::agent_commands::AgentCommand>,
     /// The program can start as a sub-agent definition ([`Prompting::agent_args`]).
     pub takes_agent: bool,
+    /// Whose sub-agent definitions the program reads ([`Prompting::agent_program`]).
+    pub agent_program: Option<crate::agent_models::DefProgram>,
 }
 
 /// User profiles in file order, followed by the catalog agents and then the detected WSL
@@ -840,6 +852,7 @@ mod tests {
             instruction_args: None,
             prompt_args: None,
             agent_args: None,
+            agent_program: None,
             agent_commands: Vec::new(),
         }
     }

@@ -26,6 +26,12 @@ UI texts in `src/i18n.ts` are translated per language and are not bound by this 
 | Schließen (fertiger Sub-Agent)                  | dismiss                           | hides a finished sub-agent in the view only; transcripts stay                        |
 | Sub-Agent-Definition                            | sub-agent definition              | Markdown file with a frontmatter in `.claude/agents`; `agent_defs.rs`                |
 | Sub-Agent-Bibliothek                            | sub-agent library                 | the listed definitions, Settings > Sub-agents; `subAgentLibrary.ts`                  |
+| Programm der Definition                         | definition program                | whose definitions: `agent_program`, `DefProgram` (`claude`, `codex`)                 |
+| Standardmodell (Sub-Agenten)                    | default model                     | per program for every session Hangar starts; `agent_models.rs`                       |
+| Denkaufwand                                     | reasoning effort                  | Codex CLI's `model_reasoning_effort`                                                 |
+| Bereitstellen, Kopie (einer Definition)         | provide, copy                     | the user's definitions in another program's format; `agent_provision.rs`             |
+| Markierung (Kopie)                              | marker                            | first line of a copy with source and SHA-256; `codex_agents.rs`                      |
+| Sicherung (ersetzte Datei)                      | backup                            | `<name>.toml.bak`, `.bak.2`: a user's file a copy replaced                           |
 | Figur (Sub-Agent)                               | figure                            | picture of a definition: bundled, own image or initial; `agent_figures.rs`           |
 | Grundfigur                                      | built-in figure                   | bundled figure `src/assets/sub-agents/<id>.webp`, `tools/figures.py`                 |
 | Aussehen der Session (Figur)                    | session look                      | a sub-agent session's figure in place of the program badge; `SessionLook.tsx`        |

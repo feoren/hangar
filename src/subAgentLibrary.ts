@@ -5,6 +5,7 @@
 
 import { splitBackendError } from "./backendError";
 import type { MessageKey } from "./i18n";
+import { isDefProgram, type DefProgram } from "./subAgentModels";
 
 export type DefScope = "global" | "project";
 
@@ -33,7 +34,9 @@ export type DefProblemKind =
   | "duplicate"
   | "link"
   | "unreadable"
-  | "tooMany";
+  | "tooMany"
+  | "notToml"
+  | "missingInstructions";
 
 const PROBLEM_KINDS: readonly DefProblemKind[] = [
   "tooLarge",
@@ -46,22 +49,88 @@ const PROBLEM_KINDS: readonly DefProblemKind[] = [
   "link",
   "unreadable",
   "tooMany",
+  "notToml",
+  "missingInstructions",
 ];
 
 /** Rust `DefProblem`: a file that is not listed as a definition, and why. */
 export interface DefProblem {
+  program: DefProgram;
   scope: DefScope;
   folder: string | null;
   file: string;
   problem: DefProblemKind;
 }
 
-export interface Library {
-  defs: AgentDef[];
-  problems: DefProblem[];
+/** Rust `CodexDef`: a Codex CLI definition, listed but never started as an agent. */
+export interface CodexDef {
+  name: string;
+  description: string;
+  model: string | null;
+  effort: string | null;
+  scope: DefScope;
+  folder: string | null;
+  file: string;
+  /** Hangar's copy of the Claude Code definition of this name. */
+  managed: boolean;
+  /** The user's file Hangar set aside for the copy, beside it. */
+  backup: string | null;
+  /** Every backup of this name beside a copy (the original, hand edits set aside later). */
+  backups: string[];
 }
 
-export const EMPTY_LIBRARY: Library = { defs: [], problems: [] };
+/** Rust `IssueKind`: why a copy run left a file or folder alone. */
+export type SyncIssueKind =
+  "unreadable" | "io" | "offMachine" | "noBackupName" | "tracked" | "link";
+
+const ISSUE_KINDS: readonly SyncIssueKind[] = [
+  "unreadable",
+  "io",
+  "offMachine",
+  "noBackupName",
+  "tracked",
+  "link",
+];
+
+/** Rust `agent_provision::Issue`. */
+export interface SyncIssue {
+  program: DefProgram;
+  scope: DefScope;
+  folder: string | null;
+  file: string;
+  name: string | null;
+  kind: SyncIssueKind;
+}
+
+/** Rust `TargetView`: a program that gets copies of the user's definitions. */
+export interface ProvideTarget {
+  program: DefProgram;
+  enabled: boolean;
+}
+
+export interface Library {
+  /** Claude Code's definitions, the ones that start as an agent. */
+  defs: AgentDef[];
+  codexDefs: CodexDef[];
+  problems: DefProblem[];
+  /** Installed programs that read sub-agent definitions. */
+  installed: DefProgram[];
+  targets: ProvideTarget[];
+  /** Codex CLI's main model, as a suggestion. */
+  codexModels: string[];
+  /** What the newest copy runs left alone. */
+  syncIssues: SyncIssue[];
+}
+
+export const EMPTY_LIBRARY: Library = {
+  defs: [],
+  codexDefs: [],
+  problems: [],
+  installed: [],
+  targets: [],
+  codexModels: [],
+  syncIssues: [],
+};
 
 /** Rust `FigureView`: a chosen figure. */
 export type FigureView = { kind: "builtin"; id: string } | { kind: "image"; dataUrl: string };
@@ -388,9 +457,94 @@ function parseProblem(value: unknown): DefProblem | null {
   const file = text(field(value, "file"), 512);
   const problem = field(value, "problem");
   const folder = field(value, "folder");
+  const program = field(value, "program");
   const kind = PROBLEM_KINDS.find((known) => known === problem);
   if (scope === null || file === null || kind === undefined) return null;
-  return { scope, folder: typeof folder === "string" ? folder : null, file, problem: kind };
+  return {
+    program: isDefProgram(program) ? program : "claude",
+    scope,
+    folder: typeof folder === "string" ? folder : null,
+    file,
+    problem: kind,
+  };
+}
+
+function parseCodexDef(value: unknown): CodexDef | null {
+  if (typeof value !== "object" || value === null) return null;
+  const name = field(value, "name");
+  const description = text(field(value, "description"), 4000);
+  const scope = scopeOf(field(value, "scope"));
+  const file = text(field(value, "file"), 512);
+  const folder = field(value, "folder");
+  if (!validAgentName(name) || description === null || scope === null || file === null) {
+    return null;
+  }
+  if (scope === "project" && typeof folder !== "string") return null;
+  return {
+    name,
+    description,
+    model: text(field(value, "model"), 64),
+    effort: text(field(value, "effort"), 64),
+    scope,
+    folder: scope === "project" && typeof folder === "string" ? folder : null,
+    file,
+    managed: field(value, "managed") === true,
+    backup: text(field(value, "backup"), 160),
+    backups: strings(field(value, "backups"), 160).slice(0, 16),
+  };
+}
+
+function strings(value: unknown, max: number): string[] {
+  if (!Array.isArray(value)) return [];
+  const items: unknown[] = value;
+  return items.filter((item): item is string => typeof item === "string" && item.length <= max);
+}
+
+function parseIssue(value: unknown): SyncIssue | null {
+  if (typeof value !== "object" || value === null) return null;
+  const program = field(value, "program");
+  const scope = scopeOf(field(value, "scope"));
+  const folder = field(value, "folder");
+  const file = text(field(value, "file"), 512);
+  const name = field(value, "name");
+  const kind = ISSUE_KINDS.find((known) => known === field(value, "kind"));
+  if (!isDefProgram(program) || scope === null || file === null || kind === undefined) {
+    return null;
+  }
+  return {
+    program,
+    scope,
+    folder: typeof folder === "string" ? folder : null,
+    file,
+    name: validAgentName(name) ? name : null,
+    kind,
+  };
+}
+
+function issues(value: unknown): SyncIssue[] {
+  if (!Array.isArray(value)) return [];
+  const items: unknown[] = value;
+  return items
+    .map(parseIssue)
+    .filter((issue): issue is SyncIssue => issue !== null)
+    .slice(0, 64);
+}
+
+function programs(value: unknown): DefProgram[] {
+  return Array.isArray(value) ? value.filter(isDefProgram) : [];
+}
+
+function parseTargets(value: unknown): ProvideTarget[] {
+  if (!Array.isArray(value)) return [];
+  const out: ProvideTarget[] = [];
+  const entries: unknown[] = value;
+  for (const entry of entries) {
+    if (typeof entry !== "object" || entry === null) continue;
+    const program = field(entry, "program");
+    const enabled = field(entry, "enabled");
+    if (isDefProgram(program) && typeof enabled === "boolean") out.push({ program, enabled });
+  }
+  return out;
 }
 
 /** Checks `sub_agent_library`'s answer; anything unexpected is left out. */
@@ -399,9 +553,20 @@ export function parseLibrary(value: unknown): Library | null {
   const defs = field(value, "defs");
   const problems = field(value, "problems");
   if (!Array.isArray(defs) || !Array.isArray(problems)) return null;
+  const codexDefs = field(value, "codexDefs");
+  const models = field(value, "codexModels");
   return {
     defs: defs.map(parseDef).filter((def): def is AgentDef => def !== null),
+    codexDefs: Array.isArray(codexDefs)
+      ? codexDefs.map(parseCodexDef).filter((def): def is CodexDef => def !== null)
+      : [],
     problems: problems.map(parseProblem).filter((p): p is DefProblem => p !== null),
+    installed: programs(field(value, "installed")),
+    targets: parseTargets(field(value, "targets")),
+    codexModels: Array.isArray(models)
+      ? models.filter((model): model is string => typeof model === "string").slice(0, 8)
+      : [],
+    syncIssues: issues(field(value, "syncIssues")),
   };
 }
 
@@ -440,7 +605,7 @@ export function figureErrorCode(error: unknown): FigureErrorCode | null {
 
 /** Rust `DefError` as the window gets it. */
 export interface DefError {
-  kind: "tooLarge" | "invalid" | "exists" | "reserved" | "notFound" | "io";
+  kind: "tooLarge" | "invalid" | "exists" | "reserved" | "notFound" | "io" | "model" | "confirm";
   message: string;
   problem: DefProblemKind | null;
 }
@@ -450,7 +615,16 @@ export function parseDefError(value: unknown): DefError | null {
   const kind = field(value, "kind");
   const message = field(value, "message");
   const problem = field(value, "problem");
-  const kinds = ["tooLarge", "invalid", "exists", "reserved", "notFound", "io"] as const;
+  const kinds = [
+    "tooLarge",
+    "invalid",
+    "exists",
+    "reserved",
+    "notFound",
+    "io",
+    "model",
+    "confirm",
+  ] as const;
   const known = kinds.find((candidate) => candidate === kind);
   if (known === undefined || typeof message !== "string") return null;
   return {

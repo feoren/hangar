@@ -1,8 +1,9 @@
 //! Claude Code sub-agent definitions: Markdown files with a frontmatter (`name`, `description`,
 //! optional `model`, `color`, `tools`) in `~/.claude/agents/` (global) and
 //! `<project>/.claude/agents/` (project). Hangar lists them, adds new global ones from a pasted
-//! text and starts Claude Code as one of them (`--agent`). Contract:
-//! docs/wiki/pages/syntheses/sub-agent-library.md.
+//! text and starts Claude Code as one of them (`--agent`). Codex CLI's definitions
+//! ([`crate::codex_agents`]) are listed beside them, and the model of either kind is set here
+//! ([`set_model`]). Contract: docs/wiki/pages/syntheses/sub-agent-library.md.
 //!
 //! The frontmatter is read leniently, the way the user's files are written in practice: a
 //! description like `Backend: logic, APIs` holds a `: ` that strict YAML refuses. A broken file
@@ -17,6 +18,9 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use serde::ser::SerializeStruct as _;
 use serde::{Serialize, Serializer};
 
+pub use crate::agent_models::DefProgram;
+use crate::agent_models::{self, ModelChoice};
+use crate::codex_agents;
 use crate::no_links::{self, Links};
 
 /// Larger files are not read: the user's own definitions are a few KiB.
@@ -35,6 +39,8 @@ const MAX_DESCRIPTION_CHARS: usize = 2000;
 /// 2.1.325 binary, docs/wiki/pages/sources/claude-agent-flag-measurement.md. The window names
 /// them for project definitions, which come with a repository.
 pub const POWER_FIELDS: [&str; 3] = ["hooks", "mcpServers", "permissionMode"];
+/// Backups named per copy in the listing.
+const MAX_BACKUPS_LISTED: usize = 16;
 /// Longest `model` or `color` value kept.
 const MAX_SHORT_VALUE: usize = 64;
 
@@ -90,23 +96,49 @@ pub enum Problem {
     Unreadable,
     /// More than [`MAX_FILES`] files; the rest is not read.
     TooMany,
+    /// A Codex CLI definition that is no TOML.
+    NotToml,
+    /// A Codex CLI definition without `developer_instructions`.
+    MissingInstructions,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct DefProblem {
+    pub program: DefProgram,
     pub scope: Scope,
     pub folder: Option<PathBuf>,
     pub file: String,
     pub problem: Problem,
 }
 
+/// One readable Codex CLI definition ([`crate::codex_agents`]).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CodexDef {
+    pub name: String,
+    pub description: String,
+    pub model: Option<String>,
+    pub effort: Option<String>,
+    pub scope: Scope,
+    pub folder: Option<PathBuf>,
+    pub file: String,
+    /// A copy Hangar keeps of the Claude Code definition of this name.
+    pub managed: bool,
+    /// The user's own file Hangar set aside when it wrote the copy, beside it.
+    pub backup: Option<String>,
+    /// Every backup of this name beside a copy (`<name>.toml.bak`, `.bak.2`, ...), the
+    /// original and any copy edited by hand that a later run set aside.
+    pub backups: Vec<String>,
+}
+
 /// Every definition found, global first, then the project folders in the order named; each
-/// folder's files in name order.
+/// folder's files in name order. `defs` are Claude Code's, the ones that start with `--agent`.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Library {
     pub defs: Vec<AgentDef>,
+    pub codex_defs: Vec<CodexDef>,
     pub problems: Vec<DefProblem>,
 }
 
@@ -328,6 +360,32 @@ fn short_field(fields: &BTreeMap<String, Value>, key: &str) -> Option<String> {
     })
 }
 
+/// A description cut to [`MAX_DESCRIPTION_CHARS`] for the window.
+pub fn cut_description(description: String) -> String {
+    match description.char_indices().nth(MAX_DESCRIPTION_CHARS) {
+        Some((end, _)) => format!("{}…", &description[..end]),
+        None => description,
+    }
+}
+
+/// The whole description and the prompt below the frontmatter (without the line breaks around
+/// it), for a copy in another program's format. `None` without a frontmatter or description.
+pub fn source_parts(text: &str) -> Option<(String, String)> {
+    let text = text.strip_prefix('\u{feff}').unwrap_or(text);
+    let fields = frontmatter(text)?;
+    let description = text_field(&fields, "description")?;
+    let mut offset = 0;
+    for (index, line) in text.split_inclusive('\n').enumerate() {
+        offset += line.len();
+        if index > 0 && line.trim_end() == "---" {
+            break;
+        }
+    }
+    let body = text.get(offset..).unwrap_or("");
+    let body = body.trim_matches(|c| c == '\n' || c == '\r');
+    Some((description, body.to_owned()))
+}
+
 /// Reads one definition's text.
 pub fn parse_def(text: &str) -> Result<Parsed, Problem> {
     let fields = frontmatter(text).ok_or(Problem::NoFrontmatter)?;
@@ -335,11 +393,8 @@ pub fn parse_def(text: &str) -> Result<Parsed, Problem> {
     if !valid_name(&name) {
         return Err(Problem::InvalidName);
     }
-    let description = text_field(&fields, "description").ok_or(Problem::MissingDescription)?;
-    let description = match description.char_indices().nth(MAX_DESCRIPTION_CHARS) {
-        Some((end, _)) => format!("{}…", &description[..end]),
-        None => description,
-    };
+    let description =
+        cut_description(text_field(&fields, "description").ok_or(Problem::MissingDescription)?);
     let tools = match fields.get("tools") {
         Some(Value::Text(text)) => text
             .split(',')
@@ -372,10 +427,10 @@ fn read_text(path: &Path) -> Result<String, Problem> {
     String::from_utf8(bytes).map_err(|_| Problem::NotText)
 }
 
-fn is_markdown(name: &str) -> bool {
+fn has_extension(name: &str, wanted: &str) -> bool {
     Path::new(name)
         .extension()
-        .is_some_and(|ext| ext.eq_ignore_ascii_case("md"))
+        .is_some_and(|ext| ext.eq_ignore_ascii_case(wanted))
 }
 
 /// One readable definition and the path it was read from.
@@ -384,9 +439,32 @@ struct Found {
     path: PathBuf,
 }
 
-/// Reads one agents folder. A missing folder, one off this machine or one reached through a link
-/// to another computer adds nothing; a link inside it is a [`Problem::Link`].
-fn scan_dir(dir: &Path, scope: Scope, folder: Option<&Path>, out: &mut Library) -> Vec<Found> {
+/// One readable file of an agents folder: what the parser made of it, its name and path.
+pub(crate) struct Read<T> {
+    pub parsed: T,
+    pub file: String,
+    pub path: PathBuf,
+}
+
+/// Where a scan reads and what it reports problems as.
+#[derive(Clone, Copy)]
+pub(crate) struct Place<'a> {
+    pub program: DefProgram,
+    pub scope: Scope,
+    pub folder: Option<&'a Path>,
+}
+
+/// Reads the `extension` files of one agents folder with `parse`; `name` gives a parsed file's
+/// agent name, which one folder holds once. A missing folder, one off this machine or one reached
+/// through a link to another computer adds nothing; a link inside it is a [`Problem::Link`].
+pub(crate) fn scan_files<T>(
+    dir: &Path,
+    place: Place<'_>,
+    extension: &str,
+    problems: &mut Vec<DefProblem>,
+    parse: impl Fn(&str) -> Result<T, Problem>,
+    name: impl Fn(&T) -> &str,
+) -> Vec<Read<T>> {
     if no_links::is_network_or_device(dir) {
         return Vec::new();
     }
@@ -397,20 +475,21 @@ fn scan_dir(dir: &Path, scope: Scope, folder: Option<&Path>, out: &mut Library) 
     let mut names: Vec<String> = entries
         .filter_map(Result::ok)
         .filter_map(|entry| entry.file_name().into_string().ok())
-        .filter(|name| is_markdown(name))
+        .filter(|name| has_extension(name, extension))
         .collect();
     names.sort();
-    let problem = |out: &mut Library, file: &str, problem: Problem| {
-        out.problems.push(DefProblem {
-            scope,
-            folder: folder.map(Path::to_owned),
+    let problem = |problems: &mut Vec<DefProblem>, file: &str, problem: Problem| {
+        problems.push(DefProblem {
+            program: place.program,
+            scope: place.scope,
+            folder: place.folder.map(Path::to_owned),
             file: file.to_owned(),
             problem,
         });
     };
     if names.len() > MAX_FILES {
         let first_skipped = names[MAX_FILES].clone();
-        problem(out, &first_skipped, Problem::TooMany);
+        problem(problems, &first_skipped, Problem::TooMany);
         names.truncate(MAX_FILES);
     }
     let mut seen = HashSet::new();
@@ -418,45 +497,126 @@ fn scan_dir(dir: &Path, scope: Scope, folder: Option<&Path>, out: &mut Library) 
     for file in names {
         let path = dir.join(&file);
         let Ok(meta) = fs::symlink_metadata(&path) else {
-            problem(out, &file, Problem::Unreadable);
+            problem(problems, &file, Problem::Unreadable);
             continue;
         };
         if no_links::is_reparse_point(&meta) {
-            problem(out, &file, Problem::Link);
+            problem(problems, &file, Problem::Link);
             continue;
         }
         if !meta.is_file() {
             continue;
         }
-        let parsed = read_text(&path).and_then(|text| parse_def(&text));
-        match parsed {
-            Err(reason) => problem(out, &file, reason),
-            Ok(parsed) if !seen.insert(parsed.name.clone()) => {
-                problem(out, &file, Problem::Duplicate);
+        match read_text(&path).and_then(|text| parse(&text)) {
+            Err(reason) => problem(problems, &file, reason),
+            Ok(parsed) if !seen.insert(name(&parsed).to_owned()) => {
+                problem(problems, &file, Problem::Duplicate);
             }
-            Ok(parsed) => {
-                let def = AgentDef {
-                    name: parsed.name,
-                    description: parsed.description,
-                    model: parsed.model,
-                    color: parsed.color,
-                    tools: parsed.tools,
-                    extras: parsed.extras,
-                    scope,
-                    folder: folder.map(Path::to_owned),
-                    file,
-                };
-                out.defs.push(def.clone());
-                found.push(Found { def, path });
-            }
+            Ok(parsed) => found.push(Read { parsed, file, path }),
         }
     }
     found
 }
 
+/// Reads one Claude Code agents folder.
+fn scan_dir(dir: &Path, scope: Scope, folder: Option<&Path>, out: &mut Library) -> Vec<Found> {
+    let place = Place {
+        program: DefProgram::Claude,
+        scope,
+        folder,
+    };
+    let read = scan_files(dir, place, "md", &mut out.problems, parse_def, |parsed| {
+        parsed.name.as_str()
+    });
+    read.into_iter()
+        .map(|Read { parsed, file, path }| {
+            let def = AgentDef {
+                name: parsed.name,
+                description: parsed.description,
+                model: parsed.model,
+                color: parsed.color,
+                tools: parsed.tools,
+                extras: parsed.extras,
+                scope,
+                folder: folder.map(Path::to_owned),
+                file,
+            };
+            out.defs.push(def.clone());
+            Found { def, path }
+        })
+        .collect()
+}
+
+/// Reads one Codex CLI agents folder.
+pub(crate) fn scan_codex_dir(
+    dir: &Path,
+    scope: Scope,
+    folder: Option<&Path>,
+    out: &mut Library,
+) -> Vec<Read<codex_agents::Parsed>> {
+    let place = Place {
+        program: DefProgram::Codex,
+        scope,
+        folder,
+    };
+    let read = scan_files(
+        dir,
+        place,
+        "toml",
+        &mut out.problems,
+        codex_agents::parse_def,
+        |parsed| parsed.name.as_str(),
+    );
+    let files: Vec<String> = if read.iter().any(|entry| entry.parsed.managed.is_some()) {
+        fs::read_dir(dir)
+            .map(|entries| {
+                entries
+                    .filter_map(Result::ok)
+                    .filter_map(|entry| entry.file_name().into_string().ok())
+                    .collect()
+            })
+            .unwrap_or_default()
+    } else {
+        Vec::new()
+    };
+    for entry in &read {
+        let parsed = &entry.parsed;
+        let prefix = format!("{}.toml.bak", parsed.name);
+        let mut backups: Vec<String> = match &parsed.managed {
+            Some(_) => files
+                .iter()
+                .filter(|file| {
+                    file.strip_prefix(&prefix)
+                        .is_some_and(|rest| rest.is_empty() || rest.starts_with('.'))
+                })
+                .take(MAX_BACKUPS_LISTED)
+                .cloned()
+                .collect(),
+            None => Vec::new(),
+        };
+        backups.sort();
+        out.codex_defs.push(CodexDef {
+            backups,
+            name: parsed.name.clone(),
+            description: parsed.description.clone(),
+            model: parsed.model.clone(),
+            effort: parsed.effort.clone(),
+            scope,
+            folder: folder.map(Path::to_owned),
+            file: entry.file.clone(),
+            managed: parsed.managed.is_some(),
+            backup: parsed
+                .managed
+                .as_ref()
+                .and_then(|marker| marker.backup.clone()),
+        });
+    }
+    read
+}
+
 /// The project folders worth reading: absolute, each once, not the home folder (whose agents
 /// folder is the global one), at most [`MAX_FOLDERS`].
-fn project_folders<'a>(home: &Path, folders: &'a [PathBuf]) -> Vec<&'a Path> {
+pub(crate) fn project_folders<'a>(home: &Path, folders: &'a [PathBuf]) -> Vec<&'a Path> {
     let mut seen = HashSet::new();
     folders
         .iter()
@@ -467,12 +627,24 @@ fn project_folders<'a>(home: &Path, folders: &'a [PathBuf]) -> Vec<&'a Path> {
         .collect()
 }
 
-/// The global definitions and those of the named project folders.
+/// The global definitions and those of the named project folders, Claude Code's and Codex
+/// CLI's.
 pub fn library(home: &Path, folders: &[PathBuf]) -> Library {
     let mut out = Library::default();
+    let folders = project_folders(home, folders);
     scan_dir(&agents_dir(home), Scope::Global, None, &mut out);
-    for folder in project_folders(home, folders) {
+    for folder in &folders {
         scan_dir(&agents_dir(folder), Scope::Project, Some(folder), &mut out);
+    }
+    scan_codex_dir(
+        &codex_agents::agents_dir(home),
+        Scope::Global,
+        None,
+        &mut out,
+    );
+    for folder in &folders {
+        let dir = codex_agents::agents_dir(folder);
+        scan_codex_dir(&dir, Scope::Project, Some(folder), &mut out);
     }
     out
 }
@@ -501,17 +673,29 @@ pub enum DefError {
     },
     #[error("Background task aborted: {0}")]
     Task(String),
+    #[error("{0}")]
+    Model(#[from] agent_models::ModelError),
+    #[error("This file belongs to a project; confirm the change first")]
+    Confirm,
+    #[error("Only the main window may do this")]
+    WrongWindow,
 }
 
 impl DefError {
     fn kind(&self) -> &'static str {
         match self {
+            Self::Model(_) => "model",
+            Self::Confirm => "confirm",
             Self::TooLarge(_) => "tooLarge",
             Self::Invalid(_) => "invalid",
             Self::Exists(_) => "exists",
             Self::Reserved(_) => "reserved",
             Self::NotFound(_) => "notFound",
-            Self::Link(_) | Self::Remote(_) | Self::Io { .. } | Self::Task(_) => "io",
+            Self::Link(_)
+            | Self::Remote(_)
+            | Self::Io { .. }
+            | Self::Task(_)
+            | Self::WrongWindow => "io",
         }
     }
 }
@@ -733,6 +917,109 @@ pub fn def_path(home: &Path, name: &str, folder: Option<&Path>) -> Result<PathBu
         .find(|found| found.def.name == name)
         .map(|found| found.path)
         .ok_or_else(|| DefError::NotFound(name.to_owned()))
+}
+
+/// The global Claude Code definitions with their files, for copies in other programs. Windows
+/// device names are left out: no file can carry them there.
+pub(crate) fn global_sources(home: &Path) -> Vec<(String, PathBuf)> {
+    let mut ignored = Library::default();
+    scan_dir(&agents_dir(home), Scope::Global, None, &mut ignored)
+        .into_iter()
+        .filter(|found| !is_device_name(&found.def.name))
+        .map(|found| (found.def.name, found.path))
+        .collect()
+}
+
+/// [`read_text`] for other modules: the text of one file, capped, no link followed.
+pub(crate) fn read_capped(path: &Path) -> Result<String, Problem> {
+    read_text(path)
+}
+
+/// [`link_new`] for other modules.
+pub(crate) fn create_beside(temp: &Path, path: &Path, bytes: &[u8]) -> io::Result<()> {
+    link_new(temp, path, bytes)
+}
+
+/// The file of the Codex CLI definition named `name`: global without `folder`, else that
+/// project's.
+pub fn codex_def_path(home: &Path, name: &str, folder: Option<&Path>) -> Result<PathBuf, DefError> {
+    let mut ignored = Library::default();
+    let found = match folder {
+        None => scan_codex_dir(
+            &codex_agents::agents_dir(home),
+            Scope::Global,
+            None,
+            &mut ignored,
+        ),
+        Some(folder) if folder.is_absolute() => scan_codex_dir(
+            &codex_agents::agents_dir(folder),
+            Scope::Project,
+            Some(folder),
+            &mut ignored,
+        ),
+        Some(_) => Vec::new(),
+    };
+    found
+        .into_iter()
+        .find(|found| found.parsed.name == name)
+        .map(|found| found.path)
+        .ok_or_else(|| DefError::NotFound(name.to_owned()))
+}
+
+/// Sets the model of the definition `name` of `program` (global without `folder`, else that
+/// project's): Claude Code's frontmatter `model` line, Codex CLI's `model` and
+/// `model_reasoning_effort`. Only those fields change; an empty choice removes them, so the
+/// definition takes the session's default. A project file belongs to its repository and is only
+/// written with `confirmed`. A copy Hangar keeps is written again whole with its marker.
+pub fn set_model(
+    home: &Path,
+    program: DefProgram,
+    name: &str,
+    folder: Option<&Path>,
+    choice: &ModelChoice,
+    confirmed: bool,
+) -> Result<(), DefError> {
+    agent_models::check_choice(program, choice)?;
+    if folder.is_some() && !confirmed {
+        return Err(DefError::Confirm);
+    }
+    // A repository could point its agents folder anywhere: a project's file is written only
+    // when neither `.claude`/`.codex` nor its `agents` folder is a link.
+    if let Some(folder) = folder {
+        let dir = match program {
+            DefProgram::Claude => agents_dir(folder),
+            DefProgram::Codex => codex_agents::agents_dir(folder),
+        };
+        if let Some(parent) = dir.parent() {
+            refuse_link(parent)?;
+        }
+        refuse_link(&dir)?;
+    }
+    // A run of the copies would write a copy's old model back over this change.
+    let _run = (program == DefProgram::Codex).then(crate::agent_provision::run_lock);
+    let path = match program {
+        DefProgram::Claude => def_path(home, name, folder)?,
+        DefProgram::Codex => codex_def_path(home, name, folder)?,
+    };
+    refuse_link(&path)?;
+    let text = read_text(&path).map_err(DefError::Invalid)?;
+    let model = choice.model.as_deref();
+    let next = match program {
+        DefProgram::Claude => agent_models::set_frontmatter_model(&text, model)
+            .ok_or(DefError::Invalid(Problem::NoFrontmatter))?,
+        DefProgram::Codex => {
+            match codex_agents::copy_with_model(&text, model, choice.effort.as_deref()) {
+                Some(copy) => copy,
+                None => agent_models::set_toml_model(&text, choice)
+                    .map_err(|_| DefError::Invalid(Problem::NotToml))?,
+            }
+        }
+    };
+    if next == text {
+        return Ok(());
+    }
+    crate::persist::write_atomic(&path, next.as_bytes())
+        .map_err(|source| DefError::Io { path, source })
 }
 
 #[cfg(test)]
@@ -1093,6 +1380,205 @@ mod tests {
         ));
         delete(&home, "backend").unwrap();
         assert!(library(&home, &[]).defs.is_empty());
+    }
+
+    const CODEX_DEF: &str = "# mine\nname = \"manager\"\ndescription = \"Reviews\"\nmodel = \"gpt-5\"  # pinned\ndeveloper_instructions = \"\"\"\nBe strict.\n\"\"\"\n";
+
+    #[test]
+    fn codex_definitions_are_listed_beside() {
+        let temp = TempDir::new("agent-defs-codex");
+        let home = temp.path().join("home");
+        let project = temp.path().join("project");
+        write(&codex_agents::agents_dir(&home), "manager.toml", CODEX_DEF);
+        write(&codex_agents::agents_dir(&home), "broken.toml", "= x");
+        write(&codex_agents::agents_dir(&home), "notes.md", BACKEND);
+        write(
+            &codex_agents::agents_dir(&project),
+            "lead.toml",
+            &CODEX_DEF.replace("\"manager\"", "\"lead\""),
+        );
+        let library = library(&home, std::slice::from_ref(&project));
+        // Codex CLI's definitions never become Claude Code's (no start as an agent).
+        assert!(library.defs.is_empty());
+        let names: Vec<(&str, Scope, Option<&str>)> = library
+            .codex_defs
+            .iter()
+            .map(|def| (def.name.as_str(), def.scope, def.model.as_deref()))
+            .collect();
+        assert_eq!(
+            names,
+            [
+                ("manager", Scope::Global, Some("gpt-5")),
+                ("lead", Scope::Project, Some("gpt-5"))
+            ]
+        );
+        assert!(!library.codex_defs[0].managed);
+        assert_eq!(library.problems.len(), 1);
+        assert_eq!(library.problems[0].program, DefProgram::Codex);
+        assert_eq!(library.problems[0].problem, Problem::NotToml);
+    }
+
+    #[test]
+    fn source_parts_give_the_whole_description_and_prompt() {
+        let (description, body) = source_parts(BACKEND).unwrap();
+        assert_eq!(
+            description,
+            "Backend work: logic, APIs and jobs. Use PROACTIVELY."
+        );
+        assert_eq!(body, "You are the backend engineer.");
+        let crlf =
+            "\u{feff}---\r\nname: x\r\ndescription: d\r\n---\r\n\r\nLine one\r\nLine two\r\n";
+        assert_eq!(source_parts(crlf).unwrap().1, "Line one\r\nLine two");
+        assert_eq!(
+            source_parts("---\nname: x\ndescription: d\n---\n")
+                .unwrap()
+                .1,
+            ""
+        );
+        assert!(source_parts("no frontmatter").is_none());
+    }
+
+    fn choice(model: Option<&str>, effort: Option<&str>) -> ModelChoice {
+        ModelChoice {
+            model: model.map(str::to_owned),
+            effort: effort.map(str::to_owned),
+        }
+    }
+
+    #[test]
+    fn the_model_of_a_definition_changes_alone() {
+        let temp = TempDir::new("agent-defs-model");
+        let home = temp.path().join("home");
+        create(&home, BACKEND, false).unwrap();
+        let path = agents_dir(&home).join("backend.md");
+        set_model(
+            &home,
+            DefProgram::Claude,
+            "backend",
+            None,
+            &choice(Some("sonnet"), None),
+            false,
+        )
+        .unwrap();
+        assert_eq!(
+            fs::read_to_string(&path).unwrap(),
+            BACKEND.replace("model: opus", "model: sonnet")
+        );
+        set_model(
+            &home,
+            DefProgram::Claude,
+            "backend",
+            None,
+            &ModelChoice::default(),
+            false,
+        )
+        .unwrap();
+        assert_eq!(
+            fs::read_to_string(&path).unwrap(),
+            BACKEND.replace("model: opus\n", "")
+        );
+        assert!(matches!(
+            set_model(
+                &home,
+                DefProgram::Claude,
+                "backend",
+                None,
+                &choice(Some("a b"), None),
+                false
+            ),
+            Err(DefError::Model(_))
+        ));
+        assert!(matches!(
+            set_model(
+                &home,
+                DefProgram::Claude,
+                "nobody",
+                None,
+                &ModelChoice::default(),
+                false
+            ),
+            Err(DefError::NotFound(_))
+        ));
+
+        let codex = codex_agents::agents_dir(&home);
+        write(&codex, "manager.toml", CODEX_DEF);
+        set_model(
+            &home,
+            DefProgram::Codex,
+            "manager",
+            None,
+            &choice(Some("gpt-6.1-sol"), Some("xhigh")),
+            false,
+        )
+        .unwrap();
+        let text = fs::read_to_string(codex.join("manager.toml")).unwrap();
+        assert!(text.starts_with(
+            "# mine\nname = \"manager\"\ndescription = \"Reviews\"\nmodel = \"gpt-6.1-sol\"  # pinned\n"
+        ));
+        assert!(text.contains("model_reasoning_effort = \"xhigh\"\n"));
+        assert!(text.contains("developer_instructions = \"\"\"\nBe strict.\n\"\"\"\n"));
+    }
+
+    #[test]
+    fn a_copy_keeps_its_marker_when_its_model_changes() {
+        let temp = TempDir::new("agent-defs-copy-model");
+        let home = temp.path().join("home");
+        create(&home, BACKEND, false).unwrap();
+        crate::agent_provision::sync(&home, &[], DefProgram::Codex, true);
+        set_model(
+            &home,
+            DefProgram::Codex,
+            "backend",
+            None,
+            &choice(Some("o3"), Some("low")),
+            false,
+        )
+        .unwrap();
+        let path = codex_agents::agents_dir(&home).join("backend.toml");
+        let parsed = codex_agents::parse_def(&fs::read_to_string(&path).unwrap()).unwrap();
+        assert!(parsed.managed.is_some());
+        assert_eq!(parsed.model.as_deref(), Some("o3"));
+        assert_eq!(parsed.effort.as_deref(), Some("low"));
+        // The next run keeps the choice.
+        crate::agent_provision::sync(&home, &[], DefProgram::Codex, true);
+        let parsed = codex_agents::parse_def(&fs::read_to_string(&path).unwrap()).unwrap();
+        assert_eq!(parsed.model.as_deref(), Some("o3"));
+    }
+
+    #[test]
+    fn project_files_change_only_when_confirmed() {
+        let temp = TempDir::new("agent-defs-project-model");
+        let home = temp.path().join("home");
+        let project = temp.path().join("project");
+        let text = "---\nname: reviewer\ndescription: Reviews.\n---\n";
+        write(&agents_dir(&project), "reviewer.md", text);
+        let sonnet = choice(Some("sonnet"), None);
+        let asked = set_model(
+            &home,
+            DefProgram::Claude,
+            "reviewer",
+            Some(&project),
+            &sonnet,
+            false,
+        );
+        assert!(matches!(asked, Err(DefError::Confirm)));
+        let path = agents_dir(&project).join("reviewer.md");
+        assert_eq!(fs::read_to_string(&path).unwrap(), text);
+        set_model(
+            &home,
+            DefProgram::Claude,
+            "reviewer",
+            Some(&project),
+            &sonnet,
+            true,
+        )
+        .unwrap();
+        assert_eq!(
+            fs::read_to_string(&path).unwrap(),
+            "---\nname: reviewer\ndescription: Reviews.\nmodel: sonnet\n---\n"
+        );
+        let json = serde_json::to_value(DefError::Confirm).unwrap();
+        assert_eq!(json["kind"], "confirm");
     }
 
     #[cfg(unix)]

@@ -10,7 +10,7 @@
 //! within [`RESUME_WINDOW`], the batch thread of the failed process (without holding the
 //! session lock) restarts it once normally and hands its event receiver over.
 
-use std::collections::{HashMap, HashSet};
+use std::collections::{BTreeMap, HashMap, HashSet};
 use std::io::{self, Read, Write};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -24,6 +24,7 @@ use serde::{Deserialize, Serialize, Serializer};
 use zeroize::Zeroizing;
 
 use crate::agent_catalog::{merge_all, Agent, CatalogAgent, ProfileView, Source, TeamBlock};
+use crate::agent_models::{self, DefProgram, ModelChoice};
 use crate::batch;
 use crate::cli_session::{self, Plan};
 use crate::install_source::{self, PlanInput, SystemProbe, UpdatePlan};
@@ -450,6 +451,9 @@ struct Shared {
     /// ([`SessionManager::set_version_source`]). Never taken together with another lock:
     /// cloned, then asked.
     versions: Mutex<Option<Arc<dyn VersionSource>>>,
+    /// The default model of every sub-agent per program, read at every agent process start
+    /// ([`SessionManager::set_sub_agent_models`]).
+    sub_agent_models: Mutex<BTreeMap<DefProgram, ModelChoice>>,
 }
 
 impl Shared {
@@ -459,7 +463,20 @@ impl Shared {
             secrets,
             gate: Mutex::new(None),
             versions: Mutex::new(None),
+            sub_agent_models: Mutex::default(),
         }
+    }
+
+    /// What a process of `agent` gets for its sub-agents' default model.
+    fn model_launch(&self, agent: &Agent, batch: bool) -> agent_models::ModelLaunch {
+        let Some(program) = agent.prompting.agent_program else {
+            return agent_models::ModelLaunch::default();
+        };
+        let choice = lock(&self.sub_agent_models)
+            .get(&program)
+            .cloned()
+            .unwrap_or_default();
+        agent_models::launch(program, &choice, &agent.profile.env, batch)
     }
 
     fn launch_gate(&self) -> Option<Arc<dyn LaunchGate>> {
@@ -912,6 +929,24 @@ impl SessionManager {
     pub fn with_secret_store(mut self, store: Arc<dyn SecretStore>) -> Self {
         self.shared = Arc::new(Shared::new(store));
         self
+    }
+
+    /// The default model of every sub-agent per program for every later process start (Settings >
+    /// Sub-agents); running processes keep theirs.
+    pub fn set_sub_agent_models(&self, models: BTreeMap<DefProgram, ModelChoice>) {
+        *lock(&self.shared.sub_agent_models) = models;
+    }
+
+    /// The installed programs that read sub-agent definitions, each once.
+    pub fn installed_programs(&self) -> Vec<DefProgram> {
+        let mut out: Vec<DefProgram> = self
+            .installed()
+            .iter()
+            .filter_map(|(agent, _)| agent.prompting.agent_program)
+            .collect();
+        out.sort();
+        out.dedup();
+        out
     }
 
     /// Hands every later agent start to the agent gate ([`LaunchGate`]).
@@ -1772,8 +1807,17 @@ fn spawn(
         GatePlan::Skip | GatePlan::Unavailable(_) => None,
     };
     // Update sessions run an installer, never the agent: neither instructions nor a prompt.
+    let batch = batch::is_batch(&program);
+    let models = if launch.kind == SessionKind::Agent {
+        shared.model_launch(agent, batch)
+    } else {
+        agent_models::ModelLaunch::default()
+    };
     let extra = if launch.kind == SessionKind::Agent {
-        extra_args(agent, &program, &launch.extras)
+        let (mut before, after) = extra_args(agent, &program, &launch.extras);
+        // Config overrides go before a subcommand such as `codex resume --last`, like HANGAR.md.
+        before.splice(0..0, models.args.iter().cloned());
+        (before, after)
     } else {
         (Vec::new(), Vec::new())
     };
@@ -1785,7 +1829,6 @@ fn spawn(
             .map(|flag| (flag, cwd.to_string_lossy().into_owned())),
     };
     let args = parts.fitting(&program.to_string_lossy(), extra, &agent.profile.name);
-    let batch = batch::is_batch(&program);
     if batch {
         batch::check(&program, &args).map_err(|reason| ManagerError::UnsafeBatch {
             program: program.display().to_string(),
@@ -1802,6 +1845,9 @@ fn spawn(
     command.cwd(cwd);
     let no_cwd_lookup = no_cwd_lookup(launch.kind, agent.source, batch, &program);
     crate::child_env::apply(&mut command, &profile.env, no_cwd_lookup);
+    for (name, value) in &models.env {
+        command.env(name, value);
+    }
     // Straight into the child's environment; the values are not kept anywhere else.
     for (name, value) in
         secrets::for_launch(shared.secrets.as_ref(), &profile.id, &profile.secret_env)

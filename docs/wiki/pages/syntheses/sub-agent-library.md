@@ -2,9 +2,9 @@
 title: Sub-agent library and figures
 type: synthesis
 tags: [agents, claude-code, sub-agents, settings, figures]
-sources: [[claude-agent-flag-measurement]], [[claude-agent-frontmatter-reading]]
+sources: [[claude-agent-flag-measurement]], [[claude-agent-frontmatter-reading]], [[sub-agent-models-research]]
 created: 2026-11-15
-updated: 2026-11-15
+updated: 2026-11-16
 ---
 
 # Sub-agent library and figures
@@ -46,6 +46,16 @@ only shows the figure of a known definition next to a running sub-agent of that 
   sub-agent whose `agentType` names a listed definition. The crew column ([[crew-column]]) shows
   every running sub-agent, a built-in type without a definition with the figure its name points
   to.
+
+- **Codex CLI definitions:** TOML files in `~/.codex/agents` and `<project>/.codex/agents`
+  (`codex_agents.rs`), listed in Settings with a "Codex CLI" badge, model and effort. They never
+  start as an agent (Codex CLI has no option for it, [[sub-agent-models-research]]) and are never
+  created from Hangar's form.
+- **Models:** per definition and as a default per program for every session Hangar starts
+  (section "Models").
+- **Copies in other programs:** the user's global Claude Code definitions are handed to every
+  other installed program whose format is known, so far Codex CLI (section "Provision to other
+  programs").
 
 ## Backend (`src-tauri/src/agent_defs.rs`, `agent_figures.rs`)
 
@@ -168,8 +178,126 @@ sets (`extras`); the window names them for project definitions ("brings hooks, m
 > [!question] Unverified
 > Whether `--agent` combined with `--resume <id>` keeps the agent in the resumed conversation.
 
+## Models (`src-tauri/src/agent_models.rs`)
+
+Evidence: [[sub-agent-models-research]] (Claude Code 2.1.325, Codex CLI 0.169.0).
+
+- **Program per catalog entry:** `agent_program = "claude" | "codex"` in `agent_catalog.toml`,
+  inherited like `prompt_args`. It decides the definitions' format and folder and how a session
+  takes the default model. `ProfileView.agentProgram` tells the window; the library answer names
+  the installed ones (`installed`).
+- **Values:** a model is `[A-Za-z0-9][A-Za-z0-9._:-]*`, at most 64 characters, never `inherit`;
+  such a value needs no quoting in a frontmatter, a TOML string, a variable or a cmd.exe
+  launcher. Claude Code offers the aliases `opus`, `sonnet`, `haiku`, `fable` (Fable marked as
+  clearly more expensive) and "another id"; `opusplan` and the `[1m]` forms are not offered, as
+  both change more than the model. Codex CLI takes a free model with suggestions (the main
+  `model` of `~/.codex/config.toml`, the models its definitions name) and the efforts `minimal`,
+  `low`, `medium`, `high`, `xhigh`. A value a file holds that is not offered is shown as it is
+  and kept until the user changes it.
+- **Per definition:** `set_sub_agent_model(program, name, folder, model, effort, confirmed)`.
+  Claude Code: only the frontmatter's `model` line is replaced where it stands, added as the
+  last field or removed with its continuation lines; BOM, line breaks and every other byte stay
+  (`set_frontmatter_model`). Codex CLI: `model` and `model_reasoning_effort` through `toml_edit`,
+  which keeps the rest of the file and the value's comment (`set_toml_model`); a copy Hangar
+  keeps is written again whole with its marker. "Same as main session" removes the field rather
+  than writing `inherit`: the file then reads as the user would write it, and the program's own
+  order applies (field, then default, then the main session's model). A project's file belongs
+  to its repository: the backend refuses it without `confirmed` (`confirm`), and the window asks
+  inline first.
+- **Default per program:** `sub-agent-settings.json` in the local app data folder, beside the
+  other protected settings (`main_store.rs`, main window only, checked on reading and writing).
+  "Not set" is the default. Applied at every agent process start (also restart and fallback):
+  Claude Code gets `CLAUDE_CODE_SUBAGENT_MODEL=<model>` unless the profile sets the variable
+  itself; Codex CLI gets `-c agents.default_subagent_model=<model>` and
+  `-c agents.default_subagent_reasoning_effort=<effort>` as argv elements before the start
+  arguments (before `resume --last`). The value goes unquoted when TOML would not parse it (Codex
+  CLI then takes the raw text), quoted otherwise (`1.5`, `true`); a quoted one cannot pass a
+  cmd.exe launcher (npm's `codex.cmd`) and is left out with a logged warning. A field in the
+  definition beats the default in both programs; running sessions keep theirs until restarted.
+  `tests/pty.rs` checks the variable in a real ConPTY session, also after a restart.
+
+> [!question] Unverified
+> - That a `-c agents.default_subagent_model` override reaches Codex CLI's sub-agents like the
+>   same key in `config.toml` ([[sub-agent-models-research]]).
+> - Effort values beyond the five offered for a given Codex model.
+
+## Provision to other programs (`src-tauri/src/agent_provision.rs`, `codex_agents.rs`)
+
+The owner wants the sub-agents added in Hangar to work in every agent CLI. Source: the global
+Claude Code definitions (`~/.claude/agents/*.md`); project definitions stay with their
+repository.
+
+- **When:** at the app start (global folders and the stored start places, off the main thread),
+  after creating or deleting a definition, after a switch in Settings, and whenever the window's
+  set of folders changes or Settings opens (`sync_sub_agents(folders)`). One run at a time
+  (`run_lock`, also held by a model change of a copy). No watcher.
+- **Which folders:** the global `~/.codex/agents` and the `.codex/agents` of project folders the
+  backend knows itself: the sessions' working folders and the stored start places (favorites,
+  recent, `MainPrefs`). Folders the window names count only where they are among them
+  (`permitted`); the same holds for a model change of a project's file, which is also refused
+  when the project's `.claude`, `.codex` or their `agents` folder is a link.
+- **Which programs:** every installed catalog program whose `agent_program` is not Claude Code
+  and whose format is known: Codex CLI. A program that is not installed gets no folder and keeps
+  its files. A switch per program ("Provide my sub-agents in Codex CLI"), on by default; off
+  removes Hangar's copies and puts the replaced files back.
+- **Format mapping, Codex CLI:** `name` is the definition's name, `description` its whole
+  description, `developer_instructions` the Markdown prompt below the frontmatter (line breaks
+  around it trimmed, CRLF as LF) as a multi-line literal string (`'''`), or as a multi-line basic
+  string with escapes for backslash, quote and control characters when the prompt holds `'''`,
+  ends with `'` or holds control characters. Not copied: `model` (Claude Code's aliases mean
+  nothing there; the copy's own model comes from Settings), `tools` (Codex CLI names its tools
+  differently), `color`, `hooks`, `mcpServers`, `permissionMode`.
+- **Marker:** the first line `# Managed by Hangar from ~/.claude/agents/<name>.md.` (plus
+  ` Replaced file kept as <backup>.` after a replacement) and ` sha256:<hex>`, the hash over every
+  byte after that line. Only a file whose marker is intact is Hangar's; a copy edited by hand
+  fails the hash and counts as the user's. The backup it names must be `<name>.toml.bak` or
+  `<name>.toml.bak.<n>` of its own definition, else the marker is not Hangar's. Each run reads the
+  marker again from the file it writes or removes, not from the earlier listing.
+- **Same name (decided by the owner):** a user's file under a definition's name (its file name
+  `<name>.toml` or its `name` field, also a broken file of that file name) is replaced: first set
+  aside as `<name>.toml.bak`, or `.bak.2` up to `.bak.100` when taken (named after the
+  definition, so the marker can always name it; hard linked or created anew, never overwriting
+  one), then the copy is written atomically over it, naming the backup in its marker. Its model
+  and effort move over to the copy. Other names are never touched.
+- **A copy edited by hand:** set aside as the next backup, the new copy keeps naming the user's
+  original backup, so removing the copy later brings the original back and the edited text stays
+  as a backup. Settings names every backup of a copy (`backups`).
+- **Global folder:** a missing copy is created (`<name>.toml`, never replacing a file that
+  appeared meanwhile), and a copy is found by its marker as well. **Project folders:** only files
+  that already hold a definition's name, by file name or `name` and never by the marker's source
+  (a repository could forge a marker to steer a copy into any of its files), and only files git
+  does not track (`git ls-files --error-unmatch`, argv; no repository: not tracked; a git that
+  cannot answer: tracked). A tracked file stays and outranks the global copy in that project;
+  Settings says "Project file in <folder> covers your copy". No new project file is created.
+  `.codex` and `.codex/agents` of a project must not be links (checked from the project folder
+  down), else the folder is skipped (`link`); the global folder follows local links like the
+  definitions.
+- **Removal:** a copy whose definition is gone is removed and its backup renamed back into its
+  place; in a project only when git does not track it.
+- **Issues:** each run reports what it left alone as `{ program, scope, folder, file, name, kind }`
+  with a stable kind (`unreadable`, `io`, `offMachine`, `noBackupName`, `tracked`, `link`), file
+  and folder names only. The newest run's issues come with the listing (`syncIssues`); Settings
+  lists failures below the switch and names the reason in the definition's row; a failed
+  `sync_sub_agents` call shows as the library's error.
+- **Limits and safety:** names follow `valid_name`, Windows device names are skipped; paths are
+  only `<home or known folder>/.codex/agents/<file>`; the same read limits as for definitions;
+  writes are atomic.
+- **State in the window:** derived from the listing (`codexDefs` with `managed`, `backup` and
+  `backups`, and `syncIssues`): provided, replaced with the backups named, or why not.
+
+> [!question] Open: other programs
+> Gemini CLI (`~/.gemini/agents/*.md`), Qwen Code (`~/.qwen/agents/*.md`), GitHub Copilot CLI
+> (`~/.copilot/agents/*.agent.md`) and OpenCode (`~/.config/opencode/agents/*.md`) are named in
+> the owner's request but are not installed or not working here; their formats were not read
+> ([[sub-agent-models-research]]). A new target needs its format measured, then a variant of
+> `DefProgram`, a renderer and `agent_program` in its catalog entry.
+
 ## Window
 
+- `subAgentModels.ts`: model rules, options, settings and copies (pure). `SubAgentModelField.tsx`:
+  the model field. Settings shows the defaults on top ("Default model for all sub-agents", only
+  installed programs), then one row per name with "Claude Code [model]" and "Codex CLI [model]
+  [effort] · provided", and the user's own Codex CLI definitions with a badge.
 - `subAgentLibrary.ts`: pure checks of the backend's answers, grouping, `defsFor`, default figure.
 - `subAgentLibraryStore.ts`: one shared state; read on start, when the set of folders changes,
   when Settings opens and after a change.

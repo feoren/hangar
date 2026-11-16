@@ -1070,3 +1070,20 @@ offer "Show crew" and "Hide crew" for sessions with sub-agents. Pages changed: [
 ## [2026-11-16] update | Row preset "Hangar"
 Added the owner's own session row from Hangar 0.8.0 as the first row preset, `hangar`, read from
 that app's stored `rowLayout` and checked against its window. Pages changed: [[session-row-layout]].
+
+## [2026-11-16] ingest | Sub-agent models and Codex CLI agent files
+Read the sub-agent documentation of Claude Code and Codex CLI, `codex --help` and strings of the
+2.1.325 and 0.169.0 binaries (model field, `CLAUDE_CODE_SUBAGENT_MODEL`, `[agents]` defaults,
+`-c` overrides, effort names). Added the model per definition, a default model per program for
+every session Hangar starts, Codex CLI definitions in the library and copies of the user's
+definitions in Codex CLI's folder (marker, backups of replaced files). Pages changed:
+[[sub-agent-models-research]] (new), [[sub-agent-library]], index.
+
+## [2026-11-16] update | Sub-agent copies after review
+Project folders: only untracked files of a definition's name are replaced (git `ls-files`), never
+by a marker's source, and a linked `.codex` skips the folder; the folders come from the backend
+(sessions' working folders, stored start places). Backups are named after the definition, a copy
+edited by hand keeps naming the original, runs take one lock and report issues with a stable kind
+that Settings shows. A marker names only a backup of its own definition, a removal reads the
+marker again, and a model change never writes through a linked project agents folder. Pages
+changed: [[sub-agent-library]].

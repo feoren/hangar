@@ -13,10 +13,13 @@ use crate::account_service::AccountService;
 use crate::agent_catalog::ProfileView;
 use crate::agent_defs::{self, AgentDef, DefError, Library};
 use crate::agent_figures::{FigureError, FigureInput, FigureStore, FigureView};
+use crate::agent_models::{DefProgram, ModelChoice};
+use crate::agent_provision;
 use crate::arena::{self, ArenaError};
 use crate::claims::ClaimsSnapshot;
 use crate::claims_service::ClaimsService;
 use crate::clipboard_image;
+use crate::codex_agents;
 use crate::daily_review::{self, DailyReview, ReviewError};
 use crate::desktop;
 use crate::dictation::model::ModelId;
@@ -44,7 +47,7 @@ use crate::install_source::{self, SystemProbe};
 use crate::instructions::{self, StartPrompt};
 use crate::main_store::{
     self, MainPrefs, MainStore, MainStoreError, ProtectedSettings, QueuedMessages,
-    SecuritySwitches, WorkspaceTemplate,
+    SecuritySwitches, SubAgentSettings, WorkspaceTemplate,
 };
 use crate::manager::{
     EventSink, ManagerError, SessionEvent, SessionManager, StartRequest, TermSize,
@@ -843,7 +846,8 @@ pub fn cost_report(
     costs.report()
 }
 
-// Sub-agent definitions and their figures (agent_defs.rs, agent_figures.rs). Contract:
+// Sub-agent definitions and their figures (agent_defs.rs, agent_figures.rs), their models
+// (agent_models.rs) and the copies in other programs (agent_provision.rs). Contract:
 // docs/wiki/pages/syntheses/sub-agent-library.md. File access on a blocking thread.
 
 async fn defs_blocking<T: Send + 'static>(
@@ -856,34 +860,210 @@ async fn defs_blocking<T: Send + 'static>(
         .map_err(|error| DefError::Task(error.to_string()))?
 }
 
+/// [`agent_defs::Library`] with what Settings needs besides: the installed programs that read
+/// sub-agent definitions, those that get copies of the user's (with their switch) and model
+/// suggestions for Codex CLI (the main model of its config).
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct LibraryView {
+    #[serde(flatten)]
+    library: Library,
+    installed: Vec<DefProgram>,
+    targets: Vec<agent_provision::TargetView>,
+    codex_models: Vec<String>,
+    /// What the newest copy runs left alone, and why.
+    sync_issues: Vec<agent_provision::Issue>,
+}
+
 /// The global sub-agent definitions and those of the named project folders (at most 32,
-/// absolute; only their `.claude/agents` is read). Broken files come back as problems.
+/// absolute; only their `.claude/agents` and `.codex/agents` are read). Broken files come back as
+/// problems.
 #[tauri::command]
 pub async fn sub_agent_library(
     manager: Manager<'_>,
+    store: State<'_, MainStore>,
     folders: Vec<PathBuf>,
-) -> Result<Library, DefError> {
-    defs_blocking(manager, move |home| Ok(agent_defs::library(home, &folders))).await
-}
-
-/// Saves a pasted or loaded definition as a global one (`~/.claude/agents/<name>.md`); an
-/// existing one of that name only with `replace`.
-#[tauri::command]
-pub async fn create_sub_agent(
-    manager: Manager<'_>,
-    text: String,
-    replace: bool,
-) -> Result<AgentDef, DefError> {
+) -> Result<LibraryView, DefError> {
+    let installed = manager.installed_programs();
+    let off = store.inner().clone();
     defs_blocking(manager, move |home| {
-        agent_defs::create(home, &text, replace)
+        let off = off.load_sub_agents().provide_off;
+        Ok(LibraryView {
+            library: agent_defs::library(home, &folders),
+            targets: agent_provision::targets(&installed, &off),
+            codex_models: codex_agents::main_model(home).into_iter().collect(),
+            installed,
+            sync_issues: agent_provision::last_issues(),
+        })
     })
     .await
 }
 
-/// Deletes a global definition by name; project definitions stay.
+/// The project folders the backend knows itself: the sessions' working folders and the stored
+/// start places (favorites, recent). Copies and model changes reach no other project.
+fn known_folders(sessions: Vec<PathBuf>, store: &MainStore) -> Vec<PathBuf> {
+    let prefs = store.load_prefs().unwrap_or_default();
+    sessions
+        .into_iter()
+        .chain(
+            prefs
+                .favorites
+                .iter()
+                .chain(&prefs.recent)
+                .map(PathBuf::from),
+        )
+        .collect()
+}
+
+fn session_folders(manager: &SessionManager) -> Vec<PathBuf> {
+    manager.list().into_iter().map(|info| info.cwd).collect()
+}
+
+/// Brings the copies of the user's definitions in the other installed programs up to date: the
+/// global folders and the agents folders of `folders` that the backend knows as well, whose
+/// untracked files of the user's names are replaced after a backup. Answers with what was left
+/// alone.
 #[tauri::command]
-pub async fn delete_sub_agent(manager: Manager<'_>, name: String) -> Result<(), DefError> {
-    defs_blocking(manager, move |home| agent_defs::delete(home, &name)).await
+pub async fn sync_sub_agents(
+    window: tauri::Window,
+    manager: Manager<'_>,
+    store: State<'_, MainStore>,
+    folders: Vec<PathBuf>,
+) -> Result<Vec<agent_provision::Issue>, DefError> {
+    main_store::check_main(window.label()).map_err(|_| DefError::WrongWindow)?;
+    let installed = manager.installed_programs();
+    let sessions = session_folders(&manager);
+    let store = store.inner().clone();
+    defs_blocking(manager, move |home| {
+        let known = known_folders(sessions, &store);
+        let folders = agent_provision::permitted(&folders, &known);
+        Ok(sync_all(home, &folders, &installed, &store))
+    })
+    .await
+}
+
+/// One run for every installed target, with its issues.
+fn sync_all(
+    home: &std::path::Path,
+    folders: &[PathBuf],
+    installed: &[DefProgram],
+    store: &MainStore,
+) -> Vec<agent_provision::Issue> {
+    let off = store.load_sub_agents().provide_off;
+    agent_provision::sync_installed(home, folders, installed, &off)
+        .into_iter()
+        .flat_map(|summary| summary.issues)
+        .collect()
+}
+
+/// Saves a pasted or loaded definition as a global one (`~/.claude/agents/<name>.md`); an
+/// existing one of that name only with `replace`. The copies in other programs follow; what
+/// they left alone shows in the next listing.
+#[tauri::command]
+pub async fn create_sub_agent(
+    manager: Manager<'_>,
+    store: State<'_, MainStore>,
+    text: String,
+    replace: bool,
+) -> Result<AgentDef, DefError> {
+    let installed = manager.installed_programs();
+    let sessions = session_folders(&manager);
+    let store = store.inner().clone();
+    defs_blocking(manager, move |home| {
+        let def = agent_defs::create(home, &text, replace)?;
+        sync_all(home, &known_folders(sessions, &store), &installed, &store);
+        Ok(def)
+    })
+    .await
+}
+
+/// Deletes a global definition by name; project definitions stay. Its copies in other programs
+/// go, and a file they replaced comes back.
+#[tauri::command]
+pub async fn delete_sub_agent(
+    manager: Manager<'_>,
+    store: State<'_, MainStore>,
+    name: String,
+) -> Result<(), DefError> {
+    let installed = manager.installed_programs();
+    let sessions = session_folders(&manager);
+    let store = store.inner().clone();
+    defs_blocking(manager, move |home| {
+        agent_defs::delete(home, &name)?;
+        sync_all(home, &known_folders(sessions, &store), &installed, &store);
+        Ok(())
+    })
+    .await
+}
+
+/// Sets the model (and for Codex CLI the reasoning effort) of one definition; `null` removes
+/// the field. A project's file only with `confirmed`, and only in a folder the backend knows.
+#[tauri::command]
+#[allow(clippy::too_many_arguments)] // One definition and its one change.
+pub async fn set_sub_agent_model(
+    window: tauri::Window,
+    manager: Manager<'_>,
+    store: State<'_, MainStore>,
+    program: DefProgram,
+    name: String,
+    folder: Option<PathBuf>,
+    model: Option<String>,
+    effort: Option<String>,
+    confirmed: bool,
+) -> Result<(), DefError> {
+    main_store::check_main(window.label()).map_err(|_| DefError::WrongWindow)?;
+    let sessions = session_folders(&manager);
+    let store = store.inner().clone();
+    defs_blocking(manager, move |home| {
+        if let Some(folder) = &folder {
+            let known = known_folders(sessions, &store);
+            if agent_provision::permitted(std::slice::from_ref(folder), &known).is_empty() {
+                return Err(DefError::NotFound(name));
+            }
+        }
+        let choice = ModelChoice { model, effort };
+        agent_defs::set_model(home, program, &name, folder.as_deref(), &choice, confirmed)
+    })
+    .await
+}
+
+/// The default model per program and the programs switched off for copies.
+#[tauri::command]
+pub async fn sub_agent_settings(
+    window: tauri::Window,
+    store: State<'_, MainStore>,
+) -> Result<SubAgentSettings, MainStoreError> {
+    main_store::check_main(window.label())?;
+    let store = store.inner().clone();
+    tauri::async_runtime::spawn_blocking(move || store.load_sub_agents())
+        .await
+        .map_err(|error| MainStoreError::Task(error.to_string()))
+}
+
+/// Saves them; every later session start takes the models, and the copies follow the switches.
+#[tauri::command]
+pub async fn save_sub_agent_settings(
+    window: tauri::Window,
+    manager: Manager<'_>,
+    store: State<'_, MainStore>,
+    settings: SubAgentSettings,
+) -> Result<(), MainStoreError> {
+    main_store::check_main(window.label())?;
+    let settings = main_store::validate_sub_agents(settings)?;
+    let store = store.inner().clone();
+    let home = manager.home().to_path_buf();
+    let installed = manager.installed_programs();
+    let sessions = session_folders(&manager);
+    let saved = settings.clone();
+    tauri::async_runtime::spawn_blocking(move || {
+        store.save_sub_agents(saved)?;
+        sync_all(&home, &known_folders(sessions, &store), &installed, &store);
+        Ok::<(), MainStoreError>(())
+    })
+    .await
+    .map_err(|error| MainStoreError::Task(error.to_string()))??;
+    manager.set_sub_agent_models(settings.models);
+    Ok(())
 }
 
 /// Opens a definition's file in the default editor: the global one without `folder`, else that

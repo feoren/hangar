@@ -51,7 +51,25 @@ export async function refreshLibrary(): Promise<void> {
   }
 }
 
-/** The project folders whose `.claude/agents` count; a change reads the listing again. */
+/**
+ * Brings Hangar's copies of the user's definitions in other programs up to date for the current
+ * folders (the backend replaces only files of the user's names, after a backup), then reads the
+ * listing again. A failed sync still reads the listing.
+ */
+export async function syncLibrary(): Promise<void> {
+  let failed: string | null = null;
+  try {
+    await api.syncSubAgents(folders);
+  } catch (e) {
+    failed = errorText(e);
+  }
+  await refreshLibrary();
+  // The listing still shows what is there; why the copies were not brought up to date stays
+  // visible until the next run.
+  if (failed !== null) publish({ ...state, error: failed });
+}
+
+/** The project folders whose `.claude/agents` count; a change syncs and reads the listing again. */
 export function setLibraryFolders(next: readonly string[]): void {
   const unique = [...new Set(next)].slice(0, 32);
   const same =
@@ -59,7 +77,7 @@ export function setLibraryFolders(next: readonly string[]): void {
   // The first call reads the global definitions even without a project folder.
   if (same && generation > 0) return;
   folders = unique;
-  void refreshLibrary();
+  void syncLibrary();
 }
 
 /** A backend answer with every figure (after choosing one). */

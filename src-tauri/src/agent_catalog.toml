@@ -81,6 +81,11 @@
 #                    session as the sub-agent definition {agent} (a checked name, see
 #                    src-tauri/src/agent_defs.rs). Only programs that read the definitions in
 #                    ~/.claude/agents and <project>/.claude/agents. Inherited like prompt_args.
+#   agent_program    Optional. "claude" or "codex": the program reads sub-agent definitions in
+#                    that format (.claude/agents/*.md, .codex/agents/*.toml), takes a default
+#                    model for them from Settings > Sub-agents and, when it is not Claude Code,
+#                    gets copies of the user's Claude Code definitions (src-tauri/src/agent_provision.rs).
+#                    Inherited like prompt_args.
 #   latest          Optional. Where the newest version is published, exactly one source:
 #                    { npm = "<package>" }, { pypi = "<package>" } or
 #                    { github = "<owner>/<repo>", tag_prefix = "v" }. Only the /latest endpoint
@@ -149,6 +154,9 @@ prompt_args = ["{prompt}"]
 # `claude --help` 2.1.325: `--agent <agent>  Agent for the current session. Overrides the 'agent'
 # setting.` (docs/wiki/pages/sources/claude-agent-flag-measurement.md).
 agent_args = ["--agent", "{agent}"]
+# Sub-agents in .claude/agents/*.md; default model for them through CLAUDE_CODE_SUBAGENT_MODEL
+# (2.1.325 binary, docs/wiki/pages/sources/sub-agent-models-research.md).
+agent_program = "claude"
 # Command table of the 2.1.325 binary (/usage has the aliases cost and stats):
 # docs/wiki/pages/sources/agent-commands-measurement.md.
 agent_commands = [
@@ -184,6 +192,11 @@ capabilities = { pre_edit_block = true, context_inject = false, per_session_conf
 # `developer_instructions` is a top-level key of its config (found in the 0.169.0 binary).
 instruction_args = ["-c", "developer_instructions={toml_text}"]
 prompt_args = ["{prompt}"]
+# Sub-agents in .codex/agents/*.toml; default model and effort for them through
+# `-c agents.default_subagent_model=...` and `-c agents.default_subagent_reasoning_effort=...`
+# (0.169.0 binary and docs, docs/wiki/pages/sources/sub-agent-models-research.md). No option
+# starts a session as one of them. Hangar copies the user's Claude Code definitions there.
+agent_program = "codex"
 # Command names and help texts of the 0.169.0 binary:
 # docs/wiki/pages/sources/agent-commands-measurement.md.
 agent_commands = [

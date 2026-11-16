@@ -15,6 +15,7 @@ import type { ProtectedSettings, SecuritySwitches } from "./settings";
 import { backendErrorText } from "./backendError";
 import { InputStalled, inputQueue } from "./sessionInput";
 import type { FigureInput } from "./subAgentLibrary";
+import type { DefProgram, SubAgentSettings } from "./subAgentModels";
 import type { WorkspaceTemplate } from "./templates";
 import type { SessionState } from "./team";
 
@@ -333,6 +334,24 @@ export const api = {
   createSubAgent: (text: string, replace: boolean) =>
     invoke<unknown>("create_sub_agent", { text, replace }),
   deleteSubAgent: (name: string) => invoke<null>("delete_sub_agent", { name }),
+  /** Brings Hangar's copies of the definitions in other programs up to date (main window). */
+  syncSubAgents: (folders: readonly string[]) => invoke<null>("sync_sub_agents", { folders }),
+  /**
+   * Sets one definition's model (Codex CLI: and effort); `null` removes the field. A project's
+   * file only with `confirmed`, else a `DefError` of kind `confirm`.
+   */
+  setSubAgentModel: (change: {
+    program: DefProgram;
+    name: string;
+    folder: string | null;
+    model: string | null;
+    effort: string | null;
+    confirmed: boolean;
+  }) => invoke<null>("set_sub_agent_model", change),
+  /** Default model per program and switched-off copies; check with `parseSubAgentSettings`. */
+  subAgentSettings: () => invoke<unknown>("sub_agent_settings"),
+  saveSubAgentSettings: (settings: SubAgentSettings) =>
+    invoke<null>("save_sub_agent_settings", { settings }),
   /** Opens the definition's file in the editor; `folder` null: the global one. */
   openSubAgent: (name: string, folder: string | null) =>
     invoke<null>("open_sub_agent", { name, folder }),

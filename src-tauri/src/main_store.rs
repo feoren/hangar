@@ -27,6 +27,7 @@ use std::path::{Path, PathBuf};
 
 use serde::{Deserialize, Serialize, Serializer};
 
+use crate::agent_models::{DefProgram, ModelChoice};
 use crate::persist::{normalize_key, read_limited, write_atomic};
 
 pub const SWITCHES_FILE: &str = "security-switches.json";
@@ -34,6 +35,9 @@ pub const QUEUE_FILE: &str = "queued-messages.json";
 pub const SETTINGS_FILE: &str = "protected-settings.json";
 pub const TEMPLATES_FILE: &str = "workspace-templates.json";
 pub const PREFS_FILE: &str = "main-prefs.json";
+pub const SUB_AGENTS_FILE: &str = "sub-agent-settings.json";
+/// A few programs with a short model each.
+const MAX_SUB_AGENTS_BYTES: usize = 16 * 1024;
 /// Queued messages kept at most, one per session ([`crate::persist::MAX_SESSIONS`]).
 pub const MAX_QUEUED: usize = crate::persist::MAX_SESSIONS;
 /// Length of one queued message in UTF-16 units, as the window counts (`MAX_QUEUED_CHARS`).
@@ -183,6 +187,30 @@ impl Default for ProtectedSettings {
             snippets: Vec::new(),
         }
     }
+}
+
+/// The default model of every sub-agent per program, applied to each session Hangar starts
+/// ([`crate::agent_models::launch`]), and the programs that do not get copies of the user's
+/// definitions ([`crate::agent_provision`]). Protected: a model reaches every agent.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct SubAgentSettings {
+    #[serde(default)]
+    pub models: BTreeMap<DefProgram, ModelChoice>,
+    #[serde(default)]
+    pub provide_off: BTreeSet<DefProgram>,
+}
+
+/// Every choice checked for its program; empty ones are dropped.
+pub fn validate_sub_agents(
+    mut settings: SubAgentSettings,
+) -> Result<SubAgentSettings, MainStoreError> {
+    for (program, choice) in &settings.models {
+        crate::agent_models::check_choice(*program, choice)
+            .map_err(|_| MainStoreError::InvalidSetting("sub-agent model"))?;
+    }
+    settings.models.retain(|_, choice| !choice.is_empty());
+    Ok(settings)
 }
 
 /// `^[a-z0-9-]{1,40}$`
@@ -512,6 +540,21 @@ impl MainStore {
         })
     }
 
+    /// The sub-agent settings; a missing, damaged or invalid file gives the defaults (no model
+    /// set, every program gets the user's definitions).
+    pub fn load_sub_agents(&self) -> SubAgentSettings {
+        let path = self.dir.join(SUB_AGENTS_FILE);
+        load::<SubAgentSettings>(&path, MAX_SUB_AGENTS_BYTES)
+            .flatten()
+            .and_then(|settings| validate_sub_agents(settings).ok())
+            .unwrap_or_default()
+    }
+
+    pub fn save_sub_agents(&self, settings: SubAgentSettings) -> Result<(), MainStoreError> {
+        let settings = validate_sub_agents(settings)?;
+        save(&self.dir.join(SUB_AGENTS_FILE), &settings)
+    }
+
     pub fn save_settings(&self, settings: ProtectedSettings) -> Result<(), MainStoreError> {
         validate_settings(&settings)?;
         save(&self.dir.join(SETTINGS_FILE), &settings)
@@ -629,6 +672,54 @@ mod tests {
             id: id.to_owned(),
             text: text.to_owned(),
         }
+    }
+
+    #[test]
+    fn sub_agent_settings_are_checked_and_default_to_nothing() {
+        let tmp = TempDir::new("main-store-sub-agents");
+        let store = MainStore::new(tmp.path().to_owned());
+        assert_eq!(store.load_sub_agents(), SubAgentSettings::default());
+        let settings = SubAgentSettings {
+            models: BTreeMap::from([
+                (
+                    DefProgram::Claude,
+                    ModelChoice {
+                        model: Some("sonnet".into()),
+                        effort: None,
+                    },
+                ),
+                (DefProgram::Codex, ModelChoice::default()),
+            ]),
+            provide_off: BTreeSet::from([DefProgram::Codex]),
+        };
+        store.save_sub_agents(settings).unwrap();
+        let loaded = store.load_sub_agents();
+        // The empty choice is dropped.
+        assert_eq!(loaded.models.len(), 1);
+        assert!(loaded.provide_off.contains(&DefProgram::Codex));
+        assert_eq!(
+            serde_json::to_value(&loaded).unwrap(),
+            serde_json::json!({ "models": { "claude": { "model": "sonnet", "effort": null } },
+                "provideOff": ["codex"] })
+        );
+        let bad = SubAgentSettings {
+            models: BTreeMap::from([(
+                DefProgram::Claude,
+                ModelChoice {
+                    model: Some("x\" y".into()),
+                    effort: None,
+                },
+            )]),
+            provide_off: BTreeSet::new(),
+        };
+        assert!(store.save_sub_agents(bad).is_err());
+        // A file with a value no check lets through gives the defaults.
+        std::fs::write(
+            tmp.path().join(SUB_AGENTS_FILE),
+            r#"{"models":{"codex":{"model":"a b"}},"provideOff":[]}"#,
+        )
+        .unwrap();
+        assert_eq!(store.load_sub_agents(), SubAgentSettings::default());
     }
 
     #[test]

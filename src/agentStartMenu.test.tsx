@@ -6,6 +6,7 @@ import type { Profile } from "./api";
 import { createTranslator } from "./i18n";
 import type { PopupItem } from "./PopupMenu";
 import {
+  EMPTY_LIBRARY,
   figureName,
   NEUTRAL_FIGURE_COLOR,
   parseFigures,
@@ -52,7 +53,7 @@ describe("the start as sub-agent menu", () => {
   const global = def("backend");
   const project = def("backend", { scope: "project", folder: PROJECT });
   const own = def("reviewer", { scope: "project", folder: PROJECT });
-  const library: Library = { defs: [global, project, own], problems: [] };
+  const library: Library = { ...EMPTY_LIBRARY, defs: [global, project, own] };
   const figures = parseFigures({ backend: { kind: "builtin", id: "security-01" } });
 
   it("lists face, name, origin and the first line of the description", () => {
@@ -89,7 +90,14 @@ describe("the start as sub-agent menu", () => {
       extras: ["hooks", "mcpServers"],
     });
     const entry = actions(
-      agentStartItems(claude, [powered], { defs: [powered], problems: [] }, figures, t, vi.fn()),
+      agentStartItems(
+        claude,
+        [powered],
+        { ...EMPTY_LIBRARY, defs: [powered] },
+        figures,
+        t,
+        vi.fn(),
+      ),
     )[0];
     expect(entry?.detail).toBe("from project hangar · brings hooks, mcpServers · ops work.");
   });

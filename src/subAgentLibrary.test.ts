@@ -6,6 +6,7 @@ import { describe, expect, it } from "vitest";
 import {
   BUILTIN_FIGURES,
   DEF_TEMPLATE,
+  EMPTY_LIBRARY,
   defaultFigure,
   defFigure,
   defsFor,
@@ -118,6 +119,7 @@ describe("figures", () => {
 
 describe("the listing", () => {
   const library: Library = {
+    ...EMPTY_LIBRARY,
     defs: [
       def("backend"),
       def("tester"),
@@ -164,8 +166,15 @@ describe("the listing", () => {
     });
     expect(parsed?.defs.map((entry) => entry.name)).toEqual(["backend"]);
     expect(parsed?.defs[0]?.tools).toEqual(["Read"]);
+    // Without a program (an older backend) a problem is Claude Code's.
     expect(parsed?.problems).toEqual([
-      { scope: "global", folder: null, file: "broken.md", problem: "noFrontmatter" },
+      {
+        program: "claude",
+        scope: "global",
+        folder: null,
+        file: "broken.md",
+        problem: "noFrontmatter",
+      },
     ]);
     expect(parseLibrary({ defs: "no" })).toBeNull();
     expect(parseLibrary(null)).toBeNull();
@@ -177,7 +186,7 @@ describe("project definitions that override a global one", () => {
   const global = def("backend");
   const project = def("backend", { scope: "project", folder: PROJECT, color: "green" });
   const onlyProject = def("reviewer", { scope: "project", folder: PROJECT });
-  const library: Library = { defs: [global, project, onlyProject], problems: [] };
+  const library: Library = { ...EMPTY_LIBRARY, defs: [global, project, onlyProject] };
 
   it("never wear the global figure", () => {
     expect(overridesGlobal(library, project)).toBe(true);
@@ -243,6 +252,7 @@ describe("figure errors", () => {
 describe("runningFigure", () => {
   const OTHER = "E:\\work\\website";
   const library: Library = {
+    ...EMPTY_LIBRARY,
     defs: [
       def("backend", { scope: "project", folder: PROJECT, file: "backend.md" }),
       def("backend"),

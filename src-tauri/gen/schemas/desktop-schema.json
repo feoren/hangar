@@ -945,6 +945,12 @@
           "markdownDescription": "Enables the save_security_switches command without any pre-configured scope."
         },
         {
+          "description": "Enables the save_sub_agent_settings command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-save-sub-agent-settings",
+          "markdownDescription": "Enables the save_sub_agent_settings command without any pre-configured scope."
+        },
+        {
           "description": "Enables the save_templates command without any pre-configured scope.",
           "type": "string",
           "const": "allow-save-templates",
@@ -997,6 +1003,12 @@
           "type": "string",
           "const": "allow-set-sub-agent-figure",
           "markdownDescription": "Enables the set_sub_agent_figure command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the set_sub_agent_model command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-set-sub-agent-model",
+          "markdownDescription": "Enables the set_sub_agent_model command without any pre-configured scope."
         },
         {
           "description": "Enables the shared_notes_cancel command without any pre-configured scope.",
@@ -1093,6 +1105,18 @@
           "type": "string",
           "const": "allow-sub-agent-library",
           "markdownDescription": "Enables the sub_agent_library command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the sub_agent_settings command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-sub-agent-settings",
+          "markdownDescription": "Enables the sub_agent_settings command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the sync_sub_agents command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-sync-sub-agents",
+          "markdownDescription": "Enables the sync_sub_agents command without any pre-configured scope."
         },
         {
           "description": "Enables the system_usage command without any pre-configured scope.",
@@ -1989,6 +2013,12 @@
           "markdownDescription": "Denies the save_security_switches command without any pre-configured scope."
         },
         {
+          "description": "Denies the save_sub_agent_settings command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-save-sub-agent-settings",
+          "markdownDescription": "Denies the save_sub_agent_settings command without any pre-configured scope."
+        },
+        {
           "description": "Denies the save_templates command without any pre-configured scope.",
           "type": "string",
           "const": "deny-save-templates",
@@ -2041,6 +2071,12 @@
           "type": "string",
           "const": "deny-set-sub-agent-figure",
           "markdownDescription": "Denies the set_sub_agent_figure command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the set_sub_agent_model command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-set-sub-agent-model",
+          "markdownDescription": "Denies the set_sub_agent_model command without any pre-configured scope."
         },
         {
           "description": "Denies the shared_notes_cancel command without any pre-configured scope.",
@@ -2137,6 +2173,18 @@
           "type": "string",
           "const": "deny-sub-agent-library",
           "markdownDescription": "Denies the sub_agent_library command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the sub_agent_settings command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-sub-agent-settings",
+          "markdownDescription": "Denies the sub_agent_settings command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the sync_sub_agents command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-sync-sub-agents",
+          "markdownDescription": "Denies the sync_sub_agents command without any pre-configured scope."
         },
         {
           "description": "Denies the system_usage command without any pre-configured scope.",
