@@ -1092,3 +1092,8 @@ changed: [[sub-agent-library]].
 The README screenshots for 0.9.0 are the overview plus `crew`, `sub-agents`, `timeline`, `arena`,
 `costs` and `dictation`; they replace `home`, `queue`, `guard`, `review`, `worktrees` and
 `row-builder`. Pages changed: [[release-rollout]].
+
+## [2026-11-17] update | ADR 0012 cross-project messages
+Proposed how a session sends an instruction to the session of a partner project in another folder:
+partner pairs, sending by hand or through `hangar-send`, delivery as bracketed paste after the
+person's approval. Pages changed: [[0012-cross-project-messages]], index.

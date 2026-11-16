@@ -45,6 +45,8 @@ UI texts in `src/i18n.ts` are translated per language and are not bound by this 
 | Kostenbuch                                      | cost ledger                       | per conversation id and local day, `cost-ledger.json`                                |
 | Tagesbudget                                     | daily budget                      | dollars per day, one notice when reached                                             |
 | Übergabe (Session)                              | handover                          | new session of another agent in the same folder with a handover text, `handover.ts`  |
+| Partnerprojekt                                  | partner project                   | project linked for cross-project messages, ADR 0012; not a linked repository         |
+| Projektnachricht                                | cross-project message             | text a session sends to a partner project's session, ADR 0012                        |
 | Agenten-Befehl                                  | agent command                     | text the session menu types into a running session, `agent_commands`                 |
 | Kontext komprimieren                            | compact (context)                 | the agent summarizes its conversation (`/compact`), label key `compact`              |
 | Notiz                                           | note                              |                                                                                      |
