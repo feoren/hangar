@@ -1,6 +1,6 @@
 // Renders the README screenshots into docs/images from the real frontend with a mocked backend
 // (mock.ts) in a headless Chromium based browser: one image per scene and color scheme, e.g.
-// hangar-dark.png (the overview) and hangar-queue-light.png.
+// hangar-dark.png (the overview) and hangar-arena-light.png.
 //
 // Usage: pnpm readme:shots [--scene <name>]...   (default: every scene)
 //
@@ -66,39 +66,21 @@ const BLUR = `(() => {
   return true;
 })()`;
 
-/**
- * Scrolls the element into view, aligned to `block` of its scrolling parent ("start", "center"
- * or "end").
- */
-const reveal = (selector, block) => `(() => {
-  const element = document.querySelector(${JSON.stringify(selector)});
-  if (!element) return false;
-  element.scrollIntoView({ block: ${JSON.stringify(block)}, behavior: "instant" });
+/** Types `value` into the text field matching `selector`, as a person would. */
+const typeInto = (selector, value) => `(() => {
+  const field = document.querySelector(${JSON.stringify(selector)});
+  if (!field) throw new Error("No field " + ${JSON.stringify(selector)});
+  const proto = field instanceof HTMLTextAreaElement ? HTMLTextAreaElement : HTMLInputElement;
+  Object.getOwnPropertyDescriptor(proto.prototype, "value").set.call(field, ${JSON.stringify(value)});
+  field.dispatchEvent(new Event("input", { bubbles: true }));
   return true;
 })()`;
 
-/** Picks `value` in the select element matching `selector`, as a person would. */
-const choose = (selector, value) => `(() => {
-  const select = document.querySelector(${JSON.stringify(selector)});
-  if (!select) throw new Error("No select " + ${JSON.stringify(selector)});
-  const setter = Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype, "value").set;
-  setter.call(select, ${JSON.stringify(value)});
-  select.dispatchEvent(new Event("change", { bubbles: true }));
-  return true;
-})()`;
-
-/** Opens the context menu of the sidebar row at `index`, a little right of its top left corner. */
-const rowMenu = (index) => `(() => {
-  const row = document.querySelectorAll(".session .session-main")[${index}];
-  if (!row) throw new Error("No session row ${index}");
-  const box = row.getBoundingClientRect();
-  row.dispatchEvent(new MouseEvent("contextmenu", {
-    bubbles: true,
-    cancelable: true,
-    button: 2,
-    clientX: box.left + 140,
-    clientY: box.top + 24,
-  }));
+/** Presses Ctrl+Shift+Space and keeps it down: the dictation records until it is let go. */
+const holdDictation = `(() => {
+  window.dispatchEvent(
+    new KeyboardEvent("keydown", { key: " ", code: "Space", ctrlKey: true, shiftKey: true, bubbles: true }),
+  );
   return true;
 })()`;
 
@@ -110,102 +92,158 @@ const appMenu = (group, entry) => [
 ];
 
 /**
+ * What the app shows once it is up, unless a scene says otherwise: five sessions, an agent
+ * working, one asking a question and the version in the sidebar header.
+ */
+const BOOT = (version) => `(() => {
+  const sessions = document.querySelectorAll(".session");
+  const text = document.body.innerText;
+  const version = document.querySelector(".brand-version");
+  return (
+    sessions.length === 5 &&
+    text.includes("question") &&
+    text.includes("working") &&
+    version !== null &&
+    version.textContent.includes(${JSON.stringify(version)})
+  );
+})()`;
+
+/**
  * The scenes, in README order. `file`: the image name without scheme; `layout`: changes to the
- * stored layout; `steps`: what to run once the app is up, each followed by what must show before
- * the next. The mock reads the scene's name too (mock.ts `SCENE`).
+ * stored layout; `settled`: what the sidebar must show before the steps start (default: SETTLED);
+ * `boot`: what must show for the app to count as started (default: BOOT); `steps`: what to run once
+ * the app is up, each followed by what must show before the next. The mock reads the scene's name
+ * too (mock.ts `SCENE`).
  */
 const SCENES = [
   {
-    // Three sessions side by side with a dragged splitter, every row state in the sidebar.
+    // The hero: every kind of row in the sidebar, a session started as a sub-agent wearing its
+    // figure, and the crew of the active session beside its terminal.
     name: "overview",
     file: "hangar",
     maxBytes: 400 * KB,
     layout: {
-      snapLayout: "mainStack",
-      paneRatios: { mainStack: [0.55, 0.52] },
-      // Room for every session row; the launcher shows in the other scenes.
+      snapLayout: "pair",
+      paneRatios: { pair: [0.61] },
       closedGroups: ["newSession"],
     },
-    steps: [{ ready: shows(".subagent-node", "tester") }],
+    settled: `(${working(2)} && ${shows(".session", "done")} && ${shows(".session", "question")})`,
+    steps: [{ ready: `document.querySelectorAll(".crew-item").length === 2` }],
   },
   {
-    // The home view: the commit calendar and one card per repository.
-    name: "home",
-    file: "hangar-home",
-    maxBytes: 300 * KB,
-    layout: { closedGroups: ["newSession"] },
-    steps: [
-      { run: click(".sidebar-home"), ready: shows(".project-card .project-commits li") },
-      {
-        ready: `(${shows(".project-server", "localhost:5173")} && ${shows(".project-changes", "open change")} && ${shows(".activity-day.level-4")})`,
-      },
-      { run: BLUR, ready: "true" },
-    ],
-  },
-  {
-    // Claude Code works; its next message waits in the queue, opened again from the row's menu.
-    name: "queue",
-    file: "hangar-queue",
-    maxBytes: 300 * KB,
-    layout: { snapLayout: "single", closedGroups: ["newSession"] },
-    steps: [
-      { ready: shows(".session-queued") },
-      { run: rowMenu(0), ready: shows("[role=menuitem]", "Edit queued message") },
-      {
-        run: click("[role=menuitem]", "Edit queued message"),
-        ready: shows(".queue-editor .queue-text"),
-      },
-    ],
-  },
-  {
-    // The command guard holds a force push of the team session until the person answers.
-    name: "guard",
-    file: "hangar-guard",
+    // The crew column: three sub-agents as whole figures on their plinths, one of them waiting
+    // for the person's OK.
+    name: "crew",
+    file: "hangar-crew",
     maxBytes: 300 * KB,
     layout: { snapLayout: "single", closedGroups: ["newSession"] },
     settled: `(${working(1)} && ${shows(".session", "done")})`,
-    steps: [{ ready: shows(".gate-card .gate-command", "git push --force") }],
-  },
-  {
-    // The daily review of the day before: projects, sessions with their times, commits.
-    name: "review",
-    file: "hangar-review",
-    maxBytes: 300 * KB,
-    layout: { closedGroups: ["newSession"] },
     steps: [
-      ...appMenu("View", "Daily review"),
-      { ready: shows(".daily-review .review-project") },
-      { run: click(".review-prev"), ready: shows(".review-commits", "retry the webhook") },
-      { run: BLUR, ready: "true" },
-    ],
-  },
-  {
-    // File > Clean up worktrees: Hangar's worktrees with their state and size.
-    name: "worktrees",
-    file: "hangar-worktrees",
-    maxBytes: 300 * KB,
-    layout: { closedGroups: ["newSession"] },
-    steps: [
-      ...appMenu("File", "Clean up worktrees"),
-      { ready: shows(".cleanup-meta", "295 MiB") },
-      { run: BLUR, ready: "true" },
-    ],
-  },
-  {
-    // Settings > Appearance: the builder for the session row and its templates.
-    name: "row-builder",
-    file: "hangar-row-builder",
-    maxBytes: 300 * KB,
-    layout: { closedGroups: ["newSession"] },
-    steps: [
-      { run: click(".footer-settings"), ready: shows("[role=tab]", "Appearance") },
-      { run: click("[role=tab]", "Appearance"), ready: shows(".row-builder") },
-      // A template other than the standard row: the example and the editor follow it.
       {
-        run: choose(".row-builder-preset select", "compact"),
-        ready: `document.querySelector(".row-builder-preset select").value === "compact"`,
+        ready: `(document.querySelectorAll(".crew-item").length === 3 && ${shows(".crew-item.state-waiting")} && ${shows(".gate-card")})`,
       },
-      { run: BLUR, ready: reveal(".row-builder", "start") },
+    ],
+  },
+  {
+    // Settings > Sub-agents: the definitions with their figures and models, the default models
+    // and the copies for Codex CLI.
+    name: "sub-agents",
+    file: "hangar-sub-agents",
+    maxBytes: 300 * KB,
+    layout: { snapLayout: "single", closedGroups: ["newSession"] },
+    // A tall settings dialog, so the defaults and the first agents show together.
+    storage: { "hangar.settingsDialogSize": { width: 1100, height: 800 } },
+    steps: [
+      { run: click(".footer-settings"), ready: shows("[role=tab]", "Sub-agents") },
+      { run: click("[role=tab]", "Sub-agents"), ready: shows(".sub-agent-row") },
+      {
+        ready: `(document.querySelectorAll(".sub-agent-row").length >= 5 && ${shows(".sub-agent-copy", "provided")})`,
+      },
+      { run: BLUR, ready: "true" },
+    ],
+  },
+  {
+    // Changes > Timeline: the silent snapshots after each agent step; one step open with its
+    // changes and the way back.
+    name: "timeline",
+    file: "hangar-timeline",
+    maxBytes: 300 * KB,
+    layout: {
+      snapLayout: "single",
+      closedGroups: ["newSession"],
+      sideOpen: true,
+      sideTab: "changes",
+    },
+    settled: `(${working(1)} && ${shows(".session", "done")})`,
+    steps: [
+      { run: click(".changes-views .segment", "Timeline"), ready: shows(".commit-list .commit") },
+      {
+        run: `document.querySelectorAll(".commit-list .commit-head")[2].click() || true`,
+        ready: `(${shows(".timeline-restore")} && ${shows(".commit-detail .change-file")})`,
+      },
+      { run: BLUR, ready: "true" },
+    ],
+  },
+  {
+    // The arena: one task for Claude Code, Codex CLI and Gemini CLI, then the comparison with
+    // the leader marked and "Take over" for each.
+    name: "arena",
+    file: "hangar-arena",
+    maxBytes: 300 * KB,
+    layout: { closedGroups: ["newSession"] },
+    boot: `document.querySelectorAll(".session").length === 2`,
+    settled: "true",
+    steps: [
+      ...appMenu("File", "Arena"),
+      { ready: shows(".arena-task") },
+      {
+        run: typeInto(
+          ".arena-task",
+          "Add retries with exponential backoff to the payment webhook and cover them with tests.",
+        ),
+        ready: `document.querySelector(".arena-task").value.length > 20`,
+      },
+      {
+        run: click(".arena-agent", "Gemini CLI"),
+        ready: shows(".arena-agent input:checked", null),
+      },
+      {
+        run: typeInto(".arena .text-input:not(.arena-task)", "pnpm test"),
+        ready: `[...document.querySelectorAll(".arena .text-input")].some((el) => el.value === "pnpm test")`,
+      },
+      { run: click(".arena .primary-button", "Start arena"), ready: shows(".session", "Arena") },
+      ...appMenu("File", "Arena"),
+      {
+        ready: `(document.querySelectorAll(".arena-row").length === 3 && document.querySelectorAll(".arena-state.done").length === 3 && document.querySelectorAll(".arena-tests.passed, .arena-tests.failed").length === 3 && ${shows(".arena-lead")})`,
+        timeout: 90_000,
+      },
+      { run: BLUR, ready: "true" },
+    ],
+  },
+  {
+    // View > Costs: tokens and estimated cost per session today, the last seven days as bars and
+    // the daily budget partly used.
+    name: "costs",
+    file: "hangar-costs",
+    maxBytes: 300 * KB,
+    layout: { snapLayout: "single", closedGroups: ["newSession"] },
+    steps: [
+      ...appMenu("View", "Costs"),
+      { ready: shows(".cost-dialog .cost-row") },
+      { run: BLUR, ready: "true" },
+    ],
+  },
+  {
+    // Dictation: Ctrl+Shift+Space held on the Claude Code pane; a sentence dictated a moment ago
+    // stands in the prompt.
+    name: "dictation",
+    file: "hangar-dictation",
+    maxBytes: 300 * KB,
+    layout: { snapLayout: "single", closedGroups: ["newSession"], fontSize: 16 },
+    settled: `(${working(1)} && ${shows(".session", "done")})`,
+    steps: [
+      { run: holdDictation, ready: shows(".dictation-indicator.recording") },
+      { run: BLUR, ready: "true" },
     ],
   },
 ];
@@ -323,11 +361,15 @@ async function render(page, url, scene, scheme, version) {
       ...scene.layout,
     },
     "readmeShots.scene": scene.name,
+    ...scene.storage,
     "hangar.settings": {
       language: "en",
       theme: "system",
       cursorBlink: false,
       subAgentExcerpts: true,
+      // The program badge as an avatar, so a session started as a sub-agent wears its figure.
+      rowStyle: "avatar",
+      ...scene.settings,
     },
   };
   await page.evaluate(`(() => {
@@ -341,22 +383,9 @@ async function render(page, url, scene, scheme, version) {
 
   const shown =
     version.build === null ? version.version.replace("+", "-") : `${version.base}-${version.build}`;
-  await waitFor(
-    () =>
-      page.evaluate(`(() => {
-        const sessions = document.querySelectorAll(".session");
-        const text = document.body.innerText;
-        const version = document.querySelector(".brand-version");
-        return (
-          sessions.length === 5 &&
-          text.includes("question") &&
-          text.includes("working") &&
-          version !== null &&
-          version.textContent.includes(${JSON.stringify(shown)})
-        );
-      })()`),
-    { what: `five sessions, an agent working, Aider asking and version ${shown}` },
-  );
+  await waitFor(() => page.evaluate(scene.boot ?? BOOT(shown)), {
+    what: `the started app (version ${shown})`,
+  });
   await page.evaluate("document.fonts.ready.then(() => true)");
   // The version (with its beta badge) must be readable, not cut off with an ellipsis. If this
   // fails, raise SIDEBAR_WIDTH.
@@ -370,6 +399,7 @@ async function render(page, url, scene, scheme, version) {
   for (const [index, step] of [{ ready: scene.settled ?? SETTLED }, ...scene.steps].entries()) {
     if (step.run) await page.evaluate(step.run);
     await waitFor(() => page.evaluate(step.ready), {
+      timeout: step.timeout ?? 20_000,
       what: index === 0 ? "the settled sidebar" : `step ${index} of the scene ${scene.name}`,
     });
   }

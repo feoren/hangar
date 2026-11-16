@@ -34,7 +34,7 @@ your own accounts, on your own machine. The desktop app is open source under the
 
 <picture>
   <source media="(prefers-color-scheme: light)" srcset="docs/images/hangar-light.png">
-  <img alt="Hangar with Claude Code, Codex CLI in its own worktree and Gemini CLI side by side; the sidebar shows each session's state, folder, branch, CPU and memory use in aligned columns, Claude Code's sub-agents and context meter, Aider asking a question, a PowerShell session with a dev server and two teammates online" src="docs/images/hangar-dark.png">
+  <img alt="Hangar with a Claude Code session whose backend and tester sub-agents stand as figures in the crew column beside its terminal, a second Claude Code session started as the security sub-agent wearing its figure and asking a question, Codex CLI working in its own worktree, Gemini CLI done and a PowerShell session; each sidebar row shows state, folder, branch, CPU and memory, the active one also its context use" src="docs/images/hangar-dark.png">
 </picture>
 
 ## Features
@@ -52,10 +52,15 @@ your own accounts, on your own machine. The desktop app is open source under the
   agent session takes its name from your first prompt, so several sessions in one project stay
   apart. Each row shows its state, folder and branch, and its CPU, memory and GPU use in aligned
   columns. Hovering a row shows that session's last lines in their colors without switching to it.
-- **A terminal that feels like an editor.** A click in the prompt line moves the cursor there, and
-  Shift+Enter starts a new line in an agent's prompt instead of sending it. Web addresses and
-  existing files and folders in the output open with one click; with Shift held, each folder of a
-  path opens on its own.
+- **A terminal that feels like an editor.** A click in the prompt line moves the cursor there without
+  taking the agent's grey suggestion, Backspace or Delete removes marked text, also across the rows
+  of a long, wrapped prompt, and Shift+Enter starts a new line in an agent's prompt instead of
+  sending it. Your last prompt stays visible above an agent's terminal; a click jumps to the line
+  you sent it from. Web addresses and existing files and folders in the output open with one click;
+  with Shift held, each folder of a path opens on its own.
+- **Dictation on your own computer.** Hold Ctrl+Shift+Space, speak and let go: the text lands in the
+  prompt of the active session. Speech is recognized locally, nothing is sent anywhere. Turn it on
+  under _Settings > Dictation_.
 - **One instruction file for all agents.** Write your rules once in HANGAR.md and Hangar hands them
   to every agent that accepts extra instructions (Claude Code, Codex CLI, Aider), without touching
   your repository. An agent started in a fresh worktree first checks for new upstream commits and
@@ -65,6 +70,8 @@ your own accounts, on your own machine. The desktop app is open source under the
   commands to a profile.
 - **Queue the next message.** Write your next instruction while an agent works; Hangar sends it as
   soon as the agent is done and holds it back while the agent asks you something.
+- **Hand over to another agent.** "Hand over to ..." in the session menu starts another installed
+  agent in the same folder and inserts the last request, the changed files and your notes.
 - **Side by side.** Show two, three or four sessions at once, arrange them by dragging and resize
   them by dragging the lines between them.
 - **Quick access.** Ctrl+Shift+P finds sessions, programs, files, recent commits, settings and every
@@ -96,10 +103,33 @@ your own accounts, on your own machine. The desktop app is open source under the
   says so quietly, and the session menu offers its last lines and Ctrl+C. No sound, no alarm.
 - **Your colors for every state.** Working, done, waiting and paused each get their own color, pulse
   strength and pulse duration, previewed live in the settings.
+- **Costs at a glance.** Tokens and estimated costs per session and per day for Claude Code, in the
+  peek and under _View > Costs_, with an optional daily budget that tells you once when it is reached.
 - **Watch sub-agents work.** The sub-agents of a Claude Code session appear as a tree below it, each
   with what it does right now, its run time and its tokens. One click shows a sub-agent beside the
   terminal the way Claude Code itself does, with recognizable keys and passwords masked; drag the
   line between them to give either side more room, and close finished ones with one click.
+- **Your crew beside the terminal.** Running sub-agents stand as figures in a column next to the
+  agent's terminal, each on a plinth with its name whose color shows its state (working, waiting
+  for you, done), and a speech bubble says what it is doing right now, such as "Reading parser.rs".
+  A narrow window shows a strip of faces instead; the session menu shows or hides the crew.
+
+### Sub-agents
+
+- **Your sub-agents in one place.** _Settings > Sub-agents_ lists your Claude Code agents from
+  `~/.claude/agents` and your projects, and Codex CLI's own agent files. Add a new one by pasting it
+  or from a file; Hangar never replaces a file unasked.
+- **A figure for every agent.** Each sub-agent wears a whole figure: one of twelve bundled ones or
+  your own image, also animated. A session started as a sub-agent wears it in the sidebar, and the
+  crew column shows it while the sub-agent works.
+- **Start as an agent.** The arrow beside Claude Code starts a session as one of your sub-agents
+  (`claude --agent`), also from quick access.
+- **Models per agent and per program.** Pick the model of each sub-agent (Opus, Sonnet, Haiku, Fable
+  or a model id for Claude Code; a model and reasoning effort for Codex CLI) and a default model for
+  all sub-agents of a program, which Hangar sets for every session it starts.
+- **The same crew in every agent.** Hangar provides your Claude Code sub-agents to Codex CLI as well,
+  so both work with the same team. A file of yours with the same name is kept as a `.bak`, and in
+  projects only files Git does not track are replaced.
 - **Session reports.** Export a Claude Code session as a Markdown report with its prompts, the
   agent's answers, one line per tool call, sub-agent runs with their tokens, the open changes and
   the commits made meanwhile.
@@ -109,6 +139,9 @@ your own accounts, on your own machine. The desktop app is open source under the
 
 ### Changes and files
 
+- **Go back in time.** The timeline in the Changes tab quietly saves your files after each agent
+  step, outside your repository. Click a step to see its changes and go back to any saved state; the
+  current state is saved first.
 - **Review and commit in place.** The Changes tab lists the files a session changed, collapsed for an
   overview, and the recent commits. Stage, unstage or discard a file or everything at once, write a
   commit or ask the agent for a message, and click a diff line to send the agent a comment about it.
@@ -135,6 +168,9 @@ your own accounts, on your own machine. The desktop app is open source under the
   removes the safe ones. A worktree with changes, ignored files or unmerged commits stays.
 - **Overlap warnings.** Hangar notices when two sessions change the same file or even the same
   lines, also across worktrees of the same repository.
+- **The agent arena.** Give one task to two to four agents, each in its own worktree from the same
+  commit. Compare changed files, lines, time and the result of your test command, then take over
+  the winner's changes into your project folder, uncommitted.
 
 ### Notes
 
@@ -169,7 +205,7 @@ your own accounts, on your own machine. The desktop app is open source under the
   seven bundled coding fonts, every one shown in its own colors and typeface. Switch between light
   and dark with one click.
 - **Your own session row.** Under Appearance you arrange the parts of every session row yourself:
-  drag them into place, pick a form for each and hide what you don't need. Fourteen templates give
+  drag them into place, pick a form for each and hide what you don't need. Fifteen templates give
   you a head start, previewed live.
 - **Easy on the battery.** On battery Hangar polls less often and holds its animations still; a
   small leaf in the system bar shows that saving is on (Windows and Linux).
@@ -178,6 +214,8 @@ your own accounts, on your own machine. The desktop app is open source under the
 - **Always up to date.** Hangar updates itself with signed updates. It looks for new versions of
   your agents every 30 minutes and whenever you return to the window, and offers the update right
   away; programs from the Microsoft Store are left to the Store.
+- **Settings your size.** Drag the settings window larger or smaller by its edges and corners; it
+  remembers its size, and every section opens at its top.
 - **One window.** Starting Hangar a second time brings the running window to the front instead of
   opening another one.
 
@@ -187,49 +225,49 @@ your own accounts, on your own machine. The desktop app is open source under the
   <tr>
     <td width="50%" valign="top">
       <picture>
-        <source media="(prefers-color-scheme: light)" srcset="docs/images/hangar-home-light.png">
-        <img alt="The home view: a calendar of the commits of the last year above one card per repository with its sessions, open changes, recent commits, team reservations and a dev server" src="docs/images/hangar-home-dark.png">
+        <source media="(prefers-color-scheme: light)" srcset="docs/images/hangar-crew-light.png">
+        <img alt="The crew column beside a Claude Code team session: backend and tester working on blue plinths, security waiting for an OK on an amber plinth, each with a speech bubble, while the command guard asks about git clean -fdx above the terminal" src="docs/images/hangar-crew-dark.png">
       </picture>
-      <br><sub>The home view: your commit calendar and one card per project with sessions, changes, commits and dev servers.</sub>
+      <br><sub>Your crew beside the terminal: who works, who waits, and what each one does right now.</sub>
     </td>
     <td width="50%" valign="top">
       <picture>
-        <source media="(prefers-color-scheme: light)" srcset="docs/images/hangar-queue-light.png">
-        <img alt="The Queue message dialog over a working Claude Code session, with the next instruction typed in and the note that Hangar sends it once the session is done" src="docs/images/hangar-queue-dark.png">
+        <source media="(prefers-color-scheme: light)" srcset="docs/images/hangar-sub-agents-light.png">
+        <img alt="Settings, Sub-agents: default models for Claude Code and Codex CLI, the switch that provides the sub-agents in Codex CLI, and the backend, developer and frontend sub-agents with their figures and a model per program" src="docs/images/hangar-sub-agents-dark.png">
       </picture>
-      <br><sub>Queue the next message while the agent works; Hangar sends it once the session is done.</sub>
-    </td>
-  </tr>
-  <tr>
-    <td width="50%" valign="top">
-      <picture>
-        <source media="(prefers-color-scheme: light)" srcset="docs/images/hangar-guard-light.png">
-        <img alt="A team session wants to run git push --force; the command guard shows the command with Allow once and Block while the agent waits" src="docs/images/hangar-guard-dark.png">
-      </picture>
-      <br><sub>The command guard stops risky shell commands of team sessions until you decide.</sub>
-    </td>
-    <td width="50%" valign="top">
-      <picture>
-        <source media="(prefers-color-scheme: light)" srcset="docs/images/hangar-review-light.png">
-        <img alt="The Daily review for one day: active time, sessions, projects and commits, each project with its sessions and their times, the commits and the changed files" src="docs/images/hangar-review-dark.png">
-      </picture>
-      <br><sub>The daily review: what ran where, for how long, and what got committed.</sub>
+      <br><sub>Sub-agents with figures, a model per agent and per program, provided to Codex CLI as well.</sub>
     </td>
   </tr>
   <tr>
     <td width="50%" valign="top">
       <picture>
-        <source media="(prefers-color-scheme: light)" srcset="docs/images/hangar-worktrees-light.png">
-        <img alt="The Clean up worktrees dialog listing the worktrees Hangar created with their state (in use, merged, changes, own commits, folder missing), size and age, and a button that removes the safe ones" src="docs/images/hangar-worktrees-dark.png">
+        <source media="(prefers-color-scheme: light)" srcset="docs/images/hangar-timeline-light.png">
+        <img alt="The Changes panel on its Timeline tab: six agent steps named after their prompts, one opened with its two changed files and Go back to this state" src="docs/images/hangar-timeline-dark.png">
       </picture>
-      <br><sub>Clean up worktrees: see each one's state and size, remove the safe ones in one go.</sub>
+      <br><sub>The timeline saves your files after every agent step; go back to any of them.</sub>
     </td>
     <td width="50%" valign="top">
       <picture>
-        <source media="(prefers-color-scheme: light)" srcset="docs/images/hangar-row-builder-light.png">
-        <img alt="Settings, Appearance, Session row: a live example, the Compact template and the row parts in four lines, ready to drag, with hidden parts and the frame and spacing choices" src="docs/images/hangar-row-builder-dark.png">
+        <source media="(prefers-color-scheme: light)" srcset="docs/images/hangar-arena-light.png">
+        <img alt="The Arena comparison of Claude Code, Codex CLI and Gemini CLI on one task: state, time, changed files, lines and tests, Claude Code leading, a Take over button per agent" src="docs/images/hangar-arena-dark.png">
       </picture>
-      <br><sub>Build your own session row from templates or by dragging its parts.</sub>
+      <br><sub>The arena: one task, three agents, compare and take over the winner.</sub>
+    </td>
+  </tr>
+  <tr>
+    <td width="50%" valign="top">
+      <picture>
+        <source media="(prefers-color-scheme: light)" srcset="docs/images/hangar-costs-light.png">
+        <img alt="The Costs dialog: today's tokens and estimated cost against a 25 dollar daily budget, the sessions of the day and the last seven days as bars" src="docs/images/hangar-costs-dark.png">
+      </picture>
+      <br><sub>Tokens and estimated costs per session and day, with a daily budget.</sub>
+    </td>
+    <td width="50%" valign="top">
+      <picture>
+        <source media="(prefers-color-scheme: light)" srcset="docs/images/hangar-dictation-light.png">
+        <img alt="A Claude Code session while the dictation key is held: the Listening pill with its level on the terminal and the dictated sentence in the prompt" src="docs/images/hangar-dictation-dark.png">
+      </picture>
+      <br><sub>Hold Ctrl+Shift+Space and speak; the text lands in the prompt, recognized on your own computer.</sub>
     </td>
   </tr>
 </table>

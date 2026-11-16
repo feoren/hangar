@@ -1087,3 +1087,8 @@ edited by hand keeps naming the original, runs take one lock and report issues w
 that Settings shows. A marker names only a backup of its own definition, a removal reads the
 marker again, and a model change never writes through a linked project agents folder. Pages
 changed: [[sub-agent-library]].
+
+## [2026-11-16] update | Seven screenshot scenes for 0.9.0
+The README screenshots for 0.9.0 are the overview plus `crew`, `sub-agents`, `timeline`, `arena`,
+`costs` and `dictation`; they replace `home`, `queue`, `guard`, `review`, `worktrees` and
+`row-builder`. Pages changed: [[release-rollout]].
