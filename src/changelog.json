@@ -2,7 +2,22 @@
   {
     "version": "0.10.0",
     "date": null,
-    "items": []
+    "items": [
+      {
+        "de": "Sessions im Hintergrund zeigen „Fertig“ nur noch nach einem echten Auftrag, nicht mehr, wenn sich nur die Statuszeile neu zeichnet.",
+        "en": "Background sessions show “Done” only after a real task, no longer when just the status line redraws.",
+        "el": "Οι συνεδρίες στο παρασκήνιο δείχνουν «Έτοιμο» μόνο μετά από πραγματική εργασία, όχι όταν απλώς ξανασχεδιάζεται η γραμμή κατάστασης.",
+        "es": "Las sesiones en segundo plano muestran «Listo» solo tras una tarea real, ya no cuando solo se redibuja la línea de estado.",
+        "fr": "Les sessions en arrière-plan n’affichent « Terminé » qu’après une vraie tâche, plus quand seule la ligne d’état se redessine.",
+        "it": "Le sessioni in background mostrano «Finito» solo dopo un vero compito, non più quando si ridisegna solo la riga di stato.",
+        "ja": "バックグラウンドのセッションは、実際のタスクの後だけ「完了」と表示し、ステータス行の再描画だけでは表示しません。",
+        "pl": "Sesje w tle pokazują „Gotowe” tylko po prawdziwym zadaniu, a nie wtedy, gdy odświeża się tylko pasek stanu.",
+        "pt": "Sessões em segundo plano mostram “Pronto” só após uma tarefa real, não mais quando apenas a linha de status se redesenha.",
+        "ru": "Сессии в фоне показывают «Готово» только после настоящей задачи, а не когда просто перерисовывается строка состояния.",
+        "tr": "Arka plandaki oturumlar “Bitti”yi yalnızca gerçek bir görevden sonra gösterir, sadece durum satırı yeniden çizildiğinde değil.",
+        "zh": "后台会话只在真正的任务之后显示“完成”，仅状态栏重绘时不再显示。"
+      }
+    ]
   },
   {
     "version": "0.9.0",

@@ -2,6 +2,11 @@
 // for `quietMs`, has rung the bell (BEL), or its process has exited. It is only reported while
 // the user is not looking. Pure logic with an injected clock, so it can be tested.
 //
+// A quiet end only counts as done after a task: something was submitted (Enter, "Send to
+// several", an agent command) or the output ran for `sustainedWorkMs`. Agent CLIs redraw their
+// prompt or status line without working, and such a redraw easily passes `minBurstBytes`; without
+// this rule every background tab with a ticking status line turned "done".
+//
 // Performance: `output` runs for every chunk and is therefore cheap. There is at most one timer per
 // session; instead of resetting it on every chunk, it recomputes the remaining time when it fires.
 // Only state changes are reported, never individual chunks.
@@ -27,6 +32,8 @@ export const ATTENTION_TIMING = {
   resizeGraceMs: 600,
   /** Echo of the user's own input and redraws after a focus change (focus reports, DECSET 1004). */
   echoGraceMs: 400,
+  /** Output this long counts as work without a submitted task (an agent going on by itself). */
+  sustainedWorkMs: 10_000,
 } as const;
 
 export interface Clock {
@@ -56,6 +63,10 @@ export class AttentionTracker {
   private timer: number | null = null;
   /** The user ended the process themselves: the exit that follows is no news to them. */
   private stopping = false;
+  /** Something was submitted since the last working phase ended; see `submitted`. */
+  private task = false;
+  /** When the current working phase started. */
+  private workingSince = 0;
 
   constructor(
     private readonly clock: Clock,
@@ -91,7 +102,10 @@ export class AttentionTracker {
     this.burstBytes += bytes;
     this.lastOutput = now;
     if (this.burstBytes >= ATTENTION_TIMING.minBurstBytes) {
-      if (this.current !== "working") this.interrupting = false;
+      if (this.current !== "working") {
+        this.interrupting = false;
+        this.workingSince = now;
+      }
       this.ending = null;
       this.set("working");
     }
@@ -122,6 +136,14 @@ export class AttentionTracker {
     if (this.current === "working") this.interrupting = true;
   }
 
+  /**
+   * Something was submitted to the program (Enter, a paste followed by Enter): the next working
+   * phase is a task, and its quiet end counts as done.
+   */
+  submitted(): void {
+    this.task = true;
+  }
+
   /** The session was shown. */
   seen(): void {
     if (this.current === "attention") this.set("idle");
@@ -149,6 +171,7 @@ export class AttentionTracker {
    */
   stopRequested(): void {
     this.stopping = true;
+    this.task = false;
     this.cancel();
     this.ending = null;
     this.set("idle");
@@ -166,6 +189,7 @@ export class AttentionTracker {
     this.ignoreUntil = Number.NEGATIVE_INFINITY;
     this.ending = null;
     this.interrupting = false;
+    this.task = false;
     this.set("idle");
   }
 
@@ -185,6 +209,7 @@ export class AttentionTracker {
   private alert(reason: AttentionReason): void {
     if (!this.config.enabled) return;
     this.cancel();
+    this.task = false;
     this.ending = reason;
     if (this.isWatched()) this.set("idle");
     else this.set("attention", reason);
@@ -210,9 +235,13 @@ export class AttentionTracker {
     }
     this.burstBytes = 0;
     if (this.current !== "working") return;
-    this.ending = this.interrupting ? null : "quiet";
+    const task =
+      this.task || this.lastOutput - this.workingSince >= ATTENTION_TIMING.sustainedWorkMs;
+    this.task = false;
+    // A redraw without a task ends like an interruption: resting, nothing finished.
+    this.ending = this.interrupting || !task ? null : "quiet";
     this.interrupting = false;
-    if (this.isWatched()) this.set("idle");
+    if (this.isWatched() || !task) this.set("idle");
     else this.set("attention", "quiet");
   }
 

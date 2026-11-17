@@ -318,6 +318,8 @@ export class SessionTerminal {
     this.term.onData((data) => {
       // Ctrl+C or a lone Escape interrupts an agent's turn; its end is then no finished task.
       if (data === "\x03" || data === "\x1b") this.attention.interrupted();
+      // Enter on its own; a paste arrives as one chunk and only becomes a task with its Enter.
+      if (data === "\r") this.attention.submitted();
       this.send(data);
       this.trackTyped(data);
     });
@@ -931,6 +933,7 @@ export class SessionTerminal {
   /** Enter, as if typed: runs what was pasted before. */
   submit(): void {
     this.attention.typed();
+    this.attention.submitted();
     this.typedSinceTaken = true;
     this.send("\r");
     this.trackTyped("\r");

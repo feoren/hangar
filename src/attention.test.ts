@@ -62,9 +62,15 @@ beforeEach(() => {
   );
 });
 
+/** A submitted task and its first output, as Enter and the agent's answer produce them. */
+function task(bytes = BIG): void {
+  tracker.submitted();
+  tracker.output(bytes);
+}
+
 describe("output and quiet", () => {
   it("is working on output and needs attention after a quiet period", () => {
-    tracker.output(BIG);
+    task();
     expect(tracker.state).toBe("working");
     clock.advance(QUIET - 1);
     expect(tracker.state).toBe("working");
@@ -74,7 +80,7 @@ describe("output and quiet", () => {
   });
 
   it("further output postpones the notice", () => {
-    tracker.output(BIG);
+    task();
     clock.advance(2000);
     tracker.output(10);
     clock.advance(2000);
@@ -94,7 +100,7 @@ describe("output and quiet", () => {
 
   it("reports nothing while the user is watching", () => {
     watched = true;
-    tracker.output(BIG);
+    task();
     clock.advance(QUIET);
     expect(tracker.state).toBe("idle");
     expect(changes).toEqual(["working", "idle"]);
@@ -102,7 +108,7 @@ describe("output and quiet", () => {
 
   it("asks whether the user is watching only when the timer fires", () => {
     watched = true;
-    tracker.output(BIG);
+    task();
     watched = false; // user switches away while the agent works
     clock.advance(QUIET);
     expect(tracker.state).toBe("attention");
@@ -125,7 +131,7 @@ describe("output and quiet", () => {
 
   it("the quiet time is configurable", () => {
     tracker.setConfig({ enabled: true, quietMs: 10_000 });
-    tracker.output(BIG);
+    task();
     clock.advance(QUIET);
     expect(tracker.state).toBe("working");
     clock.advance(7000);
@@ -146,7 +152,7 @@ describe("false alarms", () => {
   it("output counts again after the grace period", () => {
     tracker.resized();
     clock.advance(ATTENTION_TIMING.resizeGraceMs);
-    tracker.output(BIG);
+    task();
     expect(tracker.state).toBe("working");
   });
 
@@ -154,14 +160,14 @@ describe("false alarms", () => {
     for (let i = 0; i < 10; i++) {
       tracker.resized();
       clock.advance(100);
-      tracker.output(BIG);
+      task();
     }
     expect(tracker.state).toBe("idle");
   });
 
   it("a redraw after a focus change does not count", () => {
     tracker.focusChanged();
-    tracker.output(BIG);
+    task();
     clock.advance(QUIET);
     expect(tracker.state).toBe("idle");
   });
@@ -169,7 +175,7 @@ describe("false alarms", () => {
   it("the echo of the user's own input does not count", () => {
     tracker.typed();
     clock.advance(50);
-    tracker.output(BIG);
+    task();
     clock.advance(QUIET);
     expect(tracker.state).toBe("idle");
   });
@@ -193,7 +199,7 @@ describe("immediate notices", () => {
   });
 
   it("process exit cancels a running quiet timer", () => {
-    tracker.output(BIG);
+    task();
     tracker.exited();
     expect(clock.pending).toBe(0);
     expect(tracker.state).toBe("attention");
@@ -202,9 +208,9 @@ describe("immediate notices", () => {
 
 describe("ended by the user", () => {
   it("a process ended by the user does not pulse", () => {
-    tracker.output(BIG);
+    task();
     tracker.stopRequested();
-    tracker.output(BIG); // output during shutdown
+    task(); // output during shutdown
     clock.advance(QUIET);
     tracker.exited();
     expect(tracker.state).toBe("idle");
@@ -236,7 +242,7 @@ describe("ended by the user", () => {
   it("if stopping fails, output and exit report again", () => {
     tracker.stopRequested();
     tracker.stopFailed();
-    tracker.output(BIG);
+    task();
     clock.advance(QUIET);
     expect(tracker.state).toBe("attention");
   });
@@ -254,20 +260,20 @@ describe("reset", () => {
 
   it("an open notice stays despite further output", () => {
     tracker.bell();
-    tracker.output(BIG);
+    task();
     clock.advance(QUIET);
     expect(tracker.state).toBe("attention");
     expect(changes).toEqual(["attention"]);
   });
 
   it("viewing while working keeps the working state", () => {
-    tracker.output(BIG);
+    task();
     tracker.seen();
     expect(tracker.state).toBe("working");
   });
 
   it("a restart resets everything", () => {
-    tracker.output(BIG);
+    task();
     tracker.reset();
     expect(tracker.state).toBe("idle");
     expect(clock.pending).toBe(0);
@@ -279,7 +285,7 @@ describe("disabled", () => {
     tracker.bell();
     tracker.setConfig({ enabled: false, quietMs: QUIET });
     expect(tracker.state).toBe("idle");
-    tracker.output(BIG);
+    task();
     tracker.bell();
     tracker.exited();
     clock.advance(QUIET);
@@ -305,7 +311,7 @@ describe("reason", () => {
   });
 
   it("names a quiet period after work", () => {
-    tracker.output(BIG);
+    task();
     clock.advance(QUIET);
     expect(tracker.reason).toBe("quiet");
     expect(reasons).toEqual([null, "quiet"]);
@@ -321,7 +327,7 @@ describe("reason", () => {
   });
 
   it("a bell while waiting quietly upgrades the reason without a new state", () => {
-    tracker.output(BIG);
+    task();
     clock.advance(QUIET);
     tracker.bell();
     expect(changes).toEqual(["working", "attention", "attention"]);
@@ -342,7 +348,7 @@ describe("reason", () => {
   });
 
   it("is null when nothing waits", () => {
-    tracker.output(BIG);
+    task();
     expect(tracker.reason).toBeNull();
     watched = true;
     tracker.bell();
@@ -369,7 +375,7 @@ describe("why a working phase ended", () => {
   it("says quiet when the program went quiet, also while watched", () => {
     const seen = endings();
     watched = true;
-    tracker.output(BIG);
+    task();
     clock.advance(QUIET);
     expect(tracker.state).toBe("idle");
     expect(seen).toEqual([null, "quiet"]);
@@ -378,7 +384,7 @@ describe("why a working phase ended", () => {
   it("says bell for a bell, also while watched, where the state is only idle", () => {
     const seen = endings();
     watched = true;
-    tracker.output(BIG);
+    task();
     tracker.bell();
     expect(tracker.state).toBe("idle");
     expect(seen.at(-1)).toBe("bell");
@@ -386,20 +392,20 @@ describe("why a working phase ended", () => {
 
   it("says exit for an exit and nothing for a stop by the user", () => {
     const seen = endings();
-    tracker.output(BIG);
+    task();
     tracker.exited();
     expect(seen.at(-1)).toBe("exit");
     tracker.reset();
-    tracker.output(BIG);
+    task();
     tracker.stopRequested();
     expect(seen.at(-1)).toBeNull();
   });
 
   it("says nothing when the user interrupted the work (Ctrl+C, Escape)", () => {
     const seen = endings();
-    tracker.output(BIG);
+    task();
     tracker.interrupted();
-    tracker.output(BIG);
+    task();
     clock.advance(QUIET);
     expect(tracker.state).toBe("attention");
     expect(seen.at(-1)).toBeNull();
@@ -407,11 +413,11 @@ describe("why a working phase ended", () => {
 
   it("forgets an interruption once the next working phase starts", () => {
     const seen = endings();
-    tracker.output(BIG);
+    task();
     tracker.interrupted();
     clock.advance(QUIET);
     tracker.seen();
-    tracker.output(BIG);
+    task();
     clock.advance(QUIET);
     expect(seen.at(-1)).toBe("quiet");
   });
@@ -419,18 +425,75 @@ describe("why a working phase ended", () => {
   it("ignores an interruption outside of work", () => {
     const seen = endings();
     tracker.interrupted();
-    tracker.output(BIG);
+    task();
     clock.advance(QUIET);
     expect(seen.at(-1)).toBe("quiet");
   });
 
   it("forgets the ending once new work starts", () => {
     const seen = endings();
+    task();
+    clock.advance(QUIET);
+    tracker.seen();
+    task();
+    expect(tracker.state).toBe("working");
+    expect(seen.at(-1)).toBeNull();
+  });
+});
+
+describe("only a task ends as done", () => {
+  it("a redraw without a submitted task rests instead of waiting", () => {
+    // A status line or prompt redraw in a background tab: output, then quiet, but no task.
+    tracker.output(BIG);
+    expect(tracker.state).toBe("working");
+    clock.advance(QUIET);
+    expect(tracker.state).toBe("idle");
+    expect(tracker.endedBy).toBeNull();
+    expect(changes).toEqual(["working", "idle"]);
+  });
+
+  it("a submitted task ends as done after the quiet period", () => {
+    tracker.submitted();
+    tracker.output(BIG);
+    clock.advance(QUIET);
+    expect(tracker.state).toBe("attention");
+    expect(tracker.reason).toBe("quiet");
+  });
+
+  it("a task counts for one working phase only", () => {
+    tracker.submitted();
     tracker.output(BIG);
     clock.advance(QUIET);
     tracker.seen();
     tracker.output(BIG);
-    expect(tracker.state).toBe("working");
-    expect(seen.at(-1)).toBeNull();
+    clock.advance(QUIET);
+    expect(tracker.state).toBe("idle");
+  });
+
+  it("long output without a task still ends as done (an agent working on its own)", () => {
+    tracker.output(BIG);
+    for (let i = 0; i < ATTENTION_TIMING.sustainedWorkMs / 1000; i++) {
+      clock.advance(1000);
+      tracker.output(10);
+    }
+    clock.advance(QUIET);
+    expect(tracker.state).toBe("attention");
+    expect(tracker.endedBy).toBe("quiet");
+  });
+
+  it("a bell and an exit still report without a task", () => {
+    tracker.bell();
+    expect(tracker.state).toBe("attention");
+    tracker.seen();
+    tracker.exited();
+    expect(tracker.reason).toBe("exit");
+  });
+
+  it("a restart forgets the submitted task", () => {
+    tracker.submitted();
+    tracker.reset();
+    tracker.output(BIG);
+    clock.advance(QUIET);
+    expect(tracker.state).toBe("idle");
   });
 });
