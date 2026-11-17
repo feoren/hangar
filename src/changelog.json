@@ -4,6 +4,20 @@
     "date": null,
     "items": [
       {
+        "de": "Partnerprojekte: Verknüpfe Projekte auf ihrer Karte und schick per „An Partner senden“ eine Nachricht an die Agenten-Session des anderen Projekts.",
+        "en": "Partner projects: link projects on their card and use “Send to partner” to paste a message into the other project’s agent session.",
+        "el": "Συνεργαζόμενα έργα: σύνδεσε έργα στην κάρτα τους και με την «Αποστολή σε συνεργάτη» στείλε μήνυμα στη συνεδρία agent του άλλου έργου.",
+        "es": "Proyectos socios: vincula proyectos en su tarjeta y con «Enviar al socio» pega un mensaje en la sesión del agente del otro proyecto.",
+        "fr": "Projets partenaires : relie des projets sur leur carte et, avec « Envoyer au partenaire », colle un message dans la session d’agent de l’autre.",
+        "it": "Progetti partner: collega i progetti sulla loro scheda e con «Invia al partner» incolla un messaggio nella sessione dell’agente dell’altro.",
+        "ja": "パートナープロジェクト：プロジェクトカードで結び付け、「パートナーに送信」で相手のエージェントセッションにメッセージを貼り付けます。",
+        "pl": "Projekty partnerskie: połącz projekty na ich karcie i przez „Wyślij do partnera” wklej wiadomość do sesji agenta drugiego projektu.",
+        "pt": "Projetos parceiros: liga projetos no seu cartão e, com “Enviar ao parceiro”, cola uma mensagem na sessão do agente do outro projeto.",
+        "ru": "Проекты-партнёры: свяжи проекты на их карточке и через «Отправить партнёру» вставь сообщение в сессию агента другого проекта.",
+        "tr": "Ortak projeler: projeleri kartlarında bağla ve “Ortağa gönder” ile diğer projenin ajan oturumuna mesaj yapıştır.",
+        "zh": "伙伴项目：在项目卡片上关联项目，通过“发送给伙伴”把消息粘贴到另一个项目的代理会话中。"
+      },
+      {
         "de": "Sessions im Hintergrund zeigen „Fertig“ nur noch nach einem echten Auftrag, nicht mehr, wenn sich nur die Statuszeile neu zeichnet.",
         "en": "Background sessions show “Done” only after a real task, no longer when just the status line redraws.",
         "el": "Οι συνεδρίες στο παρασκήνιο δείχνουν «Έτοιμο» μόνο μετά από πραγματική εργασία, όχι όταν απλώς ξανασχεδιάζεται η γραμμή κατάστασης.",
