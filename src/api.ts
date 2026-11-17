@@ -494,6 +494,17 @@ export const api = {
    */
   deliverPartnerMessage: (from: number, to: number, partner: string, text: string) =>
     invoke<string>("deliver_partner_message", { from, to, partner, text }),
+  /** Messages agents sent that wait for the person; check with `parseWaitingMessages`. */
+  waitingMessages: () => invoke<unknown>("waiting_messages"),
+  /**
+   * The checked text of waiting message `id` for session `to` (header line first). The message
+   * keeps waiting until `closeWaitingMessage`.
+   */
+  waitingMessageText: (id: number, to: number) =>
+    invoke<string>("waiting_message_text", { id, to }),
+  /** Removes waiting message `id`: pasted into `pastedInto`, or discarded (`null`). */
+  closeWaitingMessage: (id: number, pastedInto: number | null) =>
+    invoke<null>("close_waiting_message", { id, pastedInto }),
   /** Queued message texts per session key, `null` before the first save. */
   loadMessageQueue: () => invoke<unknown>("load_message_queue"),
   /** Replaces the stored queued messages; keys are session keys (UUIDs). */
@@ -900,6 +911,11 @@ export const POWER_CHANGED = "power-changed";
 export const CLAIMS_CHANGED = "claims-changed";
 /** Signal without a payload: the gate changed; read it with `api.gateSnapshot`. */
 export const GATE_CHANGED = "gate-changed";
+/**
+ * Signal without payload: a message from a partner project's agent arrived or went (ADR 0012);
+ * read them with `waitingMessages`. Other webviews may hear it too, so it carries no text.
+ */
+export const PARTNER_MESSAGES_CHANGED = "partner-messages-changed";
 /**
  * Signal without payload: the account state changed; read it with `accountStatus`. Other webviews
  * may hear it too, so it carries nothing.

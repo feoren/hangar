@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-waiting-messages"
+description = "Enables the waiting_messages command without any pre-configured scope."
+commands.allow = ["waiting_messages"]
+
+[[permission]]
+identifier = "deny-waiting-messages"
+description = "Denies the waiting_messages command without any pre-configured scope."
+commands.deny = ["waiting_messages"]

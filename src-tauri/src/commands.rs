@@ -57,7 +57,8 @@ use crate::notes::{
 };
 use crate::notify::{self, Notifier};
 use crate::panel_window::{self, PanelMessage, PanelScope, PanelWindowError};
-use crate::partner_service::{self, PartnerServiceError, PartnerTargets};
+use crate::partner_inbox::WaitingMessage;
+use crate::partner_service::{self, PartnerInbox, PartnerServiceError, PartnerTargets};
 use crate::partners::PartnerBook;
 use crate::paste_image::{self, PasteGate, PasteImageError, PasteOutcome};
 use crate::path_links::{self, Opened, PathKind, PathLinkError};
@@ -3791,6 +3792,81 @@ pub async fn deliver_partner_message(
             eprintln!("hangar: message not logged: {error}");
         }
         Ok(pasted)
+    })
+    .await
+    .map_err(|error| PartnerServiceError::Task(error.to_string()))?
+}
+
+/// The messages agents sent with `hangar-send` that wait for the person (ADR 0012), oldest
+/// first; messages between projects that are no partners any more are dropped.
+#[tauri::command]
+pub async fn waiting_messages(
+    window: tauri::Window,
+    store: State<'_, MainStore>,
+    inbox: State<'_, PartnerInbox>,
+) -> Result<Vec<WaitingMessage>, PartnerServiceError> {
+    main_store::check_main(window.label()).map_err(PartnerServiceError::Store)?;
+    let store = store.inner().clone();
+    let inbox = inbox.inner().clone();
+    tauri::async_runtime::spawn_blocking(move || inbox.waiting(&store.load_partners()))
+        .await
+        .map_err(|error| PartnerServiceError::Task(error.to_string()))
+}
+
+/// The text to paste for waiting message `id` into session `to`, checked again and headed with
+/// the sender's short name. The message keeps waiting until `close_waiting_message`.
+#[tauri::command]
+pub async fn waiting_message_text(
+    window: tauri::Window,
+    store: State<'_, MainStore>,
+    manager: Manager<'_>,
+    inbox: State<'_, PartnerInbox>,
+    id: u64,
+    to: SessionId,
+) -> Result<String, PartnerServiceError> {
+    main_store::check_main(window.label()).map_err(PartnerServiceError::Store)?;
+    let store = store.inner().clone();
+    let inbox = inbox.inner().clone();
+    let sessions = manager.list();
+    let shells = manager.shell_profiles();
+    tauri::async_runtime::spawn_blocking(move || {
+        inbox.text_for(
+            id,
+            to,
+            &store.load_partners(),
+            &sessions,
+            &partner_service::Probe {
+                root: &partner_service::project_root,
+                is_shell: &|profile| shells.contains(profile),
+            },
+        )
+    })
+    .await
+    .map_err(|error| PartnerServiceError::Task(error.to_string()))?
+}
+
+/// Waiting message `id` was pasted into session `pasted_into`, or discarded (`null`): it goes
+/// with its text. A pasted one leaves a work log line with sender, target and time, when the
+/// sending session is still known in this run.
+#[tauri::command]
+pub async fn close_waiting_message(
+    window: tauri::Window,
+    inbox: State<'_, PartnerInbox>,
+    work_log: State<'_, WorkLog>,
+    id: u64,
+    pasted_into: Option<SessionId>,
+) -> Result<(), PartnerServiceError> {
+    main_store::check_main(window.label()).map_err(PartnerServiceError::Store)?;
+    let inbox = inbox.inner().clone();
+    let log = work_log.inner().clone();
+    tauri::async_runtime::spawn_blocking(move || {
+        let message = inbox.close(id)?;
+        if let (Some(from), Some(to)) = (message.sender, pasted_into) {
+            if let Err(error) = log.message(from, to, work_log::now_ms()) {
+                eprintln!("hangar: message not logged: {error}");
+            }
+        }
+        Ok(())
     })
     .await
     .map_err(|error| PartnerServiceError::Task(error.to_string()))?

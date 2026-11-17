@@ -87,6 +87,8 @@ pub fn changes_with(
     // or folder trust on. A gated session gets its own afterwards, from the gate, never from here.
     out.push(Change::Remove(crate::gate::TOKEN_ENV));
     out.push(Change::Remove(crate::hook_recipes::HELPER_ENV));
+    // Likewise the calling session's send token: a session gets its own from the send client.
+    out.push(Change::Remove(crate::partners::SEND_ENV));
     if inside_gate {
         out.extend(
             crate::hook_recipes::GATE_ENV_NAMES
@@ -257,6 +259,10 @@ mod tests {
             let all = changes(&none, no_cwd_lookup);
             assert!(
                 all.contains(&Change::Remove(crate::gate::TOKEN_ENV)),
+                "{all:?}"
+            );
+            assert!(
+                all.contains(&Change::Remove(crate::partners::SEND_ENV)),
                 "{all:?}"
             );
         }

@@ -29,6 +29,7 @@ use std::path::{Path, PathBuf};
 use serde::{Deserialize, Serialize, Serializer};
 
 use crate::agent_models::{DefProgram, ModelChoice};
+use crate::partner_inbox::Inbox;
 use crate::partners::PartnerBook;
 use crate::persist::{normalize_key, read_limited, write_atomic};
 
@@ -39,6 +40,8 @@ pub const TEMPLATES_FILE: &str = "workspace-templates.json";
 pub const PREFS_FILE: &str = "main-prefs.json";
 pub const SUB_AGENTS_FILE: &str = "sub-agent-settings.json";
 pub const PARTNERS_FILE: &str = "partner-projects.json";
+/// Messages agents sent to partner projects that wait for the person ([`crate::partner_inbox`]).
+pub const INBOX_FILE: &str = "partner-messages.json";
 /// Every project with its longest folder in escaped JSON, the pairs by name, with room.
 const MAX_PARTNERS_BYTES: usize = crate::partners::MAX_PROJECTS * (MAX_FOLDER_UNITS * 6 + 128)
     + crate::partners::MAX_PAIRS * 96
@@ -614,6 +617,37 @@ impl MainStore {
         book.validate()?;
         save(&self.dir.join(PARTNERS_FILE), book)
     }
+
+    /// The messages agents sent that wait for the person (ADR 0012). A missing file is an empty
+    /// inbox; a damaged one, too large or failing the checks, too, said on stderr: a planted
+    /// file must not put a text before the person that no agent sent through the checks.
+    pub fn load_inbox(&self) -> Inbox {
+        let path = self.dir.join(INBOX_FILE);
+        match read_limited(&path, crate::partner_inbox::MAX_FILE_BYTES) {
+            Ok(None) => Inbox::default(),
+            Ok(Some(bytes)) => match serde_json::from_slice::<Inbox>(&bytes) {
+                Ok(inbox) => match inbox.validate() {
+                    Ok(()) => inbox,
+                    Err(reason) => {
+                        eprintln!("hangar: ignoring {}: {reason}", path.display());
+                        Inbox::default()
+                    }
+                },
+                Err(error) => {
+                    eprintln!("hangar: ignoring {}: {error}", path.display());
+                    Inbox::default()
+                }
+            },
+            Err(reason) => {
+                eprintln!("hangar: ignoring {}: {reason}", path.display());
+                Inbox::default()
+            }
+        }
+    }
+
+    pub fn save_inbox(&self, inbox: &Inbox) -> Result<(), MainStoreError> {
+        save(&self.dir.join(INBOX_FILE), inbox)
+    }
 }
 
 #[cfg(test)]
@@ -1119,5 +1153,33 @@ mod tests {
         let mut team = serde_json::to_value(MainPrefs::default()).unwrap();
         team["startMode"] = serde_json::json!("Team");
         assert!(serde_json::from_value::<MainPrefs>(team).is_err());
+    }
+
+    #[test]
+    fn waiting_messages_survive_a_restart_but_not_a_damaged_file() {
+        let tmp = TempDir::new("main-store-inbox");
+        let store = MainStore::new(tmp.path().to_owned());
+        assert_eq!(store.load_inbox(), Inbox::default());
+        let mut inbox = Inbox::default();
+        inbox
+            .push("app", "web", "show the text".into(), 5, Some(1))
+            .unwrap();
+        store.save_inbox(&inbox).unwrap();
+        let loaded = store.load_inbox();
+        assert_eq!(loaded.messages().len(), 1);
+        assert_eq!(loaded.messages()[0].text, "show the text");
+        // The session id belongs to the run that is over.
+        assert_eq!(loaded.messages()[0].sender, None);
+
+        let path = tmp.path().join(INBOX_FILE);
+        for damaged in [
+            b"{".to_vec(),
+            br#"{"nextId":1,"messages":[{"id":1,"from":"app","to":"web","text":"a\u001b[201~","at":1}]}"#
+                .to_vec(),
+            vec![b' '; crate::partner_inbox::MAX_FILE_BYTES + 1],
+        ] {
+            std::fs::write(&path, damaged).unwrap();
+            assert_eq!(store.load_inbox(), Inbox::default());
+        }
     }
 }

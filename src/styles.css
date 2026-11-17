@@ -3663,6 +3663,26 @@ body.resizing-horizontal * {
   line-height: 0;
 }
 
+/* Messages from partner projects wait on this session (ADR 0012): a filled disc with the count at
+   the badge's bottom left. Collapsed, the click opens the session, where they wait. */
+.rail-waiting {
+  position: absolute;
+  bottom: 2px;
+  left: 5px;
+  display: grid;
+  place-items: center;
+  min-width: 14px;
+  height: 14px;
+  padding: 0 3px;
+  border: 1px solid var(--panel);
+  border-radius: 7px;
+  background: var(--accent);
+  color: var(--panel);
+  font-size: 10px;
+  font-weight: 700;
+  line-height: 1;
+}
+
 /* Hover, active and the breathing attention tint colour the button itself: follow it. */
 .rail-session:hover .rail-overlap,
 .rail-session.active .rail-overlap,
@@ -13160,4 +13180,69 @@ body.session-dragging .session-actions {
 .crew-hide:focus-visible {
   outline: 2px solid var(--accent);
   outline-offset: 1px;
+}
+
+/* Messages agents of partner projects sent (ADR 0012), below the row of each running agent session
+   of the project they wait at. Nothing is pasted before a click. */
+.waiting-messages-row {
+  margin: -1px 0 4px;
+}
+
+.waiting-messages {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.waiting-message {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 6px 8px;
+  font-size: 12px;
+  line-height: 1.45;
+  color: var(--text);
+  background: var(--panel-raised);
+  border: 1px solid color-mix(in srgb, var(--accent) 45%, var(--border));
+  border-radius: 6px;
+}
+
+.waiting-message-from {
+  font-weight: 600;
+  overflow-wrap: anywhere;
+}
+
+.waiting-message-text {
+  max-height: 9em;
+  overflow-y: auto;
+  color: var(--muted);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.waiting-message-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+/* For a moment after a message appears its buttons take no click (useArmDelay.ts). */
+.waiting-message .secondary-button {
+  transition: opacity 160ms ease-out;
+}
+
+.waiting-message .secondary-button[aria-disabled="true"],
+.waiting-message .secondary-button:disabled {
+  opacity: 0.55;
+  cursor: default;
+}
+
+.waiting-message-send {
+  border-color: color-mix(in srgb, var(--accent) 55%, var(--border));
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .waiting-message .secondary-button {
+    transition: none;
+  }
 }

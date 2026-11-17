@@ -21,6 +21,7 @@ import {
   api,
   errorText,
   NOTIFICATION_ACTIVATED,
+  PARTNER_MESSAGES_CHANGED,
   parseActivatedSession,
   parseExportResult,
   TRAY_QUIT,
@@ -123,6 +124,12 @@ import {
 import { HandoverDialog } from "./HandoverDialog";
 import { PartnerMessageDialog, type PartnerSend, type TargetView } from "./PartnerMessageDialog";
 import { deliverMessage, deliveryPlan, parsePartnerTargets } from "./partnerMessage";
+import {
+  inboxBySession,
+  parseWaitingMessages,
+  unshownMessages,
+  type WaitingMessage,
+} from "./partnerInbox";
 import {
   EMPTY_BOOK,
   parsePartnerBook,
@@ -847,6 +854,16 @@ export function App() {
   );
   /** The partner projects (ADR 0012), as the backend keeps them. */
   const [partnerBook, setPartnerBook] = useState<PartnerBook>(EMPTY_BOOK);
+  /** Messages agents of partner projects sent that wait for the person (partnerInbox.ts). */
+  const [waitingMessages, setWaitingMessages] = useState<WaitingMessage[]>([]);
+  /** Waiting messages whose paste runs right now. */
+  const [inboxBusy, setInboxBusy] = useState<ReadonlySet<number>>(() => new Set());
+  /** Counts the changes of the waiting messages: every card arms anew (WaitingMessages.tsx). */
+  const [inboxGeneration, setInboxGeneration] = useState(0);
+  /** The ids of the last list read, to tell a change from the same list read again. */
+  const lastWaitingIds = useRef("");
+  /** The waiting messages already seen, so an arrival is announced once. */
+  const seenWaiting = useRef<Set<number> | null>(null);
   /** A handover text that was not pasted (the new agent never turned bracketed paste on). */
   const [unpastedHandover, setUnpastedHandover] = useState<{
     text: string;
@@ -1159,6 +1176,42 @@ export function App() {
     setError(errorText(e));
   }, []);
 
+  /** Reads the waiting messages (on start and after each `partner-messages-changed`). */
+  const loadWaitingRef = useRef(() => {
+    api
+      .waitingMessages()
+      .then((value) => {
+        const next = parseWaitingMessages(value);
+        const ids = next.map((message) => message.id).join(",");
+        if (ids !== lastWaitingIds.current) {
+          lastWaitingIds.current = ids;
+          setInboxGeneration((generation) => generation + 1);
+        }
+        setWaitingMessages(next);
+      })
+      .catch((e: unknown) => {
+        setError(errorText(e));
+      });
+  });
+
+  // A new message no row can show (no agent session runs in its project) is named once; one a
+  // row shows speaks for itself. After a restart that includes the messages that still wait.
+  useEffect(() => {
+    const seen = seenWaiting.current;
+    seenWaiting.current = new Set(waitingMessages.map((message) => message.id));
+    if (seen === null) return;
+    const fresh = waitingMessages.filter((message) => !seen.has(message.id));
+    if (fresh.length === 0) return;
+    const rows = inboxBySession(
+      fresh,
+      partnerBook,
+      state.sessions,
+      (profileId) => profiles.find((profile) => profile.id === profileId)?.command,
+    );
+    const [first] = unshownMessages(fresh, rows);
+    if (first !== undefined) setStartHint(t("inbox.arrived", { from: first.from, to: first.to }));
+  }, [waitingMessages, partnerBook, state.sessions, profiles, t]);
+
   /**
    * Loads the profile list. Focus and visibility often both fire on return; the running
    * query acts as a lock, so two responses never race each other.
@@ -1234,6 +1287,7 @@ export function App() {
         setPartnerBook(parsePartnerBook(value));
       })
       .catch(showError);
+    loadWaitingRef.current();
     getVersion()
       .then(async (v) => {
         setVersion(withBuild(v, HANGAR_BUILD));
@@ -3265,6 +3319,12 @@ export function App() {
       })
         .then(keep)
         .catch(() => undefined);
+      // A bare signal: the messages carry an agent's text, so they come from a main-only command.
+      listen(PARTNER_MESSAGES_CHANGED, () => {
+        loadWaitingRef.current();
+      })
+        .then(keep)
+        .catch(() => undefined);
       // A bare signal: the results name program paths, so they come from a main-only command.
       listen(PROGRAM_UPDATE_RESULT, () => {
         api
@@ -4680,6 +4740,13 @@ export function App() {
   }, []);
 
   const profileById = new Map(profiles.map((profile) => [profile.id, profile]));
+  /** Where messages from partner projects wait: on each running agent session of their project. */
+  const inboxRows = inboxBySession(
+    waitingMessages,
+    partnerBook,
+    state.sessions,
+    (profileId) => profileById.get(profileId)?.command,
+  );
   const badgeFor = (profileId: string) =>
     resolveBadge(
       profileId,
@@ -5286,8 +5353,12 @@ export function App() {
           handover:
             canHandOver(menuSession, profileById.get(menuSession.profileId)?.command) &&
             handoverTargets(startable, menuSession.profileId).length > 0,
-          // Only where the session's project has partners (only offer what works).
-          partner: menuSession.kind !== "update" && partnersOfSession(menuSession).length > 0,
+          // Only an agent session whose project has partners (only offer what works): the
+          // backend refuses shells and updates as senders.
+          partner:
+            menuSession.kind !== "update" &&
+            shellKind(profileById.get(menuSession.profileId)?.command ?? "") === "agent" &&
+            partnersOfSession(menuSession).length > 0,
           commands:
             sessionCommands(menuSession, profiles).length > 0 && !sessionAsks(menuSession.id),
           crewShown: settings.crewColumn,
@@ -5522,6 +5593,83 @@ export function App() {
     }
   };
 
+  /**
+   * Pastes waiting message `id` into session `to` after the person's click (ADR 0012, decision
+   * point 4), the same way as a message sent by hand: held while the target works, pasted once it
+   * can take a paste, Enter only for "Paste and send". The backend checks the target again and
+   * heads the text; the message goes only once it was pasted, so a failed try leaves it waiting.
+   */
+  const pasteWaiting = async (to: number, id: number, submit: boolean) => {
+    if (inboxBusy.has(id)) return;
+    const terminal = terminals.get(to);
+    if (!terminal) return;
+    const name = titleOf(to);
+    const gone = () => terminals.get(to) !== terminal;
+    setInboxBusy((current) => new Set(current).add(id));
+    try {
+      const result = await deliverMessage(
+        {
+          working: () => terminal.attention.state === "working",
+          gone,
+          onHeld: () => {
+            setStartHint(t("partner.held", { session: name }));
+          },
+          ready: () =>
+            waitUntilReady(
+              {
+                bracketedPaste: () => terminal.bracketedPaste(),
+                quietFor: () => {
+                  const last = terminal.activity().lastOutput;
+                  return last === null ? null : Date.now() - last;
+                },
+                gone,
+              },
+              delay,
+            ),
+          bracketedPaste: () => terminal.bracketedPaste(),
+          prepare: () => api.waitingMessageText(id, to),
+          paste: (text) => terminal.pasteAndWait(text),
+          submit: () => {
+            terminal.submit();
+          },
+          wait: delay,
+        },
+        submit,
+        BROADCAST_ENTER_DELAY_MS,
+      );
+      switch (result.kind) {
+        case "pasted":
+          await api.closeWaitingMessage(id, to).catch(showError);
+          if (!submit) {
+            dispatch({ type: "activated", id: to });
+            focusTerminal();
+          }
+          break;
+        case "notReady":
+          setStartHint(t("partner.notReady", { session: name }));
+          break;
+        case "refused":
+          showError(result.error);
+          break;
+        case "gone":
+        case "pasteFailed":
+          setStartHint(t("partner.unsent", { session: name }));
+          break;
+      }
+    } finally {
+      setInboxBusy((current) => {
+        const next = new Set(current);
+        next.delete(id);
+        return next;
+      });
+    }
+  };
+
+  /** Discards waiting message `id`; nothing of it stays. */
+  const discardWaiting = (id: number) => {
+    api.closeWaitingMessage(id, null).catch(showError);
+  };
+
   /** The project cards' partner list (ProjectPartners.tsx). */
   const partnerActions: PartnerActions = {
     onLink: async (link) => {
@@ -5537,6 +5685,8 @@ export function App() {
         .unlinkPartner(a, b)
         .then((value) => {
           setPartnerBook(parsePartnerBook(value));
+          // Messages between the two go with the pair.
+          loadWaitingRef.current();
         })
         .catch(showError);
     },
@@ -5897,6 +6047,13 @@ export function App() {
           onShowSubAgent={showSubAgent}
           onDismissSubAgents={dismissSubAgents}
           queued={queuedById}
+          inbox={inboxRows}
+          inboxBusy={inboxBusy}
+          inboxGeneration={inboxGeneration}
+          onInboxPaste={(sessionId, messageId, submit) => {
+            void pasteWaiting(sessionId, messageId, submit);
+          }}
+          onInboxDiscard={discardWaiting}
           stalls={stalls}
           peekRequest={peekRequest}
           rowLayout={settings.rowLayout}

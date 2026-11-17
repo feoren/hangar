@@ -1108,3 +1108,10 @@ Live runs for ADR 0012 on Windows with Claude Code, Codex, Pi and Aider: paste p
 gives one prompt; bracketed paste also comes on during the trust dialog; Codex's sandbox reaches
 127.0.0.1. Pages changed: [[cross-project-paste-measurement]] (new),
 [[0012-cross-project-messages]], index.
+
+## [2026-11-17] update | ADR 0012 part 2 as built
+Recorded how `hangar-send` was built: a second binary of the app crate copied into its own `PATH`
+folder, scoped tokens on the hook endpoint (also without the gate), waiting messages per partner
+project with a limit of 5 and a file that outlasts a restart, the hint line with `HANGAR.md`.
+Tauri's bundling of the second binary is read from source, not measured. Pages changed:
+[[0012-cross-project-messages]], index.

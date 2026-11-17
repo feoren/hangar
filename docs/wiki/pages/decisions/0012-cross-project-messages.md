@@ -115,6 +115,32 @@ because the person wrote it.
   inbox is needed is open.
 - **Not a remote feature.** Messages stay on one machine and one Hangar instance; sessions of
   teammates are out of scope (non-goal: remote multiplexing).
+- **As built (2026-11-17).** Part 1 (partner book, sending by hand) and part 2 (`hangar-send`)
+  are implemented. Choices made in part 2:
+  - `hangar-send` is a second binary of the app crate (`src-tauri/src/bin/hangar-send.rs`, only
+    std and serde_json), which Tauri's bundler installs and signs next to the main one. Hangar
+    copies it at startup into `<local data>/bin` (`send_bin.rs`) and appends that folder to the
+    `PATH` of sessions whose project has partners: no program of the install folder (or
+    `/usr/bin` on Linux) joins the `PATH`, every program of the user's stays in front, and
+    `hangar-send` is a name no other program has. Endpoint and token come in
+    `HANGAR_SEND=<port>:<token>`, a name without TOKEN or KEY, which Codex's shell policy drops.
+  - Tokens carry a scope (`TokenScope`: hooks or send); each route takes only its own. The send
+    token is handed to every agent session whose project has partners at its start, private ones
+    included, and the endpoint starts for it without the gate.
+  - Only agent sessions send, by hand and with `hangar-send`: a shell session gets neither token
+    nor client nor hint, and the backend refuses a shell as sender (`partner_shell_sender`).
+  - An agent's message waits at the partner project, not at one session: session ids do not
+    survive a restart, and with several agent sessions there each row shows it, so the person
+    picks one by clicking "Paste" there. At most 5 wait per project, of them at most 3 from one
+    sending project (so one sender never takes every place), 50 in all, in
+    `partner-messages.json` (checked on load, text must pass the same cleaning again). Pasting
+    or discarding removes it; a pasted one leaves a work log line when the sending session is
+    still known in that run. A discarded one leaves none: the log records messages that reached a
+    session, and a discard has no target. In the collapsed sidebar a count badge on the session
+    icon shows that messages wait.
+  - Agents learn about `hangar-send` from a line appended to `HANGAR.md` for sessions with
+    partners, only where `HANGAR.md` is on and the program takes it inline (not Aider's
+    `--read`).
 
 ## Evidence
 - Code paths named in Context, read on 2026-11-17 at commit `d7e66f1`.
@@ -131,3 +157,8 @@ because the person wrote it.
 > OpenCode, Gemini CLI and the remaining catalog CLIs (not installed or broken on the measuring
 > machine); the sandboxes of Codex and Claude Code on Linux and macOS; whether Pi and Aider run
 > commands without a sandbox of their own.
+> That Tauri's bundler installs and signs the second binary next to the main one (NSIS,
+> `Contents/MacOS`, `usr/bin`) was read in Tauri's source (`tauri-cli` `get_binaries`,
+> `tauri-bundler` NSIS template, `sign_binaries_if_needed`), not yet measured with a release
+> build. `tauri dev` runs `cargo run`, which builds only the app, so `beforeDevCommand`
+> builds `hangar-send` first; else sessions would get no send client.

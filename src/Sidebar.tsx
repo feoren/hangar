@@ -15,6 +15,8 @@ import { SessionLook } from "./SessionLook";
 import { exitDetail } from "./format";
 import { gateHint } from "./gate";
 import { queuedPreview, type QueuedMessage } from "./messageQueue";
+import type { WaitingMessage } from "./partnerInbox";
+import { WaitingMessages } from "./WaitingMessages";
 import { peekNotes } from "./peek";
 import type { PeekContent } from "./peekStyle";
 import { useT } from "./i18n";
@@ -276,6 +278,14 @@ interface Props {
   peekLines: (id: number) => PeekContent | null;
   /** Queued message per session id (messageQueue.ts): a quiet clock on the row, the text in the peek. */
   queued: ReadonlyMap<number, QueuedMessage>;
+  /** Messages agents of partner projects sent, per row that shows them (partnerInbox.ts). */
+  inbox: ReadonlyMap<number, readonly WaitingMessage[]>;
+  /** Waiting messages whose paste runs right now. */
+  inboxBusy: ReadonlySet<number>;
+  /** Counts the changes of the waiting messages; every card arms anew on each one. */
+  inboxGeneration: number;
+  onInboxPaste: (sessionId: number, messageId: number, submit: boolean) => void;
+  onInboxDiscard: (messageId: number) => void;
   /** Working agent sessions that showed nothing new for a while: since when (stall.ts). */
   stalls: ReadonlyMap<number, number>;
   /**
@@ -735,6 +745,8 @@ export function Sidebar(props: Props) {
             const chip = chipOf(session);
             const placement = props.placements.get(session.id);
             const placeText = placement === undefined ? "" : placementText(t, placement);
+            // Messages from partner projects wait on the row; collapsed, only this mark shows it.
+            const waitingCount = props.inbox.get(session.id)?.length ?? 0;
             const className = [
               "rail-session",
               session.id === activeId ? "active" : "",
@@ -769,6 +781,7 @@ export function Sidebar(props: Props) {
                       status,
                       props.overlaps.get(session.id),
                       props.queued.has(session.id) ? t("queue.marker") : "",
+                      waitingCount > 0 ? t("inbox.marker", { count: waitingCount }) : "",
                       placeText,
                       markerColorText(session.marker, t),
                     ]
@@ -799,6 +812,11 @@ export function Sidebar(props: Props) {
                     {session.marker?.emoji != null && (
                       <span className="rail-emoji" aria-hidden="true">
                         {session.marker.emoji}
+                      </span>
+                    )}
+                    {waitingCount > 0 && (
+                      <span className="rail-waiting" aria-hidden="true">
+                        {waitingCount}
                       </span>
                     )}
                     {props.overlaps.has(session.id) && (
@@ -969,6 +987,21 @@ export function Sidebar(props: Props) {
                   onRowKey={onRowKey}
                   plan={plan}
                 />
+                {/* Messages from partner projects wait below the row, as an item of their own so
+                    the row's layout and its hover actions stay as they are. */}
+                {props.inbox.has(session.id) && props.renamingId !== session.id && (
+                  <li className="waiting-messages-row">
+                    <WaitingMessages
+                      messages={props.inbox.get(session.id) ?? []}
+                      busy={props.inboxBusy}
+                      generation={props.inboxGeneration}
+                      onPaste={(messageId, submit) => {
+                        props.onInboxPaste(session.id, messageId, submit);
+                      }}
+                      onDiscard={props.onInboxDiscard}
+                    />
+                  </li>
+                )}
                 {/* The tree belongs to the row above it; as its own item, the row's layout stays.
                     Below a middle row, the program group's guide line runs on past it. */}
                 {tree !== null && (

@@ -28,6 +28,10 @@ const MESSAGES: ReadonlyMap<string, MessageKey> = new Map<string, MessageKey>([
   ["partner_too_long", "partnerError.tooLong"],
   ["partner_forged_header", "partnerError.forgedHeader"],
   ["partner_invalid_list", "partnerError.invalidList"],
+  ["partner_full", "partnerError.full"],
+  ["partner_message_gone", "partnerError.messageGone"],
+  ["partner_pair_full", "partnerError.pairFull"],
+  ["partner_shell_sender", "partnerError.shellSender"],
 ]);
 
 export interface BackendError {

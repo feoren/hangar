@@ -107,6 +107,25 @@ fn the_gate_event_carries_no_data() {
     assert!(!viewer.contains("core:event:allow-listen"));
 }
 
+/// The waiting cross-project messages carry an agent's text: their event is a bare signal, the
+/// texts come from `waiting_messages`, which only the main window may call.
+#[test]
+fn the_waiting_messages_event_carries_no_data() {
+    let lib = read("src/lib.rs");
+    assert!(
+        lib.contains("emit_to(panel_window::MAIN_LABEL, partner_service::EVENT, ())"),
+        "partner-messages-changed must be emitted without payload"
+    );
+    for window in ["panel.json", "file-viewer.json"] {
+        let capability = read(&format!("capabilities/{window}"));
+        assert!(!capability.contains("allow-waiting-message"), "{window}");
+        assert!(
+            !capability.contains("allow-close-waiting-message"),
+            "{window}"
+        );
+    }
+}
+
 /// The git reads name a session, never a folder (the backend finds it): a window cannot point
 /// git, which runs programs a repository's config names, at a folder of its choice.
 #[test]
@@ -175,6 +194,9 @@ fn blocking_commands_run_off_the_main_thread() {
         "unlink_partner",
         "partner_targets",
         "deliver_partner_message",
+        "waiting_messages",
+        "waiting_message_text",
+        "close_waiting_message",
     ] {
         let body = command_body(&commands, name);
         assert!(body.contains("spawn_blocking"), "{name} runs on the caller");

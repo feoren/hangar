@@ -173,6 +173,35 @@ pub trait LaunchGate: Send + Sync {
     fn ended(&self, session: SessionId);
 }
 
+/// What sending cross-project messages (ADR 0012, `hangar-send`) adds to one process start of an
+/// agent session; empty for a session whose project has no partners.
+#[derive(Default)]
+pub struct SendLaunch {
+    /// Set in the child's environment only, last of all.
+    pub env: Vec<(String, Zeroizing<String>)>,
+    /// Put last on the child's `PATH`: a folder that holds only `hangar-send`.
+    pub path_dir: Option<PathBuf>,
+    /// A line for the agent's instructions ([`StartExtras::hint`]).
+    pub hint: Option<String>,
+}
+
+/// Hands sessions the send client, called like [`LaunchGate`]: `prepare` without the session lock
+/// for every process start of an agent session (private and team alike), `ended` under it when
+/// that process is gone.
+pub trait LaunchSend: Send + Sync {
+    /// `program`: the resolved program of the start; a shell gets nothing.
+    fn prepare(&self, session: SessionId, cwd: &Path, program: &Path) -> SendLaunch;
+    fn ended(&self, session: SessionId);
+}
+
+/// `path` (the child's `PATH` as it stands) with `dir` at its end, separated as the platform
+/// does. `None` when the result cannot be a `PATH` (a separator inside `dir`): then the child
+/// keeps its own.
+pub fn path_with(dir: &Path, path: Option<&std::ffi::OsStr>) -> Option<std::ffi::OsString> {
+    let before = path.map(std::env::split_paths).into_iter().flatten();
+    std::env::join_paths(before.chain(std::iter::once(dir.to_path_buf()))).ok()
+}
+
 /// Receiver of a session's events (a Tauri channel in production, a closure in tests).
 /// `Sync`, because after a fallback the batch thread of the new process uses the same receiver.
 pub trait EventSink: Send + Sync + 'static {
@@ -454,6 +483,8 @@ struct Shared {
     /// The default model of every sub-agent per program, read at every agent process start
     /// ([`SessionManager::set_sub_agent_models`]).
     sub_agent_models: Mutex<BTreeMap<DefProgram, ModelChoice>>,
+    /// The send client for sessions with partner projects ([`SessionManager::set_launch_send`]).
+    send: Mutex<Option<Arc<dyn LaunchSend>>>,
 }
 
 impl Shared {
@@ -464,7 +495,12 @@ impl Shared {
             gate: Mutex::new(None),
             versions: Mutex::new(None),
             sub_agent_models: Mutex::default(),
+            send: Mutex::new(None),
         }
+    }
+
+    fn launch_send(&self) -> Option<Arc<dyn LaunchSend>> {
+        lock(&self.send).clone()
     }
 
     /// What a process of `agent` gets for its sub-agents' default model.
@@ -483,10 +519,14 @@ impl Shared {
         lock(&self.gate).clone()
     }
 
-    /// The gate lets go of the session's process. Under the session lock (see [`LaunchGate`]).
+    /// The gate and the send client let go of the session's process. Under the session lock (see
+    /// [`LaunchGate`]).
     fn gate_ended(&self, id: SessionId) {
         if let Some(gate) = self.launch_gate() {
             gate.ended(id);
+        }
+        if let Some(send) = self.launch_send() {
+            send.ended(id);
         }
     }
 
@@ -728,6 +768,7 @@ impl<'a> Launch<'a> {
                 instructions,
                 prompt: None,
                 sub_agent,
+                hint: None,
             },
         }
     }
@@ -755,6 +796,9 @@ pub struct StartExtras {
     pub prompt: Option<String>,
     /// The sub-agent definition, every process of the session.
     pub sub_agent: Option<String>,
+    /// A line of Hangar's own after `HANGAR.md` ([`instructions::with_hint`]); set per process
+    /// start by [`LaunchSend`], never stored with the session.
+    pub hint: Option<String>,
 }
 
 /// Arguments `extras` adds for `agent` started as `program`: the instructions go before the start
@@ -771,11 +815,14 @@ pub fn extra_args(
         Vec::new()
     };
     let before = match (&agent.prompting.instruction_args, &extras.instructions) {
-        (Some(spec), Some(path)) => instructions::read(path).map_or_else(Vec::new, |text| {
-            let args = instructions::instruction_args(spec, &text);
-            instructions::check_launcher(program, spec, args)
-                .unwrap_or_else(|skipped| leave_out(instructions::FILE_NAME, skipped))
-        }),
+        (Some(spec), Some(path)) => {
+            instructions::with_hint(instructions::read(path), extras.hint.as_deref(), path, spec)
+                .map_or_else(Vec::new, |text| {
+                    let args = instructions::instruction_args(spec, &text);
+                    instructions::check_launcher(program, spec, args)
+                        .unwrap_or_else(|skipped| leave_out(instructions::FILE_NAME, skipped))
+                })
+        }
         _ => Vec::new(),
     };
     // The name passed `valid_name` at the start, so it needs no launcher check; it goes right
@@ -952,6 +999,11 @@ impl SessionManager {
     /// Hands every later agent start to the agent gate ([`LaunchGate`]).
     pub fn set_launch_gate(&self, gate: Arc<dyn LaunchGate>) {
         *lock(&self.shared.gate) = Some(gate);
+    }
+
+    /// Hands every later agent start to the send client ([`LaunchSend`]).
+    pub fn set_launch_send(&self, send: Arc<dyn LaunchSend>) {
+        *lock(&self.shared.send) = Some(send);
     }
 
     pub fn secret_store(&self) -> Arc<dyn SecretStore> {
@@ -1243,6 +1295,7 @@ impl SessionManager {
                     .map(|texts| texts.text(prompt).to_owned())
             }),
             sub_agent: request.sub_agent,
+            hint: None,
         };
         let stored = cli_session_id.map(cli_session::validate).transpose()?;
         let agent = self.agent(profile_id)?;
@@ -1828,8 +1881,17 @@ fn spawn(
     } else {
         agent_models::ModelLaunch::default()
     };
+    // Private and team sessions alike may send to partner projects; an installer never.
+    let send = match (launch.kind, shared.launch_send()) {
+        (SessionKind::Agent, Some(send)) => send.prepare(id, cwd, &program),
+        _ => SendLaunch::default(),
+    };
     let extra = if launch.kind == SessionKind::Agent {
-        let (mut before, after) = extra_args(agent, &program, &launch.extras);
+        let extras = StartExtras {
+            hint: send.hint.clone(),
+            ..launch.extras.clone()
+        };
+        let (mut before, after) = extra_args(agent, &program, &extras);
         // Config overrides go before a subcommand such as `codex resume --last`, like HANGAR.md.
         before.splice(0..0, models.args.iter().cloned());
         (before, after)
@@ -1872,6 +1934,18 @@ fn spawn(
     // Last, so no profile variable can replace the gate's token.
     for (name, value) in gate.iter().flat_map(|gate| &gate.env) {
         command.env(name, value.as_str());
+    }
+    for (name, value) in &send.env {
+        command.env(name, value.as_str());
+    }
+    // At the end, after the profile's own `PATH`: every program of the user's comes first, and
+    // `hangar-send` is a name no other program has.
+    if let Some(path) = send
+        .path_dir
+        .as_deref()
+        .and_then(|dir| path_with(dir, command.get_env("PATH")))
+    {
+        command.env("PATH", path);
     }
     let started = Instant::now();
     let mut child = pair
@@ -2102,6 +2176,7 @@ mod tests {
             instructions: Some(file.clone()),
             prompt: Some("Check upstream.".into()),
             sub_agent: None,
+            hint: None,
         };
         let both = prompted_agent(
             "instruction_args = ['--append-system-prompt', '{text}']\nprompt_args = ['{prompt}']\n",
@@ -2137,6 +2212,79 @@ mod tests {
     }
 
     #[test]
+    fn the_partner_hint_rides_along_with_hangar_md_only() {
+        let tmp = crate::test_support::TempDir::new("manager-hint");
+        let file = tmp.path().join(instructions::FILE_NAME);
+        std::fs::write(&file, "Use tabs.\n").unwrap();
+        let program = Path::new("/bin/p");
+        let inline = prompted_agent("instruction_args = ['--append-system-prompt', '{text}']\n");
+        let with = |instructions: Option<PathBuf>| StartExtras {
+            instructions,
+            hint: Some("Hangar: partners.".into()),
+            ..StartExtras::default()
+        };
+        assert_eq!(
+            extra_args(&inline, program, &with(Some(file.clone()))).0,
+            strings(&["--append-system-prompt", "Use tabs.\n\nHangar: partners."])
+        );
+        // HANGAR.md on but empty: the hint alone.
+        std::fs::write(&file, "<!-- only the template -->\n").unwrap();
+        assert_eq!(
+            extra_args(&inline, program, &with(Some(file.clone()))).0,
+            strings(&["--append-system-prompt", "Hangar: partners."])
+        );
+        // HANGAR.md off: nothing of Hangar's own reaches the agent's instructions.
+        assert!(extra_args(&inline, program, &with(None)).0.is_empty());
+        // A program that reads the file gets the file as it is.
+        let by_file = prompted_agent("instruction_args = ['--read', '{file}']\n");
+        std::fs::write(&file, "Use tabs.\n").unwrap();
+        assert_eq!(
+            extra_args(&by_file, program, &with(Some(file.clone()))).0,
+            vec!["--read".to_owned(), file.to_string_lossy().into_owned()]
+        );
+    }
+
+    #[test]
+    fn the_send_folder_goes_last_on_path() {
+        let dir = Path::new(if cfg!(windows) {
+            r"C:\data\bin"
+        } else {
+            "/data/bin"
+        });
+        let rest = std::env::join_paths([
+            Path::new(if cfg!(windows) {
+                r"C:\Windows"
+            } else {
+                "/usr/bin"
+            }),
+            Path::new(if cfg!(windows) { r"C:\tools" } else { "/bin" }),
+        ])
+        .unwrap();
+        let joined = path_with(dir, Some(&rest)).unwrap();
+        let parts: Vec<PathBuf> = std::env::split_paths(&joined).collect();
+        assert_eq!(parts.len(), 3);
+        // The user's own folders keep their order in front of it.
+        assert_eq!(parts[2], dir);
+        assert_eq!(
+            parts[..2],
+            std::env::split_paths(&rest).collect::<Vec<_>>()[..]
+        );
+        assert_eq!(path_with(dir, None).unwrap(), std::ffi::OsString::from(dir));
+        // A folder with the separator in its name cannot go on PATH.
+        let bad = format!(
+            "{}x{}y",
+            dir.display(),
+            if cfg!(windows) { ';' } else { ':' }
+        );
+        if cfg!(windows) {
+            // Windows quotes such a part instead of refusing it.
+            assert!(path_with(Path::new(&bad), None).is_some());
+        } else {
+            assert!(path_with(Path::new(&bad), None).is_none());
+        }
+    }
+
+    #[test]
     fn the_sub_agent_goes_before_the_first_prompt() {
         let program = Path::new("/bin/p");
         let agent =
@@ -2145,6 +2293,7 @@ mod tests {
             instructions: None,
             prompt: Some("Go.".into()),
             sub_agent: Some("backend".into()),
+            hint: None,
         };
         assert_eq!(
             extra_args(&agent, program, &extras),

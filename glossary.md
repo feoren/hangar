@@ -48,6 +48,9 @@ UI texts in `src/i18n.ts` are translated per language and are not bound by this 
 | Partnerprojekt                                  | partner project                   | project linked for cross-project messages, ADR 0012; not a linked repository         |
 | Projektnachricht                                | cross-project message             | text a session sends to a partner project's session, ADR 0012                        |
 | Kurzname (Partnerprojekt)                       | short name                        | `[a-z0-9-]{1,32}` of a partner project, in the header line; `partners.rs`            |
+| Wartende Nachricht                              | waiting message                   | an agent's message until the person pastes or discards it; `partner_inbox.rs`        |
+| Sendeprogramm                                   | send client                       | `hangar-send`, run by agents to send a cross-project message, ADR 0012               |
+| Sende-Token                                     | send token                        | token of scope `Send` on the hook endpoint, in `HANGAR_SEND`                         |
 | Partnerliste                                    | partner book                      | the named projects and their pairs, `partner-projects.json`; `PartnerBook`           |
 | Agenten-Befehl                                  | agent command                     | text the session menu types into a running session, `agent_commands`                 |
 | Kontext komprimieren                            | compact (context)                 | the agent summarizes its conversation (`/compact`), label key `compact`              |

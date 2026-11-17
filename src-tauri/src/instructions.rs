@@ -254,6 +254,31 @@ fn fill(arg: &str, values: &[(&str, &str)]) -> String {
     out
 }
 
+/// The instructions of `HANGAR.md` (`file`, read from `path`) with Hangar's own `hint` after them,
+/// such as the line on `hangar-send` for a project with partners (ADR 0012). The hint rides along
+/// only where `HANGAR.md` is on (the caller passes nothing otherwise) and the program takes the
+/// text inline: a program that reads the file (`{file}`) would not see it.
+pub fn with_hint(
+    file: Option<Instructions>,
+    hint: Option<&str>,
+    path: &Path,
+    spec: &[String],
+) -> Option<Instructions> {
+    let Some(hint) = hint.filter(|_| is_inline(spec)) else {
+        return file;
+    };
+    Some(match file {
+        Some(file) => Instructions {
+            text: format!("{}\n\n{hint}", file.text),
+            path: file.path,
+        },
+        None => Instructions {
+            text: hint.to_owned(),
+            path: path.to_path_buf(),
+        },
+    })
+}
+
 /// `spec` hands over the file's text itself rather than its path.
 fn is_inline(spec: &[String]) -> bool {
     spec.iter()

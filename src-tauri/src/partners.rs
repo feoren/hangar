@@ -7,6 +7,8 @@
 //! short name (`^[a-z0-9-]{1,32}$`): the header of a message names the sender by it, and an agent
 //! will name the target by it on a command line, so it must never need quoting.
 
+use std::io::Read;
+
 use serde::{Deserialize, Serialize};
 
 use crate::git::{key_within, path_key};
@@ -21,6 +23,23 @@ pub const MAX_FOLDER_UNITS: usize = crate::main_store::MAX_FOLDER_UNITS;
 /// A message is capped like the handover prompt (`handover.ts` `HANDOVER_MAX_CHARS`), in
 /// characters of the cleaned text.
 pub const MAX_MESSAGE_CHARS: usize = 8000;
+/// Messages an agent sent that wait for the person at one partner project ([`crate::partner_inbox`]).
+pub const MAX_WAITING_PER_PROJECT: usize = 5;
+/// Of those, from one sending project: one sender never takes every place at a partner.
+pub const MAX_WAITING_PER_PAIR: usize = 3;
+// Checked when building: with the pair limit at the target's, one sender could fill it.
+const _: () = assert!(MAX_WAITING_PER_PAIR < MAX_WAITING_PER_PROJECT);
+
+/// The route of the hook endpoint (`gate_service.rs`) that `hangar-send` posts to.
+pub const ROUTE_SEND: &str = "/v1/send";
+/// Environment variable of a session that may send, with `<port>:<token>`. A neutral name on
+/// purpose, like the gate helper's (`hook_recipes::HELPER_ENV`): Codex's shell environment policy
+/// drops names with TOKEN, KEY or SECRET by default, and the agent's shell runs `hangar-send`.
+/// The value format is shared with `src/bin/hangar-send.rs`, which cannot use this crate.
+pub const SEND_ENV: &str = "HANGAR_SEND";
+/// Largest request body of the send route: the longest message with every character escaped in
+/// JSON, plus the partner's name, with room. Control characters are only removed after reading.
+pub const MAX_SEND_BODY_BYTES: u64 = 256 * 1024;
 
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
 pub enum PartnerError {
@@ -59,6 +78,20 @@ pub enum PartnerError {
     ForgedHeader,
     #[error("[partner_invalid_list] Invalid partner list: {0}")]
     InvalidBook(&'static str),
+    #[error(
+        "[partner_full] {MAX_WAITING_PER_PROJECT} messages already wait for \"{0}\"; the person \
+         there has to paste or discard one first"
+    )]
+    InboxFull(String),
+    #[error(
+        "[partner_pair_full] {MAX_WAITING_PER_PAIR} messages from this project already wait for \
+         \"{0}\"; the person there has to paste or discard one first"
+    )]
+    PairFull(String),
+    #[error("[partner_message_gone] The message no longer waits")]
+    MessageGone,
+    #[error("[partner_shell_sender] Only agent sessions send messages to partner projects")]
+    ShellSender,
 }
 
 /// A short name as the rules allow it: `^[a-z0-9-]{1,32}$`.
@@ -404,6 +437,48 @@ pub fn compose(sender: &str, text: &str) -> Result<String, PartnerError> {
     ))
 }
 
+/// What `hangar-send` posts to [`ROUTE_SEND`]: the partner's short name and the raw text, which
+/// the service cleans ([`clean_message`]).
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct SendRequest {
+    pub partner: String,
+    pub text: String,
+}
+
+/// Reads a [`SendRequest`] of at most `length` bytes (the caller checked it against
+/// [`MAX_SEND_BODY_BYTES`]). `None`: unreadable, not UTF-8 JSON of that shape.
+pub fn read_send_request(body: &mut impl Read, length: u64) -> Option<SendRequest> {
+    let mut bytes = Vec::new();
+    body.take(length.min(MAX_SEND_BODY_BYTES))
+        .read_to_end(&mut bytes)
+        .ok()?;
+    if bytes.len() as u64 != length {
+        return None;
+    }
+    serde_json::from_slice(&bytes).ok()
+}
+
+/// The answer of the send route, read by `hangar-send`: a stable `code` that decides its exit
+/// code and a sentence for the agent.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct SendAnswer {
+    pub code: &'static str,
+    pub message: String,
+}
+
+/// The line an agent of a project with partners finds in its instructions (`HANGAR.md`, see
+/// `manager::extra_args`). English on purpose: the agent reads it, not the person.
+pub fn send_hint(partners: &[&str]) -> String {
+    format!(
+        "Hangar: this project has partner projects ({}). To ask one of their agents for \
+         something, run `hangar-send <partner> \"<message>\"` (or pipe the message to \
+         `hangar-send <partner>`). The person there decides whether it is pasted; an answer \
+         comes back the same way.",
+        partners.join(", ")
+    )
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -707,6 +782,42 @@ mod tests {
             "[Message from project \"app\"]\nshow the server text"
         );
         assert_eq!(compose("a\"b", "x"), Err(PartnerError::InvalidName));
+    }
+
+    #[test]
+    fn send_requests_are_read_strictly() {
+        let read = |raw: &str| read_send_request(&mut raw.as_bytes(), raw.len() as u64);
+        assert_eq!(
+            read(r#"{"partner":"web","text":"fix ä"}"#),
+            Some(SendRequest {
+                partner: "web".into(),
+                text: "fix \u{e4}".into()
+            })
+        );
+        for bad in [
+            "",
+            "{",
+            r#"{"partner":"web"}"#,
+            r#"{"partner":"web","text":"x","extra":1}"#,
+            r#"{"partner":1,"text":"x"}"#,
+            r#"{"partner":"web","text":null}"#,
+        ] {
+            assert_eq!(read(bad), None, "{bad}");
+        }
+        // A body shorter than announced is no request.
+        let raw = r#"{"partner":"web","text":"x"}"#;
+        assert_eq!(
+            read_send_request(&mut raw.as_bytes(), raw.len() as u64 + 5),
+            None
+        );
+    }
+
+    #[test]
+    fn the_hint_names_the_partners_and_the_client() {
+        let hint = send_hint(&["web", "relay"]);
+        assert!(hint.contains("(web, relay)"), "{hint}");
+        assert!(hint.contains("hangar-send <partner>"), "{hint}");
+        assert!(!hint.contains('\n'));
     }
 
     #[test]

@@ -7,6 +7,9 @@ edition = "2021"
 # clippy's incompatible_msrv lint, which now flags anything newer). CI builds with current stable.
 rust-version = "1.89"
 publish = false
+# Two binaries: the app and `hangar-send` (src/bin/hangar-send.rs, ADR 0012), the small client
+# agents run to send a cross-project message. `cargo run` and `tauri dev` start the app.
+default-run = "hangar"
 
 [lib]
 name = "hangar_lib"

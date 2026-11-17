@@ -12,6 +12,11 @@
 //! file, an argument or a log and never sent to the window. A request without a known token is
 //! refused before its body is read.
 //!
+//! The same endpoint serves the send route of cross-project messages (ADR 0012, `hangar-send`)
+//! for every session whose project has partners, private ones included, so it also starts
+//! without the gate ([`GateService::send_token`]). Each token carries one scope
+//! ([`TokenScope`]): a send token opens no hook route and a hook token sends no message.
+//!
 //! How the hooks reach one session depends on the program's [`HookFormat`] (recipes in
 //! `hook_recipes.rs`): start arguments, and for some formats files in a folder of the session's
 //! own under `<data>/gate/sessions/`, removed when the session's process ends.
@@ -53,7 +58,7 @@ use crate::command_guard::{
 };
 use crate::gate::{
     self, Answer, AskRule, CommandConflict, CommandText, EditRequest, Gate, GateSnapshot, Opened,
-    Outcome, Waiting, DECISION_TIMEOUT, ROUTE_PRE_TOOL_USE, ROUTE_PRE_TOOL_USE_JSON,
+    Outcome, TokenScope, Waiting, DECISION_TIMEOUT, ROUTE_PRE_TOOL_USE, ROUTE_PRE_TOOL_USE_JSON,
     ROUTE_USER_PROMPT_SUBMIT, ROUTE_USER_PROMPT_SUBMIT_JSON, TOKEN_ENV,
 };
 use crate::gate_rules::{self, GateRule, RuleAnswer, RuleBook, RuleEffect, RuleScope};
@@ -64,6 +69,7 @@ use crate::hook_recipes::{
 };
 use crate::lock;
 use crate::manager::{GateLaunch, GatePlan, LaunchGate};
+use crate::partners::{read_send_request, SendRequest, MAX_SEND_BODY_BYTES, ROUTE_SEND};
 use crate::session::{GateStatus, SessionId};
 use crate::team_share::TeammateFile;
 use crate::team_tasks::TeamTask;
@@ -137,6 +143,9 @@ type Emit = Box<dyn Fn(&GateSnapshot) + Send + Sync>;
 type Teammates = Box<dyn Fn(&str, &str) -> Vec<TeammateFile> + Send + Sync>;
 /// The team's reservations for the same clone (`TeamService::team_tasks`).
 type TeamTasks = Box<dyn Fn(&str, &str) -> Vec<TeamTask> + Send + Sync>;
+/// Hands a message an agent sent with `hangar-send` to the partner service: the sending session
+/// and the request; the answer is the HTTP status and the JSON body for the client.
+type Messages = Arc<dyn Fn(SessionId, SendRequest) -> (Status, String) + Send + Sync>;
 
 struct Inner {
     gate: Mutex<Gate<Waiter>>,
@@ -171,6 +180,8 @@ struct Inner {
     heads: Arc<Mutex<Heads>>,
     /// Connections each known session holds.
     per_session: Arc<Mutex<HashMap<SessionId, usize>>>,
+    /// Where the send route hands messages, once the app set it ([`GateService::set_messages`]).
+    messages: Mutex<Option<Messages>>,
 }
 
 /// The command guard: on by default; its rules come from the file, read again when it changed.
@@ -278,6 +289,7 @@ impl GateService {
                 guard_enabled: AtomicBool::new(true),
                 heads: Arc::new(Mutex::new(Heads::default())),
                 per_session: Arc::new(Mutex::new(HashMap::new())),
+                messages: Mutex::new(None),
             }),
         }
     }
@@ -304,6 +316,28 @@ impl GateService {
         tasks: impl Fn(&str, &str) -> Vec<TeamTask> + Send + Sync + 'static,
     ) {
         *lock(&self.inner.team_tasks) = Some(Box::new(tasks));
+    }
+
+    /// Where the send route ([`ROUTE_SEND`]) hands the messages agents send with `hangar-send`.
+    pub fn set_messages(
+        &self,
+        messages: impl Fn(SessionId, SendRequest) -> (Status, String) + Send + Sync + 'static,
+    ) {
+        *lock(&self.inner.messages) = Some(Arc::new(messages));
+    }
+
+    /// A send token for the session's next process and the endpoint's port, which starts now if
+    /// it does not run yet: sending works in private sessions too, without the gate (ADR 0012).
+    /// The token opens the send route only ([`TokenScope::Send`]).
+    pub fn send_token(&self, session: SessionId) -> io::Result<(u16, Zeroizing<String>)> {
+        let port = self.ensure_server()?;
+        let token = lock(&self.inner.gate).register(session, TokenScope::Send);
+        Ok((port, Zeroizing::new(token)))
+    }
+
+    /// The session's send token stops working (its process ended).
+    pub fn revoke_send(&self, session: SessionId) {
+        lock(&self.inner.gate).revoke(session, TokenScope::Send);
     }
 
     /// The window's setting. Turning it off lets every waiting edit through.
@@ -882,7 +916,7 @@ impl LaunchGate for GateService {
                 return GatePlan::Unavailable(status);
             }
         };
-        let token = Zeroizing::new(lock(&self.inner.gate).register(session));
+        let token = Zeroizing::new(lock(&self.inner.gate).register(session, TokenScope::Hooks));
         let token_var = if install.helper {
             (
                 HELPER_ENV.to_owned(),
@@ -1326,7 +1360,7 @@ fn serve(inner: &Inner, stream: &TcpStream, unauthenticated: HeadSlot) {
         Ok(_) if !unauthenticated.head_read() => return,
         Ok(head) => match inner.admit(&head) {
             Err(status) => (status, String::new()),
-            Ok(session) => {
+            Ok((session, scope)) => {
                 drop(unauthenticated);
                 let slots = Slot::take(&inner.connections, MAX_CONNECTIONS)
                     .zip(SessionSlot::take(&inner.per_session, session));
@@ -1335,7 +1369,7 @@ fn serve(inner: &Inner, stream: &TcpStream, unauthenticated: HeadSlot) {
                     Some(slots) => {
                         _authenticated = Some(slots);
                         reader.get_mut().restart(inner.limits.body);
-                        inner.route(session, &head, &mut reader, stream)
+                        inner.route(session, scope, &head, &mut reader, stream)
                     }
                 }
             }
@@ -1602,7 +1636,7 @@ impl Inner {
 
     /// Who sent the request. A browser page (`Origin`, `Sec-Fetch-*`) or another `Host` than the
     /// one in the hook URL is refused before the token is looked at.
-    fn admit(&self, head: &Head) -> Result<SessionId, Status> {
+    fn admit(&self, head: &Head) -> Result<(SessionId, TokenScope), Status> {
         let port = *lock(&self.port);
         let expected = port.map(|port| format!("127.0.0.1:{port}"));
         if head.from_browser || head.host.is_none() || head.host != expected {
@@ -1610,8 +1644,25 @@ impl Inner {
         }
         head.token
             .as_deref()
-            .and_then(|token| lock(&self.gate).session_for(token))
+            .and_then(|token| lock(&self.gate).holder(token))
             .ok_or(Status::Unauthorized)
+    }
+
+    /// A message `hangar-send` posted for `session`: the body is bounded before it is read, the
+    /// partner service checks and keeps it.
+    fn send(&self, session: SessionId, head: &Head, body: &mut impl Read) -> (Status, String) {
+        if head.content_length > MAX_SEND_BODY_BYTES {
+            return (Status::PayloadTooLarge, String::new());
+        }
+        let Some(request) = read_send_request(body, head.content_length) else {
+            return (Status::BadRequest, String::new());
+        };
+        // Not under the lock: the service reads files and the session list.
+        let messages = lock(&self.messages).clone();
+        match messages {
+            Some(messages) => messages(session, request),
+            None => (Status::Unavailable, String::new()),
+        }
     }
 
     /// The answer to a known session's request that finds no free slot, without reading its
@@ -1637,15 +1688,32 @@ impl Inner {
         }
     }
 
+    /// Each route answers only a token of its own scope: a send token opens no hook, a hook token
+    /// sends no message.
     fn route(
         &self,
         session: SessionId,
+        scope: TokenScope,
         head: &Head,
         reader: &mut impl Read,
         stream: &TcpStream,
     ) -> (Status, String) {
-        let mut body = reader.take(head.content_length);
         let path = head.path.as_str();
+        let wanted = match path {
+            ROUTE_SEND => TokenScope::Send,
+            ROUTE_PRE_TOOL_USE
+            | ROUTE_PRE_TOOL_USE_JSON
+            | ROUTE_USER_PROMPT_SUBMIT
+            | ROUTE_USER_PROMPT_SUBMIT_JSON => TokenScope::Hooks,
+            _ => return (Status::NotFound, String::new()),
+        };
+        if scope != wanted {
+            return (Status::Forbidden, String::new());
+        }
+        let mut body = reader.take(head.content_length);
+        if path == ROUTE_SEND {
+            return self.send(session, head, &mut body);
+        }
         // The JSON routes answer "no decision" with `{}` instead of an empty body.
         let json = path == ROUTE_PRE_TOOL_USE_JSON || path == ROUTE_USER_PROMPT_SUBMIT_JSON;
         let filled = |body: String| {
@@ -2427,6 +2495,74 @@ mod tests {
         // A session's token stops working when the session ends.
         fixture.service.ended(1);
         assert_eq!(post(port, ROUTE_PRE_TOOL_USE, Some(&token), &body).0, 401);
+    }
+
+    #[test]
+    fn the_send_route_takes_only_a_send_token() {
+        let fixture = fixture(DECISION_TIMEOUT);
+        // No gate needed: private sessions send too.
+        let (port, send) = fixture.service.send_token(7).unwrap();
+        let send = send.to_string();
+        let body = r#"{"partner":"web","text":"hi"}"#;
+        // Before the app hands the route a service, nothing is taken.
+        assert_eq!(post(port, ROUTE_SEND, Some(&send), body).0, 503);
+        fixture.service.set_messages(|session, request| {
+            (
+                Status::Ok,
+                format!("{session}:{}:{}", request.partner, request.text),
+            )
+        });
+        assert_eq!(
+            post(port, ROUTE_SEND, Some(&send), body),
+            (200, "7:web:hi".to_owned())
+        );
+        assert_eq!(post(port, ROUTE_SEND, None, body).0, 401);
+        assert_eq!(post(port, ROUTE_SEND, Some("wrong"), body).0, 401);
+        assert_eq!(post(port, ROUTE_SEND, Some(&send), "{").0, 400);
+        assert_eq!(
+            post(port, ROUTE_SEND, Some(&send), r#"{"partner":"web"}"#).0,
+            400
+        );
+        // A send token opens no hook route, a hook token sends nothing.
+        let hook_body = edit(&fixture.root, "src/shared.rs");
+        assert_eq!(
+            post(port, ROUTE_PRE_TOOL_USE, Some(&send), &hook_body).0,
+            403
+        );
+        assert_eq!(
+            post(port, ROUTE_USER_PROMPT_SUBMIT, Some(&send), "{}").0,
+            403
+        );
+        fixture.service.configure(true);
+        let (_, hooks) = launch(&fixture, 1);
+        assert_eq!(post(port, ROUTE_SEND, Some(&hooks), body).0, 403);
+        // A browser page is refused even with the token.
+        assert_eq!(
+            post_with(
+                port,
+                ROUTE_SEND,
+                Some(&send),
+                &format!("Host: 127.0.0.1:{port}\r\nOrigin: null\r\n"),
+                body
+            )
+            .0,
+            403
+        );
+        // The size is checked before the body is read.
+        let mut stream = connect(port);
+        let head = format!(
+            "POST {ROUTE_SEND} HTTP/1.1\r\nHost: 127.0.0.1:{port}\r\n\
+             Authorization: Bearer {send}\r\nContent-Length: {}\r\n\r\n",
+            MAX_SEND_BODY_BYTES + 1
+        );
+        stream.write_all(head.as_bytes()).unwrap();
+        assert_eq!(read_response(stream).0, 413);
+        // The token ends with the session's process.
+        fixture.service.revoke_send(7);
+        assert_eq!(post(port, ROUTE_SEND, Some(&send), body).0, 401);
+        let (_, again) = fixture.service.send_token(7).unwrap();
+        fixture.service.ended(7);
+        assert_eq!(post(port, ROUTE_SEND, Some(&again), body).0, 401);
     }
 
     #[test]

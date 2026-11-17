@@ -1349,12 +1349,22 @@ pub enum Opened {
     Full,
 }
 
-/// The gate's state: tokens per session, pending decisions, files allowed per session and the
-/// context last handed to each session. `W` is whatever wakes the waiting request (a channel in
-/// the service, nothing in tests); it is handed back with the outcome.
+/// What a token opens on the hook endpoint. Each scope gets a token of its own, so a token handed
+/// out for one route never works on another.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum TokenScope {
+    /// The gate's hook routes, for team sessions (ADR 0008).
+    Hooks,
+    /// The send route of cross-project messages (ADR 0012), for sessions with partner projects.
+    Send,
+}
+
+/// The gate's state: tokens per session and scope, pending decisions, files allowed per session
+/// and the context last handed to each session. `W` is whatever wakes the waiting request (a
+/// channel in the service, nothing in tests); it is handed back with the outcome.
 pub struct Gate<W> {
     enabled: bool,
-    tokens: HashMap<SessionId, String>,
+    tokens: HashMap<(SessionId, TokenScope), String>,
     pending: BTreeMap<u64, Pending<W>>,
     allowed: HashMap<SessionId, HashSet<String>>,
     /// Per session: the conversation id the facts went to and the facts.
@@ -1399,28 +1409,34 @@ impl<W> Gate<W> {
             .collect()
     }
 
-    /// A new token for the session's next process; the previous one stops working.
-    pub fn register(&mut self, session: SessionId) -> String {
+    /// A new token of `scope` for the session's next process; the previous one of that scope
+    /// stops working.
+    pub fn register(&mut self, session: SessionId, scope: TokenScope) -> String {
         let token = new_token();
-        self.tokens.insert(session, token.clone());
+        self.tokens.insert((session, scope), token.clone());
         token
     }
 
-    /// The session a token belongs to. Every registered token is compared in full, so the time
-    /// taken says nothing about which one came close.
-    pub fn session_for(&self, token: &str) -> Option<SessionId> {
+    /// The session and scope a token belongs to. Every registered token is compared in full, so
+    /// the time taken says nothing about which one came close.
+    pub fn holder(&self, token: &str) -> Option<(SessionId, TokenScope)> {
         let mut found = None;
-        for (session, known) in &self.tokens {
+        for (holder, known) in &self.tokens {
             if token_eq(known.as_bytes(), token.as_bytes()) {
-                found = Some(*session);
+                found = Some(*holder);
             }
         }
         found
     }
 
-    /// The session ended: its token stops working and its waiting edits are denied.
+    /// The session's token of `scope` stops working.
+    pub fn revoke(&mut self, session: SessionId, scope: TokenScope) {
+        self.tokens.remove(&(session, scope));
+    }
+
+    /// The session ended: its tokens stop working and its waiting edits are denied.
     pub fn forget(&mut self, session: SessionId) -> Vec<(W, Outcome)> {
-        self.tokens.remove(&session);
+        self.tokens.retain(|(holder, _), _| *holder != session);
         self.allowed.remove(&session);
         self.told.remove(&session);
         let ids: Vec<u64> = self
@@ -1914,20 +1930,38 @@ mod tests {
     #[test]
     fn tokens_map_to_sessions_and_end_with_them() {
         let mut gate: Gate<()> = Gate::default();
-        let one = gate.register(1);
-        let two = gate.register(2);
-        assert_eq!(gate.session_for(&one), Some(1));
-        assert_eq!(gate.session_for(&two), Some(2));
-        assert_eq!(gate.session_for(""), None);
-        assert_eq!(gate.session_for(&one[..32]), None);
+        let one = gate.register(1, TokenScope::Hooks);
+        let two = gate.register(2, TokenScope::Hooks);
+        assert_eq!(gate.holder(&one), Some((1, TokenScope::Hooks)));
+        assert_eq!(gate.holder(&two), Some((2, TokenScope::Hooks)));
+        assert_eq!(gate.holder(""), None);
+        assert_eq!(gate.holder(&one[..32]), None);
         // A restart gets a new token; the old one stops working.
-        let again = gate.register(1);
-        assert_eq!(gate.session_for(&one), None);
-        assert_eq!(gate.session_for(&again), Some(1));
+        let again = gate.register(1, TokenScope::Hooks);
+        assert_eq!(gate.holder(&one), None);
+        assert_eq!(gate.holder(&again), Some((1, TokenScope::Hooks)));
         gate.forget(1);
-        assert_eq!(gate.session_for(&again), None);
+        assert_eq!(gate.holder(&again), None);
         gate.shutdown();
-        assert_eq!(gate.session_for(&two), None);
+        assert_eq!(gate.holder(&two), None);
+    }
+
+    #[test]
+    fn each_scope_has_a_token_of_its_own() {
+        let mut gate: Gate<()> = Gate::default();
+        let hooks = gate.register(1, TokenScope::Hooks);
+        let send = gate.register(1, TokenScope::Send);
+        assert_ne!(hooks, send);
+        assert_eq!(gate.holder(&hooks), Some((1, TokenScope::Hooks)));
+        assert_eq!(gate.holder(&send), Some((1, TokenScope::Send)));
+        gate.revoke(1, TokenScope::Send);
+        assert_eq!(gate.holder(&send), None);
+        assert_eq!(gate.holder(&hooks), Some((1, TokenScope::Hooks)));
+        // The session's end takes every scope.
+        let send = gate.register(1, TokenScope::Send);
+        gate.forget(1);
+        assert_eq!(gate.holder(&send), None);
+        assert_eq!(gate.holder(&hooks), None);
     }
 
     #[test]

@@ -297,6 +297,12 @@
           "markdownDescription": "Enables the close_session command without any pre-configured scope."
         },
         {
+          "description": "Enables the close_waiting_message command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-close-waiting-message",
+          "markdownDescription": "Enables the close_waiting_message command without any pre-configured scope."
+        },
+        {
           "description": "Enables the command_guard_info command without any pre-configured scope.",
           "type": "string",
           "const": "allow-command-guard-info",
@@ -1257,6 +1263,18 @@
           "markdownDescription": "Enables the unwatch_sub_agents command without any pre-configured scope."
         },
         {
+          "description": "Enables the waiting_message_text command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-waiting-message-text",
+          "markdownDescription": "Enables the waiting_message_text command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the waiting_messages command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-waiting-messages",
+          "markdownDescription": "Enables the waiting_messages command without any pre-configured scope."
+        },
+        {
           "description": "Enables the watch_sub_agents command without any pre-configured scope.",
           "type": "string",
           "const": "allow-watch-sub-agents",
@@ -1393,6 +1411,12 @@
           "type": "string",
           "const": "deny-close-session",
           "markdownDescription": "Denies the close_session command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the close_waiting_message command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-close-waiting-message",
+          "markdownDescription": "Denies the close_waiting_message command without any pre-configured scope."
         },
         {
           "description": "Denies the command_guard_info command without any pre-configured scope.",
@@ -2353,6 +2377,18 @@
           "type": "string",
           "const": "deny-unwatch-sub-agents",
           "markdownDescription": "Denies the unwatch_sub_agents command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the waiting_message_text command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-waiting-message-text",
+          "markdownDescription": "Denies the waiting_message_text command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the waiting_messages command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-waiting-messages",
+          "markdownDescription": "Denies the waiting_messages command without any pre-configured scope."
         },
         {
           "description": "Denies the watch_sub_agents command without any pre-configured scope.",

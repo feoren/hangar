@@ -56,6 +56,7 @@ pub mod notes;
 pub mod notify;
 pub mod output;
 pub mod panel_window;
+pub mod partner_inbox;
 pub mod partner_service;
 pub mod partners;
 pub mod paste_image;
@@ -71,6 +72,7 @@ pub mod report;
 pub mod resolve;
 pub mod resources;
 pub mod secrets;
+pub mod send_bin;
 pub mod session;
 pub mod single_instance;
 pub mod subagents;
@@ -466,6 +468,51 @@ pub fn run() -> tauri::Result<()> {
                     .state::<team_service::TeamService>()
                     .team_tasks(repo, folder)
             });
+            // Cross-project messages (ADR 0012): agents of projects with partners send with
+            // `hangar-send` through the same endpoint, private sessions included; each message
+            // waits for the person in the partner project's session row. Only a signal, like the
+            // gate's: the texts come from `waiting_messages`, a main window command.
+            let partner_store = app.state::<main_store::MainStore>().inner().clone();
+            let events = app.handle().clone();
+            let inbox = partner_service::PartnerInbox::load(partner_store.clone(), move || {
+                let _ = events.emit_to(panel_window::MAIN_LABEL, partner_service::EVENT, ());
+            });
+            let receiver = inbox.clone();
+            let sessions = app.handle().clone();
+            let book_store = partner_store.clone();
+            gate.set_messages(move |from, request| {
+                let manager = sessions.state::<SessionManager>();
+                let shells = manager.shell_profiles();
+                receiver.answer_send(
+                    &book_store.load_partners(),
+                    &manager.list(),
+                    from,
+                    &request,
+                    &partner_service::Probe {
+                        root: &partner_service::project_root,
+                        is_shell: &|profile| shells.contains(profile),
+                    },
+                    work_log::now_ms(),
+                )
+            });
+            app.manage(inbox);
+            // The client goes into a folder of its own for the sessions' PATH (send_bin.rs).
+            let bin_dir = std::env::current_exe()
+                .ok()
+                .and_then(|exe| exe.parent().map(std::path::Path::to_path_buf))
+                .and_then(|exe_dir| {
+                    send_bin::install(&exe_dir, &app.path().app_local_data_dir().ok()?)
+                        .unwrap_or_else(|error| {
+                            eprintln!("hangar: hangar-send not set up: {error}");
+                            None
+                        })
+                });
+            app.state::<SessionManager>()
+                .set_launch_send(std::sync::Arc::new(partner_service::PartnerLaunch::new(
+                    gate.clone(),
+                    partner_store,
+                    bin_dir,
+                )));
             app.manage(gate);
             let source = app.handle().clone();
             app.state::<team_service::TeamService>()
@@ -651,6 +698,9 @@ pub fn run() -> tauri::Result<()> {
             commands::unlink_partner,
             commands::partner_targets,
             commands::deliver_partner_message,
+            commands::waiting_messages,
+            commands::waiting_message_text,
+            commands::close_waiting_message,
             commands::set_panel_session,
             commands::take_update_results,
             commands::dictation_status,

@@ -1,7 +1,7 @@
 //! The smallest HTTP/1.1 the agent gate's hook endpoint needs (`gate_service.rs`): one `POST`
 //! with `Content-Length` per connection, answered with `Connection: close`.
 //!
-//! Hand-written rather than a server crate: two routes on 127.0.0.1, one client (Claude Code's
+//! Hand-written rather than a server crate: a few routes on 127.0.0.1, one client (Claude Code's
 //! http hooks send a plain `Content-Length` body, measured), and every limit explicit here. hyper
 //! or axum would add an async runtime path, routing and keep-alive handling for no gain; tiny_http
 //! is not in the tree. Anything unusual is refused rather than interpreted: chunked bodies, a
@@ -28,6 +28,7 @@ pub enum Status {
     MethodNotAllowed,
     LengthRequired,
     PayloadTooLarge,
+    TooManyRequests,
     HeadersTooLarge,
     NotImplemented,
     Unavailable,
@@ -44,6 +45,7 @@ impl Status {
             Status::MethodNotAllowed => 405,
             Status::LengthRequired => 411,
             Status::PayloadTooLarge => 413,
+            Status::TooManyRequests => 429,
             Status::HeadersTooLarge => 431,
             Status::NotImplemented => 501,
             Status::Unavailable => 503,
@@ -60,6 +62,7 @@ impl Status {
             Status::MethodNotAllowed => "Method Not Allowed",
             Status::LengthRequired => "Length Required",
             Status::PayloadTooLarge => "Payload Too Large",
+            Status::TooManyRequests => "Too Many Requests",
             Status::HeadersTooLarge => "Request Header Fields Too Large",
             Status::NotImplemented => "Not Implemented",
             Status::Unavailable => "Service Unavailable",

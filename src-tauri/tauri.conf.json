@@ -4,7 +4,7 @@
   "version": "0.10.0",
   "identifier": "com.feoren.hangar",
   "build": {
-    "beforeDevCommand": "pnpm dev",
+    "beforeDevCommand": "cargo build --manifest-path src-tauri/Cargo.toml --bin hangar-send && pnpm dev",
     "devUrl": "http://localhost:1420",
     "beforeBuildCommand": "pnpm build",
     "frontendDist": "../dist"

@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-waiting-message-text"
+description = "Enables the waiting_message_text command without any pre-configured scope."
+commands.allow = ["waiting_message_text"]
+
+[[permission]]
+identifier = "deny-waiting-message-text"
+description = "Denies the waiting_message_text command without any pre-configured scope."
+commands.deny = ["waiting_message_text"]
