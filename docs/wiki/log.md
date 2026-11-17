@@ -1102,3 +1102,9 @@ person's approval. Pages changed: [[0012-cross-project-messages]], index.
 The owner accepted the cross-project messages decision; the next step is measuring per catalog
 CLI that a pasted message with a header line arrives as one prompt. Pages changed:
 [[0012-cross-project-messages]], index.
+
+## [2026-11-17] ingest | Pasted message and sandbox loopback measurement
+Live runs for ADR 0012 on Windows with Claude Code, Codex, Pi and Aider: paste plus separate Enter
+gives one prompt; bracketed paste also comes on during the trust dialog; Codex's sandbox reaches
+127.0.0.1. Pages changed: [[cross-project-paste-measurement]] (new),
+[[0012-cross-project-messages]], index.

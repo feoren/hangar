@@ -4,7 +4,7 @@ type: decision
 status: accepted
 superseded_by:
 tags: [sessions, projects, agents, hooks, security, pty]
-sources: []
+sources: ["[[cross-project-paste-measurement]]"]
 created: 2026-11-17
 updated: 2026-11-17
 ---
@@ -118,10 +118,16 @@ because the person wrote it.
 
 ## Evidence
 - Code paths named in Context, read on 2026-11-17 at commit `d7e66f1`.
-- No measurement yet. Before building, measure for each catalog CLI that a bracketed paste with a
-  header line arrives as one prompt and that Enter as a separate write submits it.
+- [[cross-project-paste-measurement]] (Windows, Claude Code 2.1.326, Codex CLI 0.169.0, Pi 1.5.2,
+  Aider 0.86.2): a bracketed paste with a header line arrives as one prompt, the line break inside
+  it does not submit, Enter as a separate write does. Claude Code and Codex turn bracketed paste on
+  while their folder trust dialog is open, so readiness signals cannot tell that dialog from the
+  prompt: Hangar presses Enter only after the person chose "Paste and send" (decision point 4).
+- Same measurement: Codex `workspace-write` on Windows reaches 127.0.0.1 without network access
+  turned on; Claude Code under default permissions asks before the call. `hangar-send` is therefore
+  an executable with its own name, which no shell alias can shadow.
 
 > [!question] Unverified
-> That every agent CLI in the catalog runs a program from the session's `PATH` the same way when
-> the agent itself calls `hangar-send` (sandboxes such as Codex CLI's may block network access to
-> 127.0.0.1).
+> OpenCode, Gemini CLI and the remaining catalog CLIs (not installed or broken on the measuring
+> machine); the sandboxes of Codex and Claude Code on Linux and macOS; whether Pi and Aider run
+> commands without a sandbox of their own.
