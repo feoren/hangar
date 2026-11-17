@@ -1115,3 +1115,8 @@ folder, scoped tokens on the hook endpoint (also without the gate), waiting mess
 project with a limit of 5 and a file that outlasts a restart, the hint line with `HANGAR.md`.
 Tauri's bundling of the second binary is read from source, not measured. Pages changed:
 [[0012-cross-project-messages]], index.
+
+## [2026-11-17] query | README scenes for 0.10.0
+The README screenshots for 0.10.0 show `partners` (Send to partner) and `messages` (a waiting
+`hangar-send` message) instead of `timeline` and `costs`; `sub-agents` opens the figure picker with
+the 25 bundled figures. Pages changed: [[release-rollout]].

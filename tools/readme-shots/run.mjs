@@ -60,6 +60,13 @@ const working = (count) => `(() => {
  */
 const SETTLED = `(${working(2)} && ${shows(".session", "done")})`;
 
+/**
+ * The partner scenes: the docs project's Gemini CLI session is active, so it rests once it has
+ * answered instead of turning done. The sidebar groups the sessions by project.
+ */
+const DOCS_SETTLED = `(${working(2)} && window.__readmeShots.geminiAnswered && ${shows(".session", "Refund docs")} && ![...document.querySelectorAll(".session")].some((row) => row.textContent.includes("Refund docs") && row.textContent.includes("working")))`;
+const BY_PROJECT = { sessionGrouping: "project" };
+
 /** Takes the focus away from where a click left it, so no focus ring shows. */
 const BLUR = `(() => {
   if (document.activeElement instanceof HTMLElement) document.activeElement.blur();
@@ -75,6 +82,30 @@ const typeInto = (selector, value) => `(() => {
   field.dispatchEvent(new Event("input", { bubbles: true }));
   return true;
 })()`;
+
+/** Right-clicks the first element matching `selector` whose text contains `text`. */
+const contextMenu = (selector, text) => `(() => {
+  const all = [...document.querySelectorAll(${JSON.stringify(selector)})];
+  const target = all.find((el) => el.textContent.includes(${JSON.stringify(text)}));
+  if (!target) throw new Error("Nothing to right-click: " + ${JSON.stringify(`${selector} ${text}`)});
+  const box = target.getBoundingClientRect();
+  target.dispatchEvent(
+    new MouseEvent("contextmenu", {
+      bubbles: true,
+      cancelable: true,
+      button: 2,
+      clientX: box.left + 24,
+      clientY: box.top + box.height / 2,
+    }),
+  );
+  return true;
+})()`;
+
+/** What the docs project's agent writes to the shop in the partners scene. */
+const PARTNER_MESSAGE =
+  "The refund docs say that cancelling a refund that already went out answers 409, " +
+  "but src/payments/refunds.ts returns 422. Which one is right? If it is the code, " +
+  "please change it to 409; otherwise tell me and I correct docs/api/refunds.md.";
 
 /** Presses Ctrl+Shift+Space and keeps it down: the dictation records until it is let go. */
 const holdDictation = `(() => {
@@ -131,6 +162,74 @@ const SCENES = [
     steps: [{ ready: `document.querySelectorAll(".crew-item").length === 2` }],
   },
   {
+    // Send to partner: the docs project's Gemini CLI session writes to the partner project
+    // "shop", where three agent sessions run; the person picks the one that gets the message.
+    name: "partners",
+    file: "hangar-partners",
+    maxBytes: 300 * KB,
+    layout: { snapLayout: "single", closedGroups: ["newSession"] },
+    settings: BY_PROJECT,
+    settled: DOCS_SETTLED,
+    steps: [
+      {
+        run: contextMenu(".session-main", "Refund docs"),
+        ready: shows("[role=menuitem]", "Send to partner"),
+      },
+      { run: click("[role=menuitem]", "Send to partner"), ready: shows(".partner-choice label") },
+      {
+        run: typeInto(".partner-text", PARTNER_MESSAGE),
+        ready: `document.querySelector(".partner-text").value.length > 20`,
+      },
+      {
+        run: click(".partner-choice label", "Webhook retries"),
+        ready: `!document.querySelector(".partner-dialog .primary-button").disabled`,
+      },
+      { run: BLUR, ready: "true" },
+    ],
+  },
+  {
+    // A message the shop's agent sent with hangar-send waits on the docs project's agent session
+    // until the person pastes or discards it.
+    name: "messages",
+    file: "hangar-messages",
+    maxBytes: 300 * KB,
+    layout: { snapLayout: "single", closedGroups: ["newSession"] },
+    settings: BY_PROJECT,
+    settled: DOCS_SETTLED,
+    steps: [
+      {
+        // The buttons take clicks only a moment after the card appears; until then they look dimmed.
+        ready: `(${shows(".waiting-message")} && !document.querySelector(".waiting-message [aria-disabled=true]"))`,
+      },
+    ],
+  },
+  {
+    // Settings > Sub-agents: the definitions with their figures and models, and the figure
+    // picker of the first one open with every bundled figure, its own one marked.
+    name: "sub-agents",
+    file: "hangar-sub-agents",
+    maxBytes: 300 * KB,
+    layout: { snapLayout: "single", closedGroups: ["newSession"] },
+    // A tall settings dialog, so the picker and the agents around it show together.
+    storage: { "hangar.settingsDialogSize": { width: 1100, height: 800 } },
+    steps: [
+      { run: click(".footer-settings"), ready: shows("[role=tab]", "Sub-agents") },
+      { run: click("[role=tab]", "Sub-agents"), ready: shows(".sub-agent-row") },
+      {
+        ready: `(document.querySelectorAll(".sub-agent-row").length >= 5 && ${shows(".sub-agent-copy", "provided")})`,
+      },
+      {
+        run: click(".sub-agent-figure-button"),
+        ready: shows(".figure-picker .figure-choice.selected"),
+      },
+      {
+        run: `document.querySelector(".sub-agent-row").scrollIntoView({ block: "start" }) || true`,
+        ready: `[...document.querySelectorAll(".figure-choice img")].every((img) => img.complete)`,
+      },
+      { run: BLUR, ready: "true" },
+    ],
+  },
+  {
     // The crew column: three sub-agents as whole figures on their plinths, one of them waiting
     // for the person's OK.
     name: "crew",
@@ -145,42 +244,15 @@ const SCENES = [
     ],
   },
   {
-    // Settings > Sub-agents: the definitions with their figures and models, the default models
-    // and the copies for Codex CLI.
-    name: "sub-agents",
-    file: "hangar-sub-agents",
+    // Dictation: Ctrl+Shift+Space held on the Claude Code pane; a sentence dictated a moment ago
+    // stands in the prompt.
+    name: "dictation",
+    file: "hangar-dictation",
     maxBytes: 300 * KB,
-    layout: { snapLayout: "single", closedGroups: ["newSession"] },
-    // A tall settings dialog, so the defaults and the first agents show together.
-    storage: { "hangar.settingsDialogSize": { width: 1100, height: 800 } },
-    steps: [
-      { run: click(".footer-settings"), ready: shows("[role=tab]", "Sub-agents") },
-      { run: click("[role=tab]", "Sub-agents"), ready: shows(".sub-agent-row") },
-      {
-        ready: `(document.querySelectorAll(".sub-agent-row").length >= 5 && ${shows(".sub-agent-copy", "provided")})`,
-      },
-      { run: BLUR, ready: "true" },
-    ],
-  },
-  {
-    // Changes > Timeline: the silent snapshots after each agent step; one step open with its
-    // changes and the way back.
-    name: "timeline",
-    file: "hangar-timeline",
-    maxBytes: 300 * KB,
-    layout: {
-      snapLayout: "single",
-      closedGroups: ["newSession"],
-      sideOpen: true,
-      sideTab: "changes",
-    },
+    layout: { snapLayout: "single", closedGroups: ["newSession"], fontSize: 16 },
     settled: `(${working(1)} && ${shows(".session", "done")})`,
     steps: [
-      { run: click(".changes-views .segment", "Timeline"), ready: shows(".commit-list .commit") },
-      {
-        run: `document.querySelectorAll(".commit-list .commit-head")[2].click() || true`,
-        ready: `(${shows(".timeline-restore")} && ${shows(".commit-detail .change-file")})`,
-      },
+      { run: holdDictation, ready: shows(".dictation-indicator.recording") },
       { run: BLUR, ready: "true" },
     ],
   },
@@ -217,32 +289,6 @@ const SCENES = [
         ready: `(document.querySelectorAll(".arena-row").length === 3 && document.querySelectorAll(".arena-state.done").length === 3 && document.querySelectorAll(".arena-tests.passed, .arena-tests.failed").length === 3 && ${shows(".arena-lead")})`,
         timeout: 90_000,
       },
-      { run: BLUR, ready: "true" },
-    ],
-  },
-  {
-    // View > Costs: tokens and estimated cost per session today, the last seven days as bars and
-    // the daily budget partly used.
-    name: "costs",
-    file: "hangar-costs",
-    maxBytes: 300 * KB,
-    layout: { snapLayout: "single", closedGroups: ["newSession"] },
-    steps: [
-      ...appMenu("View", "Costs"),
-      { ready: shows(".cost-dialog .cost-row") },
-      { run: BLUR, ready: "true" },
-    ],
-  },
-  {
-    // Dictation: Ctrl+Shift+Space held on the Claude Code pane; a sentence dictated a moment ago
-    // stands in the prompt.
-    name: "dictation",
-    file: "hangar-dictation",
-    maxBytes: 300 * KB,
-    layout: { snapLayout: "single", closedGroups: ["newSession"], fontSize: 16 },
-    settled: `(${working(1)} && ${shows(".session", "done")})`,
-    steps: [
-      { run: holdDictation, ready: shows(".dictation-indicator.recording") },
       { run: BLUR, ready: "true" },
     ],
   },
@@ -396,7 +442,10 @@ async function render(page, url, scene, scheme, version) {
   if (missing > 0) {
     throw new Error(`The version ${shown} is cut off in the sidebar header by ${missing} px.`);
   }
-  for (const [index, step] of [{ ready: scene.settled ?? SETTLED }, ...scene.steps].entries()) {
+  for (const [index, step] of [
+    { ready: scene.settled ?? SETTLED, timeout: 40_000 },
+    ...scene.steps,
+  ].entries()) {
     if (step.run) await page.evaluate(step.run);
     await waitFor(() => page.evaluate(step.ready), {
       timeout: step.timeout ?? 20_000,

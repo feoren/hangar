@@ -4,7 +4,7 @@ type: synthesis
 tags: [release, updater, nsis, windows]
 sources: ["[[tauri-updater-and-nsis]]", "[[code-signing-research]]"]
 created: 2026-11-07
-updated: 2026-11-15
+updated: 2026-11-17
 ---
 
 # Rolling out a release
@@ -111,8 +111,8 @@ collects its items under that same version without a date. `src/versionSync.test
    (`README_SHOTS_BROWSER` picks a specific executable) and writes one image per scene and color
    scheme into `docs/images/` (1296 x 839): the overview `hangar-dark.png` and `hangar-light.png`
    (at most 400 KB each) and `hangar-<scene>-dark.png` / `-light.png` for six scenes (at most
-   300 KB each): one per most visible feature of the release. Since 0.9.0 these are `crew`,
-   `sub-agents`, `timeline`, `arena`, `costs` and `dictation`; each release keeps exactly seven
+   300 KB each): one per most visible feature of the release. Since 0.10.0 these are `partners`,
+   `messages`, `sub-agents`, `crew`, `dictation` and `arena`; each release keeps exactly seven
    scenes and replaces the ones whose feature is no longer among the six best. The README and the website use these
    stable names. `--scene <name>` renders only some scenes. Times are deterministic: the mock runs
    a fixed clock and the browser renders in UTC; animations stop on a fixed frame. It cleans up

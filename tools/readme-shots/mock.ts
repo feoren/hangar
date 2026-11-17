@@ -1,10 +1,11 @@
 // In-memory stand-in for the Tauri backend, used only for the README screenshots. It answers the
 // IPC calls the frontend makes and plays a scripted, fictional day in the project "acme-shop":
 // Claude Code working with a crew of sub-agents next to Codex CLI in its own worktree, a second
-// Claude Code session started as the "security" sub-agent, Gemini CLI done with the API docs, a
-// PowerShell running the docs site's dev server, a signed-in account with two teammates online,
-// and, per scene, what that scene shows: the sub-agent definitions and their figures, the work
-// tree timeline, an agent arena, the cost report with a daily budget, or a dictation.
+// Claude Code session started as the "security" sub-agent, Gemini CLI done with the API docs in
+// the partner project "acme-docs", a PowerShell running the docs site's dev server, a signed-in
+// account with two teammates online, and, per scene, what that scene shows: a message to the
+// partner project, a message waiting from it, the sub-agent definitions and their figures, an
+// agent arena or a dictation.
 // The driver (run.mjs) picks what each screenshot shows by clicking through the real frontend.
 // Nothing here talks to a real process, file or network, and every name in it is made up.
 
@@ -13,6 +14,8 @@ declare const __README_SHOTS_VERSION__: string;
 interface ReadmeShotsControl {
   /** Set by the driver right before the screenshot: spinners stop and the clock stands still. */
   freeze: boolean;
+  /** Set once Gemini CLI has answered; a scene that shows it waits for this. */
+  geminiAnswered: boolean;
 }
 
 declare global {
@@ -25,7 +28,7 @@ declare global {
 
 type Args = Record<string, unknown>;
 
-const control: ReadmeShotsControl = { freeze: false };
+const control: ReadmeShotsControl = { freeze: false, geminiAnswered: false };
 window.__readmeShots = control;
 
 /**
@@ -42,8 +45,12 @@ const SCENE = ((): string => {
 })();
 /** The arena scene starts its own sessions; its clock moves only when the mock says so. */
 const ARENA = SCENE === "arena";
-/** Claude Code still works in these scenes; in the others it has finished and waits at its prompt. */
-const CLAUDE_BUSY = SCENE !== "timeline" && SCENE !== "dictation";
+/** Claude Code still works in every scene but the dictation, where it waits at its prompt. */
+const CLAUDE_BUSY = SCENE !== "dictation";
+/** The messages scene: an agent of acme-shop sent the docs project a message with hangar-send. */
+const MESSAGE_WAITING = SCENE === "messages";
+/** The partner scenes look at the docs project: its Gemini CLI session is the active one. */
+const DOCS_ACTIVE = SCENE === "partners" || SCENE === "messages";
 /** The crew scene: the command guard holds a command of the security sub-agent. */
 const GATE_PENDING = SCENE === "crew";
 
@@ -60,8 +67,8 @@ Date.now = () => {
   if (control.freeze) return SHOT_TIME;
   return ARENA ? arenaNow : Math.min(realNow() + clockOffset, SHOT_TIME);
 };
-// `new Date()` without arguments reads the same clock (the cost report's days take "today" from
-// it); every other form of the constructor and every static method stay real.
+// `new Date()` without arguments reads the same clock (clock times and "today" in the app come
+// from it); every other form of the constructor and every static method stay real.
 window.Date = new Proxy(Date, {
   construct(target, args: unknown[], newTarget) {
     return Reflect.construct(target, args.length === 0 ? [Date.now()] : args, newTarget);
@@ -174,8 +181,8 @@ const mainSessions = [
     subAgent: "security",
     cliSessionId: "cccccccc-0000-4000-8000-000000000003",
   },
-  plainSession(4, "gemini", DOCS, "Gemini CLI"),
-  plainSession(5, "pwsh", DOCS, "PowerShell"),
+  plainSession(4, "gemini", DOCS, "Refund docs"),
+  plainSession(5, "pwsh", DOCS, "Docs server"),
 ];
 /** The arena scene starts with two quiet sessions; the arena adds its three. */
 const arenaSessions = [
@@ -184,7 +191,7 @@ const arenaSessions = [
 ];
 const workspace = {
   version: 1,
-  activeKey: uuid(1),
+  activeKey: uuid(DOCS_ACTIVE ? 4 : 1),
   sessions: ARENA ? arenaSessions : mainSessions,
 };
 /** Minutes each session has been running, in creation order. */
@@ -279,32 +286,6 @@ const claudeGuardOut = lines([
   dim("     Running PreToolUse hook…"),
   "",
   ...claudePrompt([], 82),
-]);
-
-/** The timeline scene: the newest step is done, Claude Code waits for the next one. */
-const claudeDoneOut = lines([
-  dim("> ") + "Make the retry delays configurable and add",
-  dim("  ") + "a test for it",
-  "",
-  "● I'll read the delays from the settings and keep",
-  "  the old ones as the default.",
-  "",
-  green("●") + " " + bold("Update") + "(src/payments/retry.ts)",
-  dim("  ⎿  Updated with 9 additions and 2 removals"),
-  dim("      12 ") + red("-  const DELAYS = [250, 500, 1000];"),
-  dim("      12 ") + green("+  const DELAYS = settings.delays ?? DEFAULT_DELAYS;"),
-  "",
-  green("●") + " " + bold("Update") + "(src/payments/retry.test.ts)",
-  dim("  ⎿  Updated with 14 additions"),
-  "",
-  green("●") + " " + bold("Bash") + "(pnpm test payments)",
-  dim("  ⎿  Test Files  2 passed (2)"),
-  dim("          Tests  21 passed (21)"),
-  "",
-  "● The retry delays now come from the settings.",
-  "  Without a setting they stay 250, 500 and 1000 ms.",
-  "",
-  ...claudePrompt(),
 ]);
 
 /** The dictation scene: a sentence spoken a moment ago stands in the prompt. */
@@ -410,8 +391,8 @@ const codexFooter = lines([
   dim("  ⏎ send   ⇧⏎ newline   ⌃T transcript"),
 ]);
 
-// Gemini CLI streams its answer in a few pieces and then rests: it worked, went quiet and now
-// waits ("done" in the sidebar).
+// Gemini CLI works on the refund page for a while, then answers and rests. Output that ran this
+// long counts as finished work, so the sidebar shows it "done" (attention.ts `sustainedWorkMs`).
 const geminiBox = (mark: string, text: string, width = 40) => {
   return lines([
     dim("╭" + "─".repeat(width) + "╮"),
@@ -419,6 +400,9 @@ const geminiBox = (mark: string, text: string, width = 40) => {
     dim("╰" + "─".repeat(width) + "╯"),
   ]);
 };
+const GEMINI_WORK_MS = 14_000;
+const geminiSpinner = (seconds: number, frame: number) =>
+  `${["⠋", "⠙", "⠹", "⠸"][frame % 4] ?? "⠋"} ${magenta("Thinking…")}${dim(` (esc to cancel, ${String(seconds)}s)`)}`;
 const geminiOut = [
   lines([
     dim("Tips: ask questions, edit files, run commands."),
@@ -431,6 +415,7 @@ const geminiOut = [
     geminiBox(green("✔"), "ReadFile openapi/refunds.yaml"),
     geminiBox(green("✔"), "ReadFile docs/api/orders.md"),
     "",
+    SAVE_CURSOR + geminiSpinner(0, 0),
   ]),
   lines([
     geminiBox(green("✔"), "WriteFile docs/api/refunds.md"),
@@ -439,8 +424,6 @@ const geminiOut = [
     "  list and cancel, each with a curl example",
     "  and the error codes from the spec.",
     "",
-  ]),
-  lines([
     dim("╭" + "─".repeat(40) + "╮"),
     dim("│ ") + cyan(">") + dim("   Type your message or @path/to/file") + dim(" │"),
     dim("╰" + "─".repeat(40) + "╯"),
@@ -490,7 +473,7 @@ const mainScripts: Record<number, string> = {
   1: CLEAR + HIDE_CURSOR + sceneClaudeScreen(),
   2: CLEAR + codexOut + codexSpinner(CODEX_START_SECONDS, 0) + codexFooter,
   3: CLEAR + HIDE_CURSOR + claudeAskOut,
-  4: CLEAR + (geminiOut[0] ?? ""),
+  4: CLEAR + HIDE_CURSOR + (geminiOut[0] ?? ""),
   5: CLEAR + pwshOut,
 };
 /** The sessions the arena scene starts with. */
@@ -501,7 +484,6 @@ const arenaScripts: Record<string, string> = {
 
 function sceneClaudeScreen(): string {
   if (SCENE === "crew") return claudeGuardOut;
-  if (SCENE === "timeline") return claudeDoneOut;
   if (SCENE === "dictation") return claudeDictationOut;
   return claudeCrewOut;
 }
@@ -560,16 +542,42 @@ function keepTicking(
 
 const sessions = new Map<number, Record<string, unknown>>();
 let nextSessionId = 0;
+const takenIds = new Set<number>();
+
+/**
+ * The backend id of a new session: in the main scenes its number in the workspace (1 to 5), so
+ * the script, the crew and the meters stay with their session whichever the app starts first
+ * (it starts the active one first); otherwise the next free number.
+ */
+function sessionId(profileId: string, cwd: string, subAgent: string | null): number {
+  if (!ARENA) {
+    const index = mainSessions.findIndex(
+      (entry, i) =>
+        !takenIds.has(i + 1) &&
+        entry.profileId === profileId &&
+        entry.cwd === cwd &&
+        ("subAgent" in entry ? entry.subAgent : null) === subAgent,
+    );
+    if (index >= 0) {
+      takenIds.add(index + 1);
+      return index + 1;
+    }
+  }
+  do nextSessionId += 1;
+  while (takenIds.has(nextSessionId));
+  takenIds.add(nextSessionId);
+  return nextSessionId;
+}
 
 /** CPU share and resident memory (MB) per program, for the session rows. */
 const RESOURCE_CPU: Record<string, number> = { claude: 12, codex: 9, gemini: 4, aider: 2 };
 const RESOURCE_MB: Record<string, number> = { claude: 412, codex: 286, gemini: 238, aider: 164 };
 
 function createSession(args: Args): unknown {
-  const id = ++nextSessionId;
   const profileId = typeof args.profileId === "string" ? args.profileId : "";
   const profile = profiles.find((p) => p.id === profileId);
   const cwd = typeof args.cwd === "string" ? args.cwd : ROOT;
+  const id = sessionId(profileId, cwd, typeof args.subAgent === "string" ? args.subAgent : null);
   const contestant = arenaContestants.get(cwd) ?? null;
   const info = {
     id,
@@ -620,11 +628,13 @@ function createSession(args: Args): unknown {
         emitEvent("gate-changed", null);
       }, 300);
     }
-    // The rest of Gemini's answer, then silence: it worked and now waits.
+    // Gemini works long enough for its quiet end to count as done, answers, then waits.
     if (!ARENA && id === 4) {
-      geminiOut.slice(1).forEach((piece, index) => {
-        setTimeout(() => output(id, piece), 500 * (index + 1));
-      });
+      keepTicking(id, 0, (s, f) => `${RESTORE_CURSOR}${E}2K${geminiSpinner(s, f)}`, GEMINI_WORK_MS);
+      setTimeout(() => {
+        output(id, `${RESTORE_CURSOR}${E}2K${geminiOut[1] ?? ""}`);
+        control.geminiAnswered = true;
+      }, GEMINI_WORK_MS + 300);
     }
     // A bell makes the session show up as "asks you something" in the sidebar.
     if ((!ARENA && id === 3) || (ARENA && profileId === "aider")) {
@@ -1031,172 +1041,18 @@ const subAgentSettings = {
   },
   provideOff: [],
 };
-/** The figures the user picked; every other agent keeps the one its name points to. */
+/** The figures the user picked: one of the newest of each role. */
 const subAgentFigures = {
-  developer: { kind: "builtin", id: "developer-02" },
-  frontend: { kind: "builtin", id: "frontend-02" },
-  manager: { kind: "builtin", id: "manager-02" },
-  researcher: { kind: "builtin", id: "researcher-02" },
+  backend: { kind: "builtin", id: "backend-03" },
+  developer: { kind: "builtin", id: "developer-03" },
+  frontend: { kind: "builtin", id: "frontend-04" },
+  manager: { kind: "builtin", id: "manager-04" },
+  researcher: { kind: "builtin", id: "researcher-03" },
+  security: { kind: "builtin", id: "security-03" },
+  tester: { kind: "builtin", id: "tester-02" },
 };
 
-// The work tree timeline of the Claude Code session: a silent snapshot after each agent step,
-// newest first, each named after the prompt that started it.
-const SNAPSHOT_HEAD = commitHash(7);
-const TIMELINE_STEPS: [number, string, number, number][] = [
-  [6, "Make the retry delays configurable and add a test for it", 3 * MINUTE, 3],
-  [5, "Log every failed delivery attempt with the order number", 14 * MINUTE, 2],
-  [4, "Cover the retries with fake timers", 27 * MINUTE, 2],
-  [3, "Retry only on 5xx and network errors, not on 4xx", 41 * MINUTE, 2],
-  [2, "Add retries with backoff to the payment webhook", HOUR + 12 * MINUTE, 3],
-  [1, "Read the webhook handler and list where it is called", HOUR + 31 * MINUTE, 1],
-];
-const snapshotList = {
-  isRepo: true,
-  root: ROOT.replace(/\\/g, "/"),
-  head: SNAPSHOT_HEAD,
-  snapshots: TIMELINE_STEPS.map(([number, prompt, age, files]) => ({
-    number,
-    sha: commitHash(100 + number),
-    createdAt: Math.floor(ago(age) / 1000),
-    files,
-    kind: "step",
-    prompt,
-    parent: SNAPSHOT_HEAD,
-  })),
-  skipped: null,
-  others: 0,
-  busy: false,
-};
-
-/** One file of a unified diff: `-` and `+` lines count, a space line is context. */
-function fileDiff(path: string, status: string, hunkStart: string, body: string[]) {
-  const additions = body.filter((line) => line.startsWith("+")).length;
-  const deletions = body.filter((line) => line.startsWith("-")).length;
-  const created = status === "A ";
-  const diff = [
-    `diff --git a/${path} b/${path}`,
-    ...(created ? ["new file mode 100644"] : []),
-    `index ${created ? "0000000" : "3b1f0c2"}..9d4e7a1${created ? "" : " 100644"}`,
-    `--- ${created ? "/dev/null" : `a/${path}`}`,
-    `+++ b/${path}`,
-    hunkStart,
-    ...body,
-  ].join("\n");
-  return { file: { path, status, additions, deletions }, diff };
-}
-
-const FAKE_TIMER_TEST = fileDiff(
-  "src/payments/webhook.test.ts",
-  " M",
-  '@@ -14,7 +14,25 @@ describe("webhook retries", () => {',
-  [
-    ' describe("webhook retries", () => {',
-    '-  it("retries once", async () => {',
-    '-    const send = vi.fn().mockRejectedValueOnce(new Error("down"));',
-    "+  beforeEach(() => {",
-    "+    vi.useFakeTimers();",
-    "+  });",
-    "+",
-    "+  afterEach(() => {",
-    "+    vi.useRealTimers();",
-    "+  });",
-    "+",
-    '+  it("waits 250 ms before the first retry", async () => {',
-    '+    const send = vi.fn().mockRejectedValueOnce(new Error("down"));',
-    "+    const result = deliver(event, send);",
-    "+    await vi.advanceTimersByTimeAsync(250);",
-    "+    expect(send).toHaveBeenCalledTimes(2);",
-    "+    await expect(result).resolves.toMatchObject({ ok: true });",
-    "+  });",
-    "+",
-    '+  it("gives up after the last delay", async () => {',
-    '+    const send = vi.fn().mockRejectedValue(new Error("down"));',
-    "+    const result = deliver(event, send);",
-    "+    await vi.advanceTimersByTimeAsync(1750);",
-    '+    await expect(result).rejects.toThrow("down");',
-    "+    expect(send).toHaveBeenCalledTimes(4);",
-    "+  });",
-    " });",
-  ],
-);
-const RETRY_TEST = fileDiff("src/payments/retry.test.ts", "A ", "@@ -0,0 +1,9 @@", [
-  '+import { describe, expect, it } from "vitest";',
-  '+import { delayFor } from "./retry";',
-  "+",
-  '+describe("delayFor", () => {',
-  '+  it("doubles the delay for each attempt", () => {',
-  "+    expect(delayFor(0)).toBe(250);",
-  "+    expect(delayFor(1)).toBe(500);",
-  "+  });",
-  "+});",
-]);
-
-/** The changes of one timeline step; every step but the one the scene opens is small. */
-function snapshotDiff(args: Args): unknown {
-  const parts = args.number === 4 ? [FAKE_TIMER_TEST, RETRY_TEST] : [RETRY_TEST];
-  return {
-    isRepo: true,
-    files: parts.map((part) => part.file),
-    diff: parts.map((part) => part.diff).join("\n"),
-    truncated: false,
-  };
-}
-
-// The cost report: tokens and an estimated price per running session and per local day. Only
-// Claude Code keeps readable usage. Today stands at $14.62 of the $25 daily budget.
-const amount = (
-  input: number,
-  out: number,
-  cacheWrite: number,
-  cacheRead: number,
-  usd: number,
-) => ({
-  tokens: {
-    input,
-    output: out,
-    cacheWrite5m: cacheWrite,
-    cacheWrite1h: 0,
-    cacheRead,
-  },
-  total: input + out + cacheWrite + cacheRead,
-  costUsd: usd,
-  partial: false,
-});
-const DAILY_BUDGET = 25;
-const costSessions = [
-  { sessionId: 1, title: "Webhook retries", ...amount(38_000, 61_000, 410_000, 3_330_000, 5.96) },
-  { sessionId: 3, title: "security", ...amount(21_000, 33_000, 190_000, 960_000, 2.48) },
-  {
-    sessionId: null,
-    title: "Checkout emails",
-    ...amount(52_000, 74_000, 520_000, 1_970_000, 4.35),
-  },
-  { sessionId: null, title: "Refund docs", ...amount(17_000, 28_000, 150_000, 540_000, 1.83) },
-];
-const costDay = (day: string, whole: ReturnType<typeof amount>, named: typeof costSessions) => ({
-  day,
-  ...whole,
-  sessions: named.map((entry) => ({ ...entry, program: "Claude Code" })),
-});
-const costReport = {
-  today: "2026-11-10",
-  sessions: costSessions
-    .filter((entry) => entry.sessionId !== null)
-    .map(({ sessionId, ...rest }) => ({ sessionId, ...rest })),
-  days: [
-    costDay("2026-11-10", amount(128_000, 196_000, 1_270_000, 6_800_000, 14.62), costSessions),
-    costDay("2026-11-09", amount(210_000, 305_000, 2_100_000, 11_300_000, 21.4), costSessions),
-    costDay("2026-11-08", amount(18_000, 26_000, 160_000, 1_000_000, 1.85), costSessions.slice(3)),
-    costDay("2026-11-07", amount(0, 0, 0, 0, 0), []),
-    costDay("2026-11-06", amount(190_000, 268_000, 1_900_000, 10_240_000, 18.9), costSessions),
-    costDay("2026-11-05", amount(236_000, 341_000, 2_350_000, 12_370_000, 23.15), costSessions),
-    costDay("2026-11-04", amount(121_000, 177_000, 1_240_000, 6_560_000, 12.3), costSessions),
-  ],
-  priceSource: "Anthropic list prices",
-  priceDate: "2026-11-01",
-};
-
-// The preferences the backend keeps: the daily budget, and for the dictation scene the key on.
+// The preferences the backend keeps; the dictation scene has its key on.
 const mainPrefs = {
   startMode: "private",
   lastProgram: null,
@@ -1208,7 +1064,7 @@ const mainPrefs = {
   notifyDesktop: true,
   chime: true,
   quietHours: { enabled: false, from: 22 * 60, to: 7 * 60 },
-  dailyBudget: DAILY_BUDGET,
+  dailyBudget: null,
   budgetWarnedDay: null,
   dictationEnabled: SCENE === "dictation",
 };
@@ -1236,6 +1092,50 @@ function startDictation(args: Args): null {
   window.setTimeout(level, 150);
   return null;
 }
+
+// Partner projects (ADR 0012): the shop and its docs site may send each other messages, under
+// the short names "shop" and "docs". acme-shop's worktrees belong to it too.
+const partnerBook = {
+  projects: [
+    { name: "shop", folder: ROOT },
+    { name: "docs", folder: DOCS },
+  ],
+  pairs: [["shop", "docs"]],
+};
+
+/** The partner project of a session and its sessions there, oldest first. */
+function partnerTargets(args: Args): unknown {
+  const partner = partnerBook.projects.find((project) => project.name === args.partner);
+  const sender = partnerBook.projects.find((project) => project.name !== args.partner);
+  if (partner === undefined || sender === undefined) return null;
+  return {
+    sender: sender.name,
+    partner,
+    sessions: [...sessions.entries()]
+      .filter(
+        ([, info]) => repoOf(typeof info.cwd === "string" ? info.cwd : ROOT) === partner.folder,
+      )
+      .map(([id, info]) => ({ id, profileId: info.profileId, running: info.status === "running" })),
+  };
+}
+
+/**
+ * The messages scene: the shop's Claude Code told the docs project about the new retries with
+ * hangar-send. It waits on the docs project's agent session until the person pastes it.
+ */
+const waitingMessages = MESSAGE_WAITING
+  ? [
+      {
+        id: 1,
+        from: "shop",
+        to: "docs",
+        text:
+          "The payment webhook now retries a failed delivery three times, after 250, 500 " +
+          "and 1000 ms. Please add a Retries section to docs/api/webhooks.md.",
+        at: ago(2 * MINUTE),
+      },
+    ]
+  : [];
 
 // The agent arena: one task for three agents, each in a worktree of its own. Each plays its part
 // when the task arrives: it works for a while, then finishes with the time the comparison shows.
@@ -1385,8 +1285,7 @@ const arenaPlans: Omit<ArenaPlan, "path" | "branch" | "started" | "finished">[] 
       "",
       SAVE_CURSOR,
     ]),
-    spinner: (seconds, frame) =>
-      `${["⠋", "⠙", "⠹", "⠸"][frame % 4] ?? "⠋"} ${magenta("Thinking…")}${dim(` (esc to cancel, ${String(seconds)}s)`)}`,
+    spinner: geminiSpinner,
     workMs: 12_600,
     elapsedMs: 9 * MINUTE + 5_000,
     finish: lines([
@@ -1671,13 +1570,20 @@ const handlers: Record<string, (args: Args) => unknown> = {
   sub_agent_figures: () => subAgentFigures,
   sub_agent_settings: () => subAgentSettings,
   sync_sub_agents: () => null,
-  // The timeline.
+  // Every session binds its work tree snapshots; no scene shows them, nor the cost report.
   snapshot_bind: () => null,
   snapshot_take: () => null,
-  snapshot_list: () => snapshotList,
-  snapshot_diff: snapshotDiff,
-  // Costs.
-  cost_report: () => costReport,
+  cost_report: () => null,
+  // Partner projects and the messages waiting from them.
+  partner_projects: () => partnerBook,
+  link_partner: () => partnerBook,
+  unlink_partner: () => partnerBook,
+  partner_targets: partnerTargets,
+  deliver_partner_message: (args) => (typeof args.text === "string" ? args.text : ""),
+  waiting_messages: () => waitingMessages,
+  waiting_message_text: (args) =>
+    waitingMessages.find((message) => message.id === args.id)?.text ?? "",
+  close_waiting_message: () => null,
   // Dictation.
   dictation_status: dictationStatus,
   dictation_start: startDictation,

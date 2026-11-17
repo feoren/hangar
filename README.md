@@ -72,6 +72,12 @@ your own accounts, on your own machine. The desktop app is open source under the
   soon as the agent is done and holds it back while the agent asks you something.
 - **Hand over to another agent.** "Hand over to ..." in the session menu starts another installed
   agent in the same folder and inserts the last request, the changed files and your notes.
+- **Partner projects.** Link projects that belong together, such as an app and its website, on
+  their project card. "Send to partner" in the session menu pastes a message into the partner
+  project's agent session, with a header line naming the sender, and waits until that agent pauses.
+- **Agents message each other.** Agents in linked projects can send with `hangar-send <partner>
+<text>`. Nothing is pasted on its own: the message waits under the partner's session row until you
+  choose Paste, Paste and send or Discard.
 - **Side by side.** Show two, three or four sessions at once, arrange them by dragging and resize
   them by dragging the lines between them.
 - **Quick access.** Ctrl+Shift+P finds sessions, programs, files, recent commits, settings and every
@@ -119,7 +125,7 @@ your own accounts, on your own machine. The desktop app is open source under the
 - **Your sub-agents in one place.** _Settings > Sub-agents_ lists your Claude Code agents from
   `~/.claude/agents` and your projects, and Codex CLI's own agent files. Add a new one by pasting it
   or from a file; Hangar never replaces a file unasked.
-- **A figure for every agent.** Each sub-agent wears a whole figure: one of twelve bundled ones or
+- **A figure for every agent.** Each sub-agent wears a whole figure: one of 25 bundled ones or
   your own image, also animated. A session started as a sub-agent wears it in the sidebar, and the
   crew column shows it while the sub-agent works.
 - **Start as an agent.** The arrow beside Claude Code starts a session as one of your sub-agents
@@ -233,18 +239,18 @@ your own accounts, on your own machine. The desktop app is open source under the
     <td width="50%" valign="top">
       <picture>
         <source media="(prefers-color-scheme: light)" srcset="docs/images/hangar-sub-agents-light.png">
-        <img alt="Settings, Sub-agents: default models for Claude Code and Codex CLI, the switch that provides the sub-agents in Codex CLI, and the backend, developer and frontend sub-agents with their figures and a model per program" src="docs/images/hangar-sub-agents-dark.png">
+        <img alt="Settings, Sub-agents: the figure picker of the backend sub-agent open with all 25 bundled figures and the chosen one marked, below it the developer and frontend sub-agents with their figures and a model per program" src="docs/images/hangar-sub-agents-dark.png">
       </picture>
-      <br><sub>Sub-agents with figures, a model per agent and per program, provided to Codex CLI as well.</sub>
+      <br><sub>25 figures to choose from, a model per agent and per program, provided to Codex CLI as well.</sub>
     </td>
   </tr>
   <tr>
     <td width="50%" valign="top">
       <picture>
-        <source media="(prefers-color-scheme: light)" srcset="docs/images/hangar-timeline-light.png">
-        <img alt="The Changes panel on its Timeline tab: six agent steps named after their prompts, one opened with its two changed files and Go back to this state" src="docs/images/hangar-timeline-dark.png">
+        <source media="(prefers-color-scheme: light)" srcset="docs/images/hangar-partners-light.png">
+        <img alt="The Send to partner dialog of a Gemini CLI session in the acme-docs project: a question about a refund status code written to the partner project shop, and Webhook retries chosen among its three agent sessions, with Paste and Paste and send" src="docs/images/hangar-partners-dark.png">
       </picture>
-      <br><sub>The timeline saves your files after every agent step; go back to any of them.</sub>
+      <br><sub>Partner projects: send a message to the agent of a linked project.</sub>
     </td>
     <td width="50%" valign="top">
       <picture>
@@ -257,10 +263,10 @@ your own accounts, on your own machine. The desktop app is open source under the
   <tr>
     <td width="50%" valign="top">
       <picture>
-        <source media="(prefers-color-scheme: light)" srcset="docs/images/hangar-costs-light.png">
-        <img alt="The Costs dialog: today's tokens and estimated cost against a 25 dollar daily budget, the sessions of the day and the last seven days as bars" src="docs/images/hangar-costs-dark.png">
+        <source media="(prefers-color-scheme: light)" srcset="docs/images/hangar-messages-light.png">
+        <img alt="A message from the partner project shop waiting under the Refund docs session row: the request to document the webhook retries, with Paste, Paste and send and Discard" src="docs/images/hangar-messages-dark.png">
       </picture>
-      <br><sub>Tokens and estimated costs per session and day, with a daily budget.</sub>
+      <br><sub>A message an agent sent with hangar-send waits until you paste or discard it.</sub>
     </td>
     <td width="50%" valign="top">
       <picture>
