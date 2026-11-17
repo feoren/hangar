@@ -105,6 +105,18 @@ describe("sessionMenuEntries", () => {
     expect(keys(true)).toEqual(["rename", "marker", "handover", "sep", "kill", "close"]);
   });
 
+  it("offers sending to a partner only where the project has partners, after the handover", () => {
+    const keys = (partner: boolean) =>
+      sessionMenuEntries({ status: "running" }, t, false, {
+        queue: null,
+        stall: null,
+        handover: true,
+        partner,
+      }).map((entry) => entry.key);
+    expect(keys(false)).not.toContain("partner");
+    expect(keys(true)).toEqual(["rename", "marker", "handover", "partner", "sep", "kill", "close"]);
+  });
+
   it("offers the report only for programs whose transcript Hangar reads", () => {
     const report = (session: { status: "running" | "exited"; subAgents?: boolean }) =>
       sessionMenuEntries(session, t).find((entry) => entry.key === "report");

@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-link-partner"
+description = "Enables the link_partner command without any pre-configured scope."
+commands.allow = ["link_partner"]
+
+[[permission]]
+identifier = "deny-link-partner"
+description = "Denies the link_partner command without any pre-configured scope."
+commands.deny = ["link_partner"]

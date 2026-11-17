@@ -471,6 +471,29 @@ export const api = {
   loadTemplates: () => invoke<unknown>("load_templates"),
   saveTemplates: (templates: readonly WorkspaceTemplate[]) =>
     invoke<null>("save_templates", { templates }),
+  /** The partner projects (ADR 0012); check with `parsePartnerBook`. */
+  partnerProjects: () => invoke<unknown>("partner_projects"),
+  /**
+   * Makes two existing project folders partners under their short names; answers the new list.
+   * Rejects with the reason (name taken, folder missing, already partners).
+   */
+  linkPartner: (link: {
+    thisFolder: string;
+    thisName: string;
+    partnerFolder: string;
+    partnerName: string;
+  }) => invoke<unknown>("link_partner", link),
+  /** Ends the partnership of the projects named `a` and `b`; answers the new list. */
+  unlinkPartner: (a: string, b: string) => invoke<unknown>("unlink_partner", { a, b }),
+  /** The partner of a session's project and its sessions; check with `parsePartnerTargets`. */
+  partnerTargets: (from: number, partner: string) =>
+    invoke<unknown>("partner_targets", { from, partner }),
+  /**
+   * The checked text to paste into session `to` (header line, control characters removed);
+   * the backend logs the delivery. Paste the answer right away.
+   */
+  deliverPartnerMessage: (from: number, to: number, partner: string, text: string) =>
+    invoke<string>("deliver_partner_message", { from, to, partner, text }),
   /** Queued message texts per session key, `null` before the first save. */
   loadMessageQueue: () => invoke<unknown>("load_message_queue"),
   /** Replaces the stored queued messages; keys are session keys (UUIDs). */

@@ -6996,6 +6996,56 @@ body.resizing-horizontal * {
   width: min(520px, calc(100vw - 32px));
 }
 
+/* "Send to partner" (PartnerMessageDialog.tsx). */
+.dialog.partner-dialog {
+  width: min(520px, calc(100vw - 32px));
+}
+
+.partner-help {
+  margin: 0 0 10px;
+  font-size: 12.5px;
+}
+
+.partner-field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin-bottom: 10px;
+  font-size: 12.5px;
+}
+
+.partner-text {
+  width: 100%;
+  min-height: 120px;
+  font-family: var(--mono);
+  line-height: 1.45;
+  resize: vertical;
+}
+
+.dialog .partner-target {
+  margin: 0;
+  font-size: 12.5px;
+}
+
+.partner-choice {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 0;
+  border: none;
+}
+
+.partner-choice legend {
+  padding: 0;
+  margin-bottom: 4px;
+}
+
+.partner-choice label {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
 .broadcast-text {
   width: 100%;
   min-height: 84px;
@@ -11422,6 +11472,76 @@ body.session-dragging .session-actions {
   font-size: 11px;
   font-weight: 600;
   color: var(--muted);
+}
+
+/* Partner projects of a card (ProjectPartners.tsx, ADR 0012). */
+.project-partner-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  padding: 0;
+  margin: 0;
+  list-style: none;
+}
+
+.project-partner {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  padding: 0 2px 0 8px;
+  font-family: var(--mono);
+  font-size: 12px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+}
+
+.project-partner .icon-button {
+  width: 24px;
+  height: 24px;
+  border-radius: 999px;
+}
+
+.project-partners > .project-link {
+  align-self: flex-start;
+}
+
+.project-partner-form {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  font-size: 12.5px;
+}
+
+.project-partner-form label {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.project-partner-form .text-input {
+  min-width: 0;
+  font-family: var(--mono);
+  font-size: 12px;
+}
+
+.project-partner-folder {
+  display: flex;
+  gap: 6px;
+}
+
+.project-partner-folder .text-input {
+  flex: 1;
+}
+
+.project-partner-help {
+  margin: 0;
+  font-size: 11.5px;
+}
+
+.project-partner-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 6px;
 }
 
 .project-commits li,

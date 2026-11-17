@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-unlink-partner"
+description = "Enables the unlink_partner command without any pre-configured scope."
+commands.allow = ["unlink_partner"]
+
+[[permission]]
+identifier = "deny-unlink-partner"
+description = "Denies the unlink_partner command without any pre-configured scope."
+commands.deny = ["unlink_partner"]

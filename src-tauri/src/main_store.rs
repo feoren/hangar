@@ -5,7 +5,8 @@
 //! each session they start) and the start and notice preferences ([`MainPrefs`]: private or team
 //! start, the last program, the favorite and recent folders, session restore, whether and when
 //! a waiting session shows itself, the daily budget with the day its notice last showed, and
-//! whether the dictation key is on).
+//! whether the dictation key is on) and the partner projects ([`crate::partners`]: which
+//! projects may send each other messages).
 //!
 //! The panel and file viewer windows share the main window's origin and with it its
 //! `localStorage`. A compromised viewer (a crafted Markdown file) could otherwise turn the gate
@@ -28,6 +29,7 @@ use std::path::{Path, PathBuf};
 use serde::{Deserialize, Serialize, Serializer};
 
 use crate::agent_models::{DefProgram, ModelChoice};
+use crate::partners::PartnerBook;
 use crate::persist::{normalize_key, read_limited, write_atomic};
 
 pub const SWITCHES_FILE: &str = "security-switches.json";
@@ -36,6 +38,11 @@ pub const SETTINGS_FILE: &str = "protected-settings.json";
 pub const TEMPLATES_FILE: &str = "workspace-templates.json";
 pub const PREFS_FILE: &str = "main-prefs.json";
 pub const SUB_AGENTS_FILE: &str = "sub-agent-settings.json";
+pub const PARTNERS_FILE: &str = "partner-projects.json";
+/// Every project with its longest folder in escaped JSON, the pairs by name, with room.
+const MAX_PARTNERS_BYTES: usize = crate::partners::MAX_PROJECTS * (MAX_FOLDER_UNITS * 6 + 128)
+    + crate::partners::MAX_PAIRS * 96
+    + 1024;
 /// A few programs with a short model each.
 const MAX_SUB_AGENTS_BYTES: usize = 16 * 1024;
 /// Queued messages kept at most, one per session ([`crate::persist::MAX_SESSIONS`]).
@@ -88,6 +95,8 @@ pub enum MainStoreError {
     InvalidTemplate(&'static str),
     #[error("Invalid preference: {0}")]
     InvalidPrefs(&'static str),
+    #[error(transparent)]
+    Partners(#[from] crate::partners::PartnerError),
     #[error("File {path} cannot be read or written: {source}")]
     Io {
         path: PathBuf,
@@ -590,6 +599,21 @@ impl MainStore {
         validate_prefs(&prefs)?;
         save(&self.dir.join(PREFS_FILE), &prefs)
     }
+
+    /// The partner projects; a missing, damaged or invalid file gives none, so a planted file
+    /// can link no project to another.
+    pub fn load_partners(&self) -> PartnerBook {
+        let path = self.dir.join(PARTNERS_FILE);
+        load::<PartnerBook>(&path, MAX_PARTNERS_BYTES)
+            .flatten()
+            .filter(|book| book.validate().is_ok())
+            .unwrap_or_default()
+    }
+
+    pub fn save_partners(&self, book: &PartnerBook) -> Result<(), MainStoreError> {
+        book.validate()?;
+        save(&self.dir.join(PARTNERS_FILE), book)
+    }
 }
 
 #[cfg(test)]
@@ -720,6 +744,36 @@ mod tests {
         )
         .unwrap();
         assert_eq!(store.load_sub_agents(), SubAgentSettings::default());
+    }
+
+    #[test]
+    fn partner_projects_round_trip_and_a_bad_file_links_nothing() {
+        let tmp = TempDir::new("main-store-partners");
+        let store = MainStore::new(tmp.path().to_owned());
+        assert_eq!(store.load_partners(), PartnerBook::default());
+        let book = PartnerBook::default()
+            .link(
+                crate::partners::ProjectEnd {
+                    folder: "/work/app",
+                    name: "app",
+                },
+                crate::partners::ProjectEnd {
+                    folder: "/work/web",
+                    name: "web",
+                },
+            )
+            .unwrap();
+        store.save_partners(&book).unwrap();
+        assert_eq!(store.load_partners(), book);
+        let mut bad = book.clone();
+        bad.pairs.push(["app".into(), "app".into()]);
+        assert!(store.save_partners(&bad).is_err());
+        std::fs::write(
+            tmp.path().join(PARTNERS_FILE),
+            r#"{"projects":[{"name":"x","folder":"/a"}],"pairs":[["x","y"]]}"#,
+        )
+        .unwrap();
+        assert_eq!(store.load_partners(), PartnerBook::default());
     }
 
     #[test]

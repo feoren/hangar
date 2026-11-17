@@ -166,6 +166,12 @@ fn commands_are_registered_allowed_and_wired() {
         "save_main_prefs",
         "load_templates",
         "save_templates",
+        // Partner projects decide which agent a message reaches (ADR 0012).
+        "partner_projects",
+        "link_partner",
+        "unlink_partner",
+        "partner_targets",
+        "deliver_partner_message",
         "set_panel_session",
         "take_update_results",
         "claims_snapshot",

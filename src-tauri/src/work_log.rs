@@ -7,7 +7,8 @@
 //! session's details, so a session that runs past midnight needs no record from another file.
 //!
 //! Stored: a session key, title, program name, working folder, repository root, worktree flag
-//! and times. Never terminal output, prompts, environment variables or secrets. Files older than
+//! and times; for a cross-project message (ADR 0012) also the target session's key and folder,
+//! never the text. Never terminal output, prompts, environment variables or secrets. Files older than
 //! [`RETENTION_DAYS`] are deleted on startup; a day file stops growing at [`MAX_FILE_BYTES`].
 
 use std::collections::{HashMap, HashSet};
@@ -53,6 +54,8 @@ pub enum EventKind {
     Phase,
     /// The process exited or the session was closed.
     End,
+    /// The session sent a cross-project message (ADR 0012) to `to_key` in `to_cwd`; no text.
+    Message,
 }
 
 /// One line of a day file.
@@ -77,6 +80,11 @@ pub struct Record {
     pub repo: Option<String>,
     #[serde(default)]
     pub worktree: bool,
+    /// The receiving session of a [`EventKind::Message`].
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub to_key: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub to_cwd: Option<String>,
 }
 
 #[derive(Debug, thiserror::Error)]
@@ -200,6 +208,28 @@ impl WorkLog {
         Ok(())
     }
 
+    /// Session `from` sent a cross-project message to session `to` at `at`: who, where and when,
+    /// never the text. Both sessions must be known to the log.
+    pub fn message(&self, from: SessionId, to: SessionId, at: i64) -> Result<(), WorkLogError> {
+        let (sender, target) = {
+            let sessions = lock(&self.0.sessions);
+            let sender = sessions
+                .get(&from)
+                .cloned()
+                .ok_or(WorkLogError::UnknownSession(from))?;
+            let target = sessions
+                .get(&to)
+                .cloned()
+                .ok_or(WorkLogError::UnknownSession(to))?;
+            (sender, target)
+        };
+        let mut line = record(&sender, EventKind::Message, at, None);
+        line.to_key = Some(target.key);
+        line.to_cwd = Some(target.cwd);
+        self.append(&line);
+        Ok(())
+    }
+
     /// The process exited or the session closed. A second call (exit, then close) does nothing.
     pub fn ended(&self, id: SessionId, at: i64) {
         let meta = {
@@ -301,6 +331,8 @@ fn record(meta: &Meta, event: EventKind, at: i64, from: Option<i64>) -> Record {
         cwd: meta.cwd.clone(),
         repo: meta.repo.clone(),
         worktree: meta.worktree,
+        to_key: None,
+        to_cwd: None,
     }
 }
 
@@ -548,6 +580,47 @@ mod tests {
         }
         assert_eq!(iso_utc(DAY / 1000 + 3723), "2026-11-14T01:02:03Z");
         assert_eq!(iso_utc(-1), "1969-12-31T23:59:59Z");
+    }
+
+    #[test]
+    fn a_message_names_sender_target_and_time_but_no_text() {
+        let tmp = TempDir::new("work-log-message");
+        let log = WorkLog::with_run(tmp.path().join(DIR), "r1");
+        let app = tmp.path().join("app");
+        let web = tmp.path().join("web");
+        fs::create_dir_all(&app).unwrap();
+        fs::create_dir_all(&web).unwrap();
+        log.started(&info(1, &app), "Claude Code", DAY + 1000);
+        log.started(&info(2, &web), "Codex CLI", DAY + 1000);
+        log.message(1, 2, DAY + 2000).unwrap();
+        assert!(matches!(
+            log.message(1, 9, DAY + 3000),
+            Err(WorkLogError::UnknownSession(9))
+        ));
+        let (records, _) = log.read_window(DAY, DAY + DAY_MS);
+        let message = records
+            .iter()
+            .find(|r| r.event == EventKind::Message)
+            .unwrap();
+        assert_eq!(message.key, "r1-1");
+        assert_eq!(message.at, DAY + 2000);
+        assert_eq!(message.to_key.as_deref(), Some("r1-2"));
+        assert_eq!(
+            message.to_cwd.as_deref(),
+            Some(web.to_string_lossy().as_ref())
+        );
+        let text = fs::read_to_string(log.dir().join("2026-11-14.jsonl")).unwrap();
+        let line = text.lines().find(|l| l.contains("\"message\"")).unwrap();
+        let value: serde_json::Value = serde_json::from_str(line).unwrap();
+        let mut keys: Vec<&String> = value.as_object().unwrap().keys().collect();
+        keys.sort();
+        assert_eq!(
+            keys,
+            [
+                "at", "cwd", "event", "key", "program", "repo", "title", "toCwd", "toKey", "v",
+                "worktree"
+            ]
+        );
     }
 
     #[test]

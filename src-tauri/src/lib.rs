@@ -56,6 +56,8 @@ pub mod notes;
 pub mod notify;
 pub mod output;
 pub mod panel_window;
+pub mod partner_service;
+pub mod partners;
 pub mod paste_image;
 pub mod path_links;
 pub mod persist;
@@ -644,6 +646,11 @@ pub fn run() -> tauri::Result<()> {
             commands::save_main_prefs,
             commands::load_templates,
             commands::save_templates,
+            commands::partner_projects,
+            commands::link_partner,
+            commands::unlink_partner,
+            commands::partner_targets,
+            commands::deliver_partner_message,
             commands::set_panel_session,
             commands::take_update_results,
             commands::dictation_status,

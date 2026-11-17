@@ -57,6 +57,8 @@ use crate::notes::{
 };
 use crate::notify::{self, Notifier};
 use crate::panel_window::{self, PanelMessage, PanelScope, PanelWindowError};
+use crate::partner_service::{self, PartnerServiceError, PartnerTargets};
+use crate::partners::PartnerBook;
 use crate::paste_image::{self, PasteGate, PasteImageError, PasteOutcome};
 use crate::path_links::{self, Opened, PathKind, PathLinkError};
 use crate::persist::{PersistError, Store, Workspace};
@@ -3664,6 +3666,134 @@ pub async fn save_templates(
     tauri::async_runtime::spawn_blocking(move || store.save_templates(templates))
         .await
         .map_err(|error| MainStoreError::Task(error.to_string()))?
+}
+
+/// The partner projects (ADR 0012); none when nothing valid is stored.
+#[tauri::command]
+pub async fn partner_projects(
+    window: tauri::Window,
+    store: State<'_, MainStore>,
+) -> Result<PartnerBook, PartnerServiceError> {
+    main_store::check_main(window.label()).map_err(PartnerServiceError::Store)?;
+    let store = store.inner().clone();
+    tauri::async_runtime::spawn_blocking(move || store.load_partners())
+        .await
+        .map_err(|error| PartnerServiceError::Task(error.to_string()))
+}
+
+/// Makes the projects at the two folders partners, each under its short name; answers the new
+/// list. The folders must exist; each is taken as its project's root folder.
+#[tauri::command]
+pub async fn link_partner(
+    window: tauri::Window,
+    store: State<'_, MainStore>,
+    this_folder: String,
+    this_name: String,
+    partner_folder: String,
+    partner_name: String,
+) -> Result<PartnerBook, PartnerServiceError> {
+    main_store::check_main(window.label()).map_err(PartnerServiceError::Store)?;
+    let store = store.inner().clone();
+    tauri::async_runtime::spawn_blocking(move || {
+        partner_service::link(
+            &store,
+            &this_folder,
+            &this_name,
+            &partner_folder,
+            &partner_name,
+        )
+    })
+    .await
+    .map_err(|error| PartnerServiceError::Task(error.to_string()))?
+}
+
+/// Ends the partnership of the projects named `a` and `b`; answers the new list.
+#[tauri::command]
+pub async fn unlink_partner(
+    window: tauri::Window,
+    store: State<'_, MainStore>,
+    a: String,
+    b: String,
+) -> Result<PartnerBook, PartnerServiceError> {
+    main_store::check_main(window.label()).map_err(PartnerServiceError::Store)?;
+    let store = store.inner().clone();
+    tauri::async_runtime::spawn_blocking(move || partner_service::unlink(&store, &a, &b))
+        .await
+        .map_err(|error| PartnerServiceError::Task(error.to_string()))?
+}
+
+/// The partner `partner` of session `from`'s project and the sessions there, so the window can
+/// choose where a cross-project message goes.
+#[tauri::command]
+pub async fn partner_targets(
+    window: tauri::Window,
+    store: State<'_, MainStore>,
+    manager: Manager<'_>,
+    from: SessionId,
+    partner: String,
+) -> Result<PartnerTargets, PartnerServiceError> {
+    main_store::check_main(window.label()).map_err(PartnerServiceError::Store)?;
+    let store = store.inner().clone();
+    let sessions = manager.list();
+    let shells = manager.shell_profiles();
+    tauri::async_runtime::spawn_blocking(move || {
+        partner_service::targets(
+            &store.load_partners(),
+            &sessions,
+            from,
+            &partner,
+            &partner_service::Probe {
+                root: &partner_service::project_root,
+                is_shell: &|profile| shells.contains(profile),
+            },
+        )
+    })
+    .await
+    .map_err(|error| PartnerServiceError::Task(error.to_string()))?
+}
+
+/// The text to paste into session `to` for a message from session `from` to its partner
+/// `partner`: checked, cleaned of control characters and headed with the sender's short name.
+/// The window calls it once the target is ready and pastes the answer right away; the work log
+/// gets a line with sender, target and time, never the text.
+#[tauri::command]
+#[allow(clippy::too_many_arguments)] // One Tauri command, one argument per field of the call.
+pub async fn deliver_partner_message(
+    window: tauri::Window,
+    store: State<'_, MainStore>,
+    manager: Manager<'_>,
+    work_log: State<'_, WorkLog>,
+    from: SessionId,
+    to: SessionId,
+    partner: String,
+    text: String,
+) -> Result<String, PartnerServiceError> {
+    main_store::check_main(window.label()).map_err(PartnerServiceError::Store)?;
+    let store = store.inner().clone();
+    let log = work_log.inner().clone();
+    let sessions = manager.list();
+    let shells = manager.shell_profiles();
+    tauri::async_runtime::spawn_blocking(move || {
+        let pasted = partner_service::prepare(
+            &store.load_partners(),
+            &sessions,
+            from,
+            to,
+            &partner,
+            &text,
+            &partner_service::Probe {
+                root: &partner_service::project_root,
+                is_shell: &|profile| shells.contains(profile),
+            },
+        )?;
+        // The message goes out even when the log cannot take the line (a full day file).
+        if let Err(error) = log.message(from, to, work_log::now_ms()) {
+            eprintln!("hangar: message not logged: {error}");
+        }
+        Ok(pasted)
+    })
+    .await
+    .map_err(|error| PartnerServiceError::Task(error.to_string()))?
 }
 
 /// The session the panel window shows from now on (`null`: none). The main window calls it

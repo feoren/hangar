@@ -12,6 +12,22 @@ const CODE = /^\[([a-z_]+)\] /;
 const MESSAGES: ReadonlyMap<string, MessageKey> = new Map<string, MessageKey>([
   ["bad_cwd", "terminal.missingFolder"],
   ["remote_cwd", "terminal.remoteFolder"],
+  ["partner_name", "partnerError.name"],
+  ["partner_folder", "partnerError.folder"],
+  ["partner_missing_folder", "partnerError.missingFolder"],
+  ["partner_self", "partnerError.self"],
+  ["partner_nested", "partnerError.nested"],
+  ["partner_name_taken", "partnerError.nameTaken"],
+  ["partner_name_in_use", "partnerError.nameInUse"],
+  ["partner_already", "partnerError.already"],
+  ["partner_too_many", "partnerError.tooMany"],
+  ["partner_not_partner", "partnerError.notPartner"],
+  ["partner_no_project", "partnerError.noProject"],
+  ["partner_wrong_target", "partnerError.wrongTarget"],
+  ["partner_empty", "partnerError.empty"],
+  ["partner_too_long", "partnerError.tooLong"],
+  ["partner_forged_header", "partnerError.forgedHeader"],
+  ["partner_invalid_list", "partnerError.invalidList"],
 ]);
 
 export interface BackendError {

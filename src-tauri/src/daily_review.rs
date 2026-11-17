@@ -154,7 +154,8 @@ pub fn merge(
     live: &HashSet<String>,
 ) -> DailyReview {
     let mut by_key: BTreeMap<&str, Vec<&Record>> = BTreeMap::new();
-    for record in records {
+    // A cross-project message is no work of its own; it neither opens nor extends a run.
+    for record in records.iter().filter(|r| r.event != EventKind::Message) {
         by_key.entry(record.key.as_str()).or_default().push(record);
     }
     let mut projects: BTreeMap<String, ProjectBuild> = BTreeMap::new();
@@ -443,6 +444,7 @@ fn event_order(event: EventKind) -> u8 {
         EventKind::End => 0,
         EventKind::Phase => 1,
         EventKind::Start => 2,
+        EventKind::Message => 3,
     }
 }
 
@@ -473,6 +475,7 @@ impl SessionBuild {
                     phases.push((from, record.at));
                     open.get_or_insert(from);
                 }
+                EventKind::Message => continue,
                 EventKind::End => {
                     // An end without a start (start older than the files read) ends a run that
                     // began before them; the clip to the day keeps only the day's part.
@@ -586,6 +589,8 @@ mod tests {
             cwd: format!("{repo}/src"),
             repo: Some(repo.into()),
             worktree: false,
+            to_key: None,
+            to_cwd: None,
         }
     }
 
@@ -597,6 +602,26 @@ mod tests {
     }
     fn end(key: &str, at: i64, repo: &str) -> Record {
         rec(EventKind::End, key, at, None, repo)
+    }
+
+    #[test]
+    fn messages_add_no_time() {
+        let a = "/work/alpha";
+        let base = vec![
+            start("r-1", DAY + 9 * HOUR, a),
+            end("r-1", DAY + 10 * HOUR, a),
+        ];
+        let mut with = base.clone();
+        // Sent after the end, by a session the window never saw start: still no run.
+        with.push(rec(EventKind::Message, "r-1", DAY + 11 * HOUR, None, a));
+        with.push(rec(EventKind::Message, "r-9", DAY + 12 * HOUR, None, a));
+        let review = |records: &[Record]| {
+            merge(records, DAY, DAY + DAY_MS, DAY + 20 * HOUR, &HashSet::new())
+        };
+        let (plain, sent) = (review(&base), review(&with));
+        assert_eq!(sent.session_count, 1);
+        assert_eq!(sent.projects[0].run_ms, plain.projects[0].run_ms);
+        assert_eq!(sent.projects[0].run_ms, HOUR);
     }
 
     #[test]

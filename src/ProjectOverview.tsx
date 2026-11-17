@@ -23,6 +23,8 @@ import {
   type ProjectGit,
   type RepoPlace,
 } from "./projectCards";
+import type { PartnerBook } from "./partners";
+import { ProjectPartners, type PartnerActions } from "./ProjectPartners";
 import { teammateNames, teammateStack } from "./repoPeers";
 import { Revealed } from "./Revealed";
 import { revealInvisible } from "./invisible";
@@ -51,6 +53,9 @@ interface Props {
   onShowChanges: (id: number) => void;
   /** Starts a session from the empty state; `null` when no program can start. */
   onNewSession: (() => void) | null;
+  /** The partner projects (ADR 0012), kept per card. */
+  partners: PartnerBook;
+  partnerActions: PartnerActions;
 }
 
 const MAX_AVATARS = 3;
@@ -141,6 +146,8 @@ export function ProjectOverview(props: Props) {
             onActivate={props.onActivate}
             onOpenDevServer={props.onOpenDevServer}
             onShowChanges={props.onShowChanges}
+            partners={props.partners}
+            partnerActions={props.partnerActions}
           />
         ))}
       </div>
@@ -194,6 +201,8 @@ type CardProps = Pick<
   | "onActivate"
   | "onOpenDevServer"
   | "onShowChanges"
+  | "partners"
+  | "partnerActions"
 > & {
   project: Project<OverviewSession>;
   /** Grows with "Refresh": the card asks git again. */
@@ -215,6 +224,8 @@ export function ProjectCard({
   onActivate,
   onOpenDevServer,
   onShowChanges,
+  partners,
+  partnerActions,
 }: CardProps) {
   const t = useT();
   const id = useId();
@@ -372,6 +383,8 @@ export function ProjectCard({
           ))}
         </div>
       )}
+
+      <ProjectPartners root={project.root} book={partners} {...partnerActions} />
     </section>
   );
 }

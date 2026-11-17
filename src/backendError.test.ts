@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import { errorText } from "./api";
 import { backendErrorText, splitBackendError } from "./backendError";
-import { t } from "./i18n";
+import { t, type MessageKey } from "./i18n";
 import { InputStalled } from "./sessionInput";
 
 describe("backendErrorText", () => {
@@ -18,6 +18,36 @@ describe("backendErrorText", () => {
     expect(backendErrorText("[bad_cwd] Working folder '/gone' does not exist")).toBe(
       t("terminal.missingFolder"),
     );
+  });
+
+  it("shows partner project errors in the window's own words", () => {
+    // The codes of `PartnerError` (partners.rs).
+    const codes: [string, MessageKey][] = [
+      ["partner_name", "partnerError.name"],
+      ["partner_folder", "partnerError.folder"],
+      ["partner_missing_folder", "partnerError.missingFolder"],
+      ["partner_self", "partnerError.self"],
+      ["partner_nested", "partnerError.nested"],
+      ["partner_name_taken", "partnerError.nameTaken"],
+      ["partner_name_in_use", "partnerError.nameInUse"],
+      ["partner_already", "partnerError.already"],
+      ["partner_too_many", "partnerError.tooMany"],
+      ["partner_not_partner", "partnerError.notPartner"],
+      ["partner_no_project", "partnerError.noProject"],
+      ["partner_wrong_target", "partnerError.wrongTarget"],
+      ["partner_empty", "partnerError.empty"],
+      ["partner_too_long", "partnerError.tooLong"],
+      ["partner_forged_header", "partnerError.forgedHeader"],
+      ["partner_invalid_list", "partnerError.invalidList"],
+    ];
+    for (const [code, key] of codes) {
+      const text = backendErrorText(`[${code}] English text`);
+      expect(text, code).toBe(t(key));
+      expect(text, code).not.toBe("English text");
+    }
+    expect(
+      errorText('[partner_name_in_use] The short name "web" already names another project'),
+    ).toBe(t("partnerError.nameInUse"));
   });
 
   it("keeps the text of an unknown code, without the code", () => {

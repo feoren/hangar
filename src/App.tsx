@@ -121,6 +121,16 @@ import {
   waitUntilReady,
 } from "./handover";
 import { HandoverDialog } from "./HandoverDialog";
+import { PartnerMessageDialog, type PartnerSend, type TargetView } from "./PartnerMessageDialog";
+import { deliverMessage, deliveryPlan, parsePartnerTargets } from "./partnerMessage";
+import {
+  EMPTY_BOOK,
+  parsePartnerBook,
+  partnersOf,
+  projectOfSession,
+  type PartnerBook,
+} from "./partners";
+import type { PartnerActions } from "./ProjectPartners";
 import { noteExcerpt } from "./noteText";
 import { queueOffer, sessionMenuEntries, stallOffer, type SessionAction } from "./sessionMenu";
 import { canExportReport, reportLabels, utcOffsetMinutes } from "./sessionReport";
@@ -829,6 +839,14 @@ export function App() {
   const [markerId, setMarkerId] = useState<number | null>(null);
   /** The session whose "Hand over to" dialog is open. */
   const [handoverId, setHandoverId] = useState<number | null>(null);
+  /** The session whose "Send to partner" dialog is open. */
+  const [partnerId, setPartnerId] = useState<number | null>(null);
+  /** A partner message that did not arrive: the text stays copyable until dismissed. */
+  const [unsentPartner, setUnsentPartner] = useState<{ text: string; message: string } | null>(
+    null,
+  );
+  /** The partner projects (ADR 0012), as the backend keeps them. */
+  const [partnerBook, setPartnerBook] = useState<PartnerBook>(EMPTY_BOOK);
   /** A handover text that was not pasted (the new agent never turned bracketed paste on). */
   const [unpastedHandover, setUnpastedHandover] = useState<{
     text: string;
@@ -1210,6 +1228,12 @@ export function App() {
   useEffect(() => {
     loadProfiles(showError);
     api.defaultCwd().then(setHome).catch(showError);
+    api
+      .partnerProjects()
+      .then((value) => {
+        setPartnerBook(parsePartnerBook(value));
+      })
+      .catch(showError);
     getVersion()
       .then(async (v) => {
         setVersion(withBuild(v, HANGAR_BUILD));
@@ -5218,6 +5242,9 @@ export function App() {
       case "handover":
         setHandoverId(id);
         break;
+      case "partner":
+        setPartnerId(id);
+        break;
       case "report":
         exportReport(id);
         break;
@@ -5241,6 +5268,11 @@ export function App() {
         break;
     }
   };
+  /** The partner projects of a session's project (partners.ts); the backend checks again. */
+  const partnersOfSession = (session: { cwd: string; worktree?: Worktree | undefined }) => {
+    const own = projectOfSession(partnerBook, session);
+    return own === undefined ? [] : partnersOf(partnerBook, own.name);
+  };
   const sessionItems: PopupItem[] =
     menuSession === undefined
       ? []
@@ -5254,6 +5286,8 @@ export function App() {
           handover:
             canHandOver(menuSession, profileById.get(menuSession.profileId)?.command) &&
             handoverTargets(startable, menuSession.profileId).length > 0,
+          // Only where the session's project has partners (only offer what works).
+          partner: menuSession.kind !== "update" && partnersOfSession(menuSession).length > 0,
           commands:
             sessionCommands(menuSession, profiles).length > 0 && !sessionAsks(menuSession.id),
           crewShown: settings.crewColumn,
@@ -5349,6 +5383,172 @@ export function App() {
     );
     if (ready === "ready") pasteIntoSession(newId, text);
     else if (ready === "notReady") setUnpastedHandover({ text, program: profile.name });
+  };
+
+  const partnerSession =
+    partnerId === null ? undefined : state.sessions.find((s) => s.id === partnerId);
+  const closePartner = () => {
+    setPartnerId(null);
+    focusActive();
+  };
+  const titleOf = (id: number) =>
+    stateRef.current.sessions.find((s) => s.id === id)?.title ?? `#${String(id)}`;
+
+  /** Where a message from session `from` to `partner` would go now (partnerMessage.ts). */
+  const resolvePartner = async (from: number, partner: string): Promise<TargetView> => {
+    const targets = parsePartnerTargets(await api.partnerTargets(from, partner));
+    if (targets === null) return { kind: "none" };
+    const plan = deliveryPlan(
+      targets.sessions,
+      (profileId) => profileById.get(profileId)?.command,
+      new Set(startable.map((profile) => profile.id)),
+      nextProgram?.id ?? null,
+    );
+    switch (plan.kind) {
+      case "one":
+        return { kind: "one", id: plan.id, title: titleOf(plan.id) };
+      case "choose":
+        return {
+          kind: "choose",
+          sessions: plan.ids.map((id) => ({ id, title: titleOf(id) })),
+        };
+      case "start": {
+        const profile = plan.profileId === null ? undefined : profileById.get(plan.profileId);
+        return profile === undefined
+          ? { kind: "none" }
+          : {
+              kind: "start",
+              profileId: profile.id,
+              program: profile.name,
+              folder: targets.partner.folder,
+            };
+      }
+    }
+  };
+
+  /**
+   * Delivers a cross-project message (ADR 0012): starts the partner's program first where none
+   * runs, holds the message while the target works, waits until it can take a paste like the
+   * handover, and only then has the backend check, clean, head and log it. Enter follows only for
+   * "Paste and send"; otherwise the target shows, so the person reads the text before sending.
+   */
+  const sendToPartner = async (from: number, send: PartnerSend) => {
+    setPartnerId(null);
+    // The text is never lost silently: wherever delivery stops, a notice offers to copy it.
+    const keep = (message: string) => {
+      setUnsentPartner({ text: send.text, message });
+    };
+    const unsent = (session: string) => {
+      keep(t("partner.unsent", { session }));
+    };
+    let to: number | null;
+    if (send.target.kind === "session") {
+      to = send.target.id;
+    } else {
+      const profile = profileById.get(send.target.profileId);
+      const targets = await api
+        .partnerTargets(from, send.partner)
+        .then(parsePartnerTargets, (e: unknown) => {
+          showError(e);
+          return null;
+        });
+      if (profile === undefined || targets === null) {
+        unsent(send.partner);
+        return;
+      }
+      to = await start(profile, targets.partner.folder, "private");
+    }
+    if (to === null) {
+      unsent(send.partner);
+      return;
+    }
+    const target = to;
+    const name = titleOf(target);
+    const terminal = terminals.get(target);
+    if (!terminal) {
+      unsent(name);
+      return;
+    }
+    const gone = () => terminals.get(target) !== terminal;
+    const result = await deliverMessage(
+      {
+        working: () => terminal.attention.state === "working",
+        gone,
+        onHeld: () => {
+          setStartHint(t("partner.held", { session: name }));
+        },
+        ready: () =>
+          waitUntilReady(
+            {
+              bracketedPaste: () => terminal.bracketedPaste(),
+              quietFor: () => {
+                const last = terminal.activity().lastOutput;
+                return last === null ? null : Date.now() - last;
+              },
+              gone,
+            },
+            delay,
+          ),
+        bracketedPaste: () => terminal.bracketedPaste(),
+        prepare: () => api.deliverPartnerMessage(from, target, send.partner, send.text),
+        paste: (text) => terminal.pasteAndWait(text),
+        submit: () => {
+          terminal.submit();
+        },
+        wait: delay,
+      },
+      send.submit,
+      BROADCAST_ENTER_DELAY_MS,
+    );
+    switch (result.kind) {
+      case "pasted":
+        if (!send.submit) {
+          dispatch({ type: "activated", id: target });
+          focusTerminal();
+        }
+        break;
+      case "notReady":
+        keep(t("partner.notReady", { session: name }));
+        break;
+      case "refused":
+        showError(result.error);
+        unsent(name);
+        break;
+      case "gone":
+      case "pasteFailed":
+        // A failed paste is reported by the terminal itself; no Enter follows.
+        unsent(name);
+        break;
+    }
+  };
+
+  /** The project cards' partner list (ProjectPartners.tsx). */
+  const partnerActions: PartnerActions = {
+    onLink: async (link) => {
+      try {
+        setPartnerBook(parsePartnerBook(await api.linkPartner(link)));
+        return null;
+      } catch (e) {
+        return errorText(e);
+      }
+    },
+    onUnlink: (a, b) => {
+      api
+        .unlinkPartner(a, b)
+        .then((value) => {
+          setPartnerBook(parsePartnerBook(value));
+        })
+        .catch(showError);
+    },
+    onPickFolder: async () => {
+      try {
+        const picked = await open({ directory: true });
+        return typeof picked === "string" ? picked : null;
+      } catch (e) {
+        showError(e);
+        return null;
+      }
+    },
   };
 
   const editorSession =
@@ -6019,6 +6219,8 @@ export function App() {
                       setPutAside(false);
                       showDoneChanges(id);
                     }}
+                    partners={partnerBook}
+                    partnerActions={partnerActions}
                     onNewSession={
                       nextProgram
                         ? () => {
@@ -6205,6 +6407,39 @@ export function App() {
                     title={t("error.dismiss")}
                     onClick={() => {
                       setUnpastedHandover(null);
+                    }}
+                  >
+                    <CloseIcon />
+                  </button>
+                </div>
+              </div>
+            )}
+            {unsentPartner !== null && (
+              <div className="link-notice" role="status">
+                <span>{unsentPartner.message}</span>
+                <div className="link-actions">
+                  <button
+                    type="button"
+                    className="secondary-button"
+                    onClick={() => {
+                      const { text } = unsentPartner;
+                      setUnsentPartner(null);
+                      writeClipboard(text)
+                        .then(() => {
+                          setStartHint(t("partner.copied"));
+                        })
+                        .catch(showError);
+                    }}
+                  >
+                    {t("menu.copy")}
+                  </button>
+                  <button
+                    type="button"
+                    className="icon-button"
+                    aria-label={t("error.dismiss")}
+                    title={t("error.dismiss")}
+                    onClick={() => {
+                      setUnsentPartner(null);
                     }}
                   >
                     <CloseIcon />
@@ -6567,6 +6802,17 @@ export function App() {
               void handOver(handoverSession.id, profile);
             }}
             onClose={closeHandover}
+          />
+        )}
+        {partnerSession !== undefined && (
+          <PartnerMessageDialog
+            title={partnerSession.title}
+            partners={partnersOfSession(partnerSession)}
+            resolve={(partner) => resolvePartner(partnerSession.id, partner)}
+            onSend={(send) => {
+              void sendToPartner(partnerSession.id, send);
+            }}
+            onClose={closePartner}
           />
         )}
         {dialog === "costs" && (

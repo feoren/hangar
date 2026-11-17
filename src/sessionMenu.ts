@@ -11,6 +11,7 @@ export type SessionAction =
   | "rename"
   | "marker"
   | "handover"
+  | "partner"
   | "commands"
   | "report"
   | "subAgents"
@@ -66,6 +67,8 @@ export interface SessionMenuExtras {
   commands?: boolean;
   /** An agent session another installed agent can take over (handover.ts canHandOver). */
   handover?: boolean;
+  /** The session's project has partner projects (partners.ts), so a message can go there. */
+  partner?: boolean;
   /**
    * Whether the crew column beside the terminal is on (crew.ts); offered only for sessions that
    * have sub-agents, so it can be hidden and shown again where it is seen.
@@ -76,7 +79,8 @@ export interface SessionMenuExtras {
 const NO_EXTRAS: SessionMenuExtras = { queue: null, stall: null };
 
 /**
- * Rename, marker, hand over (only agent sessions, `handover`), then the program's commands (only while the session offers some,
+ * Rename, marker, hand over (only agent sessions, `handover`), send to a partner project (only
+ * where the project has partners, `partner`), then the program's commands (only while the session offers some,
  * agentCommands.ts), export as report (only for programs whose transcript Hangar reads), then show
  * or hide the sub-agents (only for sessions that have them), then the stall hint's help (last
  * lines, Ctrl+C) and the queued message, then restart (ended) or end process (running), then
@@ -137,6 +141,9 @@ export function sessionMenuEntries(
     { type: "action", key: "marker", label: t("menu.marker") },
     ...(extras.handover === true
       ? [{ type: "action", key: "handover", label: t("handover.menu") } as const]
+      : []),
+    ...(extras.partner === true
+      ? [{ type: "action", key: "partner", label: t("partner.menu") } as const]
       : []),
     ...(extras.commands === true
       ? [{ type: "action", key: "commands", label: t("agentCommand.menu") } as const]

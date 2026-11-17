@@ -2,6 +2,7 @@ import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
 
 import { createTranslator, I18nContext } from "./i18n";
+import { EMPTY_BOOK, parsePartnerBook, type PartnerBook } from "./partners";
 import type { Project, OverviewSession } from "./projectCards";
 import { ProjectCard, ProjectsEmpty, type ProjectRow } from "./ProjectOverview";
 import { EMPTY_ACTIVITY, type TeamActivity } from "./team";
@@ -40,9 +41,16 @@ const shared: TeamActivity = {
   sessions: [1],
 };
 
+const NO_PARTNER_ACTIONS = {
+  onLink: () => Promise.resolve(null),
+  onUnlink: () => undefined,
+  onPickFolder: () => Promise.resolve(null),
+};
+
 function card(
   activities: ReadonlyMap<string, TeamActivity>,
   devServers: ReadonlyMap<number, string>,
+  partners: PartnerBook = EMPTY_BOOK,
 ): string {
   return renderToStaticMarkup(
     <I18nContext.Provider value={createTranslator("de")}>
@@ -58,6 +66,8 @@ function card(
         onActivate={() => undefined}
         onOpenDevServer={() => undefined}
         onShowChanges={() => undefined}
+        partners={partners}
+        partnerActions={NO_PARTNER_ACTIONS}
       />
     </I18nContext.Provider>,
   );
@@ -90,6 +100,31 @@ describe("ProjectCard", () => {
     const html = card(new Map(), new Map([[1, "http://localhost:5173/"]]));
     expect(html).toContain("localhost:5173");
     expect(html).toContain("http://localhost:5173/ im Browser öffnen");
+  });
+});
+
+describe("ProjectCard partners", () => {
+  const t = createTranslator("de");
+
+  it("offers to add a partner when there is none", () => {
+    const html = card(new Map(), new Map());
+    expect(html).toContain(t("partners.title"));
+    expect(html).toContain(t("partners.add"));
+    expect(html).not.toContain("project-partner-list");
+  });
+
+  it("lists the partners in both directions, each with a way to end the pair", () => {
+    const book = parsePartnerBook({
+      projects: [
+        { name: "app", folder: "E:\\work\\hangar" },
+        { name: "web", folder: "E:\\work\\site" },
+      ],
+      pairs: [["web", "app"]],
+    });
+    const html = card(new Map(), new Map(), book);
+    expect(html).toContain("project-partner-list");
+    expect(html).toContain(">web<");
+    expect(html).toContain(t("partners.remove", { name: "web" }));
   });
 });
 

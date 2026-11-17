@@ -170,6 +170,11 @@ fn blocking_commands_run_off_the_main_thread() {
         "save_main_prefs",
         "load_templates",
         "save_templates",
+        "partner_projects",
+        "link_partner",
+        "unlink_partner",
+        "partner_targets",
+        "deliver_partner_message",
     ] {
         let body = command_body(&commands, name);
         assert!(body.contains("spawn_blocking"), "{name} runs on the caller");

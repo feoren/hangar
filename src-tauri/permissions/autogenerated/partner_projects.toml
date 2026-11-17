@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-partner-projects"
+description = "Enables the partner_projects command without any pre-configured scope."
+commands.allow = ["partner_projects"]
+
+[[permission]]
+identifier = "deny-partner-projects"
+description = "Denies the partner_projects command without any pre-configured scope."
+commands.deny = ["partner_projects"]

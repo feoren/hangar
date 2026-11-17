@@ -981,6 +981,21 @@ impl SessionManager {
             .collect()
     }
 
+    /// Ids of the entries whose program is a shell ([`crate::partners::is_shell_command`] on the
+    /// command and every candidate), without the PATH search: a cross-project message never goes
+    /// there, where its lines would run as commands.
+    pub fn shell_profiles(&self) -> HashSet<String> {
+        self.agents()
+            .iter()
+            .filter(|agent| {
+                std::iter::once(&agent.profile.command)
+                    .chain(&agent.candidates)
+                    .any(|command| crate::partners::is_shell_command(command))
+            })
+            .map(|agent| agent.id().to_owned())
+            .collect()
+    }
+
     /// profile id → display name of every entry, without the PATH search and the version query
     /// of [`Self::profiles`]: cheap enough for callers on the main thread (the team's session
     /// labels, refreshed on every session state change).

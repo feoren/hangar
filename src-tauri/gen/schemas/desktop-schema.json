@@ -417,6 +417,12 @@
           "markdownDescription": "Enables the delete_sub_agent command without any pre-configured scope."
         },
         {
+          "description": "Enables the deliver_partner_message command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-deliver-partner-message",
+          "markdownDescription": "Enables the deliver_partner_message command without any pre-configured scope."
+        },
+        {
           "description": "Enables the destroy_panel_window command without any pre-configured scope.",
           "type": "string",
           "const": "allow-destroy-panel-window",
@@ -603,6 +609,12 @@
           "markdownDescription": "Enables the kill_session command without any pre-configured scope."
         },
         {
+          "description": "Enables the link_partner command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-link-partner",
+          "markdownDescription": "Enables the link_partner command without any pre-configured scope."
+        },
+        {
           "description": "Enables the list_hangar_worktrees command without any pre-configured scope.",
           "type": "string",
           "const": "allow-list-hangar-worktrees",
@@ -751,6 +763,18 @@
           "type": "string",
           "const": "allow-panel-to-main",
           "markdownDescription": "Enables the panel_to_main command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the partner_projects command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-partner-projects",
+          "markdownDescription": "Enables the partner_projects command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the partner_targets command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-partner-targets",
+          "markdownDescription": "Enables the partner_targets command without any pre-configured scope."
         },
         {
           "description": "Enables the paste_clipboard_image command without any pre-configured scope.",
@@ -1221,6 +1245,12 @@
           "markdownDescription": "Enables the team_status command without any pre-configured scope."
         },
         {
+          "description": "Enables the unlink_partner command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-unlink-partner",
+          "markdownDescription": "Enables the unlink_partner command without any pre-configured scope."
+        },
+        {
           "description": "Enables the unwatch_sub_agents command without any pre-configured scope.",
           "type": "string",
           "const": "allow-unwatch-sub-agents",
@@ -1485,6 +1515,12 @@
           "markdownDescription": "Denies the delete_sub_agent command without any pre-configured scope."
         },
         {
+          "description": "Denies the deliver_partner_message command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-deliver-partner-message",
+          "markdownDescription": "Denies the deliver_partner_message command without any pre-configured scope."
+        },
+        {
           "description": "Denies the destroy_panel_window command without any pre-configured scope.",
           "type": "string",
           "const": "deny-destroy-panel-window",
@@ -1671,6 +1707,12 @@
           "markdownDescription": "Denies the kill_session command without any pre-configured scope."
         },
         {
+          "description": "Denies the link_partner command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-link-partner",
+          "markdownDescription": "Denies the link_partner command without any pre-configured scope."
+        },
+        {
           "description": "Denies the list_hangar_worktrees command without any pre-configured scope.",
           "type": "string",
           "const": "deny-list-hangar-worktrees",
@@ -1819,6 +1861,18 @@
           "type": "string",
           "const": "deny-panel-to-main",
           "markdownDescription": "Denies the panel_to_main command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the partner_projects command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-partner-projects",
+          "markdownDescription": "Denies the partner_projects command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the partner_targets command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-partner-targets",
+          "markdownDescription": "Denies the partner_targets command without any pre-configured scope."
         },
         {
           "description": "Denies the paste_clipboard_image command without any pre-configured scope.",
@@ -2287,6 +2341,12 @@
           "type": "string",
           "const": "deny-team-status",
           "markdownDescription": "Denies the team_status command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the unlink_partner command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-unlink-partner",
+          "markdownDescription": "Denies the unlink_partner command without any pre-configured scope."
         },
         {
           "description": "Denies the unwatch_sub_agents command without any pre-configured scope.",

@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-deliver-partner-message"
+description = "Enables the deliver_partner_message command without any pre-configured scope."
+commands.allow = ["deliver_partner_message"]
+
+[[permission]]
+identifier = "deny-deliver-partner-message"
+description = "Denies the deliver_partner_message command without any pre-configured scope."
+commands.deny = ["deliver_partner_message"]

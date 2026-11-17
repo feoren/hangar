@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-partner-targets"
+description = "Enables the partner_targets command without any pre-configured scope."
+commands.allow = ["partner_targets"]
+
+[[permission]]
+identifier = "deny-partner-targets"
+description = "Denies the partner_targets command without any pre-configured scope."
+commands.deny = ["partner_targets"]
