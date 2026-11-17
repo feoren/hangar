@@ -18,6 +18,20 @@
         "zh": "伙伴项目：在项目卡片上关联项目，通过“发送给伙伴”把消息粘贴到另一个项目的代理会话中。"
       },
       {
+        "de": "Agenten schicken Partnerprojekten mit hangar-send Nachrichten. Sie warten in der Session-Zeile, bis du sie einfügst oder verwirfst.",
+        "en": "Agents message partner projects with hangar-send. Messages wait in the session row until you paste or discard them.",
+        "el": "Οι agents στέλνουν μηνύματα σε συνεργαζόμενα έργα με το hangar-send. Περιμένουν στη γραμμή της συνεδρίας μέχρι να τα επικολλήσεις ή να τα απορρίψεις.",
+        "es": "Los agentes envían mensajes a proyectos socios con hangar-send. Esperan en la fila de la sesión hasta que los pegues o descartes.",
+        "fr": "Les agents envoient des messages aux projets partenaires avec hangar-send. Ils attendent dans la ligne de session jusqu’à ce que tu les colles ou les rejettes.",
+        "it": "Gli agenti inviano messaggi ai progetti partner con hangar-send. Attendono nella riga della sessione finché non li incolli o li scarti.",
+        "ja": "エージェントは hangar-send でパートナープロジェクトにメッセージを送れます。貼り付けるか破棄するまで、セッション行で待機します。",
+        "pl": "Agenci wysyłają wiadomości do projektów partnerskich przez hangar-send. Czekają w wierszu sesji, aż je wkleisz lub odrzucisz.",
+        "pt": "Os agentes enviam mensagens a projetos parceiros com hangar-send. Elas esperam na linha da sessão até as colares ou descartares.",
+        "ru": "Агенты отправляют сообщения проектам-партнёрам через hangar-send. Они ждут в строке сессии, пока ты их не вставишь или не отклонишь.",
+        "tr": "Ajanlar hangar-send ile ortak projelere mesaj gönderir. Mesajlar, sen yapıştırana ya da silene kadar oturum satırında bekler.",
+        "zh": "代理可通过 hangar-send 向伙伴项目发送消息。消息会在会话行中等待，直到你粘贴或丢弃。"
+      },
+      {
         "de": "Sessions im Hintergrund zeigen „Fertig“ nur noch nach einem echten Auftrag, nicht mehr, wenn sich nur die Statuszeile neu zeichnet.",
         "en": "Background sessions show “Done” only after a real task, no longer when just the status line redraws.",
         "el": "Οι συνεδρίες στο παρασκήνιο δείχνουν «Έτοιμο» μόνο μετά από πραγματική εργασία, όχι όταν απλώς ξανασχεδιάζεται η γραμμή κατάστασης.",
