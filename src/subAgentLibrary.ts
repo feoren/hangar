@@ -156,17 +156,30 @@ export type Figure =
  */
 export const BUILTIN_FIGURES = [
   "backend-01",
+  "backend-02",
+  "backend-03",
   "developer-01",
   "developer-02",
+  "developer-03",
+  "developer-04",
   "frontend-01",
   "frontend-02",
+  "frontend-03",
+  "frontend-04",
   "manager-01",
   "manager-02",
+  "manager-03",
+  "manager-04",
   "researcher-01",
   "researcher-02",
+  "researcher-03",
+  "researcher-04",
   "security-01",
   "security-02",
+  "security-03",
   "tester-01",
+  "tester-02",
+  "tester-03",
 ] as const;
 
 export type BuiltinFigure = (typeof BUILTIN_FIGURES)[number];
@@ -257,9 +270,28 @@ export function defaultFigure(name: string, color: string | null): Figure {
   if (tint !== undefined) {
     return { kind: "initial", letter: name.slice(0, 1).toUpperCase(), color: tint };
   }
-  const id = BUILTIN_FIGURES[hash(name) % BUILTIN_FIGURES.length] ?? "developer-01";
+  const id = NAME_FIGURES[hash(name) % NAME_FIGURES.length] ?? "developer-01";
   return { kind: "builtin", id };
 }
+
+/**
+ * The figures a name without a role word is spread over. Frozen at the first set: picking from
+ * `BUILTIN_FIGURES` would hand such an agent another figure whenever new figures are bundled.
+ */
+export const NAME_FIGURES: readonly BuiltinFigure[] = [
+  "backend-01",
+  "developer-01",
+  "developer-02",
+  "frontend-01",
+  "frontend-02",
+  "manager-01",
+  "manager-02",
+  "researcher-01",
+  "researcher-02",
+  "security-01",
+  "security-02",
+  "tester-01",
+];
 
 /** The chosen figure, else the default one. */
 export function figureFor(

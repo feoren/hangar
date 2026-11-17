@@ -11,6 +11,7 @@ import {
   defFigure,
   defsFor,
   firstLine,
+  NAME_FIGURES,
   NEUTRAL_FIGURE_COLOR,
   overridesGlobal,
   runningFigure,
@@ -86,6 +87,12 @@ describe("figures", () => {
     expect(picked.kind).toBe("builtin");
     expect(defaultFigure("writer", null)).toEqual(picked);
     expect(defaultFigure("writer", "no-such-color")).toEqual(picked);
+  });
+
+  it("keep a name's figure when new figures are bundled", () => {
+    // Pinned from the first figure set: new bundled figures must not move it.
+    expect(defaultFigure("writer", null)).toEqual({ kind: "builtin", id: "manager-02" });
+    for (const id of NAME_FIGURES) expect(BUILTIN_FIGURES).toContain(id);
   });
 
   it("take the chosen one first", () => {

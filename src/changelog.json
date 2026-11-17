@@ -16,6 +16,20 @@
         "ru": "Сессии в фоне показывают «Готово» только после настоящей задачи, а не когда просто перерисовывается строка состояния.",
         "tr": "Arka plandaki oturumlar “Bitti”yi yalnızca gerçek bir görevden sonra gösterir, sadece durum satırı yeniden çizildiğinde değil.",
         "zh": "后台会话只在真正的任务之后显示“完成”，仅状态栏重绘时不再显示。"
+      },
+      {
+        "de": "13 neue Figuren für Sub-Agenten: Jede Rolle hat jetzt mehr zur Auswahl, unter Einstellungen > Sub-Agenten.",
+        "en": "13 new figures for sub-agents: every role now has more to choose from, under Settings > Sub-agents.",
+        "el": "13 νέες φιγούρες για υποπράκτορες: κάθε ρόλος έχει τώρα περισσότερες επιλογές, στις Ρυθμίσεις > Υπο-agents.",
+        "es": "13 figuras nuevas para subagentes: cada rol tiene ahora más para elegir, en Configuración > Subagentes.",
+        "fr": "13 nouvelles figures pour les sous-agents : chaque rôle offre maintenant plus de choix, dans Paramètres > Sous-agents.",
+        "it": "13 nuove figure per i sub-agenti: ogni ruolo ha ora più scelta, in Impostazioni > Sub-agenti.",
+        "ja": "サブエージェントの新しいフィギュア13体：どの役割も選択肢が増えました。設定 > サブエージェントから選べます。",
+        "pl": "13 nowych postaci dla subagentów: każda rola ma teraz większy wybór, w Ustawieniach > Subagenci.",
+        "pt": "13 novas figuras para subagentes: cada função tem agora mais opções, em Configurações > Subagentes.",
+        "ru": "13 новых фигур для субагентов: у каждой роли теперь больше выбора, в Настройках > Субагенты.",
+        "tr": "Alt agent’lar için 13 yeni figür: her rolün artık daha fazla seçeneği var, Ayarlar > Alt agent’lar altında.",
+        "zh": "子代理新增 13 个形象：每个角色都有更多选择，位于设置 > 子代理。"
       }
     ]
   },

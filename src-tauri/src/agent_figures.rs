@@ -40,17 +40,30 @@ const VERSION: u32 = 1;
 /// equal.
 pub const BUILTIN: &[&str] = &[
     "backend-01",
+    "backend-02",
+    "backend-03",
     "developer-01",
     "developer-02",
+    "developer-03",
+    "developer-04",
     "frontend-01",
     "frontend-02",
+    "frontend-03",
+    "frontend-04",
     "manager-01",
     "manager-02",
+    "manager-03",
+    "manager-04",
     "researcher-01",
     "researcher-02",
+    "researcher-03",
+    "researcher-04",
     "security-01",
     "security-02",
+    "security-03",
     "tester-01",
+    "tester-02",
+    "tester-03",
 ];
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
