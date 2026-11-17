@@ -905,7 +905,9 @@ mod tests {
         rx: &mpsc::Receiver<Notice>,
     ) -> (Option<DictationText>, DictationState) {
         loop {
-            match rx.recv_timeout(Duration::from_secs(5)).expect("no notice") {
+            // Generous: a stop that re-hashes the 60 MB model took more than 5 s on a busy macOS
+            // runner. A notice that never comes still fails the test, only later.
+            match rx.recv_timeout(Duration::from_secs(60)).expect("no notice") {
                 Notice::Changed => match service.status(ModelId::Base).state {
                     DictationState::Recording { .. } | DictationState::Transcribing { .. } => {}
                     state => {
