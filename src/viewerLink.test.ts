@@ -3,15 +3,20 @@ import { describe, expect, it } from "vitest";
 import { renderViewerMarkdown } from "./markdownPreview";
 import { viewerLinkAction, wordAround } from "./viewerLink";
 
+const ENTITIES: Readonly<Record<string, string>> = { amp: "&", quot: '"', lt: "<", gt: ">" };
+
+/**
+ * Decodes the HTML entities the renderer writes, in one pass: decoding `&amp;` first and the others
+ * after it would turn an escaped `&amp;lt;` into `<` instead of `&lt;`.
+ */
+function decode(text: string): string {
+  return text.replace(/&(amp|quot|lt|gt);/gu, (entity, name: string) => ENTITIES[name] ?? entity);
+}
+
 /** The address and visible text of the first link, as the viewer reads them after a click. */
 function firstLink(markdown: string): { href: string; shown: string } {
   const match = /data-href="([^"]*)"[^>]*>([^<]*)</u.exec(renderViewerMarkdown(markdown));
   if (match === null) throw new Error("no link rendered");
-  const decode = (text: string) =>
-    text
-      .replace(/&amp;/g, "&")
-      .replace(/&quot;/g, '"')
-      .replace(/&lt;/g, "<");
   return { href: decode(match[1] ?? ""), shown: decode(match[2] ?? "") };
 }
 
@@ -23,12 +28,6 @@ function firstLink(markdown: string): { href: string; shown: string } {
 function clickedShown(markdown: string, index: number): { href: string; shown: string } {
   const html = renderViewerMarkdown(markdown);
   const block = /<p>(.*?)<\/p>/su.exec(html)?.[1] ?? "";
-  const decode = (text: string) =>
-    text
-      .replace(/&amp;/g, "&")
-      .replace(/&quot;/g, '"')
-      .replace(/&lt;/g, "<")
-      .replace(/&gt;/g, ">");
   let text = "";
   let links = 0;
   let depth = 0;
@@ -58,6 +57,14 @@ function clickedShown(markdown: string, index: number): { href: string; shown: s
   if (start < 0 || end < start) throw new Error("no such link");
   return { href, shown: wordAround(text, start, end) };
 }
+
+describe("the test's entity decoder", () => {
+  it("decodes every entity once, never an escaped one twice", () => {
+    expect(decode("a &amp;lt;b&amp;gt; &lt;c&gt; &quot;d&quot; &amp;amp;")).toBe(
+      'a &lt;b&gt; <c> "d" &amp;',
+    );
+  });
+});
 
 describe("wordAround", () => {
   it("widens the link to the whitespace around it", () => {
