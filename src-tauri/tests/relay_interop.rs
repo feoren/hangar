@@ -3,8 +3,8 @@
 //!
 //! ```text
 //! HANGAR_INTEROP_BASE=http://127.0.0.1:8080          the relay's PUBLIC_URL (origin)
-//! HANGAR_INTEROP_LINK_A=<login link for the owner>   `hangar-team-server login-link a@example.org`
-//! HANGAR_INTEROP_LINK_B=<login link for the member>  `hangar-team-server login-link b@example.org`
+//! HANGAR_INTEROP_LINK_A=<login link for the owner>   `hangar-server login-link a@example.org`
+//! HANGAR_INTEROP_LINK_B=<login link for the member>  `hangar-server login-link b@example.org`
 //! HANGAR_INTEROP_SHORT_TIMERS=1                      optional: the relay runs with
 //!     RESERVATION_INACTIVITY_SECS=120 RESERVATION_WARN_SECS=60 CONNECTION_MAX_AGE_SECS=60,
 //!     which adds the hold expiry and the connection age close (4401) to the run
