@@ -4,6 +4,12 @@ name: CI
 on:
   push:
     branches: [main]
+    # A push that only touches documentation, images or the wiki changes nothing the check suite
+    # tests, so it starts no run on three platforms.
+    paths-ignore:
+      - "**/*.md"
+      - "docs/**"
+      - "LICENSE"
   pull_request:
 
 # The check suite only reads, so a pull request from a fork gets no write access.
