@@ -1609,6 +1609,37 @@ pub(crate) mod tests {
         assert!(output.success, "git {args:?}: {}", message(&output.stderr));
     }
 
+    /// `git commit` in a test repository with author and committer date both `date`: `--date`
+    /// sets only the author date, and a committer date of "now" makes date filters depend on the
+    /// day the test runs.
+    pub(crate) fn commit_dated(git: &Git, cwd: &Path, args: &[&str], date: &str) {
+        let mut all = vec![
+            "-c",
+            "user.name=Hangar Test",
+            "-c",
+            "user.email=test@example.invalid",
+            "-c",
+            "commit.gpgsign=false",
+            "-c",
+            "core.autocrlf=false",
+            "commit",
+            "--quiet",
+        ];
+        all.extend_from_slice(args);
+        let date_arg = format!("--date={date}");
+        all.push(&date_arg);
+        let output = git
+            .command(cwd, &all, false)
+            .env("GIT_COMMITTER_DATE", date)
+            .output()
+            .unwrap();
+        assert!(
+            output.status.success(),
+            "git commit {args:?}: {}",
+            message(&output.stderr)
+        );
+    }
+
     #[test]
     fn calls_get_no_transport_and_no_lazy_fetch() {
         let git = Git {

@@ -565,7 +565,7 @@ fn count(n: usize) -> u32 {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::git::tests::{git, git_ok, init_repo};
+    use crate::git::tests::{commit_dated, git, git_ok, init_repo};
     use crate::test_support::TempDir;
     use std::collections::HashMap;
 
@@ -768,17 +768,15 @@ mod tests {
     fn commit_file(git: &Git, repo: &Path, file: &str, author: &str, date: &str) {
         std::fs::write(repo.join(file), date).unwrap();
         git_ok(git, repo, &["add", "--", file]);
-        git_ok(
+        commit_dated(
             git,
             repo,
             &[
-                "commit",
-                "--quiet",
                 "-m",
                 &format!("change {file}"),
                 &format!("--author={author}"),
-                &format!("--date={date}"),
             ],
+            date,
         );
     }
 
