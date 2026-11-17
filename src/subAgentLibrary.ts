@@ -22,6 +22,11 @@ export interface AgentDef {
   /** The project folder of a project definition; `null` when global. */
   folder: string | null;
   file: string;
+  /**
+   * SHA-256 of the file without its `model` line (Rust `agent_defs::fingerprint`): a project copy
+   * with the global definition's fingerprint is the same agent.
+   */
+  fingerprint?: string;
 }
 
 export type DefProblemKind =
@@ -327,11 +332,19 @@ export function defsFor(library: Library, folder: string | null): AgentDef[] {
   return [...project, ...global];
 }
 
-/** A project definition whose name a global definition has as well: it overrides it there. */
+/**
+ * A project definition whose name a global definition has as well, with other content: it
+ * overrides it there. A copy with the same fingerprint is the same agent and overrides nothing.
+ */
 export function overridesGlobal(library: Library, def: AgentDef): boolean {
   return (
     def.scope === "project" &&
-    library.defs.some((other) => other.scope === "global" && other.name === def.name)
+    library.defs.some(
+      (other) =>
+        other.scope === "global" &&
+        other.name === def.name &&
+        (def.fingerprint === undefined || other.fingerprint !== def.fingerprint),
+    )
   );
 }
 
@@ -430,6 +443,7 @@ function parseDef(value: unknown): AgentDef | null {
   const file = text(field(value, "file"), 512);
   const folder = field(value, "folder");
   const tools = field(value, "tools");
+  const fingerprint = text(field(value, "fingerprint"), 64);
   const extraField = field(value, "extras");
   const extras: unknown[] = Array.isArray(extraField) ? extraField : [];
   if (!validAgentName(name) || description === null || scope === null || file === null) {
@@ -448,6 +462,7 @@ function parseDef(value: unknown): AgentDef | null {
     scope,
     folder: scope === "project" && typeof folder === "string" ? folder : null,
     file,
+    ...(fingerprint === null ? {} : { fingerprint }),
   };
 }
 

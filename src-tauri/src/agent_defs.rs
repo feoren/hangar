@@ -76,6 +76,8 @@ pub struct AgentDef {
     pub folder: Option<PathBuf>,
     /// The file's name in its agents folder.
     pub file: String,
+    /// See [`fingerprint`]: equal for a project copy of a global definition.
+    pub fingerprint: String,
 }
 
 /// Why a file in an agents folder is not listed as a definition.
@@ -341,6 +343,36 @@ pub struct Parsed {
     pub tools: Vec<String>,
     /// Fields of [`POWER_FIELDS`] the frontmatter sets, in that order.
     pub extras: Vec<String>,
+    /// See [`fingerprint`].
+    pub fingerprint: String,
+}
+
+/// What makes two definitions the same agent, as SHA-256 hex: the whole text without a BOM,
+/// with LF line ends and without the frontmatter's `model` line. The model only picks what runs
+/// the agent, and Hangar sets it per copy (`agent_models.rs`), so a project copy that differs
+/// from the global definition only there is still that agent and may wear its figure.
+pub fn fingerprint(text: &str) -> String {
+    use sha2::{Digest as _, Sha256};
+    let text = text.strip_prefix('\u{feff}').unwrap_or(text);
+    let mut hasher = Sha256::new();
+    let mut in_frontmatter = false;
+    for (index, line) in text.lines().enumerate() {
+        let bare = line.trim_end();
+        if index == 0 && bare == "---" {
+            in_frontmatter = true;
+        } else if in_frontmatter && bare == "---" {
+            in_frontmatter = false;
+        } else if in_frontmatter && line.starts_with("model:") {
+            continue;
+        }
+        hasher.update(line.as_bytes());
+        hasher.update(b"\n");
+    }
+    hasher
+        .finalize()
+        .iter()
+        .map(|byte| format!("{byte:02x}"))
+        .collect()
 }
 
 fn text_field(fields: &BTreeMap<String, Value>, key: &str) -> Option<String> {
@@ -415,6 +447,7 @@ pub fn parse_def(text: &str) -> Result<Parsed, Problem> {
             .filter(|key| fields.contains_key(**key))
             .map(|key| (*key).to_owned())
             .collect(),
+        fingerprint: fingerprint(text),
     })
 }
 
@@ -540,6 +573,7 @@ fn scan_dir(dir: &Path, scope: Scope, folder: Option<&Path>, out: &mut Library) 
                 scope,
                 folder: folder.map(Path::to_owned),
                 file,
+                fingerprint: parsed.fingerprint,
             };
             out.defs.push(def.clone());
             Found { def, path }
@@ -793,6 +827,7 @@ pub fn create(home: &Path, text: &str, replace: bool) -> Result<AgentDef, DefErr
         scope: Scope::Global,
         folder: None,
         file,
+        fingerprint: parsed.fingerprint,
     })
 }
 
@@ -1050,6 +1085,34 @@ mod tests {
         }
         assert!(valid_name(&"a".repeat(MAX_NAME_LEN)));
         assert!(!valid_name(&"a".repeat(MAX_NAME_LEN + 1)));
+    }
+
+    #[test]
+    fn the_fingerprint_ignores_the_model_line_ends_and_bom() {
+        let base = parse_def(BACKEND).unwrap().fingerprint;
+        assert_eq!(base.len(), 64);
+        let other_model = BACKEND.replace("model: opus", "model: sonnet");
+        let no_model = BACKEND.replace("model: opus\n", "");
+        let crlf = format!("\u{feff}{}", BACKEND.replace('\n', "\r\n"));
+        for same in [other_model, no_model, crlf] {
+            assert_eq!(parse_def(&same).unwrap().fingerprint, base, "{same:?}");
+        }
+        for changed in [
+            BACKEND.replace("You are the backend engineer.", "You are someone else."),
+            BACKEND.replace("color: Green", "color: Green\ntools: Bash"),
+            BACKEND.replace(
+                "model: opus",
+                "model: opus\npermissionMode: bypassPermissions",
+            ),
+            // A "model:" line in the prompt is part of the prompt.
+            format!("{BACKEND}model: opus\n"),
+        ] {
+            assert_ne!(
+                parse_def(&changed).unwrap().fingerprint,
+                base,
+                "{changed:?}"
+            );
+        }
     }
 
     #[test]

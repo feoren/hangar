@@ -204,6 +204,30 @@ describe("project definitions that override a global one", () => {
     });
   });
 
+  it("wear the global figure when they are the same agent (equal fingerprint)", () => {
+    const same = def("backend", { fingerprint: "a1" });
+    const copy = def("backend", { scope: "project", folder: PROJECT, fingerprint: "a1" });
+    const changed = def("backend", { scope: "project", folder: "C:\\other", fingerprint: "b2" });
+    const lib: Library = { ...EMPTY_LIBRARY, defs: [same, copy, changed] };
+    expect(overridesGlobal(lib, copy)).toBe(false);
+    expect(defFigure(copy, lib, chosen)).toEqual({ kind: "builtin", id: "security-02" });
+    expect(overridesGlobal(lib, changed)).toBe(true);
+    // Without a fingerprint on either side nothing proves they are the same.
+    const unknown = def("backend", { scope: "project", folder: PROJECT });
+    expect(overridesGlobal({ ...EMPTY_LIBRARY, defs: [same, unknown] }, unknown)).toBe(true);
+  });
+
+  it("read the fingerprint from the backend's listing", () => {
+    const listed = parseLibrary({
+      defs: [
+        { ...def("backend"), fingerprint: "ab12" },
+        { ...def("tester"), fingerprint: 7 },
+      ],
+      problems: [],
+    });
+    expect(listed?.defs.map((entry) => entry.fingerprint)).toEqual(["ab12", undefined]);
+  });
+
   it("decide a session's figure by its folder", () => {
     const here = sessionFigure(library, chosen, "backend", PROJECT);
     expect(here.figure.kind).toBe("initial");
