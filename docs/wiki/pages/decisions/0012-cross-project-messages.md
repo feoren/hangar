@@ -1,7 +1,7 @@
 ---
 title: "ADR 0012: Messages between sessions of partner projects"
 type: decision
-status: proposed
+status: accepted
 superseded_by:
 tags: [sessions, projects, agents, hooks, security, pty]
 sources: []
@@ -54,7 +54,7 @@ Requirements from the owner:
 | D. Rely on Claude Code's own session messages | Nothing to build | Claude Code only, invisible to Hangar, no link between projects |
 
 ## Decision
-Proposed: option A, with a command line client as the sending side for agents. Option B can
+Accepted on 2026-11-17: option A, with a command line client as the sending side for agents. Option B can
 follow later for answers.
 
 **1. Partner projects.** A project can name other projects as partners, each with a short name and
