@@ -511,8 +511,8 @@ class UpdaterSigningTest(unittest.TestCase):
         self.assertEqual(self.calls, [])
         self.assertIn("TAURI_SIGNING_PRIVATE_KEY_PASSWORD", self.printed(err))
         self.assertNotIn("env-pw-marker", self.printed(err))
-        self.assertIsNotNone(release.password_variable_problem({"TAURI_SIGNING_PRIVATE_KEY_PASSWORD": ""}))
-        self.assertIsNone(release.password_variable_problem({"TAURI_SIGNING_PRIVATE_KEY_PATH": "x"}))
+        self.assertIsNotNone(release.unlock_variable_problem({"TAURI_SIGNING_PRIVATE_KEY_PASSWORD": ""}))
+        self.assertIsNone(release.unlock_variable_problem({"TAURI_SIGNING_PRIVATE_KEY_PATH": "x"}))
 
     def test_an_inherited_key_path_does_not_win_over_the_chosen_key(self):
         (_, env), _ = self.run_sign({"TAURI_SIGNING_PRIVATE_KEY_PATH": "inherited-path-marker"})

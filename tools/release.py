@@ -903,21 +903,21 @@ def signature_key_problem(signature_text, pubkey):
     return None
 
 
-PASSWORD_VARIABLE = "TAURI_SIGNING_PRIVATE_KEY_PASSWORD"
+KEY_UNLOCK_VARIABLE = "TAURI_SIGNING_PRIVATE_KEY_PASSWORD"
 
 
-def password_variable_problem(environ):
+def unlock_variable_problem(environ):
     """Why the key password must not come from `environ`, or None.
 
     A password in the environment of the release shell reached every program started from that
     shell before (installs, editors, agents), so it is refused even when the key has none; the
     script asks for it instead. Names only the variable, never its value.
     """
-    if any(name.upper() == PASSWORD_VARIABLE for name in environ):
+    if any(name.upper() == KEY_UNLOCK_VARIABLE for name in environ):
         return (
             "%s is set in the environment, where every program started from this shell can read it. "
             "Unset it (PowerShell: Remove-Item Env:%s); the script asks for the password when it signs."
-            % (PASSWORD_VARIABLE, PASSWORD_VARIABLE)
+            % (KEY_UNLOCK_VARIABLE, KEY_UNLOCK_VARIABLE)
         )
     return None
 
@@ -962,7 +962,7 @@ def sign_update(key_path, setup, version, expected_sha256, allow_unencrypted_key
     version latest.json announces. The password goes only into the signer's environment, never
     into os.environ, so no other child process sees it.
     """
-    problem = password_variable_problem(os.environ)
+    problem = unlock_variable_problem(os.environ)
     if problem:
         fail(problem)
     if sha256_hex(setup) != expected_sha256:
@@ -971,7 +971,7 @@ def sign_update(key_path, setup, version, expected_sha256, allow_unencrypted_key
     # Tauri accepts a path or the content; the content avoids trouble with spaces in the path.
     env["TAURI_SIGNING_PRIVATE_KEY"] = key_path.read_text(encoding="utf-8").strip()
     # Always set: without the variable the signer assumes an empty password (Tauri CLI 2.12.4).
-    env[PASSWORD_VARIABLE] = key_password(allow_unencrypted_key)
+    env[KEY_UNLOCK_VARIABLE] = key_password(allow_unencrypted_key)
     signature = setup.with_name(setup.name + ".sig")
     # Only a signature written by this run counts.
     signature.unlink(missing_ok=True)
@@ -1191,7 +1191,7 @@ def main():
         fail("no changelog entry for %s in %s" % (args.version, CHANGELOG_JSON.relative_to(ROOT)))
     if not args.no_build:
         # Before the build, which takes minutes, not only when signing.
-        problem = password_variable_problem(os.environ)
+        problem = unlock_variable_problem(os.environ)
         if problem:
             fail(problem)
         if not args.allow_dirty and working_tree_dirty():
