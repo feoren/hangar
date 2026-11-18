@@ -13,10 +13,15 @@
 .EXAMPLE
   # With a dev build running next to an installed Hangar, pick the window by process id.
   pwsh -File tools/screenshot-hangar.ps1 -Out "$env:TEMP\hangar.png" -ProcessId 4242
+
+.EXAMPLE
+  # The Linux build running in WSL: WSLg shows its window through msrdc, not hangar.exe.
+  pwsh -File tools/screenshot-hangar.ps1 -Out "$env:TEMP\hangar.png" -Wslg
 #>
 param(
   [Parameter(Mandatory = $true)][string]$Out,
-  [int]$ProcessId = 0
+  [int]$ProcessId = 0,
+  [switch]$Wslg
 )
 
 $ErrorActionPreference = 'Stop'
@@ -33,9 +38,16 @@ public static class HangarWin {
 }
 "@
 
-$process = Get-Process hangar -ErrorAction SilentlyContinue |
-  Where-Object { $_.MainWindowHandle -ne 0 -and ($ProcessId -eq 0 -or $_.Id -eq $ProcessId) } |
-  Select-Object -First 1
+if ($Wslg) {
+  # Only a window titled like Hangar, so no other Linux app shown through WSLg is captured.
+  $process = Get-Process msrdc -ErrorAction SilentlyContinue |
+    Where-Object { $_.MainWindowHandle -ne 0 -and $_.MainWindowTitle -like 'Hangar*' } |
+    Select-Object -First 1
+} else {
+  $process = Get-Process hangar -ErrorAction SilentlyContinue |
+    Where-Object { $_.MainWindowHandle -ne 0 -and ($ProcessId -eq 0 -or $_.Id -eq $ProcessId) } |
+    Select-Object -First 1
+}
 if (-not $process) { throw "Hangar is not running (no window found)." }
 
 $handle = $process.MainWindowHandle
