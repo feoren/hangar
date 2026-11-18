@@ -1152,3 +1152,7 @@ and measured it in WSL against a fake server on a private session bus. Pages cha
 The linux-bundle job built the AppImage and .deb (glibc 2.34); the AppImage ran in WSLg, found the
 agent CLIs on the WSL `PATH` and installed `hangar-send`. Filed
 `raw/2026-11-18-linux-appimage-wsl-run.md`. Pages changed: [[0013-linux-release]].
+
+## [2026-11-18] query | README scenes for 0.11.0
+The `server-check` scene (Settings > Account, Test connection with a missing proxy rule) replaces
+`arena` in the README screenshots for 0.11.0. Pages changed: [[release-rollout]].

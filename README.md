@@ -254,10 +254,10 @@ your own accounts, on your own machine. The desktop app is open source under the
     </td>
     <td width="50%" valign="top">
       <picture>
-        <source media="(prefers-color-scheme: light)" srcset="docs/images/hangar-arena-light.png">
-        <img alt="The Arena comparison of Claude Code, Codex CLI and Gemini CLI on one task: state, time, changed files, lines and tests, Claude Code leading, a Take over button per agent" src="docs/images/hangar-arena-dark.png">
+        <source media="(prefers-color-scheme: light)" srcset="docs/images/hangar-server-check-light.png">
+        <img alt="Settings, Account with a self-hosted server address: the link to the self-hosting guide, the note on where the data lives, and Test connection with the account API answering, the relay failing with a hint about the missing proxy rule, and the live connection not yet tested" src="docs/images/hangar-server-check-dark.png">
       </picture>
-      <br><sub>The arena: one task, three agents, compare and take over the winner.</sub>
+      <br><sub>Run your own server and test the connection step by step, with a fix for every failure.</sub>
     </td>
   </tr>
   <tr>
@@ -280,9 +280,12 @@ your own accounts, on your own machine. The desktop app is open source under the
 
 ## Getting started
 
-1. **Install.** Download **`Hangar-Setup.exe`** from the
-   [latest release](https://github.com/feoren/hangar/releases/latest) and run it. It installs for
-   your user only, without administrator rights.
+1. **Install.** Get it from the [latest release](https://github.com/feoren/hangar/releases/latest).
+   - **Windows:** download **`Hangar-Setup.exe`** and run it. It installs for your user only,
+     without administrator rights.
+   - **Linux (x64):** download the **`.AppImage`**, make it executable (`chmod +x Hangar_*.AppImage`)
+     and start it; it updates itself. On Debian or Ubuntu you can install the **`.deb`** instead
+     (`sudo apt install ./Hangar_*.deb`) and update it the same way by hand.
 2. **Start an agent.** Pick a project folder under _New session_, choose _Private_ or _Team_ and
    click an agent. Hangar lists every agent it finds on your machine, with its version; under
    _Team_ it lists only the agents that can run as team sessions.
@@ -311,8 +314,8 @@ Your code never leaves Git: Hangar shares what the agents are doing, not what th
   compares a safety number and confirms it.
 - **You choose what is shared.** Sharing is switched on per project and per folder, and Hangar works
   fully without an account.
-- **Your own server.** A self-hosted team server is in preparation and not published yet; Hangar
-  already accepts its address in _Settings > Account_.
+- **Your own server.** Run the open-source [hangar-server](https://github.com/feoren/hangar-server)
+  yourself and enter its address in _Settings > Account_; _Test connection_ checks it step by step.
 - **Shared notes stay in the repository**, encrypted per file, so the team server is not involved
   at all.
 
@@ -320,7 +323,7 @@ Your code never leaves Git: Hangar shares what the agents are doing, not what th
 
 |                  |                                                                                                                                                   |
 | ---------------- | ------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Operating system | Windows 10 version 1809 or later, or Windows 11 (x64). Linux (x64) is in preparation, macOS is planned.                                           |
+| Operating system | Windows 10 version 1809 or later, or Windows 11 (x64). Linux x64 with glibc 2.34 or later (Ubuntu 22.04, Debian 12 or newer). macOS is planned.   |
 | Agents           | Install the agent CLIs you want to use (Claude Code, Codex CLI, Gemini CLI, Aider, ...) with your own accounts. Hangar finds them on your `PATH`. |
 | Git              | Needed for team sessions (worktrees), change tracking, commits and shared notes.                                                                  |
 | Team features    | A Hangar account, created in the browser when you sign in.                                                                                        |

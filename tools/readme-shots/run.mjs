@@ -1,6 +1,6 @@
 // Renders the README screenshots into docs/images from the real frontend with a mocked backend
 // (mock.ts) in a headless Chromium based browser: one image per scene and color scheme, e.g.
-// hangar-dark.png (the overview) and hangar-arena-light.png.
+// hangar-dark.png (the overview) and hangar-crew-light.png.
 //
 // Usage: pnpm readme:shots [--scene <name>]...   (default: every scene)
 //
@@ -114,13 +114,6 @@ const holdDictation = `(() => {
   );
   return true;
 })()`;
-
-/** Opens the app menu, then its group `group`, then runs the entry `entry`. */
-const appMenu = (group, entry) => [
-  { run: click(".menu-button"), ready: shows("[role=menuitem]", group) },
-  { run: click("[role=menuitem]", group), ready: shows("[role=menuitem]", entry) },
-  { run: click("[role=menuitem]", entry), ready: "true" },
-];
 
 /**
  * What the app shows once it is up, unless a scene says otherwise: five sessions, an agent
@@ -257,37 +250,21 @@ const SCENES = [
     ],
   },
   {
-    // The arena: one task for Claude Code, Codex CLI and Gemini CLI, then the comparison with
-    // the leader marked and "Take over" for each.
-    name: "arena",
-    file: "hangar-arena",
+    // Settings > Account on the team's own server: "Test connection" finds the account API
+    // answering, the relay missing its proxy rule, and the live connection not tested yet.
+    name: "server-check",
+    file: "hangar-server-check",
     maxBytes: 300 * KB,
-    layout: { closedGroups: ["newSession"] },
-    boot: `document.querySelectorAll(".session").length === 2`,
-    settled: "true",
+    layout: { snapLayout: "single", closedGroups: ["newSession"] },
+    // Just tall enough for the signed-in person, the server and the result, so the app stays in
+    // view around the dialog.
+    storage: { "hangar.settingsDialogSize": { width: 1000, height: 640 } },
     steps: [
-      ...appMenu("File", "Arena"),
-      { ready: shows(".arena-task") },
+      { run: click(".footer-settings"), ready: shows("[role=tab]", "Account") },
+      { run: click("[role=tab]", "Account"), ready: shows(".account-server-row") },
       {
-        run: typeInto(
-          ".arena-task",
-          "Add retries with exponential backoff to the payment webhook and cover them with tests.",
-        ),
-        ready: `document.querySelector(".arena-task").value.length > 20`,
-      },
-      {
-        run: click(".arena-agent", "Gemini CLI"),
-        ready: shows(".arena-agent input:checked", null),
-      },
-      {
-        run: typeInto(".arena .text-input:not(.arena-task)", "pnpm test"),
-        ready: `[...document.querySelectorAll(".arena .text-input")].some((el) => el.value === "pnpm test")`,
-      },
-      { run: click(".arena .primary-button", "Start arena"), ready: shows(".session", "Arena") },
-      ...appMenu("File", "Arena"),
-      {
-        ready: `(document.querySelectorAll(".arena-row").length === 3 && document.querySelectorAll(".arena-state.done").length === 3 && document.querySelectorAll(".arena-tests.passed, .arena-tests.failed").length === 3 && ${shows(".arena-lead")})`,
-        timeout: 90_000,
+        run: click(".account-server .secondary-button", "Test connection"),
+        ready: `document.querySelectorAll(".server-check-line").length === 3`,
       },
       { run: BLUR, ready: "true" },
     ],

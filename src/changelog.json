@@ -4,6 +4,34 @@
     "date": null,
     "items": [
       {
+        "de": "Hangar für Linux: AppImage, das sich selbst aktualisiert, und .deb für Ubuntu 22.04 und Debian 12 oder neuer, mit Desktop-Benachrichtigungen.",
+        "en": "Hangar for Linux: an AppImage that updates itself and a .deb for Ubuntu 22.04, Debian 12 or newer, with desktop notifications.",
+        "el": "Hangar για Linux: AppImage που ενημερώνεται μόνο του και .deb για Ubuntu 22.04, Debian 12 ή νεότερα, με ειδοποιήσεις επιφάνειας εργασίας.",
+        "es": "Hangar para Linux: un AppImage que se actualiza solo y un .deb para Ubuntu 22.04, Debian 12 o posterior, con notificaciones de escritorio.",
+        "fr": "Hangar pour Linux : un AppImage qui se met à jour seul et un .deb pour Ubuntu 22.04, Debian 12 ou plus récent, avec notifications.",
+        "it": "Hangar per Linux: un AppImage che si aggiorna da solo e un .deb per Ubuntu 22.04, Debian 12 o successivi, con notifiche desktop.",
+        "ja": "Linux 版 Hangar：自動更新する AppImage と、Ubuntu 22.04・Debian 12 以降向けの .deb。デスクトップ通知にも対応。",
+        "pl": "Hangar dla Linuksa: AppImage, który sam się aktualizuje, oraz .deb dla Ubuntu 22.04, Debiana 12 lub nowszych, z powiadomieniami.",
+        "pt": "Hangar para Linux: um AppImage que se atualiza sozinho e um .deb para Ubuntu 22.04, Debian 12 ou mais recente, com notificações.",
+        "ru": "Hangar для Linux: AppImage с автообновлением и .deb для Ubuntu 22.04, Debian 12 и новее, с уведомлениями на рабочем столе.",
+        "tr": "Linux için Hangar: kendini güncelleyen bir AppImage ve Ubuntu 22.04, Debian 12 veya daha yenisi için .deb, masaüstü bildirimleriyle.",
+        "zh": "Linux 版 Hangar：可自动更新的 AppImage，以及适用于 Ubuntu 22.04、Debian 12 及更高版本的 .deb，支持桌面通知。"
+      },
+      {
+        "de": "Auf Linux und macOS findet Hangar Agenten, die erst deine Shell-Einstellungen in den PATH bringen, zum Beispiel über nvm oder ~/.local/bin.",
+        "en": "On Linux and macOS, Hangar finds agents that only your shell setup puts on PATH, for example through nvm or ~/.local/bin.",
+        "el": "Σε Linux και macOS το Hangar βρίσκει agents που μπαίνουν στο PATH μόνο από τις ρυθμίσεις του κελύφους σου, π.χ. μέσω nvm ή ~/.local/bin.",
+        "es": "En Linux y macOS, Hangar encuentra agentes que solo tu configuración de shell pone en el PATH, por ejemplo con nvm o ~/.local/bin.",
+        "fr": "Sous Linux et macOS, Hangar trouve les agents que seule ta config de shell met dans le PATH, par exemple via nvm ou ~/.local/bin.",
+        "it": "Su Linux e macOS, Hangar trova gli agenti che solo la configurazione della shell mette nel PATH, ad esempio tramite nvm o ~/.local/bin.",
+        "ja": "Linux と macOS では、nvm や ~/.local/bin などシェル設定でのみ PATH に入るエージェントも Hangar が見つけます。",
+        "pl": "Na Linuksie i macOS Hangar znajduje agentów, których do PATH dodaje dopiero konfiguracja powłoki, np. przez nvm lub ~/.local/bin.",
+        "pt": "No Linux e macOS, o Hangar encontra agentes que só a configuração do shell coloca no PATH, por exemplo via nvm ou ~/.local/bin.",
+        "ru": "В Linux и macOS Hangar находит агентов, которых в PATH добавляют только настройки оболочки, например через nvm или ~/.local/bin.",
+        "tr": "Linux ve macOS'ta Hangar, yalnızca kabuk ayarlarının PATH'e eklediği ajanları da bulur; örneğin nvm veya ~/.local/bin ile.",
+        "zh": "在 Linux 和 macOS 上，Hangar 也能找到只有 shell 配置才加入 PATH 的代理，例如通过 nvm 或 ~/.local/bin。"
+      },
+      {
         "de": "Eigener Server: Unter Einstellungen > Konto testest du die Verbindung Schritt für Schritt und siehst, was etwa am Proxy fehlt. Dazu ein Link zur Anleitung.",
         "en": "Own server: under Settings > Account, test the connection step by step and see what is missing, say in the proxy. Plus a link to the setup guide.",
         "el": "Δικός σου διακομιστής: στις Ρυθμίσεις > Λογαριασμός δοκίμασε τη σύνδεση βήμα βήμα και δες τι λείπει, π.χ. στο proxy. Και σύνδεσμος στον οδηγό.",
@@ -16,6 +44,20 @@
         "ru": "Свой сервер: в Настройки > Аккаунт проверь соединение по шагам и узнай, чего не хватает, например в прокси. Плюс ссылка на руководство.",
         "tr": "Kendi sunucun: Ayarlar > Hesap altında bağlantıyı adım adım test et ve örneğin proxy tarafında neyin eksik olduğunu gör. Ayrıca kılavuza bir bağlantı.",
         "zh": "自建服务器：在 设置 > 账户 中逐步测试连接，查看例如代理缺少什么。另附指南链接。"
+      },
+      {
+        "de": "Neue Figuren für Marketing, Vertrieb und Social Media: Agenten mit diesen Namen tragen sie von selbst, unter Einstellungen > Sub-Agenten.",
+        "en": "New figures for marketing, sales and social media: agents with these names wear them on their own, under Settings > Sub-agents.",
+        "el": "Νέες φιγούρες για μάρκετινγκ, πωλήσεις και social media: οι agents με αυτά τα ονόματα τις φορούν αυτόματα, στις Ρυθμίσεις > Υπο-agents.",
+        "es": "Nuevas figuras para marketing, ventas y redes sociales: los agentes con esos nombres las llevan solos, en Configuración > Subagentes.",
+        "fr": "Nouvelles figures pour le marketing, les ventes et les réseaux sociaux : les agents de ces noms les portent d’office, dans Paramètres.",
+        "it": "Nuove figure per marketing, vendite e social media: gli agenti con questi nomi le indossano da soli, in Impostazioni > Sub-agenti.",
+        "ja": "マーケティング、営業、ソーシャルメディア用の新しいフィギュア。これらの名前のエージェントは自動で身に着けます（設定 > サブエージェント）。",
+        "pl": "Nowe postacie dla marketingu, sprzedaży i mediów społecznościowych: agenci o tych nazwach noszą je sami, w Ustawieniach > Subagenci.",
+        "pt": "Novas figuras para marketing, vendas e redes sociais: agentes com esses nomes usam-nas sozinhos, em Configurações > Subagentes.",
+        "ru": "Новые фигуры для маркетинга, продаж и соцсетей: агенты с такими именами получают их сами, в Настройках > Субагенты.",
+        "tr": "Pazarlama, satış ve sosyal medya için yeni figürler: bu adlara sahip ajanlar onları kendiliğinden giyer, Ayarlar > Alt agent’lar altında.",
+        "zh": "为市场营销、销售和社交媒体新增形象：同名代理会自动使用，位于设置 > 子代理。"
       }
     ]
   },

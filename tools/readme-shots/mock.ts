@@ -4,8 +4,8 @@
 // Claude Code session started as the "security" sub-agent, Gemini CLI done with the API docs in
 // the partner project "acme-docs", a PowerShell running the docs site's dev server, a signed-in
 // account with two teammates online, and, per scene, what that scene shows: a message to the
-// partner project, a message waiting from it, the sub-agent definitions and their figures, an
-// agent arena or a dictation.
+// partner project, a message waiting from it, the sub-agent definitions and their figures, a
+// dictation or the connection test of a self-hosted server.
 // The driver (run.mjs) picks what each screenshot shows by clicking through the real frontend.
 // Nothing here talks to a real process, file or network, and every name in it is made up.
 
@@ -43,8 +43,6 @@ const SCENE = ((): string => {
     return "overview";
   }
 })();
-/** The arena scene starts its own sessions; its clock moves only when the mock says so. */
-const ARENA = SCENE === "arena";
 /** Claude Code still works in every scene but the dictation, where it waits at its prompt. */
 const CLAUDE_BUSY = SCENE !== "dictation";
 /** The messages scene: an agent of acme-shop sent the docs project a message with hangar-send. */
@@ -53,19 +51,18 @@ const MESSAGE_WAITING = SCENE === "messages";
 const DOCS_ACTIVE = SCENE === "partners" || SCENE === "messages";
 /** The crew scene: the command guard holds a command of the security sub-agent. */
 const GATE_PENDING = SCENE === "crew";
+/** The server check scene: the account runs on the team's own server, not the official one. */
+const SELF_HOSTED = SCENE === "server-check";
 
 // A fixed clock, so every time the app shows (run times, "since 09:12") is the same in each run:
-// it starts at FIXED_START and stands at SHOT_TIME once the driver freezes the scene. The arena
-// scene reads a clock that stands still until an agent finishes (`arenaNow`), so each agent's
-// time in the comparison is exactly the one the mock gives it.
+// it starts at FIXED_START and stands at SHOT_TIME once the driver freezes the scene.
 const FIXED_START = Date.UTC(2026, 10, 10, 9, 30, 0);
 const SHOT_TIME = FIXED_START + 30_000;
 const realNow = Date.now.bind(Date);
 const clockOffset = FIXED_START - realNow();
-let arenaNow = FIXED_START;
 Date.now = () => {
   if (control.freeze) return SHOT_TIME;
-  return ARENA ? arenaNow : Math.min(realNow() + clockOffset, SHOT_TIME);
+  return Math.min(realNow() + clockOffset, SHOT_TIME);
 };
 // `new Date()` without arguments reads the same clock (clock times and "today" in the app come
 // from it); every other form of the constructor and every static method stay real.
@@ -163,7 +160,7 @@ const plainSession = (n: number, profileId: string, cwd: string, title: string) 
   emoji: null,
   worktree: null,
 });
-/** The sidebar of every scene but the arena: five sessions, two of them Claude Code. */
+/** The sidebar of every scene: five sessions, two of them Claude Code. */
 const mainSessions = [
   {
     ...plainSession(1, "claude", TEAM_CLAUDE ? TEAM_WORKTREE : ROOT, "Webhook retries"),
@@ -184,18 +181,13 @@ const mainSessions = [
   plainSession(4, "gemini", DOCS, "Refund docs"),
   plainSession(5, "pwsh", DOCS, "Docs server"),
 ];
-/** The arena scene starts with two quiet sessions; the arena adds its three. */
-const arenaSessions = [
-  plainSession(1, "pwsh", DOCS, "PowerShell"),
-  plainSession(2, "aider", ROOT, "Aider"),
-];
 const workspace = {
   version: 1,
   activeKey: uuid(DOCS_ACTIVE ? 4 : 1),
-  sessions: ARENA ? arenaSessions : mainSessions,
+  sessions: mainSessions,
 };
 /** Minutes each session has been running, in creation order. */
-const AGE_MINUTES = ARENA ? [64, 31] : [52, 47, 38, 31, 64];
+const AGE_MINUTES = [52, 47, 38, 31, 64];
 
 // ANSI helpers
 const E = "\x1b[";
@@ -431,21 +423,6 @@ const geminiOut = [
   ]),
 ];
 
-const aiderOut = lines([
-  dim("Aider v0.86.2"),
-  dim("Git repo: .git with 214 files"),
-  dim("Repo-map: using 4096 tokens"),
-  "",
-  green("> Translate the checkout emails to German and French"),
-  "",
-  "I need to edit these files:",
-  "",
-  "src/emails/checkout.de.json",
-  "src/emails/checkout.fr.json",
-  "",
-  yellow("Add these files to the chat? (Y)es/(N)o [Yes]: "),
-]);
-
 // The docs site's dev server: its address puts a globe on the row and on the project's card.
 const pwshOut = lines([
   "PowerShell 7.6.9",
@@ -475,11 +452,6 @@ const mainScripts: Record<number, string> = {
   3: CLEAR + HIDE_CURSOR + claudeAskOut,
   4: CLEAR + HIDE_CURSOR + (geminiOut[0] ?? ""),
   5: CLEAR + pwshOut,
-};
-/** The sessions the arena scene starts with. */
-const arenaScripts: Record<string, string> = {
-  pwsh: CLEAR + pwshOut,
-  aider: CLEAR + aiderOut,
 };
 
 function sceneClaudeScreen(): string {
@@ -545,23 +517,21 @@ let nextSessionId = 0;
 const takenIds = new Set<number>();
 
 /**
- * The backend id of a new session: in the main scenes its number in the workspace (1 to 5), so
+ * The backend id of a new session: its number in the workspace (1 to 5), so
  * the script, the crew and the meters stay with their session whichever the app starts first
  * (it starts the active one first); otherwise the next free number.
  */
 function sessionId(profileId: string, cwd: string, subAgent: string | null): number {
-  if (!ARENA) {
-    const index = mainSessions.findIndex(
-      (entry, i) =>
-        !takenIds.has(i + 1) &&
-        entry.profileId === profileId &&
-        entry.cwd === cwd &&
-        ("subAgent" in entry ? entry.subAgent : null) === subAgent,
-    );
-    if (index >= 0) {
-      takenIds.add(index + 1);
-      return index + 1;
-    }
+  const index = mainSessions.findIndex(
+    (entry, i) =>
+      !takenIds.has(i + 1) &&
+      entry.profileId === profileId &&
+      entry.cwd === cwd &&
+      ("subAgent" in entry ? entry.subAgent : null) === subAgent,
+  );
+  if (index >= 0) {
+    takenIds.add(index + 1);
+    return index + 1;
   }
   do nextSessionId += 1;
   while (takenIds.has(nextSessionId));
@@ -578,7 +548,6 @@ function createSession(args: Args): unknown {
   const profile = profiles.find((p) => p.id === profileId);
   const cwd = typeof args.cwd === "string" ? args.cwd : ROOT;
   const id = sessionId(profileId, cwd, typeof args.subAgent === "string" ? args.subAgent : null);
-  const contestant = arenaContestants.get(cwd) ?? null;
   const info = {
     id,
     profileId,
@@ -599,23 +568,16 @@ function createSession(args: Args): unknown {
   const channel = channelId(args.onEvent);
   if (channel !== undefined) channelOfSession.set(id, channel);
   sessions.set(id, info);
-  if (contestant !== null) {
-    contestantSessions.set(id, contestant);
-    setTimeout(() => {
-      output(id, CLEAR + contestant.banner);
-    }, 600);
-    return info;
-  }
   setTimeout(() => {
-    output(id, ARENA ? (arenaScripts[profileId] ?? "") : (mainScripts[id] ?? ""));
-    if (!ARENA && id === 2) {
+    output(id, mainScripts[id] ?? "");
+    if (id === 2) {
       keepTicking(
         id,
         CODEX_START_SECONDS,
         (s, f) => `${RESTORE_CURSOR}${E}2K${codexSpinner(s, f)}`,
       );
     }
-    if (!ARENA && id === 1 && CLAUDE_BUSY && !GATE_PENDING) {
+    if (id === 1 && CLAUDE_BUSY && !GATE_PENDING) {
       keepTicking(
         id,
         CLAUDE_START_SECONDS,
@@ -623,13 +585,13 @@ function createSession(args: Args): unknown {
       );
     }
     // The held command: the guard's decision reaches the window once the session is there.
-    if (!ARENA && id === 1 && GATE_PENDING) {
+    if (id === 1 && GATE_PENDING) {
       setTimeout(() => {
         emitEvent("gate-changed", null);
       }, 300);
     }
     // Gemini works long enough for its quiet end to count as done, answers, then waits.
-    if (!ARENA && id === 4) {
+    if (id === 4) {
       keepTicking(id, 0, (s, f) => `${RESTORE_CURSOR}${E}2K${geminiSpinner(s, f)}`, GEMINI_WORK_MS);
       setTimeout(() => {
         output(id, `${RESTORE_CURSOR}${E}2K${geminiOut[1] ?? ""}`);
@@ -637,7 +599,7 @@ function createSession(args: Args): unknown {
       }, GEMINI_WORK_MS + 300);
     }
     // A bell makes the session show up as "asks you something" in the sidebar.
-    if ((!ARENA && id === 3) || (ARENA && profileId === "aider")) {
+    if (id === 3) {
       setTimeout(() => output(id, "\x07"), 300);
     }
   }, 600);
@@ -722,7 +684,7 @@ function watchSubAgents(args: Args): null {
   if (channel === undefined) return null;
   subAgentWatch.set(sessionId, channel);
   setTimeout(() => {
-    const agents = !ARENA && sessionId === 1 ? subAgents : [];
+    const agents = sessionId === 1 ? subAgents : [];
     send(channel, { type: "snapshot", located: true, agents });
     sendSubAgentLog(channel, args.focus);
   }, 50);
@@ -739,10 +701,13 @@ function focusSubAgent(args: Args): boolean {
 
 // The account and the team: Sam, signed in, shares acme-shop with Mika and Jonas.
 const PROJECT = "proj-acme-shop";
+const ACCOUNT_BASE = SELF_HOSTED
+  ? "https://team.example.com/api/v1"
+  : "https://account.example.com";
 const accountView = {
-  baseUrl: "https://account.example.com",
-  official: true,
-  devicesUrl: "https://account.example.com/devices",
+  baseUrl: ACCOUNT_BASE,
+  official: !SELF_HOSTED,
+  devicesUrl: `${ACCOUNT_BASE}/devices`,
   state: {
     kind: "signedIn",
     user: {
@@ -754,6 +719,19 @@ const accountView = {
     },
   },
   otherSignIns: [],
+};
+/**
+ * "Test connection" on the team's own server: the account API answers, but the web server has no
+ * rule that forwards the relay's paths to the container, so its health check gets the proxy's
+ * 404 and the live connection waits for the relay.
+ */
+const serverCheck = {
+  baseUrl: ACCOUNT_BASE,
+  api: { kind: "ok" },
+  relay: { kind: "noProxy", status: 404 },
+  live: { kind: "skipped" },
+  relayHost: "team.example.com",
+  relaySource: "derived",
 };
 const projects = [
   {
@@ -864,8 +842,8 @@ const teamSnapshot = {
         attempts: [],
         notices: [],
         // Only the acme-shop sessions are shared with the team.
-        sessions: ARENA ? [] : [1, 2, 3],
-        sessionRepos: (ARENA ? [] : [1, 2, 3]).map((sessionId) => ({
+        sessions: [1, 2, 3],
+        sessionRepos: [1, 2, 3].map((sessionId) => ({
           sessionId,
           repo: ACME_ROOT_COMMIT,
         })),
@@ -915,22 +893,8 @@ const claimsSnapshot = {
 // How full the agent's context window is (the meter in its sidebar row); the backend reads it
 // from Claude Code's transcript only.
 const contextUsage = {
-  sessions: [{ sessionId: ARENA ? 3 : 1, used: 123_000, window: 1_000_000 }],
+  sessions: [{ sessionId: 1, used: 123_000, window: 1_000_000 }],
 };
-
-/** A made-up but random-looking commit id, the same for the same `n` (xorshift). */
-function commitHash(n: number): string {
-  let state = (n * 2_654_435_761) >>> 0 || 1;
-  let hex = "";
-  while (hex.length < 40) {
-    state ^= state << 13;
-    state ^= state >>> 17;
-    state ^= state << 5;
-    state >>>= 0;
-    hex += state.toString(16).padStart(8, "0");
-  }
-  return hex.slice(0, 40);
-}
 
 // Git: where each folder's repository is and how many files are changed per checkout.
 const repoOf = (cwd: string) => (cwd === DOCS ? DOCS : ROOT);
@@ -1137,245 +1101,6 @@ const waitingMessages = MESSAGE_WAITING
     ]
   : [];
 
-// The agent arena: one task for three agents, each in a worktree of its own. Each plays its part
-// when the task arrives: it works for a while, then finishes with the time the comparison shows.
-interface ArenaPlan {
-  profileId: string;
-  name: string;
-  banner: string;
-  /** What the agent prints when the task arrives, and its spinner while it works. */
-  begin: string;
-  spinner: (seconds: number, frame: number) => string;
-  /** How long it works (real milliseconds) and the time the comparison shows for it. */
-  workMs: number;
-  elapsedMs: number;
-  finish: string;
-  files: [string, number, number][];
-  tests: { passed: boolean; durationMs: number; output: string };
-  path: string;
-  branch: string;
-  started: boolean;
-  finished: boolean;
-}
-const ARENA_ID = "7f3a9c";
-const ARENA_TASK = [
-  "Add retries with exponential",
-  "backoff to the payment webhook",
-  "and cover them with tests.",
-];
-// The arena's panes are narrow, so every line here fits 32 columns.
-const ARENA_WIDTH = 32;
-const arenaPlans: Omit<ArenaPlan, "path" | "branch" | "started" | "finished">[] = [
-  {
-    profileId: "claude",
-    name: "Claude Code",
-    banner: lines([
-      dim("╭" + "─".repeat(ARENA_WIDTH - 2) + "╮"),
-      dim("│ ") + magenta("✻") + " Welcome to " + bold("Claude Code") + " ".repeat(8) + dim("│"),
-      dim("╰" + "─".repeat(ARENA_WIDTH - 2) + "╯"),
-      "",
-      rule(ARENA_WIDTH),
-      "> ",
-      rule(ARENA_WIDTH),
-    ]),
-    begin: lines([
-      CLEAR,
-      ...ARENA_TASK.map((line, index) => (index === 0 ? dim("> ") : dim("  ")) + line),
-      "",
-      "● I'll start with the webhook",
-      "  handler, then the tests.",
-      "",
-      green("●") + " " + bold("Update") + "(src/payments/webhook.ts)",
-      dim("  ⎿  38 additions, 9 removals"),
-      "",
-      green("●") + " " + bold("Write") + "(src/payments/retry.ts)",
-      dim("  ⎿  Wrote 61 lines"),
-      "",
-      SAVE_CURSOR,
-    ]),
-    spinner: claudeSpinner,
-    workMs: 4_200,
-    elapsedMs: 4 * MINUTE + 12_000,
-    finish: lines([
-      "",
-      "● Retries with backoff are in.",
-      "  The delays live in config.ts.",
-      "  21 tests pass.",
-      "",
-      ...claudePrompt([], ARENA_WIDTH),
-    ]),
-    files: [
-      ["src/payments/webhook.ts", 38, 9],
-      ["src/payments/retry.ts", 61, 0],
-      ["src/payments/webhook.test.ts", 52, 4],
-      ["src/payments/config.ts", 9, 1],
-      ["docs/payments.md", 14, 0],
-    ],
-    tests: {
-      passed: true,
-      durationMs: 14_200,
-      output: "Test Files  2 passed (2)\n     Tests  21 passed (21)",
-    },
-  },
-  {
-    profileId: "codex",
-    name: "Codex CLI",
-    banner: lines([
-      dim("╭" + "─".repeat(ARENA_WIDTH - 2) + "╮"),
-      dim("│ ") + bold(">_ Codex") + dim(" (v0.167.0)") + " ".repeat(11) + dim("│"),
-      dim("╰" + "─".repeat(ARENA_WIDTH - 2) + "╯"),
-      "",
-      dim("› ") + dim("Ask Codex to do anything"),
-    ]),
-    begin: lines([
-      CLEAR,
-      ...ARENA_TASK.map((line, index) => (index === 0 ? dim("› ") : dim("  ")) + line),
-      "",
-      "• " + bold("Explored"),
-      dim("  └ ") + "Read webhook.ts, tests",
-      "",
-      "• " + bold("Edited") + " src/payments/webhook.ts",
-      dim("  (") + green("+44") + " " + red("-12") + dim(")"),
-      "• " + bold("Added") + " src/payments/retry.ts",
-      dim("  (") + green("+40") + dim(")"),
-      "",
-      SAVE_CURSOR,
-    ]),
-    spinner: codexSpinner,
-    workMs: 8_400,
-    elapsedMs: 6 * MINUTE + 31_000,
-    finish: lines([
-      "",
-      "• Retries use 250, 500 and 1000",
-      "  ms. " + green("✓") + " 21 passed.",
-      "",
-      dim("› ") + dim("Ask for a follow-up change"),
-    ]),
-    files: [
-      ["src/payments/webhook.ts", 44, 12],
-      ["src/payments/retry.ts", 40, 0],
-      ["src/payments/webhook.test.ts", 37, 2],
-      ["src/payments/config.ts", 6, 1],
-    ],
-    tests: {
-      passed: true,
-      durationMs: 15_800,
-      output: "Test Files  2 passed (2)\n     Tests  21 passed (21)",
-    },
-  },
-  {
-    profileId: "gemini",
-    name: "Gemini CLI",
-    banner: lines([
-      dim("Tips: ask questions, edit files."),
-      "",
-      dim("╭" + "─".repeat(ARENA_WIDTH - 2) + "╮"),
-      dim("│ ") + cyan(">") + dim("  Type your message") + " ".repeat(11) + dim("│"),
-      dim("╰" + "─".repeat(ARENA_WIDTH - 2) + "╯"),
-    ]),
-    begin: lines([
-      CLEAR,
-      ...ARENA_TASK.map((line, index) => (index === 0 ? cyan("> ") : "  ") + line),
-      "",
-      magenta("✦") + " I'll add a retry helper and",
-      "  call it from the handler.",
-      "",
-      geminiBox(green("✔"), "WriteFile retry.ts", ARENA_WIDTH - 2),
-      geminiBox(green("✔"), "Edit webhook.ts", ARENA_WIDTH - 2),
-      "",
-      SAVE_CURSOR,
-    ]),
-    spinner: geminiSpinner,
-    workMs: 12_600,
-    elapsedMs: 9 * MINUTE + 5_000,
-    finish: lines([
-      "",
-      magenta("✦") + " Done. The webhook retries",
-      "  three times with a growing",
-      "  delay.",
-    ]),
-    files: [
-      ["src/payments/webhook.ts", 29, 8],
-      ["src/payments/retry.ts", 24, 0],
-      ["src/payments/webhook.test.ts", 18, 0],
-    ],
-    tests: {
-      passed: false,
-      durationMs: 11_300,
-      output: "FAIL src/payments/webhook.test.ts\nexpected 4 calls, received 3",
-    },
-  },
-];
-/** The plan of each arena worktree, by its folder (set when the arena is made). */
-const arenaContestants = new Map<string, ArenaPlan>();
-const contestantSessions = new Map<number, ArenaPlan>();
-
-const slug = (text: string) => text.toLowerCase().replace(/[^a-z0-9]+/g, "-");
-
-function createArena(args: Args): unknown {
-  const labels: unknown[] = Array.isArray(args.labels) ? args.labels : [];
-  const worktrees = labels.map((label) => {
-    const name = typeof label === "string" ? label : "";
-    const plan = arenaPlans.find((entry) => entry.name === name) ?? arenaPlans[0];
-    const branch = `hangar/arena-${ARENA_ID}-${slug(name)}`;
-    const path = `C:\\src\\acme-shop-arena-${ARENA_ID}-${slug(name)}`;
-    if (plan !== undefined) {
-      arenaContestants.set(path, { ...plan, path, branch, started: false, finished: false });
-    }
-    return { path, branch, repoRoot: ROOT };
-  });
-  return { id: ARENA_ID, baseCommit: commitHash(7), repoRoot: ROOT, worktrees };
-}
-
-/** The task reached the session: the agent works, then finishes and the clock moves on. */
-function writeSession(args: Args): null {
-  const id = typeof args.id === "number" ? args.id : -1;
-  const plan = contestantSessions.get(id);
-  if (plan === undefined || plan.started) return null;
-  plan.started = true;
-  output(id, plan.begin);
-  keepTicking(id, 0, (s, f) => `${RESTORE_CURSOR}${E}2K${plan.spinner(s, f)}`, plan.workMs);
-  setTimeout(() => {
-    // The clock moves before the agent's last output, so its finish time is the one shown.
-    arenaNow = FIXED_START + plan.elapsedMs;
-    plan.finished = true;
-    output(id, `${RESTORE_CURSOR}${E}2K${plan.finish}`);
-  }, plan.workMs);
-  return null;
-}
-
-function arenaStat(args: Args): unknown {
-  const worktree = args.worktree;
-  const path =
-    typeof worktree === "object" && worktree !== null && "path" in worktree
-      ? String(worktree.path)
-      : "";
-  const plan = arenaContestants.get(path);
-  const files = plan?.finished === true ? plan.files : [];
-  return {
-    files: files.map(([file, added, removed]) => ({ path: file, added, removed })),
-    added: files.reduce((sum, [, added]) => sum + added, 0),
-    removed: files.reduce((sum, [, , removed]) => sum + removed, 0),
-    truncated: false,
-  };
-}
-
-function arenaTests(args: Args): unknown {
-  const worktree = args.worktree;
-  const path =
-    typeof worktree === "object" && worktree !== null && "path" in worktree
-      ? String(worktree.path)
-      : "";
-  const tests = arenaContestants.get(path)?.tests;
-  return {
-    passed: tests?.passed ?? false,
-    exitCode: tests?.passed === true ? 0 : 1,
-    timedOut: false,
-    durationMs: tests?.durationMs ?? 0,
-    output: tests?.output ?? "",
-  };
-}
-
 // The crew scene: the command guard holds the security agent's command until the person answers.
 const gateSnapshot = GATE_PENDING
   ? {
@@ -1451,13 +1176,7 @@ const handlers: Record<string, (args: Args) => unknown> = {
     return Object.fromEntries(
       paths.map((p: unknown) => [
         p,
-        p === WORKTREE
-          ? WORKTREE_BRANCH
-          : p === TEAM_WORKTREE
-            ? TEAM_BRANCH
-            : typeof p === "string" && arenaContestants.has(p)
-              ? (arenaContestants.get(p)?.branch ?? "main")
-              : "main",
+        p === WORKTREE ? WORKTREE_BRANCH : p === TEAM_WORKTREE ? TEAM_BRANCH : "main",
       ]),
     );
   },
@@ -1477,7 +1196,7 @@ const handlers: Record<string, (args: Args) => unknown> = {
     if (info && typeof args.title === "string") info.title = args.title;
     return info ?? null;
   },
-  write_session: writeSession,
+  write_session: () => null,
   resize_session: () => null,
   ack_session: () => null,
   watch_sub_agents: watchSubAgents,
@@ -1501,6 +1220,13 @@ const handlers: Record<string, (args: Args) => unknown> = {
   }),
   account_status: () => accountView,
   account_projects: () => projects,
+  // The test takes a moment, as it does against a real server.
+  account_check_server: () =>
+    new Promise((resolve) => {
+      setTimeout(() => {
+        resolve(serverCheck);
+      }, 400);
+    }),
   team_status: () => teamStatus,
   team_pending_confirmations: () => [],
   team_session_states: () => undefined,
@@ -1589,10 +1315,6 @@ const handlers: Record<string, (args: Args) => unknown> = {
   dictation_start: startDictation,
   dictation_stop: () => null,
   dictation_take_text: () => [],
-  // The arena.
-  arena_create: createArena,
-  arena_diff_stat: arenaStat,
-  arena_run_tests: arenaTests,
 };
 function asArgs(value: unknown): Args {
   return typeof value === "object" && value !== null ? { ...value } : {};
