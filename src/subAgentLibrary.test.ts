@@ -78,6 +78,12 @@ describe("figures", () => {
     expect(defaultFigure("backend", null)).toEqual({ kind: "builtin", id: "backend-01" });
     expect(defaultFigure("code-reviewer", "red")).toEqual({ kind: "builtin", id: "manager-01" });
     expect(defaultFigure("qa-bot", null)).toEqual({ kind: "builtin", id: "tester-01" });
+    expect(defaultFigure("marketing", "orange")).toEqual({ kind: "builtin", id: "marketing-01" });
+    expect(defaultFigure("sales", null)).toEqual({ kind: "builtin", id: "sales-01" });
+    expect(defaultFigure("social-media", "pink")).toEqual({
+      kind: "builtin",
+      id: "social-media-01",
+    });
     expect(defaultFigure("writer", "purple")).toEqual({
       kind: "initial",
       letter: "W",

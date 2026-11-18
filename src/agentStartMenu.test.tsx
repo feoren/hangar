@@ -106,5 +106,7 @@ describe("the start as sub-agent menu", () => {
     expect(figureName("developer-02", t)).toBe("Developer 2");
     expect(figureName("security-01", createTranslator("de"))).toBe("Sicherheit 1");
     expect(figureName("unknown-01", t)).toBe("unknown-01");
+    expect(figureName("social-media-02", t)).toBe("Social media 2");
+    expect(figureName("sales-01", createTranslator("de"))).toBe("Vertrieb 1");
   });
 });

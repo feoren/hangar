@@ -1079,6 +1079,9 @@ const de = {
   "subAgentLib.role.researcher": "Recherche",
   "subAgentLib.role.security": "Sicherheit",
   "subAgentLib.role.tester": "Tester",
+  "subAgentLib.role.marketing": "Marketing",
+  "subAgentLib.role.sales": "Vertrieb",
+  "subAgentLib.role.socialMedia": "Social Media",
   "dictation.use": "Diktieren per Taste",
   "dictation.enabled": "Diktieren per Taste einschalten",
   "dictation.enabledHelp":
@@ -3190,6 +3193,9 @@ const en: Record<MessageKey, string> = {
   "subAgentLib.role.researcher": "Researcher",
   "subAgentLib.role.security": "Security",
   "subAgentLib.role.tester": "Tester",
+  "subAgentLib.role.marketing": "Marketing",
+  "subAgentLib.role.sales": "Sales",
+  "subAgentLib.role.socialMedia": "Social media",
   "dictation.use": "Dictate with a key",
   "dictation.enabled": "Turn on dictation with a key",
   "dictation.enabledHelp":
@@ -5301,6 +5307,9 @@ const el: Record<MessageKey, string> = {
   "subAgentLib.role.researcher": "Έρευνα",
   "subAgentLib.role.security": "Ασφάλεια",
   "subAgentLib.role.tester": "Ελεγκτής",
+  "subAgentLib.role.marketing": "Μάρκετινγκ",
+  "subAgentLib.role.sales": "Πωλήσεις",
+  "subAgentLib.role.socialMedia": "Social media",
   "dictation.use": "Υπαγόρευση με πλήκτρο",
   "dictation.enabled": "Ενεργοποίηση υπαγόρευσης με πλήκτρο",
   "dictation.enabledHelp":
@@ -7437,6 +7446,9 @@ const es: Record<MessageKey, string> = {
   "subAgentLib.role.researcher": "Investigación",
   "subAgentLib.role.security": "Seguridad",
   "subAgentLib.role.tester": "Tester",
+  "subAgentLib.role.marketing": "Marketing",
+  "subAgentLib.role.sales": "Ventas",
+  "subAgentLib.role.socialMedia": "Redes sociales",
   "dictation.use": "Dictar con una tecla",
   "dictation.enabled": "Activar el dictado con una tecla",
   "dictation.enabledHelp":
@@ -9562,6 +9574,9 @@ const fr: Record<MessageKey, string> = {
   "subAgentLib.role.researcher": "Recherche",
   "subAgentLib.role.security": "Sécurité",
   "subAgentLib.role.tester": "Testeur",
+  "subAgentLib.role.marketing": "Marketing",
+  "subAgentLib.role.sales": "Ventes",
+  "subAgentLib.role.socialMedia": "Réseaux sociaux",
   "dictation.use": "Dicter avec une touche",
   "dictation.enabled": "Activer la dictée avec une touche",
   "dictation.enabledHelp":
@@ -11696,6 +11711,9 @@ const it: Record<MessageKey, string> = {
   "subAgentLib.role.researcher": "Ricerca",
   "subAgentLib.role.security": "Sicurezza",
   "subAgentLib.role.tester": "Tester",
+  "subAgentLib.role.marketing": "Marketing",
+  "subAgentLib.role.sales": "Vendite",
+  "subAgentLib.role.socialMedia": "Social media",
   "dictation.use": "Detta con un tasto",
   "dictation.enabled": "Attiva la dettatura con un tasto",
   "dictation.enabledHelp":
@@ -13822,6 +13840,9 @@ const ja: Record<MessageKey, string> = {
   "subAgentLib.role.researcher": "リサーチ",
   "subAgentLib.role.security": "セキュリティ",
   "subAgentLib.role.tester": "テスター",
+  "subAgentLib.role.marketing": "マーケティング",
+  "subAgentLib.role.sales": "営業",
+  "subAgentLib.role.socialMedia": "ソーシャルメディア",
   "dictation.use": "キーで音声入力",
   "dictation.enabled": "キーによる音声入力を有効にする",
   "dictation.enabledHelp":
@@ -15929,6 +15950,9 @@ const pl: Record<MessageKey, string> = {
   "subAgentLib.role.researcher": "Badacz",
   "subAgentLib.role.security": "Bezpieczeństwo",
   "subAgentLib.role.tester": "Tester",
+  "subAgentLib.role.marketing": "Marketing",
+  "subAgentLib.role.sales": "Sprzedaż",
+  "subAgentLib.role.socialMedia": "Media społecznościowe",
   "dictation.use": "Dyktowanie klawiszem",
   "dictation.enabled": "Włącz dyktowanie klawiszem",
   "dictation.enabledHelp":
@@ -18032,6 +18056,9 @@ const pt: Record<MessageKey, string> = {
   "subAgentLib.role.researcher": "Pesquisa",
   "subAgentLib.role.security": "Segurança",
   "subAgentLib.role.tester": "Testador",
+  "subAgentLib.role.marketing": "Marketing",
+  "subAgentLib.role.sales": "Vendas",
+  "subAgentLib.role.socialMedia": "Redes sociais",
   "dictation.use": "Ditar com uma tecla",
   "dictation.enabled": "Ativar o ditado com uma tecla",
   "dictation.enabledHelp":
@@ -20137,6 +20164,9 @@ const ru: Record<MessageKey, string> = {
   "subAgentLib.role.researcher": "Исследователь",
   "subAgentLib.role.security": "Безопасность",
   "subAgentLib.role.tester": "Тестировщик",
+  "subAgentLib.role.marketing": "Маркетинг",
+  "subAgentLib.role.sales": "Продажи",
+  "subAgentLib.role.socialMedia": "Соцсети",
   "dictation.use": "Диктовка клавишей",
   "dictation.enabled": "Включить диктовку клавишей",
   "dictation.enabledHelp":
@@ -22229,6 +22259,9 @@ const tr: Record<MessageKey, string> = {
   "subAgentLib.role.researcher": "Araştırmacı",
   "subAgentLib.role.security": "Güvenlik",
   "subAgentLib.role.tester": "Test uzmanı",
+  "subAgentLib.role.marketing": "Pazarlama",
+  "subAgentLib.role.sales": "Satış",
+  "subAgentLib.role.socialMedia": "Sosyal medya",
   "dictation.use": "Tuşla dikte",
   "dictation.enabled": "Tuşla dikteyi aç",
   "dictation.enabledHelp":
@@ -24276,6 +24309,9 @@ const zh: Record<MessageKey, string> = {
   "subAgentLib.role.researcher": "研究员",
   "subAgentLib.role.security": "安全",
   "subAgentLib.role.tester": "测试员",
+  "subAgentLib.role.marketing": "市场营销",
+  "subAgentLib.role.sales": "销售",
+  "subAgentLib.role.socialMedia": "社交媒体",
   "dictation.use": "按键语音输入",
   "dictation.enabled": "启用按键语音输入",
   "dictation.enabledHelp":

@@ -170,13 +170,19 @@ export const BUILTIN_FIGURES = [
   "manager-02",
   "manager-03",
   "manager-04",
+  "marketing-01",
+  "marketing-02",
   "researcher-01",
   "researcher-02",
   "researcher-03",
   "researcher-04",
+  "sales-01",
+  "sales-02",
   "security-01",
   "security-02",
   "security-03",
+  "social-media-01",
+  "social-media-02",
   "tester-01",
   "tester-02",
   "tester-03",
@@ -233,6 +239,12 @@ const ROLE_WORDS: Readonly<Record<string, string>> = {
   tester: "tester",
   test: "tester",
   qa: "tester",
+  marketing: "marketing",
+  brand: "marketing",
+  sales: "sales",
+  vertrieb: "sales",
+  social: "social-media",
+  community: "social-media",
 };
 
 /** Claude Code's agent colors (`color:` in the frontmatter), readable on light and dark. */
@@ -712,6 +724,9 @@ const ROLE_NAMES: Readonly<Record<string, MessageKey>> = {
   researcher: "subAgentLib.role.researcher",
   security: "subAgentLib.role.security",
   tester: "subAgentLib.role.tester",
+  marketing: "subAgentLib.role.marketing",
+  sales: "subAgentLib.role.sales",
+  "social-media": "subAgentLib.role.socialMedia",
 };
 
 /** "Developer 2" for `developer-02`; the id itself for a role without a name. */
