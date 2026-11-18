@@ -457,7 +457,7 @@ function ServerField({ view }: { view: AccountView }) {
       </p>
       {!view.official && (
         <>
-          <p className="muted settings-help">{t("account.serverData")}</p>
+          <p className="muted settings-help account-help">{t("account.serverData")}</p>
           <div className="settings-row">
             <button
               type="button"
