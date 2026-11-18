@@ -1147,3 +1147,8 @@ sources and the notify-rust 4.19 metadata; built `src-tauri/src/notify/` for Lin
 and measured it in WSL against a fake server on a private session bus. Pages changed:
 [[freedesktop-notifications]] (new), [[0013-linux-release]], [[agent-workflow-features]],
 [[windows-toast-notifications]], index.
+
+## [2026-11-18] ingest | First Linux build and WSL run
+The linux-bundle job built the AppImage and .deb (glibc 2.34); the AppImage ran in WSLg, found the
+agent CLIs on the WSL `PATH` and installed `hangar-send`. Filed
+`raw/2026-11-18-linux-appimage-wsl-run.md`. Pages changed: [[0013-linux-release]].

@@ -85,6 +85,7 @@ job on ubuntu-latest), but nothing is bundled, and three things would hurt a fir
   cannot install it ([[release-rollout]], "Adding Linux").
 
 ## Evidence
+- `raw/2026-11-18-linux-appimage-wsl-run.md`: first CI build (glibc 2.34, .deb Depends, `hangar-send` in both bundles) and a first run of the AppImage in WSLg.
 - [[linux-bundling-reading]]: updater format, platform key, glibc advice, target filter, GTK hook.
 - [[tauri-updater-and-nsis]]: signing is mandatory; release.py signs after the build.
 - `tauri-plugin-updater` 2.14.1 `src/updater.rs` (`get_urls`, `install_appimage`, `install_deb`)
