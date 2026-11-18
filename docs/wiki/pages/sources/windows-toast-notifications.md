@@ -7,7 +7,7 @@ raw:
 url: https://crates.io/crates/tauri-plugin-notification
 retrieved: 2026-11-08
 created: 2026-11-08
-updated: 2026-11-08
+updated: 2026-11-18
 ---
 
 # Windows toast notifications from a Tauri app
@@ -43,3 +43,4 @@ tauri-winrt-notification 0.8.1 and windows-core 0.62.2.
 
 ## Used in
 - [[agent-workflow-features]]: `notify_session` and the `notification-activated` event.
+- Linux counterpart: [[freedesktop-notifications]].

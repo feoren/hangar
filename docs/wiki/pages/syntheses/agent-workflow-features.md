@@ -5,7 +5,7 @@ status: accepted
 tags: [notifications, search, split-view, launcher, git, worktree, snippets, themes, profiles, secrets, tray]
 sources: ["[[terminal-font-coverage-measurement]]", "[[session-report-transcripts]]", "[[worktree-remove-missing-measurement]]"]
 created: 2026-11-08
-updated: 2026-11-15
+updated: 2026-11-18
 ---
 
 # Agent workflow features (0.3.0)
@@ -67,15 +67,19 @@ like a dropped file. Text on the clipboard always wins over an image.
 
 ### Notifications
 - `notify_session(id: number, title: string, body: string) -> boolean`: shows a desktop
-  notification; `false` when the platform has no support (macOS and Linux for now).
+  notification; `false` when the platform has no support (macOS for now) or no notification
+  service runs. Linux: `org.freedesktop.Notifications` through zbus, `replaces_id` per session,
+  body escaped for servers with `body-markup` ([[freedesktop-notifications]]).
   Windows: the WinRT toast API through the `windows` crate (`tauri-winrt-notification` cannot
   set a toast tag, [[windows-toast-notifications]]); app id = bundle identifier, the PowerShell
   app id for executables under `target\debug` or `target\release`. One notification
   per session at a time (tag or replace by session id). Title and body are cut to 200 characters.
 - Click on the notification: the backend shows, unminimizes and focuses the main window and emits
-  the event `notification-activated` with `{ sessionId: number }`.
+  the event `notification-activated` with `{ sessionId: number }`. On Linux only where the server
+  has the `actions` capability; otherwise the notification only informs.
 - `close_session` also withdraws the session's toast from the notification center
-  (`ToastNotificationHistory.RemoveGroupedTagWithId`) and drops its click handler.
+  (`ToastNotificationHistory.RemoveGroupedTagWithId`, on Linux `CloseNotification`) and drops its
+  click handler.
 - Titles and bodies lose control characters and invisible characters; U+FFFE and U+FFFF become
   U+FFFD, U+2028 and U+2029 a space. "Invisible" is one table shared with Export
   (`src-tauri/src/text.rs`): every character of Unicode category Cf (bidi controls, zero-width

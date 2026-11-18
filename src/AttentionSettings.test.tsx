@@ -10,6 +10,7 @@ vi.mock("./usePower", () => ({ usePowerState: () => "battery" }));
 
 const WINDOWS = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Edg/140";
 const LINUX = "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/605.1.15 (KHTML, like Gecko)";
+const MAC = "Mozilla/5.0 (Macintosh; Intel Mac OS X 14_0) AppleWebKit/605.1.15";
 
 function render(userAgent: string): string {
   vi.stubGlobal("navigator", { userAgent });
@@ -34,12 +35,16 @@ describe("AttentionSettings per platform", () => {
     expect(html).toContain(t("settings.powerSavingHelp"));
   });
 
-  it("hides what Linux cannot do", () => {
+  it("offers desktop notifications on Linux and hides the GPU", () => {
     const t = createTranslator("en");
     const html = render(LINUX);
-    expect(html).not.toContain('id="notify-desktop-help"');
+    expect(html).toContain('id="notify-desktop-help"');
     expect(html).not.toContain(t("settings.showResources"));
     expect(html).toContain(t("settings.showResourcesNoGpu"));
     expect(html).toContain(t("settings.powerSavingHelpNoGpu"));
+  });
+
+  it("hides desktop notifications on macOS", () => {
+    expect(render(MAC)).not.toContain('id="notify-desktop-help"');
   });
 });

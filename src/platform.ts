@@ -22,9 +22,9 @@ export function hasGpuReading(platform: Platform): boolean {
   return platform === "windows";
 }
 
-/** Desktop notifications: only the Windows toast API is implemented (`notify.rs`). */
+/** Desktop notifications: Windows toasts and the freedesktop service on Linux (`notify.rs`). */
 export function hasDesktopNotifications(platform: Platform): boolean {
-  return platform === "windows";
+  return platform !== "mac";
 }
 
 /** "Show in Explorer", "Show in Finder" or "Show in the file manager". */

@@ -1140,3 +1140,10 @@ folder), signs the AppImage locally, verifies the copy and adds AppImage and .de
 `linux-x86_64-<bundle type>` before `linux-x86_64`, so `latest.json` gets `linux-x86_64-appimage`
 and .deb installations are not offered an AppImage. Pages changed: [[release-rollout]],
 [[0013-linux-release]], index.
+
+## [2026-11-18] ingest | Linux desktop notifications
+Read the Desktop Notifications Specification 1.3, zbus 5.19 and tauri-plugin-notification 2.8
+sources and the notify-rust 4.19 metadata; built `src-tauri/src/notify/` for Linux on zbus directly
+and measured it in WSL against a fake server on a private session bus. Pages changed:
+[[freedesktop-notifications]] (new), [[0013-linux-release]], [[agent-workflow-features]],
+[[windows-toast-notifications]], index.

@@ -4,7 +4,7 @@ type: decision
 status: accepted
 superseded_by:
 tags: [linux, release, appimage, deb, updater, environment, platform]
-sources: ["[[linux-bundling-reading]]", "[[tauri-updater-and-nsis]]"]
+sources: ["[[linux-bundling-reading]]", "[[tauri-updater-and-nsis]]", "[[freedesktop-notifications]]"]
 created: 2026-11-18
 updated: 2026-11-18
 ---
@@ -22,8 +22,8 @@ job on ubuntu-latest), but nothing is bundled, and three things would hurt a fir
 - **The AppImage leaks into child processes.** AppRun and linuxdeploy's GTK hook point GTK and
   GLib search paths into the image's mount point and force `GDK_BACKEND=x11`. A shell, an agent or
   the file manager Hangar opens would inherit them.
-- **Features without effect.** GPU readings (`gpu.rs`) and desktop notifications (`notify.rs`)
-  exist only on Windows; the launcher badge count needs the Unity launcher API, which most desktops
+- **Features without effect.** GPU readings (`gpu.rs`) and, at first, desktop notifications
+  (`notify.rs`) exist only on Windows; the launcher badge count needs the Unity launcher API, which most desktops
   do not show.
 
 ## Options
@@ -58,9 +58,13 @@ job on ubuntu-latest), but nothing is bundled, and three things would hurt a fir
   `GDK_BACKEND=x11` and an empty `GTK_THEME` go. Only when Hangar's own executable lies inside
   `APPDIR`: an `APPDIR` inherited from another program's environment stays untouched. Hangar's
   own process keeps them, its bundled GTK needs them.
-- **Only offer what works:** on Linux the GPU wording, desktop notifications (also on macOS until
-  implemented) and the launcher badge are hidden, and "Show in Explorer" reads "Show in file
-  manager" (`src/platform.ts`).
+- **Only offer what works:** on Linux the GPU wording and the launcher badge are hidden, and "Show
+  in Explorer" reads "Show in file manager" (`src/platform.ts`). Desktop notifications stay hidden
+  on macOS only.
+- **Desktop notifications on Linux** through `org.freedesktop.Notifications` with zbus directly
+  (already in the tree; notify-rust would add zbus 6, tauri-plugin-notification a second path
+  next to WinRT): one per session via `replaces_id`, a click switches to the session where the
+  server reports actions ([[freedesktop-notifications]]).
 
 ## Consequences
 - Startup on Linux and macOS waits for the login shell, usually well under a second, at most
@@ -85,5 +89,6 @@ job on ubuntu-latest), but nothing is bundled, and three things would hurt a fir
 - [[tauri-updater-and-nsis]]: signing is mandatory; release.py signs after the build.
 - `tauri-plugin-updater` 2.14.1 `src/updater.rs` (`get_urls`, `install_appimage`, `install_deb`)
   and `tauri-utils` `platform::bundle_type`: platform key lookup and install per bundle type.
+- [[freedesktop-notifications]]: notification protocol, markup escaping, zbus versus notify-rust.
 - Code: `src-tauri/src/login_path.rs`, `src-tauri/src/child_env.rs`, `src-tauri/tauri.conf.json`,
-  `.github/workflows/ci.yml` (`linux-bundle`), `src/platform.ts`.
+  `.github/workflows/ci.yml` (`linux-bundle`), `src/platform.ts`, `src-tauri/src/notify/`.

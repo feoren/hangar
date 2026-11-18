@@ -189,3 +189,11 @@ arboard = { version = "3.6", default-features = false, features = ["image-data"]
 
 [target.'cfg(unix)'.dependencies]
 libc = "0.2"
+
+[target.'cfg(target_os = "linux")'.dependencies]
+# Desktop notifications (notify.rs) through org.freedesktop.Notifications. zbus (pure Rust D-Bus,
+# no libdbus; MIT, dbus2 org, maintained) is already in the Linux tree at this version with its
+# default features, through keyring and tauri-plugin-single-instance, so it adds no code.
+# Alternatives: notify-rust 4.19 (MIT/Apache-2.0) pulls zbus 6, a second D-Bus stack;
+# tauri-plugin-notification has no "replace by session" and would be a second Windows path.
+zbus = "5.19"

@@ -23,9 +23,12 @@ describe("platformOf", () => {
 describe("only what works is offered", () => {
   const all: Platform[] = ["windows", "mac", "linux"];
 
-  it("shows the GPU and desktop notifications on Windows only", () => {
+  it("shows the GPU on Windows only", () => {
     expect(all.filter(hasGpuReading)).toEqual(["windows"]);
-    expect(all.filter(hasDesktopNotifications)).toEqual(["windows"]);
+  });
+
+  it("shows desktop notifications on Windows and Linux", () => {
+    expect(all.filter(hasDesktopNotifications)).toEqual(["windows", "linux"]);
   });
 
   it("names the file manager of each platform", () => {

@@ -1,10 +1,16 @@
 //! Desktop notifications per session (contract: docs/wiki/pages/syntheses/agent-workflow-features.md).
 //!
-//! Windows only for now, through the WinRT toast API. Each toast carries the session id as its tag,
-//! so a new notification for a session replaces the previous one instead of piling up. macOS and
-//! Linux report "not supported" and the window falls back to its own signals.
+//! Windows through the WinRT toast API: each toast carries the session id as its tag, so a new
+//! notification for a session replaces the previous one instead of piling up. Linux through the
+//! freedesktop notification service (`freedesktop.rs`), where `replaces_id` does the same. macOS
+//! reports "not supported" and the window falls back to its own signals.
 
 use std::path::Path;
+
+#[cfg(target_os = "linux")]
+mod dbus;
+#[cfg(any(target_os = "linux", test))]
+pub mod freedesktop;
 
 pub const MAX_CHARS: usize = 200;
 
@@ -85,6 +91,10 @@ pub enum NotifyError {
     #[cfg(windows)]
     #[error("Toast failed: {0}")]
     Toast(#[from] windows::core::Error),
+    /// No session bus, no notification server, or a call to it failed.
+    #[cfg(any(target_os = "linux", test))]
+    #[error("Notification service: {0}")]
+    Service(String),
 }
 
 pub use imp::Notifier;
@@ -120,7 +130,7 @@ mod imp {
             session_id: u64,
             title: &str,
             body: &str,
-            on_click: impl Fn() + Send + 'static,
+            on_click: impl Fn() + Send + Sync + 'static,
         ) -> Result<bool, NotifyError> {
             let document = XmlDocument::new()?;
             document.LoadXml(&HSTRING::from(toast_xml(session_id, title, body)))?;
@@ -171,7 +181,18 @@ mod imp {
     }
 }
 
-#[cfg(not(windows))]
+#[cfg(target_os = "linux")]
+mod imp {
+    pub use super::freedesktop::Notifier;
+
+    impl Default for Notifier {
+        fn default() -> Self {
+            Self::with_connector(Box::new(super::dbus::connect))
+        }
+    }
+}
+
+#[cfg(not(any(windows, target_os = "linux")))]
 mod imp {
     use super::NotifyError;
 
@@ -190,7 +211,7 @@ mod imp {
             _session_id: u64,
             _title: &str,
             _body: &str,
-            _on_click: impl Fn() + Send + 'static,
+            _on_click: impl Fn() + Send + Sync + 'static,
         ) -> Result<bool, NotifyError> {
             Ok(false)
         }
