@@ -3,6 +3,8 @@
 Run: py -3 -m unittest discover tools
 """
 import base64
+import contextlib
+import io
 import json
 import os
 import shutil
@@ -1204,6 +1206,297 @@ class ChecksumsTest(unittest.TestCase):
         self.assertEqual(
             names, ["Hangar_0.2.0-31_x64-setup.exe", "Hangar-Setup.exe", "SHA256SUMS.txt", "latest.json"]
         )
+
+
+GITHUB_DOWNLOAD = "https://github.com/feoren/hangar/releases/download/v0.2.0"
+SETUP_NAME = "Hangar_0.2.0-31_x64-setup.exe"
+APPIMAGE_NAME = "Hangar_0.2.0-31_amd64.AppImage"
+DEB_NAME = "Hangar_0.2.0-31_amd64.deb"
+
+
+class LinuxReleaseTest(unittest.TestCase):
+    """--linux: the CI bundles join a finished Windows release under release/0.2.0-31/."""
+
+    def setUp(self):
+        self.folder = test_folder(self, "release linux ")
+        patch = mock.patch.object(release, "RELEASE_DIR", self.folder / "release")
+        patch.start()
+        self.addCleanup(patch.stop)
+        self.target = self.folder / "release" / "0.2.0-31"
+        self.target.mkdir(parents=True)
+        self.write_windows_release(GITHUB_DOWNLOAD)
+        # The layout of the artifact: upload-artifact keeps the folders below bundle/.
+        self.bundles = self.folder / "linux bundles"
+        self.write_bundles(self.bundles)
+        verifier = self.folder / "verify update sig.exe"
+        verifier.write_bytes(b"verifier-marker")
+        self.verifier = release.Verifier(verifier, release.sha256_hex(verifier))
+
+    def write_windows_release(self, base_url):
+        (self.target / SETUP_NAME).write_bytes(b"windows installer")
+        (self.target / "Hangar-Setup.exe").write_bytes(b"windows installer")
+        self.manifest = {
+            "version": "0.2.0+31",
+            "notes": "- Neu",
+            "pub_date": "2026-11-18T10:00:00+00:00",
+            "platforms": {
+                "windows-x86_64": {"signature": "windows-signature-marker", "url": "%s/%s" % (base_url, SETUP_NAME)}
+            },
+        }
+        release.write_json(self.target / "latest.json", self.manifest)
+
+    def write_bundles(self, folder, version="0.2.0+31"):
+        (folder / "appimage").mkdir(parents=True, exist_ok=True)
+        (folder / "deb").mkdir(exist_ok=True)
+        (folder / "appimage" / ("Hangar_%s_amd64.AppImage" % version)).write_bytes(b"appimage")
+        (folder / "deb" / ("Hangar_%s_amd64.deb" % version)).write_bytes(b"deb package")
+
+    def signed_appimage(self, bundles):
+        signature = bundles.appimage.with_name(bundles.appimage.name + ".sig")
+        signature.write_text("linux-signature-marker", encoding="utf-8")
+        return release.Signed(signature, "linux-signature-marker", release.sha256_hex(bundles.appimage))
+
+    def collect(self, verify_returncode=0):
+        self.verified = []
+
+        def fake_run(command, **kwargs):
+            self.verified.append((command, Path(command[1]).read_bytes(), Path(command[2]).read_text(encoding="utf-8")))
+            return subprocess.CompletedProcess(command, verify_returncode)
+
+        bundles = release.find_linux_bundles(self.bundles, "0.2.0+31")
+        signed = self.signed_appimage(bundles)
+        with mock.patch.object(release.subprocess, "run", side_effect=fake_run), mock.patch.object(
+            release, "updater_pubkey", return_value="pubkey-marker"
+        ):
+            return release.collect_linux(bundles, signed, "0.2.0+31", self.target, self.verifier)
+
+    def manifest_now(self):
+        return json.loads((self.target / "latest.json").read_text(encoding="utf-8"))
+
+    def test_finds_both_bundles_at_any_depth(self):
+        bundles = release.find_linux_bundles(self.bundles, "0.2.0+31")
+        self.assertEqual(bundles.appimage, self.bundles / "appimage" / "Hangar_0.2.0+31_amd64.AppImage")
+        self.assertEqual(bundles.deb, self.bundles / "deb" / "Hangar_0.2.0+31_amd64.deb")
+        self.assertEqual(bundles.deb_sha256, release.sha256_hex(bundles.deb))
+
+    def test_the_shown_version_in_the_name_counts_too(self):
+        other = self.folder / "renamed"
+        self.write_bundles(other, "0.2.0-31")
+        self.assertIsNotNone(release.find_linux_bundles(other, "0.2.0+31"))
+
+    def test_no_bundle_at_all_means_none(self):
+        empty = self.folder / "empty"
+        empty.mkdir()
+        self.assertIsNone(release.find_linux_bundles(empty, "0.2.0+31"))
+        self.assertIsNone(release.find_linux_bundles(self.folder / "missing", "0.2.0+31"))
+
+    def test_a_bundle_of_another_version_aborts(self):
+        other = self.folder / "other"
+        self.write_bundles(other, "0.1.9+30")
+        with mock.patch("sys.stderr") as err, self.assertRaises(SystemExit):
+            release.find_linux_bundles(other, "0.2.0+31")
+        self.assertIn("not a bundle of version 0.2.0+31", "".join(str(c.args[0]) for c in err.write.call_args_list))
+
+    def test_two_appimages_or_a_missing_deb_abort(self):
+        (self.bundles / "Hangar_0.2.0+31_amd64.AppImage").write_bytes(b"second")
+        with mock.patch("sys.stderr"), self.assertRaises(SystemExit):
+            release.find_linux_bundles(self.bundles, "0.2.0+31")
+        lonely = self.folder / "lonely"
+        lonely.mkdir()
+        (lonely / "Hangar_0.2.0+31_amd64.AppImage").write_bytes(b"appimage")
+        with mock.patch("sys.stderr"), self.assertRaises(SystemExit):
+            release.find_linux_bundles(lonely, "0.2.0+31")
+
+    def test_latest_json_announces_both_platforms(self):
+        setup_name, linux_names = self.collect()
+        self.assertEqual(setup_name, SETUP_NAME)
+        self.assertEqual(linux_names, [APPIMAGE_NAME, DEB_NAME])
+        manifest = self.manifest_now()
+        self.assertEqual(manifest["platforms"]["windows-x86_64"], self.manifest["platforms"]["windows-x86_64"])
+        self.assertEqual(
+            manifest["platforms"]["linux-x86_64-appimage"],
+            {"signature": "linux-signature-marker", "url": "%s/%s" % (GITHUB_DOWNLOAD, APPIMAGE_NAME)},
+        )
+        # A plain linux-x86_64 would reach .deb installations, which cannot install an AppImage.
+        self.assertNotIn("linux-x86_64", manifest["platforms"])
+        for key in ("version", "notes", "pub_date"):
+            self.assertEqual(manifest[key], self.manifest[key])
+        self.assertEqual((self.target / APPIMAGE_NAME).read_bytes(), b"appimage")
+        self.assertEqual((self.target / DEB_NAME).read_bytes(), b"deb package")
+
+    def test_the_uploaded_appimage_copy_is_verified(self):
+        self.collect()
+        self.assertEqual(len(self.verified), 1)
+        command, content, text = self.verified[0]
+        self.assertEqual(command[0], str(self.verifier.path))
+        self.assertEqual(command[1], str(self.target / APPIMAGE_NAME))
+        self.assertEqual(command[3:], ["pubkey-marker", "0.2.0+31"])
+        self.assertEqual((content, text), (b"appimage", "linux-signature-marker"))
+        self.assertFalse((self.target / release.VERIFY_SIGNATURE_NAME).exists())
+
+    def test_checksums_cover_installers_and_linux_bundles(self):
+        self.collect()
+        content = (self.target / "SHA256SUMS.txt").read_bytes()
+        names = [line.split(b"  ", 1)[1].decode() for line in content.splitlines()]
+        self.assertEqual(names, [SETUP_NAME, "Hangar-Setup.exe", APPIMAGE_NAME, DEB_NAME])
+        self.assertIn(("%s  %s\n" % (release.sha256_hex(self.target / DEB_NAME), DEB_NAME)).encode(), content)
+        self.assertNotIn(b"\r", content)
+
+    def test_a_self_hosted_release_keeps_its_folder(self):
+        self.write_windows_release("https://example.org/dl")
+        self.collect()
+        url = self.manifest_now()["platforms"]["linux-x86_64-appimage"]["url"]
+        self.assertEqual(url, "https://example.org/dl/" + APPIMAGE_NAME)
+
+    def test_a_failed_verification_leaves_the_release_as_it_was(self):
+        before = (self.target / "latest.json").read_bytes()
+        with mock.patch("sys.stderr"), self.assertRaises(SystemExit):
+            self.collect(verify_returncode=1)
+        self.assertEqual((self.target / "latest.json").read_bytes(), before)
+        for name in (APPIMAGE_NAME, DEB_NAME, "SHA256SUMS.txt"):
+            self.assertFalse((self.target / name).exists(), name)
+
+    def test_a_deb_changed_after_it_was_found_aborts(self):
+        bundles = release.find_linux_bundles(self.bundles, "0.2.0+31")
+        signed = self.signed_appimage(bundles)
+        bundles.deb.write_bytes(b"swapped package")
+        with mock.patch("sys.stderr"), self.assertRaises(SystemExit):
+            release.collect_linux(bundles, signed, "0.2.0+31", self.target, self.verifier)
+        self.assertFalse((self.target / DEB_NAME).exists())
+        self.assertNotIn("linux-x86_64-appimage", self.manifest_now()["platforms"])
+
+    def test_without_a_windows_release_nothing_is_added(self):
+        (self.target / "latest.json").unlink()
+        with mock.patch("sys.stderr") as err, self.assertRaises(SystemExit):
+            self.collect()
+        self.assertIn("run --version first", "".join(str(c.args[0]) for c in err.write.call_args_list))
+
+    def test_gh_commands_attach_the_linux_files_before_the_manifest(self):
+        notes = self.target / "release-notes.md"
+        _, create, _ = release.github_release_commands(
+            "0.2.0", "0.2.0+31", self.target, SETUP_NAME, notes, [APPIMAGE_NAME, DEB_NAME]
+        )
+        files = create[4 : create.index("--repo")]
+        self.assertEqual(
+            files,
+            [str(self.target / name) for name in (SETUP_NAME, "Hangar-Setup.exe", APPIMAGE_NAME, DEB_NAME, "SHA256SUMS.txt", "latest.json")],
+        )
+        self.assertIn("--draft", create)
+
+    def test_publish_lines_name_every_file(self):
+        lines = release.publish_lines("0.2.0", "0.2.0+31", self.target, SETUP_NAME, [APPIMAGE_NAME, DEB_NAME])
+        create = next(line for line in lines if "gh release create" in line)
+        self.assertLess(create.index(DEB_NAME), create.index("latest.json"))
+        self.assertIn(APPIMAGE_NAME, create)
+        self.assertTrue(any("gh release edit v0.2.0" in line for line in lines))
+        self.write_windows_release("https://example.org/dl")
+        lines = release.publish_lines("0.2.0", "0.2.0+31", self.target, SETUP_NAME, [APPIMAGE_NAME, DEB_NAME])
+        self.assertIn("https://example.org/dl/", lines[0])
+        self.assertEqual(lines[-1], "  6. latest.json")
+        self.assertEqual(lines[3:5], ["  3. " + APPIMAGE_NAME, "  4. " + DEB_NAME])
+
+    def test_the_windows_run_says_it_is_without_linux(self):
+        lines = release.without_linux_lines("0.2.0")
+        self.assertTrue(lines[0].startswith("Without Linux"))
+        self.assertIn("  py -3 tools/release.py --linux 0.2.0", lines)
+
+    def run_add_linux(self, bundles_dir, version="0.2.0+31", runs=None, download=None):
+        """add_linux() with the build, signer, verifier, git and gh replaced; returns the gh calls
+        and what was printed."""
+        gh_calls = []
+
+        def fake_gh(*args):
+            gh_calls.append(args)
+            if args[:2] == ("run", "list"):
+                return json.dumps(runs or [])
+            if download:
+                download(Path(args[args.index("--dir") + 1]))
+            return ""
+
+        def fake_sign(key_path, setup, signed_version, expected_sha256, allow_unencrypted_key=False):
+            self.assertEqual(signed_version, version)
+            self.assertEqual(expected_sha256, release.sha256_hex(setup))
+            signature = setup.with_name(setup.name + ".sig")
+            signature.write_text("linux-signature-marker", encoding="utf-8")
+            return release.Signed(signature, "linux-signature-marker", expected_sha256)
+
+        out = io.StringIO()
+        with mock.patch.object(release, "current_version", return_value=version), mock.patch.object(
+            release, "gh_run", side_effect=fake_gh
+        ), mock.patch.object(release, "git", return_value="c0ffee" * 6 + "abcd"), mock.patch.object(
+            release, "working_tree_dirty", return_value=False
+        ), mock.patch.object(release, "build_verifier", return_value=self.verifier), mock.patch.object(
+            release, "sign_update", side_effect=fake_sign
+        ), mock.patch.object(release, "update_signature_problem", return_value=None), contextlib.redirect_stdout(out):
+            release.add_linux("0.2.0", bundles_dir, self.folder / "test key.key", False, False)
+        return gh_calls, out.getvalue()
+
+    def test_add_linux_from_a_folder(self):
+        gh_calls, printed = self.run_add_linux(self.bundles)
+        self.assertEqual(gh_calls, [])
+        self.assertIn("linux-x86_64-appimage", self.manifest_now()["platforms"])
+        self.assertIn(APPIMAGE_NAME, printed)
+        self.assertIn("gh release create v0.2.0", printed)
+        # A folder the user named is never removed.
+        self.assertTrue(self.bundles.is_dir())
+
+    def test_add_linux_downloads_the_push_run_of_the_commit(self):
+        runs = [
+            {"databaseId": 9, "status": "completed", "conclusion": "success", "event": "pull_request", "headBranch": "main"},
+            {"databaseId": 7, "status": "completed", "conclusion": "failure", "event": "push", "headBranch": "main"},
+        ]
+        gh_calls, _ = self.run_add_linux(None, runs=runs, download=self.write_bundles)
+        listed, downloaded = gh_calls
+        self.assertEqual(listed[listed.index("--commit") + 1], "c0ffee" * 6 + "abcd")
+        self.assertEqual(listed[listed.index("--workflow") + 1], "ci.yml")
+        self.assertEqual(downloaded[:3], ("run", "download", "7"))
+        self.assertEqual(downloaded[downloaded.index("--name") + 1], "linux-bundles")
+        self.assertIn("linux-x86_64-appimage", self.manifest_now()["platforms"])
+        self.assertFalse((self.target / release.LINUX_DOWNLOAD_NAME).exists())
+
+    def test_without_linux_bundles_the_release_stays_as_it_was(self):
+        empty = self.folder / "empty"
+        empty.mkdir()
+        before = (self.target / "latest.json").read_bytes()
+        with mock.patch("sys.stderr") as err, self.assertRaises(SystemExit):
+            self.run_add_linux(empty)
+        self.assertIn("stays without Linux", "".join(str(c.args[0]) for c in err.write.call_args_list))
+        self.assertEqual((self.target / "latest.json").read_bytes(), before)
+
+    def test_add_linux_needs_the_release_state_in_the_files(self):
+        for version in ("0.3.0", "0.2.0", "0.1.0+30"):
+            with self.subTest(version=version), mock.patch("sys.stderr"), self.assertRaises(SystemExit):
+                self.run_add_linux(self.bundles, version=version)
+        self.assertNotIn("linux-x86_64-appimage", self.manifest_now()["platforms"])
+
+
+class CiRunTest(unittest.TestCase):
+    COMMIT = "0123456789abcdef0123456789abcdef01234567"
+
+    def pick(self, runs):
+        return release.pick_ci_run(json.dumps(runs), self.COMMIT)
+
+    def test_the_newest_push_run_on_main_counts(self):
+        runs = [
+            {"databaseId": 3, "status": "completed", "event": "pull_request", "headBranch": "main"},
+            {"databaseId": 2, "status": "completed", "event": "push", "headBranch": "main"},
+            {"databaseId": 1, "status": "completed", "event": "push", "headBranch": "main"},
+        ]
+        self.assertEqual(self.pick(runs), (2, None))
+
+    def test_no_run_or_an_unfinished_run_is_explained(self):
+        self.assertIn("push the release commit", self.pick([])[1])
+        self.assertIn("0123456789ab", self.pick([])[1])
+        running = [{"databaseId": 5, "status": "in_progress", "event": "push", "headBranch": "main"}]
+        self.assertEqual(self.pick(running)[0], None)
+        self.assertIn("not finished", self.pick(running)[1])
+
+    def test_unreadable_output_is_refused(self):
+        for text in ("", "{}", "[1]", json.dumps([{"databaseId": "7", "status": "completed", "event": "push", "headBranch": "main"}])):
+            with self.subTest(text=text):
+                run_id, problem = release.pick_ci_run(text, self.COMMIT)
+                self.assertIsNone(run_id)
+                self.assertIsNotNone(problem)
 
 
 class BuildNumberTest(unittest.TestCase):

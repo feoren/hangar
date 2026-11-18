@@ -175,6 +175,14 @@ jobs:
             echo "::error::hangar-send is missing from the AppImage"
             exit 1
           fi
+          # The updater picks its entry in latest.json by the bundle type the bundler patches into
+          # the binary (linux-x86_64-appimage, tools/release.py); unpatched, AppImages get no update.
+          # Not the _APP string alone: tauri-utils keeps it as a match arm in every binary. The
+          # bundler overwrites the placeholder _UNK, so that one must be gone.
+          if grep -q __TAURI_BUNDLE_TYPE_VAR_UNK "$root/usr/bin/hangar"; then
+            echo "::error::the hangar binary in the AppImage carries no AppImage bundle type"
+            exit 1
+          fi
           # Listed into a variable first: `grep -q` in a pipe would end dpkg-deb with SIGPIPE.
           contents=$(dpkg-deb -c "$deb")
           if ! grep -q ' ./usr/bin/hangar-send$' <<<"$contents"; then

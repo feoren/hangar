@@ -1,10 +1,10 @@
 ---
 title: Rolling out a release (installer and auto-update)
 type: synthesis
-tags: [release, updater, nsis, windows]
-sources: ["[[tauri-updater-and-nsis]]", "[[code-signing-research]]"]
+tags: [release, updater, nsis, windows, linux, appimage, deb]
+sources: ["[[tauri-updater-and-nsis]]", "[[code-signing-research]]", "[[linux-bundling-reading]]"]
 created: 2026-11-07
-updated: 2026-11-17
+updated: 2026-11-18
 ---
 
 # Rolling out a release
@@ -129,13 +129,15 @@ collects its items under that same version without a date. `src/versionSync.test
    3. `gh release edit v0.2.0 --repo feoren/hangar --draft=false --latest`
 
    Draft first, publish last: `/releases/latest` skips drafts, so installed apps see the update only
-   once every file is attached. The files go in the order setup, `Hangar-Setup.exe`,
+   once every file is attached. The script ends with "Without Linux"; to ship Linux too, push first,
+   then follow "Adding Linux" below and use the commands `--linux` prints instead of steps 2 and 3. The files go in the order setup, `Hangar-Setup.exe`,
    `SHA256SUMS.txt`, `latest.json`; with `--base-url` the script prints the same order for the
    upload, `latest.json` last because it announces the update.
 6. Transition for old installations (0.1.x only poll the own server): also upload `latest.json` to
    `https://hangar.feoren.com/download/`. Its URL points to GitHub, so one build serves both. Once
    no 0.1.x installation is left, this step can go.
-7. Create the upcoming version (the script prints the command at the end): `py -3 tools/release.py --next 0.3.0`
+7. Create the upcoming version (the script prints the command at the end), after `--linux` if Linux
+   ships: `py -3 tools/release.py --next 0.3.0`
    - sets the three files and `Cargo.lock` to `0.3.0` (without build number)
    - adds `{"version": "0.3.0", "date": null, "items": []}` at the top of `src/changelog.json`
    - aborts if the highest changelog version has no date yet or `0.3.0` is not higher than everything before
@@ -146,6 +148,68 @@ Website, download button (always the newest release):
 ```html
 <a href="https://github.com/feoren/hangar/releases/latest/download/Hangar-Setup.exe" download>Download Hangar for Windows</a>
 ```
+
+## Adding Linux
+[[0013-linux-release]]: the CI job `linux-bundle` (ubuntu-22.04) builds the AppImage and the .deb
+with updater artifacts off and uploads them unsigned as the workflow artifact `linux-bundles`
+(kept 14 days). The updater key never goes to CI; the owner's machine signs, as for Windows.
+
+Why a second step: the Linux bundles must carry the released `X.Y.Z+Build`, and only the release
+commit (`chore: Version X.Y.Z-Build`, step 4) has it. That commit exists only after the Windows
+run, so the CI run of that commit builds the Linux bundles of exactly this release.
+
+1. Windows release as above up to step 4, then `git push origin main`. Wait for the CI job
+   `linux-bundle` of that commit.
+2. `py -3 tools/release.py --linux X.Y.Z` (before `--next`). It
+   - requires the release state in the files (`X.Y.Z+Build` in `tauri.conf.json`), a clean working
+     tree and `release/X.Y.Z-Build/latest.json` of the Windows run
+   - finds the newest finished push run of `ci.yml` on `main` for `HEAD`
+     (`gh run list --commit <HEAD> --json ...`, pull request runs never count) and downloads its
+     artifact with `gh run download <run> --name linux-bundles` into
+     `release/X.Y.Z-Build/linux-download/` (removed afterwards). `--linux-bundles <folder>` takes the
+     files from a folder instead (that folder stays)
+   - requires exactly one `.AppImage` and one `.deb` whose names carry this version
+     (`Hangar_X.Y.Z+Build_amd64.AppImage`: the bundler names both after `productName`, the
+     unchanged `version` of `tauri.conf.json` and the arch, read in tauri-bundler's source). A bundle
+     of another commit aborts
+   - signs the AppImage itself with `tauri signer sign --app-version X.Y.Z+Build`: same key, same
+     password prompt and refusal of `TAURI_SIGNING_PRIVATE_KEY_PASSWORD`, same reduced environment
+     and key id check as the installer. With `createUpdaterArtifacts: true` the signature covers the
+     `.AppImage` file and the AppImage is the updater bundle itself (Tauri updater docs;
+     `v1Compatible` would use a `.tar.gz` instead)
+   - copies `Hangar_X.Y.Z-Build_amd64.AppImage` and `Hangar_X.Y.Z-Build_amd64.deb` to the release
+     folder, checks their SHA-256 against the signed and the found bytes, and runs the verifier on
+     the AppImage copy against the text `latest.json` gets, as for the installer
+   - rewrites `SHA256SUMS.txt` over the installer, `Hangar-Setup.exe`, the AppImage and the .deb, and
+     adds `platforms["linux-x86_64-appimage"]` (signature text, URL in the download folder the
+     Windows entry already names, GitHub or `--base-url`) to `latest.json`; the Windows entry, the
+     version, the notes and `pub_date` stay
+   - prints the `gh` commands with all six files (setup, `Hangar-Setup.exe`, AppImage, .deb,
+     `SHA256SUMS.txt`, `latest.json`), or the upload order for a self-hosted folder
+3. Publish with those commands, then step 6 and step 7 as above.
+
+Without the artifact (job failed, older than 14 days, run not finished) `--linux` aborts and
+changes nothing; the release can still go out without Linux with the commands of the Windows run.
+
+**Platform key.** `tauri-plugin-updater` 2.14.1 (`src/updater.rs`, `get_urls`) looks for
+`linux-x86_64-<installer>` first and then `linux-x86_64`, the installer being the bundle type the
+bundler patches into the binary (`__TAURI_BUNDLE_TYPE_VAR_APP` for AppImage, `_DEB` for .deb;
+`tauri-utils` `platform::bundle_type`). A .deb installation installs an update with `dpkg -i` and
+rejects anything that is not a .deb. A plain `linux-x86_64` entry would therefore offer the AppImage
+to .deb installations, which would fail on install. `linux-x86_64-appimage` reaches AppImages only;
+a .deb installation finds no entry, which a background check ignores (`src/useUpdater.ts`) and a
+manual check reports as an error. The CI job checks that the AppImage's `hangar` binary carries the
+AppImage bundle type; without it AppImages would get no update.
+
+**File names.** The URL in `latest.json` is per release, so names with the version are fine; the
+updater downloads the URL, checks the signature and writes the bytes over the running AppImage's
+own path (`install_appimage`), so the user's file name stays as it was (read in the plugin source,
+not measured). The Tauri updater docs say nothing about stable names.
+
+> [!question] Unverified
+> - Not yet run end to end: no Linux release has been published, and no AppImage has updated itself.
+> - Whether a .deb installation should get updates too (a signed .deb under `linux-x86_64-deb`,
+>   installed through `pkexec dpkg -i`); [[0013-linux-release]] says no for now.
 
 ## Release from a fresh clone
 The clean tree check and the build input check cover the files the script knows about. Whatever
@@ -356,5 +420,5 @@ Get-AuthenticodeSignature .\release\0.2.0-31\Hangar-Setup.exe | Format-List Stat
 ## Limits and open points
 - The update URLs are hard-coded in `tauri.conf.json`. Moving to a different host requires a
   release that is still served from an old URL.
-- Windows x64 only for now. For macOS and Linux, `latest.json` needs `darwin-*` and `linux-*`
-  entries.
+- Windows x64 and Linux x64 (AppImage updates, .deb without). macOS needs `darwin-*` entries.
+- The website has no Linux download link yet ([[0013-linux-release]], part 2).

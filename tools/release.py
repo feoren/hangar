@@ -6,6 +6,8 @@ Usage:
   py -3 tools/release.py --version 0.2.0 --no-build      # only set the version, do not build
   py -3 tools/release.py --next 0.3.0                    # after the release: create the upcoming version
   py -3 tools/release.py --version 0.2.0 --base-url https://example.org/download   # self-hosted
+  py -3 tools/release.py --linux 0.2.0                   # add the Linux bundles of the CI run (see below)
+  py -3 tools/release.py --linux 0.2.0 --linux-bundles <folder>   # ... from a folder instead
 
 Rule "the code always carries the upcoming version" (ADR 0002): tauri.conf.json, package.json and
 Cargo.toml name the version that ships next, and it is the highest one in src/changelog.json (still
@@ -79,6 +81,24 @@ Authenticode code signing of the installer (against the SmartScreen warning), op
   build Get-AuthenticodeSignature checks the installer and the program: without a valid, timestamped
   signature the script aborts. Process and vendors: docs/wiki/pages/syntheses/release-rollout.md.
 
+Linux (ADR 0013): the CI job linux-bundle (ubuntu-22.04) builds the AppImage and the .deb, unsigned,
+as the workflow artifact "linux-bundles"; the updater key never goes to CI. --version builds Windows
+only and says "without Linux". Its commit ("chore: Version ...") carries X.Y.Z+Build, so the CI run
+of that commit builds the Linux bundles of exactly this release. After pushing it and waiting for
+the job, `--linux X.Y.Z` (before --next):
+  - downloads the artifact of the push run of ci.yml on main for HEAD (`gh run download`), or takes
+    the bundles from --linux-bundles <folder>; each file name must carry this version,
+  - signs the AppImage with `tauri signer sign --app-version <version>` (same key, password prompt
+    and reduced environment as the installer) and checks the copy with the same verifier,
+  - adds Hangar_<x.y.z-build>_amd64.AppImage and Hangar_<x.y.z-build>_amd64.deb to
+    release/<version>/, both to SHA256SUMS.txt, and the AppImage to latest.json under
+    "linux-x86_64-appimage" (with the download folder latest.json already names),
+  - prints the gh commands (or the upload order) with every file.
+The key carries the installer type: tauri-plugin-updater 2.14.1 looks for "linux-x86_64-<type>"
+first and then "linux-x86_64". A plain "linux-x86_64" would offer the AppImage to .deb
+installations, which the updater then cannot install (it runs dpkg on it); the .deb gets no
+in-app update (ADR 0013).
+
 No dependencies beyond Python 3 and the project toolchain. Never prints keys, thumbprints or
 signing commands.
 """
@@ -121,6 +141,14 @@ FULL_VERSION = re.compile(r"^(\d+)\.(\d+)\.(\d+)(?:\+(\d+))?$")
 DEFAULT_TIMESTAMP_URL = "http://time.certum.pl"
 THUMBPRINT = re.compile(r"^[0-9A-F]{40}$")
 TIMESTAMP_URL = re.compile(r"^https?://\S+$")
+# The Linux bundles come from CI (ADR 0013): workflow file, artifact name and the platform key.
+CI_WORKFLOW = "ci.yml"
+LINUX_ARTIFACT = "linux-bundles"
+LINUX_PLATFORM = "linux-x86_64-appimage"
+# Tauri names both after productName, the version from tauri.conf.json (with "+Build") and the arch.
+LINUX_BUNDLE = re.compile(r"^Hangar_(.+)_amd64\.(AppImage|deb)$")
+# Where --linux puts the downloaded artifact, inside release/<version>/; removed afterwards.
+LINUX_DOWNLOAD_NAME = "linux-download"
 
 
 class SigningError(ValueError):
@@ -703,19 +731,25 @@ def write_checksums(target, names):
     (target / CHECKSUMS_NAME).write_bytes(checksums_text(target, names).encode("utf-8"))
 
 
-def release_files(target, setup_name):
+def release_files(target, setup_name, linux_names=()):
     """Files to attach or upload, in order. latest.json stays last: it announces the update."""
-    return [target / setup_name, target / "Hangar-Setup.exe", target / CHECKSUMS_NAME, target / "latest.json"]
+    return [
+        target / setup_name,
+        target / "Hangar-Setup.exe",
+        *(target / name for name in linux_names),
+        target / CHECKSUMS_NAME,
+        target / "latest.json",
+    ]
 
 
-def github_release_commands(base_version, version, target, setup_name, notes_file):
+def github_release_commands(base_version, version, target, setup_name, notes_file, linux_names=()):
     """The gh commands that publish a built release, as argv lists (never a shell string).
 
     Draft first and publish last: GitHub's /releases/latest skips drafts, so installed apps see the
     update only once every file is attached.
     """
     tag = github_tag(base_version)
-    files = [str(path) for path in release_files(target, setup_name)]
+    files = [str(path) for path in release_files(target, setup_name, linux_names)]
     return [
         ["git", "push", "origin", "main"],
         [
@@ -1133,6 +1167,231 @@ def collect(setup, signed, version, base_url, notes, verifier):
     return target, setup_name
 
 
+def without_linux_lines(base_version):
+    """What the Windows run says about Linux: it never has the bundles, they come from CI later."""
+    return [
+        "Without Linux: this run builds Windows only. To add the Linux bundles, push the release "
+        "commit, wait for the CI job linux-bundle of that commit, then run (before --next)",
+        "  py -3 tools/release.py --linux %s" % base_version,
+        "It signs the AppImage and prints the publish commands with every file; use those instead.",
+    ]
+
+
+# The bundles found for this release, and the .deb's SHA-256 when it was found.
+LinuxBundles = collections.namedtuple("LinuxBundles", "appimage deb deb_sha256")
+
+
+def linux_bundle_names(version):
+    """Names under release/: the shown version, like the installer (0.2.0+31 -> 0.2.0-31)."""
+    shown = display(version)
+    return "Hangar_%s_amd64.AppImage" % shown, "Hangar_%s_amd64.deb" % shown
+
+
+def find_linux_bundles(folder, version):
+    """The AppImage and the .deb in `folder` (any depth: the artifact keeps the appimage/ and deb/
+    folders), or None when there is neither. Aborts unless there is exactly one of each and both
+    names carry `version`: a bundle of another commit would announce a build that is not this one.
+    Links are skipped, the folder may come from a download."""
+    folder = Path(folder)
+    found = {".AppImage": [], ".deb": []}
+    if folder.is_dir():
+        for path in sorted(folder.rglob("*")):
+            if path.suffix in found and path.is_file() and not path.is_symlink():
+                found[path.suffix].append(path)
+    if not any(found.values()):
+        return None
+    for suffix, paths in found.items():
+        if len(paths) != 1:
+            fail("expected exactly one %s in %s, found: %d" % (suffix, folder, len(paths)))
+        match = LINUX_BUNDLE.match(paths[0].name)
+        if not match or match.group(1) not in (version, display(version)):
+            fail(
+                "%s is not a bundle of version %s; take the CI run of the release commit"
+                % (paths[0].name, version)
+            )
+    deb = found[".deb"][0]
+    return LinuxBundles(found[".AppImage"][0], deb, sha256_hex(deb))
+
+
+def pick_ci_run(runs_text, commit):
+    """(run id, None) for the newest finished push run of ci.yml on main in `gh run list --json`
+    output, or (None, reason). Only push runs on main: a pull request run builds code that is
+    not on main, and only a finished run has its artifact."""
+    try:
+        runs = json.loads(runs_text)
+    except ValueError:
+        return None, "the output of gh run list is not readable"
+    if not isinstance(runs, list):
+        return None, "the output of gh run list is not readable"
+    pushed = [
+        run
+        for run in runs
+        if isinstance(run, dict) and run.get("event") == "push" and run.get("headBranch") == "main"
+    ]
+    if not pushed:
+        return None, "no CI run of %s on main; push the release commit first (git push origin main)" % commit[:12]
+    run = pushed[0]
+    run_id = run.get("databaseId")
+    if not isinstance(run_id, int) or isinstance(run_id, bool):
+        return None, "the output of gh run list is not readable"
+    if run.get("status") != "completed":
+        return None, "CI run %d of %s has not finished yet; wait for the job linux-bundle" % (run_id, commit[:12])
+    return run_id, None
+
+
+def gh_run(*args):
+    """Runs gh (an absolute gh.exe from PATH) without any updater key variable; aborts on failure."""
+    command = [resolve_tool("gh"), *args]
+    result = subprocess.run(
+        command,
+        cwd=ROOT,
+        env=without_updater_key(os.environ),
+        stdin=subprocess.DEVNULL,
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+        errors="replace",
+        check=False,
+    )
+    if result.returncode != 0:
+        fail("gh %s failed: %s" % (" ".join(args[:2]), result.stderr.strip()))
+    return result.stdout
+
+
+def download_linux_bundles(commit, folder):
+    """Downloads the artifact linux-bundles of the CI run of `commit` into a fresh `folder`."""
+    listed = gh_run(
+        "run", "list",
+        "--repo", GITHUB_REPO,
+        "--workflow", CI_WORKFLOW,
+        "--commit", commit,
+        "--json", "databaseId,status,conclusion,event,headBranch",
+        "--limit", "20",
+    )
+    run_id, problem = pick_ci_run(listed, commit)
+    if problem:
+        fail(problem)
+    shutil.rmtree(folder, ignore_errors=True)
+    folder.mkdir(parents=True)
+    print("Downloading %s of CI run %d ..." % (LINUX_ARTIFACT, run_id))
+    # The artifact exists only when the job linux-bundle got to its last step, and for 14 days.
+    gh_run("run", "download", str(run_id), "--repo", GITHUB_REPO, "--name", LINUX_ARTIFACT, "--dir", str(folder))
+
+
+def read_release_manifest(target, version):
+    """latest.json of the Windows run for `version` and its installer's name and download folder.
+
+    --linux only adds to a finished Windows release; the download folder is the one latest.json
+    already names, so GitHub and --base-url releases stay consistent without asking again.
+    """
+    path = target / "latest.json"
+    try:
+        manifest = read_json(path)
+        windows = manifest["platforms"]["windows-x86_64"]
+        url = windows["url"]
+    except (OSError, ValueError, KeyError, TypeError):
+        fail("%s is missing or has no windows-x86_64 entry; run --version first" % path)
+    if manifest.get("version") != version or not isinstance(url, str) or "/" not in url:
+        fail("%s does not belong to version %s; run --version first" % (path, version))
+    base_url, setup_name = url.rsplit("/", 1)
+    for name in (setup_name, "Hangar-Setup.exe"):
+        if not (target / name).is_file():
+            fail("%s is missing; run --version first" % (target / name))
+    return manifest, setup_name, base_url
+
+
+def collect_linux(bundles, signed, version, target, verifier):
+    """Copies both bundles under release/, verifies the AppImage copy and adds both to
+    SHA256SUMS.txt and the AppImage to latest.json. Same rules as collect(): the copies must
+    have the hashes that held through signing, and the verifier checks the copy that is uploaded
+    against the text latest.json gets. Returns the installer's name and the Linux names."""
+    manifest, setup_name, base_url = read_release_manifest(target, version)
+    appimage_name, deb_name = linux_bundle_names(version)
+    copies = [(bundles.appimage, target / appimage_name, signed.sha256), (bundles.deb, target / deb_name, bundles.deb_sha256)]
+
+    def discard(message):
+        for _, copy, _ in copies:
+            copy.unlink(missing_ok=True)
+        fail(message)
+
+    for source, copy, _ in copies:
+        shutil.copy2(source, copy)
+    if any(sha256_hex(copy) != expected for _, copy, expected in copies):
+        discard("a Linux bundle changed after it was signed or found; nothing was collected")
+    text_file = target / VERIFY_SIGNATURE_NAME
+    try:
+        text_file.write_text(signed.text, encoding="utf-8")
+        problem = update_signature_problem(verifier, target / appimage_name, text_file, version)
+    finally:
+        text_file.unlink(missing_ok=True)
+    if problem:
+        signed.signature.unlink(missing_ok=True)
+        discard(problem)
+    write_checksums(target, [setup_name, "Hangar-Setup.exe", appimage_name, deb_name])
+    manifest["platforms"][LINUX_PLATFORM] = {
+        "signature": signed.text,
+        "url": "%s/%s" % (base_url, appimage_name),
+    }
+    write_json(target / "latest.json", manifest)
+    return setup_name, [appimage_name, deb_name]
+
+
+def add_linux(base_version, bundles_dir, key_path, allow_unencrypted_key, allow_dirty):
+    """--linux: adds the signed AppImage and the .deb to the Windows release of `base_version`."""
+    problem = unlock_variable_problem(os.environ)
+    if problem:
+        fail(problem)
+    version = current_version()
+    parsed = parse_version(version)
+    if parsed is None or not parsed[1] or dotted(parsed[0]) != base_version:
+        fail(
+            "--linux %s needs the release state in the files (tauri.conf.json has %s); run it after "
+            "--version %s and before --next" % (base_version, version, base_version)
+        )
+    target = RELEASE_DIR / display(version)
+    read_release_manifest(target, version)
+    downloaded = bundles_dir is None
+    if downloaded:
+        # The CI bundles belong to the commit; local changes would not be in them.
+        if not allow_dirty and working_tree_dirty():
+            fail("the working tree is not clean. Commit the release state first (or pass --allow-dirty).")
+        bundles_dir = target / LINUX_DOWNLOAD_NAME
+        download_linux_bundles(git("rev-parse", "HEAD"), bundles_dir)
+    bundles = find_linux_bundles(bundles_dir, version)
+    if bundles is None:
+        fail(
+            "no Linux bundles in %s; the release stays without Linux (publish it with the commands "
+            "the --version run printed)" % bundles_dir
+        )
+    verifier = build_verifier()
+    signed = sign_update(key_path, bundles.appimage, version, sha256_hex(bundles.appimage), allow_unencrypted_key)
+    setup_name, linux_names = collect_linux(bundles, signed, version, target, verifier)
+    if downloaded:
+        shutil.rmtree(bundles_dir, ignore_errors=True)
+    print()
+    print("Linux added to %s: %s (updater: %s) and %s." % (target, linux_names[0], LINUX_PLATFORM, linux_names[1]))
+    for line in publish_lines(base_version, version, target, setup_name, linux_names):
+        print(line)
+
+
+def publish_lines(base_version, version, target, setup_name, linux_names):
+    """What --linux prints for publishing: the gh commands, or the upload order for a
+    self-hosted folder (taken from latest.json, like the download URL)."""
+    _, _, base_url = read_release_manifest(target, version)
+    files = release_files(target, setup_name, linux_names)
+    if base_url != github_base_url(base_version):
+        lines = ["Upload to %s/ in this order (latest.json last: it announces the update):" % base_url]
+        return lines + ["  %d. %s" % (number, path.name) for number, path in enumerate(files, 1)]
+    notes_file = target / "release-notes.md"
+    lines = ["Publish on GitHub (the push is a no-op when it is done already):"]
+    lines += [
+        "  %s" % quoted(argv)
+        for argv in github_release_commands(base_version, version, target, setup_name, notes_file, linux_names)
+    ]
+    lines.append("Older installations only poll %s; copy latest.json there as well." % LEGACY_UPDATE_URL)
+    return lines
+
+
 def main():
     parser = argparse.ArgumentParser(description="Build a Hangar release (installer + latest.json)")
     mode = parser.add_mutually_exclusive_group(required=True)
@@ -1144,6 +1403,18 @@ def main():
         "--next",
         metavar="X.Y.Z",
         help="after a release: put the upcoming version into the files and add it empty to the changelog",
+    )
+    mode.add_argument(
+        "--linux",
+        metavar="X.Y.Z",
+        help="after --version and the push: sign and add the Linux bundles of the CI run of HEAD",
+    )
+    parser.add_argument(
+        "--linux-bundles",
+        metavar="FOLDER",
+        type=Path,
+        default=None,
+        help="with --linux: take the AppImage and the .deb from this folder instead of downloading them",
     )
     parser.add_argument("--no-build", action="store_true", help="only set the version, do not build")
     parser.add_argument("--allow-dirty", action="store_true", help="build even with uncommitted changes")
@@ -1171,10 +1442,17 @@ def main():
         # Needs neither the key nor a build; it only changes files in the repo.
         prepare_next(args.next)
         return
+    if args.linux_bundles is not None and args.linux is None:
+        fail("--linux-bundles works only with --linux")
 
     key_path = Path(os.environ.get("HANGAR_SIGNING_KEY", DEFAULT_KEY))
     if not key_path.is_file():
         fail("updater signing key missing: %s (without it there are no updates)" % key_path)
+    if args.linux is not None:
+        if args.notes is not None or args.base_url is not None or args.no_build:
+            fail("--linux takes the notes and the download folder from latest.json; --notes, --base-url and --no-build do not apply")
+        add_linux(args.linux, args.linux_bundles, key_path, args.allow_unencrypted_key, args.allow_dirty)
+        return
     if args.base_url is not None and not args.base_url.startswith("https://"):
         fail("the base URL must start with https://; the updater requires TLS.")
     # Check before changing anything, so a wrong variable never leaves a half-done change.
@@ -1260,6 +1538,9 @@ def main():
         print("  2. Hangar-Setup.exe   (download link of the website)")
         print("  3. %s     (checksums of both installers)" % CHECKSUMS_NAME)
         print("  4. latest.json        (last: announces the update)")
+    print()
+    for line in without_linux_lines(args.version):
+        print(line)
     print()
     # Rule "the code always carries the upcoming version" (ADR 0002): otherwise the next dev build
     # shows the old number again while "What's New" is already collecting new items.

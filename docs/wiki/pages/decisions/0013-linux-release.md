@@ -73,11 +73,17 @@ job on ubuntu-latest), but nothing is bundled, and three things would hurt a fir
   before.
 - The .deb depends on `libasound2 | libasound2t64` (dictation's ALSA, renamed in Ubuntu 24.04);
   Tauri adds WebKitGTK and GTK itself.
-- Part 2 (release tool, `latest.json` with `linux-x86_64`, website downloads, README and
-  changelog) follows once the CI bundles have been tried on a real desktop.
+- Part 2 (release tool, website downloads, README and changelog) follows once the CI bundles
+  have been tried on a real desktop. The release tool is done: `tools/release.py --linux X.Y.Z`
+  signs the CI AppImage locally and announces it under `linux-x86_64-appimage`, not the plain
+  `linux-x86_64`: tauri-plugin-updater 2.14.1 tries `linux-x86_64-<bundle type>` first and falls
+  back to `linux-x86_64`, so a plain key would offer the AppImage to .deb installations, which
+  cannot install it ([[release-rollout]], "Adding Linux").
 
 ## Evidence
 - [[linux-bundling-reading]]: updater format, platform key, glibc advice, target filter, GTK hook.
 - [[tauri-updater-and-nsis]]: signing is mandatory; release.py signs after the build.
+- `tauri-plugin-updater` 2.14.1 `src/updater.rs` (`get_urls`, `install_appimage`, `install_deb`)
+  and `tauri-utils` `platform::bundle_type`: platform key lookup and install per bundle type.
 - Code: `src-tauri/src/login_path.rs`, `src-tauri/src/child_env.rs`, `src-tauri/tauri.conf.json`,
   `.github/workflows/ci.yml` (`linux-bundle`), `src/platform.ts`.

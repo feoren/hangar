@@ -1132,3 +1132,11 @@ Read the Tauri updater and AppImage docs, the bundler's per-platform target filt
 x64 release, part 1: bundle targets, CI job `linux-bundle`, login shell `PATH`, AppImage
 variables for child processes, hidden Linux features). Pages changed: [[linux-bundling-reading]]
 (new), [[0013-linux-release]] (new), index.
+
+## [2026-11-18] query | Linux in the release tool
+`tools/release.py --linux X.Y.Z` takes the CI artifact `linux-bundles` of the release commit (or a
+folder), signs the AppImage locally, verifies the copy and adds AppImage and .deb to
+`SHA256SUMS.txt` and the gh commands. Read tauri-plugin-updater 2.14.1: it tries
+`linux-x86_64-<bundle type>` before `linux-x86_64`, so `latest.json` gets `linux-x86_64-appimage`
+and .deb installations are not offered an AppImage. Pages changed: [[release-rollout]],
+[[0013-linux-release]], index.
