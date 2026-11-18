@@ -184,8 +184,10 @@ jobs:
             exit 1
           fi
           # Listed into a variable first: `grep -q` in a pipe would end dpkg-deb with SIGPIPE.
+          # The bundler writes its tar paths without a leading "./" (tauri-bundler, debian.rs,
+          # create_tar_from_dir), dpkg-built packages with one; either form counts.
           contents=$(dpkg-deb -c "$deb")
-          if ! grep -q ' ./usr/bin/hangar-send$' <<<"$contents"; then
+          if ! grep -Eq ' (\./)?usr/bin/hangar-send$' <<<"$contents"; then
             echo "::error::hangar-send is missing from the .deb"
             exit 1
           fi
