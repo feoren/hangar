@@ -132,6 +132,7 @@ fn commands_are_registered_allowed_and_wired() {
         "account_projects",
         "account_set_base_url",
         "account_open",
+        "account_check_server",
         // Opening a dev server address in the browser is the main window's.
         "open_local_url",
         // Paths and addresses clicked in the terminal name any local path: main window only.

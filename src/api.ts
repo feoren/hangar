@@ -800,6 +800,8 @@ export const api = {
     invoke<unknown>("account_set_base_url", { baseUrl }),
   /** Opens one of the account's own pages; the window never passes a URL. */
   accountOpen: (page: AccountPage) => invoke<null>("account_open", { page }),
+  /** Tests the chosen server: account API, relay, live channel (checked in serverCheck.ts). */
+  accountCheckServer: () => invoke<unknown>("account_check_server"),
 
   // Team connection per project. Answers and errors are checked in team.ts
   // (`parseTeamStatus`, `parsePendingConfirmations`, `parseTeamError`).

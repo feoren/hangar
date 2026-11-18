@@ -7,7 +7,7 @@ version: "API v1 (base /api/v1), as of 2026-11-09"
 license: "service API; client code in this repository is MIT"
 repo: "website of the official service (not public); client in src-tauri/src/account*.rs"
 created: 2026-11-09
-updated: 2026-11-15
+updated: 2026-11-18
 ---
 
 # Hangar account API (sign-in, account, projects)
@@ -200,8 +200,34 @@ app has no upload path).
 - **Interface:** commands `account_status`, `account_sign_in`, `account_cancel_sign_in`,
   `account_sign_out`, `account_projects`, `account_avatar` (the picture as a `data:` URL or
   `null`), `account_set_base_url(baseUrl | null)`,
-  `account_open(page)` (main window only); the payload-free event `account-changed`, after
+  `account_open(page)` (main window only; `page` also `selfHostingGuide`, the fixed address of
+  hangar-server's public repository), `account_check_server() -> ServerCheck` (main window only, see
+  below); the payload-free event `account-changed`, after
   which the window reads `account_status() -> AccountView { baseUrl,
   official, devicesUrl, state, otherSignIns, revision }` (`user` in `signedIn`: `id`, `email`,
   `name`, `locale`, `seatsAccountTotal`, `seatsAccountUsed`, `avatarVersion`); errors as `{ kind, detail }`. `relay_ticket` is a typed client
   function, not a command yet.
+
+## Connection test of a self-hosted server
+
+`src-tauri/src/server_check.rs`, shown in Settings > Account only for a server other than the
+official one. Three steps, each with an explicit result enum; no step sends a token or a ticket.
+
+1. **Account API:** `GET <base>/keys` (hangar-server's public ticket key, no sign-in) must answer
+   200 with a JSON object holding a `keys` array. A JSON 404 means a Hangar server without the
+   account API at this path; anything else (an HTML page above all) means no Hangar server answers.
+2. **Relay:** signed in, the relay of a ticket for the first project (`relay_url`, the ticket is
+   dropped unread); otherwise derived as hangar-server derives it from `PUBLIC_URL` (base with
+   `/api/v1` replaced by `/v1/live`). `GET <relay>/health` must answer 200 with
+   `{"status":"ok","version":...}`; a 404, a redirect or another 200 body means the proxy does
+   not forward `/` to the container; 503 with `{"status":"error"}` means the database does not
+   answer.
+3. **Live channel:** a WebSocket upgrade on `/v1/live` (`team_relay::connect`, closed right after
+   the handshake). 400 or 426 means the proxy drops `Upgrade` and `Connection` (axum 0.8 answers
+   400 for a missing header and 426 without an upgrade state, `axum-0.8.9/src/extract/ws.rs`).
+   Skipped unless step 2 passed.
+
+Limits: 8 s per step, 64 KiB per answer, no redirects, https and wss only, plain http and ws only
+for a loopback base. One test at a time: a second call while one runs fails at once with the
+error kind `checkRunning`. The result carries the `baseUrl` it ran against; the window shows it
+only while that address is still set.

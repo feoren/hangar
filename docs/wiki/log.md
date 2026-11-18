@@ -1120,3 +1120,8 @@ Tauri's bundling of the second binary is read from source, not measured. Pages c
 The README screenshots for 0.10.0 show `partners` (Send to partner) and `messages` (a waiting
 `hangar-send` message) instead of `timeline` and `costs`; `sub-agents` opens the figure picker with
 the 25 bundled figures. Pages changed: [[release-rollout]].
+
+## [2026-11-18] query | Connection test of a self-hosted server
+Settings > Account tests a self-hosted server in three steps (account API `/keys`, relay `/health`,
+WebSocket upgrade on `/v1/live`) and links the self-hosting guide. Pages changed:
+[[hangar-account-api]].

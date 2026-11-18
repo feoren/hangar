@@ -2,7 +2,22 @@
   {
     "version": "0.11.0",
     "date": null,
-    "items": []
+    "items": [
+      {
+        "de": "Eigener Server: Unter Einstellungen > Konto testest du die Verbindung Schritt für Schritt und siehst, was etwa am Proxy fehlt. Dazu ein Link zur Anleitung.",
+        "en": "Own server: under Settings > Account, test the connection step by step and see what is missing, say in the proxy. Plus a link to the setup guide.",
+        "el": "Δικός σου διακομιστής: στις Ρυθμίσεις > Λογαριασμός δοκίμασε τη σύνδεση βήμα βήμα και δες τι λείπει, π.χ. στο proxy. Και σύνδεσμος στον οδηγό.",
+        "es": "Servidor propio: en Configuración > Cuenta prueba la conexión paso a paso y ve qué falta, por ejemplo en el proxy. Además, un enlace a la guía.",
+        "fr": "Serveur perso : dans Paramètres > Compte, teste la connexion étape par étape et vois ce qui manque, par exemple au proxy. Plus un lien vers le guide.",
+        "it": "Server tuo: in Impostazioni > Account prova la connessione passo per passo e vedi cosa manca, ad esempio nel proxy. In più un link alla guida.",
+        "ja": "自分のサーバー：設定 > アカウントで接続を順番にテストし、プロキシなどで何が足りないかを確認できます。手引きへのリンクも追加。",
+        "pl": "Własny serwer: w Ustawienia > Konto przetestuj połączenie krok po kroku i zobacz, czego brakuje, np. w proxy. Do tego link do instrukcji.",
+        "pt": "Servidor próprio: em Configurações > Conta, teste a conexão passo a passo e veja o que falta, por exemplo no proxy. E um link para o guia.",
+        "ru": "Свой сервер: в Настройки > Аккаунт проверь соединение по шагам и узнай, чего не хватает, например в прокси. Плюс ссылка на руководство.",
+        "tr": "Kendi sunucun: Ayarlar > Hesap altında bağlantıyı adım adım test et ve örneğin proxy tarafında neyin eksik olduğunu gör. Ayrıca kılavuza bir bağlantı.",
+        "zh": "自建服务器：在 设置 > 账户 中逐步测试连接，查看例如代理缺少什么。另附指南链接。"
+      }
+    ]
   },
   {
     "version": "0.10.0",

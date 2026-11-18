@@ -189,6 +189,12 @@
           "markdownDescription": "Enables the account_cancel_sign_in command without any pre-configured scope."
         },
         {
+          "description": "Enables the account_check_server command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-account-check-server",
+          "markdownDescription": "Enables the account_check_server command without any pre-configured scope."
+        },
+        {
           "description": "Enables the account_open command without any pre-configured scope.",
           "type": "string",
           "const": "allow-account-open",
@@ -1303,6 +1309,12 @@
           "type": "string",
           "const": "deny-account-cancel-sign-in",
           "markdownDescription": "Denies the account_cancel_sign_in command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the account_check_server command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-account-check-server",
+          "markdownDescription": "Denies the account_check_server command without any pre-configured scope."
         },
         {
           "description": "Denies the account_open command without any pre-configured scope.",

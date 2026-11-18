@@ -136,6 +136,7 @@ const COMMANDS: &[&str] = &[
     "account_avatar",
     "account_set_base_url",
     "account_open",
+    "account_check_server",
     "team_status",
     "team_enable",
     "team_disable",

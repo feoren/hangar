@@ -247,6 +247,8 @@ UI texts in `src/i18n.ts` are translated per language and are not bound by this 
 | Anmeldung (Konto)                               | sign-in                           | OAuth device flow; the refresh token lives only in the keychain                      |
 | Bestätigungscode                                | user code                         | `XXXX-XXXX`, confirmed in the browser                                                |
 | Serveradresse                                   | server address                    | API base of the official service or a self-hosted server; `BaseUrl`                  |
+| Verbindungstest (eigener Server)                | connection test                   | account API, relay health check, live channel upgrade; `server_check.rs`             |
+| Anleitung zum eigenen Server                    | self-hosting guide                | hangar-server's README, opened as `AccountPage::SelfHostingGuide`                    |
 | Projekt (Team)                                  | project, team                     | a project on the website is a team; `Project`                                        |
 | Platz (Lizenz)                                  | seat                              | counted per account of the project's owner (ADR 0005)                                |
 | Tarif                                           | plan                              | `Project.plan`, as the server names it                                               |

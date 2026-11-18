@@ -1831,3 +1831,56 @@ fn the_picture_client_follows_no_redirect_and_stops_at_the_limit() {
         assert_eq!(mock.state().forbidden_hits, 0);
     });
 }
+
+/// A second connection test while one runs is refused at once, and the next one after it runs
+/// again. The server holds the first request open until the second test was tried.
+#[test]
+fn a_second_connection_test_is_refused_while_one_runs() {
+    let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+    let port = listener.local_addr().unwrap().port();
+    let (accepted_tx, accepted) = std::sync::mpsc::channel();
+    let (release, released) = std::sync::mpsc::channel::<()>();
+    std::thread::spawn(move || {
+        // The first test's request is held until released, every later one closed at once.
+        let Ok((first, _)) = listener.accept() else {
+            return;
+        };
+        let _ = accepted_tx.send(());
+        let _ = released.recv();
+        drop(first);
+        while let Ok((stream, _)) = listener.accept() {
+            drop(stream);
+        }
+    });
+    let base = BaseUrl::parse(&format!("http://127.0.0.1:{port}/api/v1")).unwrap();
+    let service = AccountService::new(
+        base.clone(),
+        Arc::new(MemoryStore::default()),
+        Arc::new(|_: &reqwest::Url| Ok(())),
+        Arc::new(|_: &AccountView| {}),
+        Options {
+            unit: UNIT,
+            clock: Clock::system(),
+            config_dir: None,
+            keychain_service: KEYCHAIN_SERVICE.to_owned(),
+            device_name: "Test machine".to_owned(),
+            platform: "test".to_owned(),
+            avatar_dir: None,
+        },
+    );
+    let first = tauri::async_runtime::spawn({
+        let service = service.clone();
+        async move { service.check_server().await }
+    });
+    accepted.recv_timeout(Duration::from_secs(10)).unwrap();
+    assert!(matches!(
+        run(service.check_server()),
+        Err(AccountError::CheckRunning)
+    ));
+    release.send(()).unwrap();
+    let first = run(first).unwrap().unwrap();
+    assert_eq!(first.base_url, base.as_str());
+    // Released after the run: the next test runs.
+    let again = run(service.check_server()).unwrap();
+    assert_eq!(again.base_url, base.as_str());
+}

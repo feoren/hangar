@@ -1802,6 +1802,49 @@ const de = {
   "account.serverApply": "Übernehmen",
   "account.serverOfficial": "Offizieller Dienst",
   "account.serverSaved": "Server geändert.",
+  "account.serverGuide": "Anleitung zum eigenen Server",
+  "account.serverData":
+    "Mit einem eigenen Server liegen dein Konto und die Teamdaten auf diesem Server. Was dein Team teilt, etwa Status, Aufgaben und Notizen, bleibt Ende-zu-Ende-verschlüsselt: Der Server sieht, wer zum Team gehört und wann wer verbunden ist, aber nicht die Inhalte.",
+  "account.check": "Verbindung testen",
+  "account.checking": "Wird getestet …",
+  "account.checkUnavailable": "Der Test konnte nicht laufen. Versuche es noch einmal.",
+  "account.checkRunning": "Ein Verbindungstest läuft schon. Warte auf sein Ergebnis.",
+  "account.checkApiOk": "Konto-API antwortet",
+  "account.checkApiFailed": "Konto-API antwortet nicht richtig",
+  "account.checkRelayOk": "Relay antwortet ({host})",
+  "account.checkRelayOkVersion": "Relay antwortet ({host}, Version {version})",
+  "account.checkRelayFailed": "Relay antwortet nicht richtig ({host})",
+  "account.checkLiveOk": "Live-Verbindung klappt",
+  "account.checkLiveFailed": "Live-Verbindung klappt nicht",
+  "account.checkLiveSkipped": "Live-Verbindung erst prüfbar, wenn das Relay antwortet",
+  "account.checkHintUnreachable":
+    "Keine Verbindung. Prüfe die Adresse, das Zertifikat und ob der Server läuft.",
+  "account.checkHintTimeout":
+    "Keine Antwort in der Zeit. Prüfe, ob der Server läuft und die Firewall den Port freigibt.",
+  "account.checkHintBadGateway":
+    "Der Proxy erreicht den Server nicht (HTTP {status}). Prüfe, ob der Container läuft und der Port in der Proxyregel stimmt.",
+  "account.checkHintRedirected":
+    "Die Adresse leitet weiter (HTTP {status}). Trage die Adresse ein, unter der der Server direkt antwortet, mit https und /api/v1.",
+  "account.checkHintWrongPath":
+    "Hier läuft ein Hangar-Server, aber ohne Konto-API unter dieser Adresse. Prüfe, ob sie auf /api/v1 endet.",
+  "account.checkHintServerError":
+    "Der Server meldet einen Fehler (HTTP {status}). Sieh im Log des Servers nach.",
+  "account.checkHintNotHangar":
+    "Hier antwortet kein Hangar-Server (HTTP {status}). Prüfe die Adresse und die Proxyregel für / auf den Containerport.",
+  "account.checkHintNoProxy":
+    "Die Weiterleitung zum Relay fehlt (HTTP {status}). Prüfe die Proxyregel für / auf den Containerport.",
+  "account.checkHintUnhealthy":
+    "Das Relay läuft, aber seine Datenbank antwortet nicht. Sieh im Log des Servers nach.",
+  "account.checkHintRelayStatus":
+    "Das Relay antwortet mit HTTP {status}. Prüfe die Proxyregel für / auf den Containerport.",
+  "account.checkHintMissingUpgrade":
+    "Der Proxy gibt den WebSocket-Upgrade nicht weiter (HTTP {status}). Setze die Header Upgrade und Connection, bei nginx dazu proxy_http_version 1.1.",
+  "account.checkHintBusy":
+    "Das Relay nimmt gerade keine Verbindung an. Versuche es gleich noch einmal.",
+  "account.checkHintHandshake":
+    "Der Verbindungsaufbau bricht ab. Prüfe die Proxyregel für /v1/live.",
+  "account.checkHintLiveStatus":
+    "Das Relay lehnt die Verbindung ab (HTTP {status}). Prüfe die Proxyregel für /v1/live.",
   "account.fail.denied":
     "Die Anmeldung wurde abgelehnt oder gilt nicht mehr. Klick auf „Erneut versuchen“ für einen neuen Code.",
   "account.fail.expired": "Der Code ist abgelaufen. Versuch es noch einmal.",
@@ -3852,6 +3895,48 @@ const en: Record<MessageKey, string> = {
   "account.serverApply": "Apply",
   "account.serverOfficial": "Official service",
   "account.serverSaved": "Server changed.",
+  "account.serverGuide": "Guide to running your own server",
+  "account.serverData":
+    "With your own server, your account and the team data live on that server. What your team shares, such as status, tasks and notes, stays end to end encrypted: the server sees who belongs to the team and who is connected when, but not the content.",
+  "account.check": "Test connection",
+  "account.checking": "Testing …",
+  "account.checkUnavailable": "The test could not run. Try again.",
+  "account.checkRunning": "A connection test is already running. Wait for its result.",
+  "account.checkApiOk": "Account API answers",
+  "account.checkApiFailed": "Account API does not answer correctly",
+  "account.checkRelayOk": "Relay answers ({host})",
+  "account.checkRelayOkVersion": "Relay answers ({host}, version {version})",
+  "account.checkRelayFailed": "Relay does not answer correctly ({host})",
+  "account.checkLiveOk": "Live connection works",
+  "account.checkLiveFailed": "Live connection fails",
+  "account.checkLiveSkipped": "Live connection can be tested once the relay answers",
+  "account.checkHintUnreachable":
+    "No connection. Check the address, the certificate and whether the server is running.",
+  "account.checkHintTimeout":
+    "No answer in time. Check whether the server is running and the firewall allows the port.",
+  "account.checkHintBadGateway":
+    "The proxy cannot reach the server (HTTP {status}). Check that the container is running and the port in the proxy rule is right.",
+  "account.checkHintRedirected":
+    "The address redirects (HTTP {status}). Enter the address where the server answers directly, with https and /api/v1.",
+  "account.checkHintWrongPath":
+    "A Hangar server runs here, but without the account API at this address. Check that it ends in /api/v1.",
+  "account.checkHintServerError":
+    "The server reports an error (HTTP {status}). Look at the server's log.",
+  "account.checkHintNotHangar":
+    "No Hangar server answers here (HTTP {status}). Check the address and the proxy rule for / to the container port.",
+  "account.checkHintNoProxy":
+    "The forwarding to the relay is missing (HTTP {status}). Check the proxy rule for / to the container port.",
+  "account.checkHintUnhealthy":
+    "The relay runs, but its database does not answer. Look at the server's log.",
+  "account.checkHintRelayStatus":
+    "The relay answers with HTTP {status}. Check the proxy rule for / to the container port.",
+  "account.checkHintMissingUpgrade":
+    "The proxy does not pass on the WebSocket upgrade (HTTP {status}). Set the Upgrade and Connection headers, and for nginx also proxy_http_version 1.1.",
+  "account.checkHintBusy": "The relay takes no connection right now. Try again in a moment.",
+  "account.checkHintHandshake":
+    "The connection breaks off while opening. Check the proxy rule for /v1/live.",
+  "account.checkHintLiveStatus":
+    "The relay refuses the connection (HTTP {status}). Check the proxy rule for /v1/live.",
   "account.fail.denied":
     "The sign-in was declined or is no longer valid. Click “Try again” for a new code.",
   "account.fail.expired": "The code expired. Try again.",
@@ -5937,6 +6022,48 @@ const el: Record<MessageKey, string> = {
   "account.serverApply": "Εφαρμογή",
   "account.serverOfficial": "Επίσημη υπηρεσία",
   "account.serverSaved": "Ο διακομιστής άλλαξε.",
+  "account.serverGuide": "Οδηγός για δικό σου διακομιστή",
+  "account.serverData":
+    "Με δικό σου διακομιστή, ο λογαριασμός σου και τα δεδομένα της ομάδας βρίσκονται σε αυτόν τον διακομιστή. Ό,τι μοιράζεται η ομάδα, όπως κατάσταση, εργασίες και σημειώσεις, μένει κρυπτογραφημένο από άκρο σε άκρο: ο διακομιστής βλέπει ποιος ανήκει στην ομάδα και πότε είναι συνδεδεμένος, όχι όμως το περιεχόμενο.",
+  "account.check": "Δοκιμή σύνδεσης",
+  "account.checking": "Γίνεται δοκιμή …",
+  "account.checkUnavailable": "Η δοκιμή δεν μπόρεσε να εκτελεστεί. Δοκίμασε ξανά.",
+  "account.checkRunning": "Μια δοκιμή σύνδεσης εκτελείται ήδη. Περίμενε το αποτέλεσμά της.",
+  "account.checkApiOk": "Το API λογαριασμού απαντά",
+  "account.checkApiFailed": "Το API λογαριασμού δεν απαντά σωστά",
+  "account.checkRelayOk": "Το relay απαντά ({host})",
+  "account.checkRelayOkVersion": "Το relay απαντά ({host}, έκδοση {version})",
+  "account.checkRelayFailed": "Το relay δεν απαντά σωστά ({host})",
+  "account.checkLiveOk": "Η ζωντανή σύνδεση λειτουργεί",
+  "account.checkLiveFailed": "Η ζωντανή σύνδεση αποτυγχάνει",
+  "account.checkLiveSkipped": "Η ζωντανή σύνδεση ελέγχεται μόλις απαντήσει το relay",
+  "account.checkHintUnreachable":
+    "Καμία σύνδεση. Έλεγξε τη διεύθυνση, το πιστοποιητικό και αν τρέχει ο διακομιστής.",
+  "account.checkHintTimeout":
+    "Καμία απάντηση εγκαίρως. Έλεγξε αν τρέχει ο διακομιστής και αν το τείχος προστασίας επιτρέπει τη θύρα.",
+  "account.checkHintBadGateway":
+    "Ο διακομιστής μεσολάβησης δεν φτάνει τον διακομιστή (HTTP {status}). Έλεγξε ότι τρέχει το container και ότι η θύρα στον κανόνα proxy είναι σωστή.",
+  "account.checkHintRedirected":
+    "Η διεύθυνση ανακατευθύνει (HTTP {status}). Δώσε τη διεύθυνση όπου απαντά απευθείας ο διακομιστής, με https και /api/v1.",
+  "account.checkHintWrongPath":
+    "Εδώ τρέχει διακομιστής Hangar, αλλά χωρίς API λογαριασμού σε αυτή τη διεύθυνση. Έλεγξε ότι τελειώνει σε /api/v1.",
+  "account.checkHintServerError":
+    "Ο διακομιστής αναφέρει σφάλμα (HTTP {status}). Δες το αρχείο καταγραφής του διακομιστή.",
+  "account.checkHintNotHangar":
+    "Εδώ δεν απαντά διακομιστής Hangar (HTTP {status}). Έλεγξε τη διεύθυνση και τον κανόνα proxy για το / προς τη θύρα του container.",
+  "account.checkHintNoProxy":
+    "Λείπει η προώθηση προς το relay (HTTP {status}). Έλεγξε τον κανόνα proxy για το / προς τη θύρα του container.",
+  "account.checkHintUnhealthy":
+    "Το relay τρέχει, αλλά η βάση δεδομένων του δεν απαντά. Δες το αρχείο καταγραφής του διακομιστή.",
+  "account.checkHintRelayStatus":
+    "Το relay απαντά με HTTP {status}. Έλεγξε τον κανόνα proxy για το / προς τη θύρα του container.",
+  "account.checkHintMissingUpgrade":
+    "Ο διακομιστής μεσολάβησης δεν προωθεί την αναβάθμιση WebSocket (HTTP {status}). Όρισε τις κεφαλίδες Upgrade και Connection και στο nginx επίσης proxy_http_version 1.1.",
+  "account.checkHintBusy": "Το relay δεν δέχεται σύνδεση αυτή τη στιγμή. Δοκίμασε ξανά σε λίγο.",
+  "account.checkHintHandshake":
+    "Η σύνδεση διακόπτεται κατά το άνοιγμα. Έλεγξε τον κανόνα proxy για το /v1/live.",
+  "account.checkHintLiveStatus":
+    "Το relay απορρίπτει τη σύνδεση (HTTP {status}). Έλεγξε τον κανόνα proxy για το /v1/live.",
   "account.fail.denied":
     "Η σύνδεση απορρίφθηκε ή δεν ισχύει πια. Πάτησε «Δοκίμασε ξανά» για νέο κωδικό.",
   "account.fail.expired": "Ο κωδικός έληξε. Δοκίμασε ξανά.",
@@ -8017,6 +8144,49 @@ const es: Record<MessageKey, string> = {
   "account.serverApply": "Aplicar",
   "account.serverOfficial": "Servicio oficial",
   "account.serverSaved": "Servidor cambiado.",
+  "account.serverGuide": "Guía para tu propio servidor",
+  "account.serverData":
+    "Con tu propio servidor, tu cuenta y los datos del equipo están en ese servidor. Lo que comparte tu equipo, como estado, tareas y notas, sigue cifrado de extremo a extremo: el servidor ve quién pertenece al equipo y quién está conectado y cuándo, pero no el contenido.",
+  "account.check": "Probar conexión",
+  "account.checking": "Probando …",
+  "account.checkUnavailable": "No se pudo ejecutar la prueba. Inténtalo de nuevo.",
+  "account.checkRunning": "Ya hay una prueba de conexión en curso. Espera su resultado.",
+  "account.checkApiOk": "La API de cuentas responde",
+  "account.checkApiFailed": "La API de cuentas no responde correctamente",
+  "account.checkRelayOk": "El relay responde ({host})",
+  "account.checkRelayOkVersion": "El relay responde ({host}, versión {version})",
+  "account.checkRelayFailed": "El relay no responde correctamente ({host})",
+  "account.checkLiveOk": "La conexión en vivo funciona",
+  "account.checkLiveFailed": "La conexión en vivo falla",
+  "account.checkLiveSkipped": "La conexión en vivo se puede probar cuando responda el relay",
+  "account.checkHintUnreachable":
+    "Sin conexión. Revisa la dirección, el certificado y si el servidor está en marcha.",
+  "account.checkHintTimeout":
+    "Sin respuesta a tiempo. Revisa si el servidor está en marcha y si el cortafuegos permite el puerto.",
+  "account.checkHintBadGateway":
+    "El proxy no llega al servidor (HTTP {status}). Revisa que el contenedor esté en marcha y que el puerto de la regla del proxy sea correcto.",
+  "account.checkHintRedirected":
+    "La dirección redirige (HTTP {status}). Introduce la dirección donde el servidor responde directamente, con https y /api/v1.",
+  "account.checkHintWrongPath":
+    "Aquí funciona un servidor Hangar, pero sin la API de cuentas en esta dirección. Revisa que termine en /api/v1.",
+  "account.checkHintServerError":
+    "El servidor informa de un error (HTTP {status}). Mira el registro del servidor.",
+  "account.checkHintNotHangar":
+    "Aquí no responde ningún servidor Hangar (HTTP {status}). Revisa la dirección y la regla del proxy para / hacia el puerto del contenedor.",
+  "account.checkHintNoProxy":
+    "Falta el reenvío al relay (HTTP {status}). Revisa la regla del proxy para / hacia el puerto del contenedor.",
+  "account.checkHintUnhealthy":
+    "El relay funciona, pero su base de datos no responde. Mira el registro del servidor.",
+  "account.checkHintRelayStatus":
+    "El relay responde con HTTP {status}. Revisa la regla del proxy para / hacia el puerto del contenedor.",
+  "account.checkHintMissingUpgrade":
+    "El proxy no pasa la actualización a WebSocket (HTTP {status}). Configura las cabeceras Upgrade y Connection y, en nginx, también proxy_http_version 1.1.",
+  "account.checkHintBusy":
+    "El relay no acepta conexiones ahora mismo. Inténtalo de nuevo en un momento.",
+  "account.checkHintHandshake":
+    "La conexión se corta al abrirse. Revisa la regla del proxy para /v1/live.",
+  "account.checkHintLiveStatus":
+    "El relay rechaza la conexión (HTTP {status}). Revisa la regla del proxy para /v1/live.",
   "account.fail.denied":
     "El inicio de sesión se rechazó o ya no es válido. Pulsa «Reintentar» para obtener un código nuevo.",
   "account.fail.expired": "El código caducó. Inténtalo de nuevo.",
@@ -10106,6 +10276,49 @@ const fr: Record<MessageKey, string> = {
   "account.serverApply": "Appliquer",
   "account.serverOfficial": "Service officiel",
   "account.serverSaved": "Serveur modifié.",
+  "account.serverGuide": "Guide pour ton propre serveur",
+  "account.serverData":
+    "Avec ton propre serveur, ton compte et les données de l'équipe se trouvent sur ce serveur. Ce que ton équipe partage, comme l'état, les tâches et les notes, reste chiffré de bout en bout : le serveur voit qui fait partie de l'équipe et qui est connecté quand, mais pas le contenu.",
+  "account.check": "Tester la connexion",
+  "account.checking": "Test en cours …",
+  "account.checkUnavailable": "Le test n'a pas pu s'exécuter. Réessaie.",
+  "account.checkRunning": "Un test de connexion est déjà en cours. Attends son résultat.",
+  "account.checkApiOk": "L'API des comptes répond",
+  "account.checkApiFailed": "L'API des comptes ne répond pas correctement",
+  "account.checkRelayOk": "Le relais répond ({host})",
+  "account.checkRelayOkVersion": "Le relais répond ({host}, version {version})",
+  "account.checkRelayFailed": "Le relais ne répond pas correctement ({host})",
+  "account.checkLiveOk": "La connexion en direct fonctionne",
+  "account.checkLiveFailed": "La connexion en direct échoue",
+  "account.checkLiveSkipped": "La connexion en direct se teste dès que le relais répond",
+  "account.checkHintUnreachable":
+    "Pas de connexion. Vérifie l'adresse, le certificat et que le serveur tourne.",
+  "account.checkHintTimeout":
+    "Pas de réponse à temps. Vérifie que le serveur tourne et que le pare-feu autorise le port.",
+  "account.checkHintBadGateway":
+    "Le proxy n'atteint pas le serveur (HTTP {status}). Vérifie que le conteneur tourne et que le port de la règle du proxy est correct.",
+  "account.checkHintRedirected":
+    "L'adresse redirige (HTTP {status}). Saisis l'adresse où le serveur répond directement, avec https et /api/v1.",
+  "account.checkHintWrongPath":
+    "Un serveur Hangar tourne ici, mais sans l'API des comptes à cette adresse. Vérifie qu'elle se termine par /api/v1.",
+  "account.checkHintServerError":
+    "Le serveur signale une erreur (HTTP {status}). Consulte le journal du serveur.",
+  "account.checkHintNotHangar":
+    "Aucun serveur Hangar ne répond ici (HTTP {status}). Vérifie l'adresse et la règle du proxy pour / vers le port du conteneur.",
+  "account.checkHintNoProxy":
+    "Le transfert vers le relais manque (HTTP {status}). Vérifie la règle du proxy pour / vers le port du conteneur.",
+  "account.checkHintUnhealthy":
+    "Le relais tourne, mais sa base de données ne répond pas. Consulte le journal du serveur.",
+  "account.checkHintRelayStatus":
+    "Le relais répond avec HTTP {status}. Vérifie la règle du proxy pour / vers le port du conteneur.",
+  "account.checkHintMissingUpgrade":
+    "Le proxy ne transmet pas la mise à niveau WebSocket (HTTP {status}). Définis les en-têtes Upgrade et Connection et, pour nginx, aussi proxy_http_version 1.1.",
+  "account.checkHintBusy":
+    "Le relais n'accepte aucune connexion pour l'instant. Réessaie dans un instant.",
+  "account.checkHintHandshake":
+    "La connexion s'interrompt à l'ouverture. Vérifie la règle du proxy pour /v1/live.",
+  "account.checkHintLiveStatus":
+    "Le relais refuse la connexion (HTTP {status}). Vérifie la règle du proxy pour /v1/live.",
   "account.fail.denied":
     "La connexion a été refusée ou n’est plus valable. Clique sur « Réessayer » pour obtenir un nouveau code.",
   "account.fail.expired": "Le code a expiré. Réessaie.",
@@ -12186,6 +12399,48 @@ const it: Record<MessageKey, string> = {
   "account.serverApply": "Applica",
   "account.serverOfficial": "Servizio ufficiale",
   "account.serverSaved": "Server cambiato.",
+  "account.serverGuide": "Guida al tuo server",
+  "account.serverData":
+    "Con un tuo server, il tuo account e i dati del team si trovano su quel server. Ciò che il team condivide, come stato, attività e note, resta crittografato end to end: il server vede chi fa parte del team e chi è connesso e quando, ma non il contenuto.",
+  "account.check": "Prova connessione",
+  "account.checking": "Prova in corso …",
+  "account.checkUnavailable": "Non è stato possibile eseguire la prova. Riprova.",
+  "account.checkRunning": "Una prova di connessione è già in corso. Attendi il suo risultato.",
+  "account.checkApiOk": "L'API degli account risponde",
+  "account.checkApiFailed": "L'API degli account non risponde correttamente",
+  "account.checkRelayOk": "Il relay risponde ({host})",
+  "account.checkRelayOkVersion": "Il relay risponde ({host}, versione {version})",
+  "account.checkRelayFailed": "Il relay non risponde correttamente ({host})",
+  "account.checkLiveOk": "La connessione live funziona",
+  "account.checkLiveFailed": "La connessione live non funziona",
+  "account.checkLiveSkipped": "La connessione live si può provare quando risponde il relay",
+  "account.checkHintUnreachable":
+    "Nessuna connessione. Controlla l'indirizzo, il certificato e che il server sia in esecuzione.",
+  "account.checkHintTimeout":
+    "Nessuna risposta in tempo. Controlla che il server sia in esecuzione e che il firewall consenta la porta.",
+  "account.checkHintBadGateway":
+    "Il proxy non raggiunge il server (HTTP {status}). Controlla che il container sia in esecuzione e che la porta nella regola del proxy sia giusta.",
+  "account.checkHintRedirected":
+    "L'indirizzo reindirizza (HTTP {status}). Inserisci l'indirizzo a cui il server risponde direttamente, con https e /api/v1.",
+  "account.checkHintWrongPath":
+    "Qui è in esecuzione un server Hangar, ma senza l'API degli account a questo indirizzo. Controlla che finisca con /api/v1.",
+  "account.checkHintServerError":
+    "Il server segnala un errore (HTTP {status}). Guarda il log del server.",
+  "account.checkHintNotHangar":
+    "Qui non risponde nessun server Hangar (HTTP {status}). Controlla l'indirizzo e la regola del proxy per / verso la porta del container.",
+  "account.checkHintNoProxy":
+    "Manca l'inoltro al relay (HTTP {status}). Controlla la regola del proxy per / verso la porta del container.",
+  "account.checkHintUnhealthy":
+    "Il relay è in esecuzione, ma il suo database non risponde. Guarda il log del server.",
+  "account.checkHintRelayStatus":
+    "Il relay risponde con HTTP {status}. Controlla la regola del proxy per / verso la porta del container.",
+  "account.checkHintMissingUpgrade":
+    "Il proxy non inoltra l'upgrade WebSocket (HTTP {status}). Imposta gli header Upgrade e Connection e, per nginx, anche proxy_http_version 1.1.",
+  "account.checkHintBusy": "Il relay al momento non accetta connessioni. Riprova tra poco.",
+  "account.checkHintHandshake":
+    "La connessione si interrompe all'apertura. Controlla la regola del proxy per /v1/live.",
+  "account.checkHintLiveStatus":
+    "Il relay rifiuta la connessione (HTTP {status}). Controlla la regola del proxy per /v1/live.",
   "account.fail.denied":
     "L'accesso è stato rifiutato o non è più valido. Fai clic su «Riprova» per un nuovo codice.",
   "account.fail.expired": "Il codice è scaduto. Riprova.",
@@ -14266,6 +14521,49 @@ const ja: Record<MessageKey, string> = {
   "account.serverApply": "適用",
   "account.serverOfficial": "公式サービス",
   "account.serverSaved": "サーバーを変更しました。",
+  "account.serverGuide": "自分のサーバーの手引き",
+  "account.serverData":
+    "自分のサーバーを使うと、アカウントとチームのデータはそのサーバーに置かれます。チームが共有するもの（ステータス、タスク、ノートなど）はエンドツーエンドで暗号化されたままです。サーバーに見えるのは、誰がチームに属し、誰がいつ接続しているかだけで、内容は見えません。",
+  "account.check": "接続をテスト",
+  "account.checking": "テスト中 …",
+  "account.checkUnavailable": "テストを実行できませんでした。もう一度お試しください。",
+  "account.checkRunning": "接続テストはすでに実行中です。結果をお待ちください。",
+  "account.checkApiOk": "アカウント API が応答しています",
+  "account.checkApiFailed": "アカウント API が正しく応答しません",
+  "account.checkRelayOk": "リレーが応答しています（{host}）",
+  "account.checkRelayOkVersion": "リレーが応答しています（{host}、バージョン {version}）",
+  "account.checkRelayFailed": "リレーが正しく応答しません（{host}）",
+  "account.checkLiveOk": "ライブ接続は機能しています",
+  "account.checkLiveFailed": "ライブ接続に失敗しました",
+  "account.checkLiveSkipped": "ライブ接続はリレーが応答してからテストできます",
+  "account.checkHintUnreachable":
+    "接続できません。アドレス、証明書、サーバーが起動しているかを確認してください。",
+  "account.checkHintTimeout":
+    "時間内に応答がありません。サーバーが起動しているか、ファイアウォールがポートを許可しているかを確認してください。",
+  "account.checkHintBadGateway":
+    "プロキシがサーバーに届きません（HTTP {status}）。コンテナが起動しているか、プロキシ規則のポートが正しいかを確認してください。",
+  "account.checkHintRedirected":
+    "アドレスがリダイレクトされます（HTTP {status}）。サーバーが直接応答するアドレスを、https と /api/v1 付きで入力してください。",
+  "account.checkHintWrongPath":
+    "ここでは Hangar サーバーが動いていますが、このアドレスにアカウント API がありません。アドレスが /api/v1 で終わっているか確認してください。",
+  "account.checkHintServerError":
+    "サーバーがエラーを報告しています（HTTP {status}）。サーバーのログを確認してください。",
+  "account.checkHintNotHangar":
+    "ここでは Hangar サーバーが応答しません（HTTP {status}）。アドレスと、/ をコンテナのポートへ転送するプロキシ規則を確認してください。",
+  "account.checkHintNoProxy":
+    "リレーへの転送がありません（HTTP {status}）。/ をコンテナのポートへ転送するプロキシ規則を確認してください。",
+  "account.checkHintUnhealthy":
+    "リレーは動いていますが、データベースが応答しません。サーバーのログを確認してください。",
+  "account.checkHintRelayStatus":
+    "リレーが HTTP {status} で応答しています。/ をコンテナのポートへ転送するプロキシ規則を確認してください。",
+  "account.checkHintMissingUpgrade":
+    "プロキシが WebSocket のアップグレードを転送していません（HTTP {status}）。Upgrade と Connection ヘッダーを設定し、nginx では proxy_http_version 1.1 も設定してください。",
+  "account.checkHintBusy":
+    "リレーは現在接続を受け付けていません。少ししてからもう一度お試しください。",
+  "account.checkHintHandshake":
+    "接続の確立中に切断されます。/v1/live のプロキシ規則を確認してください。",
+  "account.checkHintLiveStatus":
+    "リレーが接続を拒否しています（HTTP {status}）。/v1/live のプロキシ規則を確認してください。",
   "account.fail.denied":
     "サインインが拒否されたか、無効になりました。「再試行」をクリックすると新しいコードが表示されます。",
   "account.fail.expired": "コードの有効期限が切れました。もう一度お試しください。",
@@ -16317,6 +16615,46 @@ const pl: Record<MessageKey, string> = {
   "account.serverApply": "Zastosuj",
   "account.serverOfficial": "Oficjalna usługa",
   "account.serverSaved": "Serwer zmieniony.",
+  "account.serverGuide": "Instrukcja własnego serwera",
+  "account.serverData":
+    "Z własnym serwerem twoje konto i dane zespołu leżą na tym serwerze. To, co udostępnia zespół, np. status, zadania i notatki, pozostaje szyfrowane end to end: serwer widzi, kto należy do zespołu i kto kiedy jest połączony, ale nie treść.",
+  "account.check": "Testuj połączenie",
+  "account.checking": "Trwa test …",
+  "account.checkUnavailable": "Nie udało się uruchomić testu. Spróbuj ponownie.",
+  "account.checkRunning": "Test połączenia już trwa. Poczekaj na jego wynik.",
+  "account.checkApiOk": "API kont odpowiada",
+  "account.checkApiFailed": "API kont nie odpowiada poprawnie",
+  "account.checkRelayOk": "Relay odpowiada ({host})",
+  "account.checkRelayOkVersion": "Relay odpowiada ({host}, wersja {version})",
+  "account.checkRelayFailed": "Relay nie odpowiada poprawnie ({host})",
+  "account.checkLiveOk": "Połączenie na żywo działa",
+  "account.checkLiveFailed": "Połączenie na żywo nie działa",
+  "account.checkLiveSkipped": "Połączenie na żywo można sprawdzić, gdy relay odpowie",
+  "account.checkHintUnreachable": "Brak połączenia. Sprawdź adres, certyfikat i czy serwer działa.",
+  "account.checkHintTimeout":
+    "Brak odpowiedzi na czas. Sprawdź, czy serwer działa i czy zapora przepuszcza port.",
+  "account.checkHintBadGateway":
+    "Proxy nie dociera do serwera (HTTP {status}). Sprawdź, czy kontener działa i czy port w regule proxy jest poprawny.",
+  "account.checkHintRedirected":
+    "Adres przekierowuje (HTTP {status}). Wpisz adres, pod którym serwer odpowiada bezpośrednio, z https i /api/v1.",
+  "account.checkHintWrongPath":
+    "Działa tu serwer Hangar, ale bez API kont pod tym adresem. Sprawdź, czy kończy się na /api/v1.",
+  "account.checkHintServerError": "Serwer zgłasza błąd (HTTP {status}). Zajrzyj do logu serwera.",
+  "account.checkHintNotHangar":
+    "Nie odpowiada tu żaden serwer Hangar (HTTP {status}). Sprawdź adres i regułę proxy dla / na port kontenera.",
+  "account.checkHintNoProxy":
+    "Brakuje przekierowania do relay (HTTP {status}). Sprawdź regułę proxy dla / na port kontenera.",
+  "account.checkHintUnhealthy":
+    "Relay działa, ale jego baza danych nie odpowiada. Zajrzyj do logu serwera.",
+  "account.checkHintRelayStatus":
+    "Relay odpowiada kodem HTTP {status}. Sprawdź regułę proxy dla / na port kontenera.",
+  "account.checkHintMissingUpgrade":
+    "Proxy nie przekazuje upgrade'u WebSocket (HTTP {status}). Ustaw nagłówki Upgrade i Connection, a w nginx także proxy_http_version 1.1.",
+  "account.checkHintBusy": "Relay nie przyjmuje teraz połączeń. Spróbuj za chwilę.",
+  "account.checkHintHandshake":
+    "Połączenie zrywa się przy otwieraniu. Sprawdź regułę proxy dla /v1/live.",
+  "account.checkHintLiveStatus":
+    "Relay odrzuca połączenie (HTTP {status}). Sprawdź regułę proxy dla /v1/live.",
   "account.fail.denied":
     "Logowanie zostało odrzucone lub jest już nieważne. Kliknij „Spróbuj ponownie”, aby dostać nowy kod.",
   "account.fail.expired": "Kod wygasł. Spróbuj ponownie.",
@@ -18383,6 +18721,47 @@ const pt: Record<MessageKey, string> = {
   "account.serverApply": "Aplicar",
   "account.serverOfficial": "Serviço oficial",
   "account.serverSaved": "Servidor alterado.",
+  "account.serverGuide": "Guia para o seu próprio servidor",
+  "account.serverData":
+    "Com um servidor próprio, sua conta e os dados da equipe ficam nesse servidor. O que a equipe compartilha, como status, tarefas e notas, continua com criptografia de ponta a ponta: o servidor vê quem faz parte da equipe e quem está conectado e quando, mas não o conteúdo.",
+  "account.check": "Testar conexão",
+  "account.checking": "Testando …",
+  "account.checkUnavailable": "Não foi possível executar o teste. Tente de novo.",
+  "account.checkRunning": "Um teste de conexão já está em andamento. Aguarde o resultado.",
+  "account.checkApiOk": "A API de contas responde",
+  "account.checkApiFailed": "A API de contas não responde corretamente",
+  "account.checkRelayOk": "O relay responde ({host})",
+  "account.checkRelayOkVersion": "O relay responde ({host}, versão {version})",
+  "account.checkRelayFailed": "O relay não responde corretamente ({host})",
+  "account.checkLiveOk": "A conexão ao vivo funciona",
+  "account.checkLiveFailed": "A conexão ao vivo falha",
+  "account.checkLiveSkipped": "A conexão ao vivo pode ser testada quando o relay responder",
+  "account.checkHintUnreachable":
+    "Sem conexão. Verifique o endereço, o certificado e se o servidor está rodando.",
+  "account.checkHintTimeout":
+    "Sem resposta a tempo. Verifique se o servidor está rodando e se o firewall libera a porta.",
+  "account.checkHintBadGateway":
+    "O proxy não alcança o servidor (HTTP {status}). Verifique se o contêiner está rodando e se a porta na regra do proxy está certa.",
+  "account.checkHintRedirected":
+    "O endereço redireciona (HTTP {status}). Informe o endereço em que o servidor responde diretamente, com https e /api/v1.",
+  "account.checkHintWrongPath":
+    "Aqui roda um servidor Hangar, mas sem a API de contas neste endereço. Verifique se ele termina em /api/v1.",
+  "account.checkHintServerError":
+    "O servidor informa um erro (HTTP {status}). Veja o log do servidor.",
+  "account.checkHintNotHangar":
+    "Nenhum servidor Hangar responde aqui (HTTP {status}). Verifique o endereço e a regra do proxy de / para a porta do contêiner.",
+  "account.checkHintNoProxy":
+    "Falta o encaminhamento para o relay (HTTP {status}). Verifique a regra do proxy de / para a porta do contêiner.",
+  "account.checkHintUnhealthy":
+    "O relay está rodando, mas o banco de dados dele não responde. Veja o log do servidor.",
+  "account.checkHintRelayStatus":
+    "O relay responde com HTTP {status}. Verifique a regra do proxy de / para a porta do contêiner.",
+  "account.checkHintMissingUpgrade":
+    "O proxy não repassa o upgrade de WebSocket (HTTP {status}). Defina os cabeçalhos Upgrade e Connection e, no nginx, também proxy_http_version 1.1.",
+  "account.checkHintBusy": "O relay não aceita conexões no momento. Tente de novo daqui a pouco.",
+  "account.checkHintHandshake": "A conexão cai ao abrir. Verifique a regra do proxy para /v1/live.",
+  "account.checkHintLiveStatus":
+    "O relay recusa a conexão (HTTP {status}). Verifique a regra do proxy para /v1/live.",
   "account.fail.denied":
     "O login foi recusado ou já não vale. Clique em “Tentar de novo” para receber um código novo.",
   "account.fail.expired": "O código expirou. Tente de novo.",
@@ -20431,6 +20810,47 @@ const ru: Record<MessageKey, string> = {
   "account.serverApply": "Применить",
   "account.serverOfficial": "Официальный сервис",
   "account.serverSaved": "Сервер изменён.",
+  "account.serverGuide": "Руководство по своему серверу",
+  "account.serverData":
+    "Со своим сервером твой аккаунт и данные команды хранятся на этом сервере. То, чем делится команда, например статус, задачи и заметки, остаётся со сквозным шифрованием: сервер видит, кто входит в команду и кто когда подключён, но не содержимое.",
+  "account.check": "Проверить соединение",
+  "account.checking": "Проверка …",
+  "account.checkUnavailable": "Проверку не удалось запустить. Попробуй ещё раз.",
+  "account.checkRunning": "Проверка соединения уже идёт. Дождись её результата.",
+  "account.checkApiOk": "API аккаунтов отвечает",
+  "account.checkApiFailed": "API аккаунтов отвечает неправильно",
+  "account.checkRelayOk": "Релей отвечает ({host})",
+  "account.checkRelayOkVersion": "Релей отвечает ({host}, версия {version})",
+  "account.checkRelayFailed": "Релей отвечает неправильно ({host})",
+  "account.checkLiveOk": "Живое соединение работает",
+  "account.checkLiveFailed": "Живое соединение не работает",
+  "account.checkLiveSkipped": "Живое соединение можно проверить, когда ответит релей",
+  "account.checkHintUnreachable": "Нет соединения. Проверь адрес, сертификат и запущен ли сервер.",
+  "account.checkHintTimeout":
+    "Нет ответа вовремя. Проверь, запущен ли сервер и открыт ли порт в брандмауэре.",
+  "account.checkHintBadGateway":
+    "Прокси не достаёт до сервера (HTTP {status}). Проверь, запущен ли контейнер и верен ли порт в правиле прокси.",
+  "account.checkHintRedirected":
+    "Адрес перенаправляет (HTTP {status}). Укажи адрес, по которому сервер отвечает напрямую, с https и /api/v1.",
+  "account.checkHintWrongPath":
+    "Здесь работает сервер Hangar, но без API аккаунтов по этому адресу. Проверь, что он заканчивается на /api/v1.",
+  "account.checkHintServerError":
+    "Сервер сообщает об ошибке (HTTP {status}). Посмотри журнал сервера.",
+  "account.checkHintNotHangar":
+    "Здесь не отвечает сервер Hangar (HTTP {status}). Проверь адрес и правило прокси для / на порт контейнера.",
+  "account.checkHintNoProxy":
+    "Нет перенаправления на релей (HTTP {status}). Проверь правило прокси для / на порт контейнера.",
+  "account.checkHintUnhealthy":
+    "Релей работает, но его база данных не отвечает. Посмотри журнал сервера.",
+  "account.checkHintRelayStatus":
+    "Релей отвечает кодом HTTP {status}. Проверь правило прокси для / на порт контейнера.",
+  "account.checkHintMissingUpgrade":
+    "Прокси не передаёт апгрейд WebSocket (HTTP {status}). Задай заголовки Upgrade и Connection, а для nginx также proxy_http_version 1.1.",
+  "account.checkHintBusy": "Релей сейчас не принимает соединения. Попробуй чуть позже.",
+  "account.checkHintHandshake":
+    "Соединение обрывается при открытии. Проверь правило прокси для /v1/live.",
+  "account.checkHintLiveStatus":
+    "Релей отклоняет соединение (HTTP {status}). Проверь правило прокси для /v1/live.",
   "account.fail.denied":
     "Вход отклонён или больше не действует. Нажми «Повторить», чтобы получить новый код.",
   "account.fail.expired": "Срок действия кода истёк. Попробуй ещё раз.",
@@ -22474,6 +22894,48 @@ const tr: Record<MessageKey, string> = {
   "account.serverApply": "Uygula",
   "account.serverOfficial": "Resmî hizmet",
   "account.serverSaved": "Sunucu değiştirildi.",
+  "account.serverGuide": "Kendi sunucun için kılavuz",
+  "account.serverData":
+    "Kendi sunucunla hesabın ve ekip verileri bu sunucuda durur. Ekibinin paylaştıkları, örneğin durum, görevler ve notlar, uçtan uca şifreli kalır: Sunucu ekipte kimin olduğunu ve kimin ne zaman bağlı olduğunu görür, içeriği görmez.",
+  "account.check": "Bağlantıyı test et",
+  "account.checking": "Test ediliyor …",
+  "account.checkUnavailable": "Test çalıştırılamadı. Tekrar dene.",
+  "account.checkRunning": "Bir bağlantı testi zaten çalışıyor. Sonucunu bekle.",
+  "account.checkApiOk": "Hesap API'si yanıt veriyor",
+  "account.checkApiFailed": "Hesap API'si doğru yanıt vermiyor",
+  "account.checkRelayOk": "Relay yanıt veriyor ({host})",
+  "account.checkRelayOkVersion": "Relay yanıt veriyor ({host}, sürüm {version})",
+  "account.checkRelayFailed": "Relay doğru yanıt vermiyor ({host})",
+  "account.checkLiveOk": "Canlı bağlantı çalışıyor",
+  "account.checkLiveFailed": "Canlı bağlantı başarısız",
+  "account.checkLiveSkipped": "Canlı bağlantı, relay yanıt verince test edilebilir",
+  "account.checkHintUnreachable":
+    "Bağlantı yok. Adresi, sertifikayı ve sunucunun çalışıp çalışmadığını kontrol et.",
+  "account.checkHintTimeout":
+    "Zamanında yanıt yok. Sunucunun çalıştığını ve güvenlik duvarının portu açtığını kontrol et.",
+  "account.checkHintBadGateway":
+    "Proxy sunucuya ulaşamıyor (HTTP {status}). Konteynerin çalıştığını ve proxy kuralındaki portun doğru olduğunu kontrol et.",
+  "account.checkHintRedirected":
+    "Adres yönlendiriyor (HTTP {status}). Sunucunun doğrudan yanıt verdiği adresi https ve /api/v1 ile gir.",
+  "account.checkHintWrongPath":
+    "Burada bir Hangar sunucusu çalışıyor, ama bu adreste hesap API'si yok. Adresin /api/v1 ile bittiğini kontrol et.",
+  "account.checkHintServerError":
+    "Sunucu bir hata bildiriyor (HTTP {status}). Sunucunun günlüğüne bak.",
+  "account.checkHintNotHangar":
+    "Burada Hangar sunucusu yanıt vermiyor (HTTP {status}). Adresi ve / için konteyner portuna giden proxy kuralını kontrol et.",
+  "account.checkHintNoProxy":
+    "Relay'e yönlendirme eksik (HTTP {status}). / için konteyner portuna giden proxy kuralını kontrol et.",
+  "account.checkHintUnhealthy":
+    "Relay çalışıyor, ama veritabanı yanıt vermiyor. Sunucunun günlüğüne bak.",
+  "account.checkHintRelayStatus":
+    "Relay HTTP {status} ile yanıt veriyor. / için konteyner portuna giden proxy kuralını kontrol et.",
+  "account.checkHintMissingUpgrade":
+    "Proxy WebSocket yükseltmesini iletmiyor (HTTP {status}). Upgrade ve Connection başlıklarını ayarla, nginx için ayrıca proxy_http_version 1.1.",
+  "account.checkHintBusy": "Relay şu anda bağlantı kabul etmiyor. Birazdan tekrar dene.",
+  "account.checkHintHandshake":
+    "Bağlantı açılırken kopuyor. /v1/live için proxy kuralını kontrol et.",
+  "account.checkHintLiveStatus":
+    "Relay bağlantıyı reddediyor (HTTP {status}). /v1/live için proxy kuralını kontrol et.",
   "account.fail.denied":
     "Oturum açma reddedildi ya da artık geçerli değil. Yeni kod için “Tekrar dene”ye tıkla.",
   "account.fail.expired": "Kodun süresi doldu. Tekrar dene.",
@@ -24437,6 +24899,42 @@ const zh: Record<MessageKey, string> = {
   "account.serverApply": "应用",
   "account.serverOfficial": "官方服务",
   "account.serverSaved": "服务器已更改。",
+  "account.serverGuide": "自建服务器指南",
+  "account.serverData":
+    "使用自建服务器时，你的账户和团队数据都存放在该服务器上。团队共享的内容，例如状态、任务和笔记，仍然端到端加密：服务器能看到谁属于团队、谁在何时连接，但看不到内容。",
+  "account.check": "测试连接",
+  "account.checking": "正在测试 …",
+  "account.checkUnavailable": "测试无法运行。请再试一次。",
+  "account.checkRunning": "连接测试已在运行。请等待其结果。",
+  "account.checkApiOk": "账户 API 有响应",
+  "account.checkApiFailed": "账户 API 响应不正确",
+  "account.checkRelayOk": "中继有响应（{host}）",
+  "account.checkRelayOkVersion": "中继有响应（{host}，版本 {version}）",
+  "account.checkRelayFailed": "中继响应不正确（{host}）",
+  "account.checkLiveOk": "实时连接正常",
+  "account.checkLiveFailed": "实时连接失败",
+  "account.checkLiveSkipped": "中继响应后才能测试实时连接",
+  "account.checkHintUnreachable": "无法连接。请检查地址、证书以及服务器是否在运行。",
+  "account.checkHintTimeout": "未及时响应。请检查服务器是否在运行，以及防火墙是否放行该端口。",
+  "account.checkHintBadGateway":
+    "代理无法连到服务器（HTTP {status}）。请检查容器是否在运行，以及代理规则中的端口是否正确。",
+  "account.checkHintRedirected":
+    "该地址会重定向（HTTP {status}）。请填写服务器直接响应的地址，带 https 和 /api/v1。",
+  "account.checkHintWrongPath":
+    "这里运行着 Hangar 服务器，但该地址下没有账户 API。请检查地址是否以 /api/v1 结尾。",
+  "account.checkHintServerError": "服务器报告错误（HTTP {status}）。请查看服务器日志。",
+  "account.checkHintNotHangar":
+    "这里没有 Hangar 服务器响应（HTTP {status}）。请检查地址，以及将 / 转发到容器端口的代理规则。",
+  "account.checkHintNoProxy":
+    "缺少到中继的转发（HTTP {status}）。请检查将 / 转发到容器端口的代理规则。",
+  "account.checkHintUnhealthy": "中继在运行，但其数据库没有响应。请查看服务器日志。",
+  "account.checkHintRelayStatus":
+    "中继以 HTTP {status} 响应。请检查将 / 转发到容器端口的代理规则。",
+  "account.checkHintMissingUpgrade":
+    "代理没有转发 WebSocket 升级（HTTP {status}）。请设置 Upgrade 和 Connection 请求头，nginx 还需设置 proxy_http_version 1.1。",
+  "account.checkHintBusy": "中继目前不接受连接。请稍后再试。",
+  "account.checkHintHandshake": "连接在建立时中断。请检查 /v1/live 的代理规则。",
+  "account.checkHintLiveStatus": "中继拒绝连接（HTTP {status}）。请检查 /v1/live 的代理规则。",
   "account.fail.denied": "登录已被拒绝或已失效。点击“重试”获取新代码。",
   "account.fail.expired": "代码已过期。请重试。",
   "account.fail.refused": "服务器拒绝了登录。",

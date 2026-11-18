@@ -70,6 +70,7 @@ use crate::push::{self, PushError, PushEvent, PushInput, PushService, PushView};
 use crate::report::{self, ReportError};
 use crate::resources::{ResourceMonitor, SessionResources};
 use crate::secrets::{self, SecretError, SecretStatus};
+use crate::server_check::ServerCheck;
 use crate::session::{SessionId, SessionInfo, SessionKind, SessionMode, Status};
 use crate::subagents::{self, SubAgentError, SubAgentEvent, Watchers};
 use crate::system_usage::{SystemMonitor, SystemUsage};
@@ -3224,6 +3225,15 @@ pub async fn account_set_base_url(
     base_url: Option<String>,
 ) -> Result<AccountView, AccountError> {
     account.set_base_url(base_url).await
+}
+
+/// Tests the connection to the chosen server: account API, relay health check and the live
+/// channel's upgrade, each with its own result. Network only (async), with a time limit per step.
+#[tauri::command]
+pub async fn account_check_server(
+    account: State<'_, AccountService>,
+) -> Result<ServerCheck, AccountError> {
+    account.check_server().await
 }
 
 /// Opens one of the account's pages; the window names the page, never a URL. On a blocking

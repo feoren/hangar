@@ -89,7 +89,10 @@ export interface Project {
 
 /** Pages the backend opens (Rust: `AccountPage`). */
 export type AccountPage =
-  { kind: "verification" } | { kind: "devices" } | { kind: "invite"; projectId: string };
+  | { kind: "verification" }
+  | { kind: "devices" }
+  | { kind: "invite"; projectId: string }
+  | { kind: "selfHostingGuide" };
 
 export type AccountErrorKind =
   | "notSignedIn"
@@ -104,6 +107,7 @@ export type AccountErrorKind =
   | "unknownProject"
   | "nothingToOpen"
   | "config"
+  | "checkRunning"
   | "unknown";
 
 /** A rejected account command (Rust: `AccountError` as `{ kind, detail }`). */
@@ -136,6 +140,7 @@ const ERROR_KINDS: readonly AccountErrorKind[] = [
   "unknownProject",
   "nothingToOpen",
   "config",
+  "checkRunning",
 ];
 
 function text(value: unknown): string | null {
@@ -431,6 +436,7 @@ const ERROR_TEXTS: Record<AccountErrorKind, MessageKey> = {
   unknownProject: "team.loadFailed",
   nothingToOpen: "account.error.notSignedIn",
   config: "account.error.config",
+  checkRunning: "account.checkRunning",
   unknown: "error.unknown",
 };
 

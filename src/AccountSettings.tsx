@@ -16,6 +16,14 @@ import {
 } from "./account";
 import { writeClipboard } from "./clipboard";
 import { useT } from "./i18n";
+import { CheckIcon, CloseIcon } from "./icons";
+import {
+  checkForServer,
+  checkProblemText,
+  serverCheckLines,
+  type CheckLine,
+  type CheckOutcome,
+} from "./serverCheck";
 import { account, useAccount } from "./useAccount";
 import { useClock } from "./useClock";
 
@@ -335,12 +343,30 @@ function ServerField({ view }: { view: AccountView }) {
   const [text, setText] = useState(view.official ? "" : view.baseUrl);
   // The server can change while the dialog is open (here, or from the backend): show the new one.
   const [shownBase, setShownBase] = useState(view.baseUrl);
+  // A test result belongs to the server it ran against: it is shown only while that server is set.
+  const [check, setCheck] = useState<CheckOutcome | null>(null);
+  const [checking, setChecking] = useState(false);
   if (shownBase !== view.baseUrl) {
     setShownBase(view.baseUrl);
     setText(view.official ? "" : view.baseUrl);
+    setCheck(null);
   }
   const [status, setStatus] = useState<{ ok: boolean; text: string } | null>(null);
   const [busy, setBusy] = useState(false);
+  const [guideProblem, setGuideProblem] = useState<AccountProblem | null>(null);
+
+  const runCheck = () => {
+    setChecking(true);
+    setCheck(null);
+    void account
+      .checkServer()
+      .then((result) => {
+        setCheck(result);
+      })
+      .finally(() => {
+        setChecking(false);
+      });
+  };
 
   const apply = (value: string | null) => {
     setBusy(true);
@@ -364,8 +390,23 @@ function ServerField({ view }: { view: AccountView }) {
     <details className="settings-section account-server" open={!view.official}>
       <summary className="settings-subtitle">{t("account.server")}</summary>
       <p id="account-server-help" className="muted settings-intro">
-        {t("account.serverHelp")}
+        {t("account.serverHelp")}{" "}
+        <button
+          type="button"
+          className="link-button account-link"
+          onClick={() => {
+            setGuideProblem(null);
+            void account.open({ kind: "selfHostingGuide" }).then(setGuideProblem);
+          }}
+        >
+          {t("account.serverGuide")}
+        </button>
       </p>
+      {guideProblem !== null && (
+        <p className="muted error-text" role="alert">
+          {accountErrorText(guideProblem, t)}
+        </p>
+      )}
       <form
         className="settings-row account-server-row"
         onSubmit={(event) => {
@@ -414,6 +455,64 @@ function ServerField({ view }: { view: AccountView }) {
       >
         {status?.text ?? ""}
       </p>
+      {!view.official && (
+        <>
+          <p className="muted settings-help">{t("account.serverData")}</p>
+          <div className="settings-row">
+            <button
+              type="button"
+              className="secondary-button"
+              disabled={checking || busy}
+              onClick={runCheck}
+            >
+              {checking ? t("account.checking") : t("account.check")}
+            </button>
+          </div>
+          <div role="status" aria-live="polite">
+            <ServerCheckOutcome outcome={check} baseUrl={view.baseUrl} />
+          </div>
+        </>
+      )}
     </details>
+  );
+}
+
+/**
+ * What a test run gave for the server `baseUrl` set now: the steps, or why the test did not run.
+ * A result of another address (it changed while the test ran) shows nothing.
+ */
+export function ServerCheckOutcome({
+  outcome,
+  baseUrl,
+}: {
+  outcome: CheckOutcome | null;
+  baseUrl: string;
+}) {
+  const t = useT();
+  if (outcome === null) return null;
+  if ("problem" in outcome) {
+    return <p className="muted error-text">{checkProblemText(outcome.problem, t)}</p>;
+  }
+  const check = checkForServer(outcome.check, baseUrl);
+  return check === null ? null : <ServerCheckList lines={serverCheckLines(check, t)} />;
+}
+
+/** The steps of a connection test: a mark, what was found and, for a failure, what to do. */
+export function ServerCheckList({ lines }: { lines: CheckLine[] }) {
+  return (
+    <ul className="server-check">
+      {lines.map((line) => (
+        <li key={line.step} className={`server-check-line server-check-${line.state}`}>
+          <span className="server-check-mark">
+            {line.state === "ok" && <CheckIcon size={14} />}
+            {line.state === "failed" && <CloseIcon size={14} />}
+          </span>
+          <span className="server-check-text">
+            <span>{line.text}</span>
+            {line.hint !== null && <span className="muted server-check-hint">{line.hint}</span>}
+          </span>
+        </li>
+      ))}
+    </ul>
   );
 }

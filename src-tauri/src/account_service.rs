@@ -29,6 +29,7 @@
 use std::fs::File;
 use std::future::Future;
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
@@ -44,6 +45,7 @@ use crate::account_api::{AccountApi, ApiError, AvatarAnswer};
 use crate::avatar::{AvatarCache, Cached};
 use crate::lock;
 use crate::secrets::{SecretError, SecretStore};
+use crate::server_check::{self, ApiCheck, ServerCheck};
 
 pub type Emit = Arc<dyn Fn(&AccountView) + Send + Sync>;
 /// Opens a page in the default browser (`desktop::open_url`); replaced in tests.
@@ -134,6 +136,26 @@ struct Inner {
     avatar_gate: tokio::sync::Mutex<()>,
     /// Wakes a waiting poll when its flow was cancelled.
     cancel: Notify,
+    /// Set while a connection test runs ([`AccountService::check_server`]).
+    checking: AtomicBool,
+}
+
+/// Holds a flag for one run and clears it when dropped, also when the run fails or panics.
+struct RunGuard<'a>(&'a AtomicBool);
+
+impl<'a> RunGuard<'a> {
+    /// `None` while another run holds the flag.
+    fn acquire(flag: &'a AtomicBool) -> Option<Self> {
+        flag.compare_exchange(false, true, Ordering::AcqRel, Ordering::Acquire)
+            .ok()
+            .map(|_| Self(flag))
+    }
+}
+
+impl Drop for RunGuard<'_> {
+    fn drop(&mut self) {
+        self.0.store(false, Ordering::Release);
+    }
 }
 
 struct Core {
@@ -386,6 +408,7 @@ impl AccountService {
                 refresh_gate: tokio::sync::Mutex::new(()),
                 avatar_gate: tokio::sync::Mutex::new(()),
                 cancel: Notify::new(),
+                checking: AtomicBool::new(false),
             }),
         }
     }
@@ -1241,6 +1264,34 @@ impl AccountService {
         .await
     }
 
+    /// Tests the connection to the chosen server (Settings, own server): the account API, the
+    /// relay's health check and the live channel's upgrade ([`server_check`]). Signed in, the
+    /// relay is the one a ticket names, as for the team connection; the ticket itself is dropped
+    /// unread and never sent. Otherwise the relay hangar-server derives from its own address.
+    /// One test at a time: a second one while the first runs is refused at once.
+    pub async fn check_server(&self) -> Result<ServerCheck, AccountError> {
+        let _running = RunGuard::acquire(&self.inner.checking).ok_or(AccountError::CheckRunning)?;
+        let base = lock(&self.inner.core).base.clone();
+        let limit = server_check::STEP_TIMEOUT;
+        let api = server_check::check_api(&base, limit).await;
+        let signed_in = matches!(self.view().state, AccountState::SignedIn { .. });
+        let ticket_relay = if api == ApiCheck::Ok && signed_in {
+            self.ticket_relay().await
+        } else {
+            None
+        };
+        Ok(server_check::finish(&base, api, ticket_relay, limit).await)
+    }
+
+    /// The relay address of a ticket for the account's first project; `None` without a project
+    /// or when the server gives no ticket.
+    async fn ticket_relay(&self) -> Option<Url> {
+        let projects = self.projects().await.ok()?;
+        let project = projects.first()?;
+        let ticket = self.relay_ticket(&project.id).await.ok()?;
+        Some(ticket.relay_url.clone())
+    }
+
     /// Switches the server (`None` or empty: the official one). Ends a waiting flow; a sign-in
     /// stored for the new server counts at once, the old one stays in the keychain for a switch
     /// back.
@@ -1329,6 +1380,8 @@ impl AccountService {
                         .and_then(|url| core.base.same_origin(url))
                         .ok_or(AccountError::ForeignPage)?
                 }
+                AccountPage::SelfHostingGuide => Url::parse(account::SELF_HOSTING_GUIDE)
+                    .map_err(|error| AccountError::Open(error.to_string()))?,
             }
         };
         (self.inner.open)(&url).map_err(|error| AccountError::Open(error.to_string()))
@@ -1392,6 +1445,31 @@ fn fail_reason(error: &ApiError) -> FailReason {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_run_guard_admits_one_run_and_clears_on_drop_and_panic() {
+        let flag = AtomicBool::new(false);
+        let first = RunGuard::acquire(&flag);
+        assert!(first.is_some());
+        assert!(
+            RunGuard::acquire(&flag).is_none(),
+            "a second run while the first holds it"
+        );
+        drop(first);
+        assert!(
+            RunGuard::acquire(&flag).is_some(),
+            "free again after the run"
+        );
+        let panicked = std::panic::catch_unwind(|| {
+            let _guard = RunGuard::acquire(&flag);
+            panic!("the run fails");
+        });
+        assert!(panicked.is_err());
+        assert!(
+            !flag.load(Ordering::Acquire),
+            "a panicking run releases the flag"
+        );
+    }
 
     #[test]
     fn the_process_lock_waits_for_the_holder_and_gives_up_in_time() {

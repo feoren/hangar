@@ -34,6 +34,9 @@ pub enum RelayError {
     Connect(String),
     #[error("TLS failed: {0}")]
     Tls(String),
+    /// The server answered the upgrade with another status than 101 (a proxy's page, a refusal).
+    #[error("the relay answered the upgrade with HTTP {0}")]
+    Status(u16),
     #[error("the WebSocket handshake failed: {0}")]
     Handshake(String),
 }
@@ -84,7 +87,12 @@ async fn open(url: &Url, base: &BaseUrl) -> Result<Socket, RelayError> {
     let (socket, _) =
         tokio_tungstenite::client_async_with_config(url.as_str(), stream, Some(config))
             .await
-            .map_err(|error| RelayError::Handshake(error.to_string()))?;
+            .map_err(|error| match error {
+                tokio_tungstenite::tungstenite::Error::Http(response) => {
+                    RelayError::Status(response.status().as_u16())
+                }
+                other => RelayError::Handshake(other.to_string()),
+            })?;
     Ok(socket)
 }
 

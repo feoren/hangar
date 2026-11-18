@@ -10205,6 +10205,45 @@ body.session-dragging .session-actions {
   min-width: 0;
 }
 
+.server-check {
+  display: grid;
+  gap: 6px;
+  margin: 8px 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.server-check-line {
+  display: flex;
+  gap: 8px;
+  align-items: flex-start;
+}
+
+.server-check-mark {
+  display: inline-flex;
+  flex: 0 0 14px;
+  margin-top: 2px;
+}
+
+.server-check-ok .server-check-mark {
+  color: var(--ok);
+}
+
+.server-check-failed .server-check-mark {
+  color: var(--error);
+}
+
+.server-check-skipped {
+  color: var(--muted);
+}
+
+.server-check-text {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
 /* Sidebar, Team group */
 
 .team-list {

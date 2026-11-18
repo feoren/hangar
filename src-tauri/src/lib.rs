@@ -73,6 +73,7 @@ pub mod resolve;
 pub mod resources;
 pub mod secrets;
 pub mod send_bin;
+pub mod server_check;
 pub mod session;
 pub mod single_instance;
 pub mod subagents;
@@ -668,6 +669,7 @@ pub fn run() -> tauri::Result<()> {
             commands::account_avatar,
             commands::account_set_base_url,
             commands::account_open,
+            commands::account_check_server,
             commands::team_status,
             commands::team_enable,
             commands::team_disable,

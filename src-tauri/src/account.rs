@@ -19,6 +19,8 @@ use zeroize::Zeroizing;
 
 /// The official service. Self-hosted servers are set in Settings ([`BaseUrl::parse`]).
 pub const OFFICIAL_BASE: &str = "https://hangar.feoren.com/api/v1";
+/// The guide to running an own server: hangar-server's public repository.
+pub const SELF_HOSTING_GUIDE: &str = "https://github.com/feoren/hangar-server";
 pub const CLIENT_ID: &str = "hangar-desktop";
 pub const SCOPE: &str = "team";
 /// Event to the main window with every new [`AccountView`].
@@ -997,6 +999,8 @@ pub enum AccountPage {
     Devices,
     /// A project's invite page, from the last project list.
     Invite { project_id: String },
+    /// The guide to running an own server ([`SELF_HOSTING_GUIDE`]), a fixed address.
+    SelfHostingGuide,
 }
 
 /// Errors of the account commands; the window shows a text per `kind`.
@@ -1026,6 +1030,8 @@ pub enum AccountError {
     NothingToOpen,
     #[error("Settings could not be saved: {0}")]
     Config(String),
+    #[error("A connection test is already running")]
+    CheckRunning,
 }
 
 impl AccountError {
@@ -1043,6 +1049,7 @@ impl AccountError {
             Self::UnknownProject => "unknownProject",
             Self::NothingToOpen => "nothingToOpen",
             Self::Config(_) => "config",
+            Self::CheckRunning => "checkRunning",
         }
     }
 

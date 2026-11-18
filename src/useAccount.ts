@@ -21,6 +21,7 @@ import {
   type Project,
 } from "./account";
 import { ACCOUNT_CHANGED, api } from "./api";
+import { parseServerCheck, type CheckOutcome } from "./serverCheck";
 
 export interface AccountSnapshot {
   /** `null` until the backend answered (or outside Tauri). */
@@ -195,6 +196,15 @@ export const account = {
       return null;
     } catch (error: unknown) {
       return parseAccountError(error);
+    }
+  },
+  /** Tests the chosen server: its result, or why the test did not run. */
+  checkServer: async (): Promise<CheckOutcome> => {
+    try {
+      const check = parseServerCheck(await api.accountCheckServer());
+      return check === null ? { problem: { kind: "badResponse", detail: null } } : { check };
+    } catch (error: unknown) {
+      return { problem: parseAccountError(error) };
     }
   },
 };
