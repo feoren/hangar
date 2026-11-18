@@ -165,7 +165,7 @@ mod imp {
                 )
             });
             if let Err(error) = removed {
-                eprintln!("hangar: notification of session {session_id} not withdrawn: {error}");
+                eprintln!("hangar: a session's notification was not withdrawn: {error}");
             }
         }
 

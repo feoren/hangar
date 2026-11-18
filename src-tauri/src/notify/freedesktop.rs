@@ -254,7 +254,7 @@ impl Notifier {
             return;
         };
         if let Err(error) = bus.close(shown.id) {
-            eprintln!("hangar: notification of session {session_id} not withdrawn: {error}");
+            eprintln!("hangar: a session's notification was not withdrawn: {error}");
         }
     }
 }
