@@ -1,7 +1,7 @@
 [
   {
     "version": "0.11.0",
-    "date": null,
+    "date": "2026-11-18",
     "items": [
       {
         "de": "Hangar für Linux: AppImage, das sich selbst aktualisiert, und .deb für Ubuntu 22.04 und Debian 12 oder neuer, mit Desktop-Benachrichtigungen.",
@@ -33,7 +33,7 @@
       },
       {
         "de": "Eigener Server: Unter Einstellungen > Konto testest du die Verbindung Schritt für Schritt und siehst, was etwa am Proxy fehlt. Dazu ein Link zur Anleitung.",
-        "en": "Own server: under Settings > Account, test the connection step by step and see what is missing, say in the proxy. Plus a link to the setup guide.",
+        "en": "Own server: under Settings > Account, test the connection step by step and see what is missing, for example in the proxy. Plus a link to the setup guide.",
         "el": "Δικός σου διακομιστής: στις Ρυθμίσεις > Λογαριασμός δοκίμασε τη σύνδεση βήμα βήμα και δες τι λείπει, π.χ. στο proxy. Και σύνδεσμος στον οδηγό.",
         "es": "Servidor propio: en Configuración > Cuenta prueba la conexión paso a paso y ve qué falta, por ejemplo en el proxy. Además, un enlace a la guía.",
         "fr": "Serveur perso : dans Paramètres > Compte, teste la connexion étape par étape et vois ce qui manque, par exemple au proxy. Plus un lien vers le guide.",
