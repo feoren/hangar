@@ -87,6 +87,7 @@ import {
   type ChecklistProgress,
 } from "./noteText";
 import { PopupMenu, type PopupItem } from "./PopupMenu";
+import { currentPlatform, revealLabelKey } from "./platform";
 import { formatShortcut, SHORTCUT_LABELS, type FocusZone } from "./shortcuts";
 import { useClock } from "./useClock";
 import { utf8Length } from "./workspace";
@@ -193,10 +194,6 @@ interface Toast {
 
 interface TrashRow extends TrashItem {
   folder: NoteFolder;
-}
-
-function isMac(): boolean {
-  return /Mac/i.test(navigator.userAgent);
 }
 
 /**
@@ -1149,7 +1146,7 @@ export function NotesPanel(props: Props) {
                 {
                   type: "action" as const,
                   key: "reveal",
-                  label: isMac() ? t("notes.revealFinder") : t("notes.revealExplorer"),
+                  label: t(revealLabelKey(currentPlatform())),
                   run: () => {
                     const note = currentRef.current;
                     if (note?.id == null) return;

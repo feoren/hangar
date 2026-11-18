@@ -320,7 +320,7 @@ Your code never leaves Git: Hangar shares what the agents are doing, not what th
 
 |                  |                                                                                                                                                   |
 | ---------------- | ------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Operating system | Windows 10 version 1809 or later, or Windows 11 (x64). macOS and Linux are planned.                                                               |
+| Operating system | Windows 10 version 1809 or later, or Windows 11 (x64). Linux (x64) is in preparation, macOS is planned.                                           |
 | Agents           | Install the agent CLIs you want to use (Claude Code, Codex CLI, Gemini CLI, Aider, ...) with your own accounts. Hangar finds them on your `PATH`. |
 | Git              | Needed for team sessions (worktrees), change tracking, commits and shared notes.                                                                  |
 | Team features    | A Hangar account, created in the browser when you sign in.                                                                                        |

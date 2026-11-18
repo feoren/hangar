@@ -3,10 +3,19 @@ import { describe, expect, it, vi } from "vitest";
 import { badgeKind, badgeLabel, badgeText, TaskbarBadge } from "./taskbarBadge";
 
 describe("badgeKind", () => {
-  it("uses the overlay icon on Windows and the badge count elsewhere", () => {
+  it("uses the overlay icon on Windows, the badge count on macOS and nothing on Linux", () => {
     expect(badgeKind("Mozilla/5.0 (Windows NT 10.0; Win64; x64) Edg/140")).toBe("overlay");
     expect(badgeKind("Mozilla/5.0 (Macintosh; Intel Mac OS X 14_0) AppleWebKit")).toBe("count");
-    expect(badgeKind("Mozilla/5.0 (X11; Linux x86_64) AppleWebKit")).toBe("count");
+    expect(badgeKind("Mozilla/5.0 (X11; Linux x86_64) AppleWebKit")).toBe("none");
+  });
+
+  it("never calls the platform on Linux", async () => {
+    const apply = vi.fn(() => Promise.resolve());
+    const badge = new TaskbarBadge("none", apply);
+    expect(badgeText(3, "none")).toBeNull();
+    badge.update(3, "#f2e3c6");
+    await badge.clear();
+    expect(apply).not.toHaveBeenCalled();
   });
 });
 

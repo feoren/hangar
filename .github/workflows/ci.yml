@@ -120,6 +120,93 @@ jobs:
             "$py" "crates/$crate/test_vectors.py"
           done
 
+  # The Linux bundles (ADR 0013): an AppImage and a .deb, unsigned. Built on the oldest Ubuntu
+  # Hangar supports, because a binary only runs where glibc is at least as new as on the build
+  # machine. Updater signatures are made by tools/release.py on the owner's machine; no signing
+  # key ever reaches CI, so updater artifacts are turned off here as release.py does.
+  linux-bundle:
+    runs-on: ubuntu-22.04
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
+
+      - uses: pnpm/action-setup@b906affcce14559ad1aafd4ab0e942779e9f58b1 # v4.3.0
+
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: 24
+          cache: pnpm
+
+      - uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec # stable
+        with:
+          toolchain: stable
+
+      # The same packages as the check job, plus patchelf for the AppImage tooling.
+      - name: Linux dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev build-essential curl wget file \
+            libxdo-dev libssl-dev libayatana-appindicator3-dev librsvg2-dev \
+            cmake clang libclang-dev libasound2-dev patchelf
+
+      - run: pnpm install --frozen-lockfile
+
+      - name: Build
+        run: >-
+          pnpm tauri build --bundles appimage,deb
+          --config '{"bundle":{"createUpdaterArtifacts":false}}'
+          -- --locked
+
+      # hangar-send (ADR 0012) has to be in both bundles, next to the app. The highest glibc
+      # symbol version is the oldest glibc the bundles run on. The AppRun hooks show which
+      # variables the image sets for Hangar (child_env.rs undoes them for child processes).
+      - name: Check bundles
+        run: |
+          set -euo pipefail
+          bundle="$PWD/src-tauri/target/release/bundle"
+          image=$(ls "$bundle"/appimage/*.AppImage)
+          deb=$(ls "$bundle"/deb/*.deb)
+          cd "$RUNNER_TEMP"
+          "$image" --appimage-extract >/dev/null
+          root="$RUNNER_TEMP/squashfs-root"
+          if [ ! -x "$root/usr/bin/hangar-send" ]; then
+            echo "::error::hangar-send is missing from the AppImage"
+            exit 1
+          fi
+          # Listed into a variable first: `grep -q` in a pipe would end dpkg-deb with SIGPIPE.
+          contents=$(dpkg-deb -c "$deb")
+          if ! grep -q ' ./usr/bin/hangar-send$' <<<"$contents"; then
+            echo "::error::hangar-send is missing from the .deb"
+            exit 1
+          fi
+          # objdump fails on files that are not ELF; the ELF ones still print their symbols.
+          symbols=$(objdump -T "$root"/usr/bin/* 2>/dev/null || true)
+          glibc=$(grep -o 'GLIBC_[0-9.]*' <<<"$symbols" | sort -uV | tail -n 1)
+          echo "Highest glibc symbol version: $glibc"
+          echo "Depends of the .deb: $(dpkg-deb -f "$deb" Depends)"
+          {
+            echo "### Linux bundles"
+            echo "- Highest glibc symbol version: \`$glibc\`"
+            echo "- .deb Depends: \`$(dpkg-deb -f "$deb" Depends)\`"
+          } >> "$GITHUB_STEP_SUMMARY"
+          ls -la "$root/usr/bin"
+          for hook in "$root"/apprun-hooks/*; do
+            [ -f "$hook" ] || continue
+            echo "--- $hook"
+            cat "$hook"
+          done
+
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: linux-bundles
+          path: |
+            src-tauri/target/release/bundle/appimage/*.AppImage
+            src-tauri/target/release/bundle/deb/*.deb
+          if-no-files-found: error
+          retention-days: 14
+
   # Known vulnerabilities in the locked dependencies. cargo-audit is installed at a fixed version
   # from its own lock file; it fails on vulnerabilities and only warns about unmaintained crates.
   audit:

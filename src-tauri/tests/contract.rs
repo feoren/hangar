@@ -456,6 +456,28 @@ fn dictation_signals_carry_no_text_and_commands_check_the_window() {
     }
 }
 
+/// One target list for every platform (ADR 0013): the bundler builds only the formats of the
+/// platform it runs on, so Windows keeps building the NSIS installer alone and Linux builds the
+/// AppImage (the format the updater replaces) and a .deb. Updater artifacts stay on in the
+/// config; release.py turns them off for `tauri build` and signs afterwards.
+#[test]
+fn bundle_targets_per_platform() {
+    let config: serde_json::Value = serde_json::from_str(&read("tauri.conf.json")).unwrap();
+    assert_eq!(
+        config["bundle"]["targets"],
+        serde_json::json!(["nsis", "appimage", "deb"])
+    );
+    assert_eq!(
+        config["bundle"]["createUpdaterArtifacts"],
+        serde_json::json!(true)
+    );
+    // The microphone needs ALSA's library; Ubuntu 24.04 renamed its package (time64).
+    let depends = config["bundle"]["linux"]["deb"]["depends"]
+        .as_array()
+        .unwrap();
+    assert!(depends.contains(&serde_json::json!("libasound2 | libasound2t64")));
+}
+
 /// macOS asks for two things before an app with the hardened runtime may open the microphone: the
 /// usage text in Info.plist (merged by the Tauri bundler from the file next to tauri.conf.json)
 /// and the audio-input entitlement in the signature.

@@ -1125,3 +1125,10 @@ the 25 bundled figures. Pages changed: [[release-rollout]].
 Settings > Account tests a self-hosted server in three steps (account API `/keys`, relay `/health`,
 WebSocket upgrade on `/v1/live`) and links the self-hosting guide. Pages changed:
 [[hangar-account-api]].
+
+## [2026-11-18] ingest | Linux bundling and ADR 0013
+Read the Tauri updater and AppImage docs, the bundler's per-platform target filter, the
+`DebConfig` of tauri-utils 2.10.2 and linuxdeploy-plugin-gtk's AppRun hook. Filed ADR 0013 (Linux
+x64 release, part 1: bundle targets, CI job `linux-bundle`, login shell `PATH`, AppImage
+variables for child processes, hidden Linux features). Pages changed: [[linux-bundling-reading]]
+(new), [[0013-linux-release]] (new), index.

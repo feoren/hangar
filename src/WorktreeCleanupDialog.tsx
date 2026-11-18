@@ -5,6 +5,7 @@ import { Dialog } from "./Dialog";
 import { relativeTime } from "./format";
 import { useT } from "./i18n";
 import { CloseIcon } from "./icons";
+import { currentPlatform, revealLabelKey } from "./platform";
 import {
   cleanupResult,
   entryAction,
@@ -27,10 +28,6 @@ interface Props {
   folders: readonly string[];
   language: string;
   onClose: () => void;
-}
-
-function isMac(): boolean {
-  return /Mac/i.test(navigator.userAgent);
 }
 
 /**
@@ -265,7 +262,7 @@ export function WorktreeCleanupDialog({ folders, language, onClose }: Props) {
                             reveal(entry);
                           }}
                         >
-                          {isMac() ? t("notes.revealFinder") : t("notes.revealExplorer")}
+                          {t(revealLabelKey(currentPlatform()))}
                         </button>
                       )}
                       {(action === "remove" || action === "prune") && (

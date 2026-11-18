@@ -7,6 +7,7 @@ import { DOT_ANIMATIONS, dotAnimationClass, type DotAnimation } from "./dotAnima
 import { badgeColor } from "./format";
 import { useT, type MessageKey } from "./i18n";
 import { PhonePushSettings } from "./PhonePushSettings";
+import { currentPlatform, hasDesktopNotifications, hasGpuReading } from "./platform";
 import { powerKnown } from "./power";
 import { formatClockTime, parseClockTime, type QuietHours } from "./quietHours";
 import { RangeField } from "./RangeField";
@@ -104,6 +105,8 @@ const LOOKS_WITHOUT_ATTENTION: readonly LookState[] = ["idle", "failed"];
 export function AttentionSettings({ settings, theme, onChange }: Props) {
   const t = useT();
   const power = usePowerState();
+  const platform = currentPlatform();
+  const gpu = hasGpuReading(platform);
   const enabled = settings.attentionEnabled;
   return (
     <>
@@ -177,15 +180,18 @@ export function AttentionSettings({ settings, theme, onChange }: Props) {
             onChange({ taskbarFlash });
           }}
         />
-        <CheckField
-          id="notify-desktop"
-          checked={settings.notifyDesktop}
-          label={t("settings.notifyDesktop")}
-          help={t("settings.notifyDesktopHelp")}
-          onChange={(notifyDesktop) => {
-            onChange({ notifyDesktop });
-          }}
-        />
+        {/* Only where desktop notifications are implemented (only offer what works). */}
+        {hasDesktopNotifications(platform) && (
+          <CheckField
+            id="notify-desktop"
+            checked={settings.notifyDesktop}
+            label={t("settings.notifyDesktop")}
+            help={t("settings.notifyDesktopHelp")}
+            onChange={(notifyDesktop) => {
+              onChange({ notifyDesktop });
+            }}
+          />
+        )}
         <CheckField
           id="chime"
           checked={settings.chime}
@@ -237,7 +243,7 @@ export function AttentionSettings({ settings, theme, onChange }: Props) {
         <CheckField
           id="show-resources"
           checked={settings.showResources}
-          label={t("settings.showResources")}
+          label={t(gpu ? "settings.showResources" : "settings.showResourcesNoGpu")}
           help={t("settings.showResourcesHelp")}
           onChange={(showResources) => {
             onChange({ showResources });
@@ -249,7 +255,7 @@ export function AttentionSettings({ settings, theme, onChange }: Props) {
             id="power-saving"
             checked={settings.powerSaving}
             label={t("settings.powerSaving")}
-            help={t("settings.powerSavingHelp")}
+            help={t(gpu ? "settings.powerSavingHelp" : "settings.powerSavingHelpNoGpu")}
             onChange={(powerSaving) => {
               onChange({ powerSaving });
             }}

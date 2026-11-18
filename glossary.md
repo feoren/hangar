@@ -296,3 +296,6 @@ UI texts in `src/i18n.ts` are translated per language and are not bound by this 
 | Energieschwelle                                 | energy gate                       | drops silence before recognition; `has_speech`                                       |
 | Erkannter Text (Diktieren)                      | transcript (dictation)            | in memory until taken once; `clean_transcript`, `dictation_take_text`                |
 | Aufnahmefrist                                   | recording deadline                | a recording without stop ends on its own; `RECORDING_DEADLINE`                       |
+| Login-Shell-PATH                                | login shell PATH                  | PATH of `$SHELL -ilc`, put in front at startup; `login_path.rs`                      |
+| AppImage-Variablen                              | AppImage variables                | what AppRun sets for Hangar, removed for child processes; `appimage_fixes`           |
+| Dateimanager                                    | file manager                      | Explorer, Finder or the Linux desktop's file manager; `revealLabelKey`               |

@@ -1,12 +1,20 @@
 // Number of waiting sessions on the taskbar button (Windows: a small overlay icon drawn by the
-// window) or the Dock and launcher icon (macOS, Linux: the system's badge count). Tied to the
-// attention setting: without attention there is nothing waiting and the badge is cleared.
+// window) or the Dock icon (macOS: the system's badge count). Tied to the attention setting:
+// without attention there is nothing waiting and the badge is cleared.
 
-/** How the platform shows a count: Windows has no badge count, only an overlay icon. */
-export type BadgeKind = "overlay" | "count";
+import { platformOf } from "./platform";
+
+/**
+ * How the platform shows a count: Windows has no badge count, only an overlay icon. Linux shows
+ * none: the badge count needs the Unity launcher API, which most desktops do not show, so the
+ * count is not offered there (ADR 0013).
+ */
+export type BadgeKind = "overlay" | "count" | "none";
 
 export function badgeKind(userAgent: string): BadgeKind {
-  return /Windows/i.test(userAgent) ? "overlay" : "count";
+  const platform = platformOf(userAgent);
+  if (platform === "windows") return "overlay";
+  return platform === "mac" ? "count" : "none";
 }
 
 /** Text in the overlay icon: "1" to "9", then "9+"; `null` clears it. */
@@ -17,6 +25,7 @@ export function badgeLabel(count: number): string | null {
 
 /** What the badge shows: the overlay label, or the plain count for a system badge. */
 export function badgeText(count: number, kind: BadgeKind): string | null {
+  if (kind === "none") return null;
   if (kind === "overlay") return badgeLabel(count);
   return Number.isFinite(count) && count >= 1 ? String(Math.floor(count)) : null;
 }

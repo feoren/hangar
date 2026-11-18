@@ -48,6 +48,7 @@ pub mod hook_recipes;
 pub mod icon;
 pub mod install_source;
 pub mod instructions;
+pub mod login_path;
 pub mod main_store;
 pub mod manager;
 pub mod model_prices;
@@ -112,6 +113,9 @@ pub(crate) fn lock<T>(mutex: &Mutex<T>) -> MutexGuard<'_, T> {
 pub fn run() -> tauri::Result<()> {
     // First, while the process has a single thread (`child_env::scrub_own_environment`).
     child_env::scrub_own_environment();
+    // Still before any other thread: a desktop start lacks the PATH of the user's dotfiles.
+    #[cfg(unix)]
+    login_path::adopt();
     let mut builder = tauri::Builder::default();
     // First of all plugins, so a second start exits before anything else runs; debug builds are
     // exempt (see `single_instance::ENFORCED`).

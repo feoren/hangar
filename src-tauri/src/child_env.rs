@@ -4,9 +4,12 @@
 //! profile settings. One rule for all, so a protection added for one cannot be missing in the
 //! other. Programs Windows starts for Hangar through `ShellExecuteW` (`desktop.rs`) inherit
 //! Hangar's own environment with no way to change it per call, so [`scrub_own_environment`]
-//! takes the same removals out of Hangar's own process once at startup.
+//! takes the same removals out of Hangar's own process once at startup. Started from an AppImage
+//! on Linux, both also undo what the image changed for Hangar itself ([`appimage_fixes`]); Hangar's
+//! own process keeps those, its bundled GTK needs them.
 
 use std::collections::BTreeMap;
+use std::path::Path;
 use std::sync::OnceLock;
 
 use crate::manager::{INHERITED_SESSION_MARKERS, NO_CWD_IN_EXE_PATH};
@@ -149,6 +152,97 @@ fn is_editor_askpass(value: &str) -> bool {
         || file.starts_with("intellij-ssh-askpass")
 }
 
+/// What the AppImage runtime sets for the program inside it: the image file, its mount point,
+/// the name it was started by and the working folder at the start.
+pub const APPIMAGE_RUNTIME: [&str; 4] = ["APPIMAGE", "APPDIR", "ARGV0", "OWD"];
+
+/// What one variable of a child becomes: removed (`None`) or set to the value.
+pub type Fix = (String, Option<String>);
+
+/// The changes a child of Hangar running as an AppImage needs (ADR 0013). Inside the image,
+/// AppRun and linuxdeploy's GTK hook point library, GTK, GIO and data search paths into the
+/// image's mount point (`GTK_PATH`, `GDK_PIXBUF_MODULE_FILE`, `GSETTINGS_SCHEMA_DIR`,
+/// `XDG_DATA_DIRS` and the like) and force `GDK_BACKEND=x11`. A shell, an agent or the file
+/// manager would load Hangar's bundled modules, or none once the image is unmounted. So:
+///
+/// - the runtime's own variables ([`APPIMAGE_RUNTIME`]) go;
+/// - in every other variable whose value names the mount point, the `:`-separated entries inside
+///   it go; a variable with nothing left goes;
+/// - `GDK_BACKEND=x11` and an empty `GTK_THEME` go: the hook sets both unconditionally, so inside
+///   the image they never are the user's own.
+///
+/// Nothing changes unless both `APPIMAGE` and an absolute `APPDIR` other than `/` are set and
+/// Hangar's own executable `exe` lies inside `APPDIR`: only then did this image set them. An
+/// `APPDIR=/usr` inherited from some other program's environment must not strip `/usr/bin` from
+/// every child's `PATH`.
+pub fn appimage_fixes<'a>(
+    inherited: impl IntoIterator<Item = (&'a str, &'a str)>,
+    exe: Option<&Path>,
+) -> Vec<Fix> {
+    let inherited: Vec<(&str, &str)> = inherited.into_iter().collect();
+    let value_of = |name: &str| {
+        inherited
+            .iter()
+            .find(|(key, _)| *key == name)
+            .map(|(_, value)| *value)
+    };
+    let Some(appdir) = value_of("APPDIR").map(|dir| dir.trim_end_matches('/')) else {
+        return Vec::new();
+    };
+    // `/` trims to "" and fails here too: every path would count as inside the image.
+    if value_of("APPIMAGE").is_none() || !appdir.starts_with('/') {
+        return Vec::new();
+    }
+    if !exe.is_some_and(|exe| exe.starts_with(appdir)) {
+        return Vec::new();
+    }
+    let inside = |entry: &str| {
+        entry
+            .strip_prefix(appdir)
+            .is_some_and(|rest| rest.is_empty() || rest.starts_with('/'))
+    };
+    let mut fixes = Vec::new();
+    for (name, value) in &inherited {
+        if APPIMAGE_RUNTIME.contains(name)
+            || (*name == "GDK_BACKEND" && *value == "x11")
+            || (*name == "GTK_THEME" && value.is_empty())
+        {
+            fixes.push(((*name).to_owned(), None));
+        } else if value.contains(appdir) {
+            let kept: Vec<&str> = value
+                .split(':')
+                .filter(|entry| !entry.is_empty() && !inside(entry))
+                .collect();
+            let fixed = (!kept.is_empty()).then(|| kept.join(":"));
+            if fixed.as_deref() != Some(*value) {
+                fixes.push(((*name).to_owned(), fixed));
+            }
+        }
+    }
+    fixes
+}
+
+/// [`appimage_fixes`] for Hangar's own environment; only Linux has AppImages.
+fn own_appimage_fixes(inherited: &[(String, String)]) -> Vec<Fix> {
+    if !cfg!(target_os = "linux") {
+        return Vec::new();
+    }
+    let exe = std::env::current_exe().ok();
+    appimage_fixes(
+        inherited.iter().map(|(n, v)| (n.as_str(), v.as_str())),
+        exe.as_deref(),
+    )
+}
+
+fn apply_fixes(target: &mut impl Target, fixes: Vec<Fix>) {
+    for (name, value) in fixes {
+        match value {
+            Some(value) => target.set(&name, &value),
+            None => target.remove(&name),
+        }
+    }
+}
+
 /// Hangar's own environment as `(name, value)` pairs; names and values that are not UTF-8 are no
 /// editor's variables.
 fn inherited() -> Vec<(String, String)> {
@@ -167,6 +261,7 @@ pub fn apply(
     for name in ide_variables(inherited.iter().map(|(n, v)| (n.as_str(), v.as_str()))) {
         target.remove(&name);
     }
+    apply_fixes(target, own_appimage_fixes(&inherited));
     for change in changes(profile_env, no_cwd_lookup) {
         match change {
             Change::Set(key, value) => target.set(key, value),
@@ -195,8 +290,9 @@ pub fn removals<'a>(
     names
 }
 
-/// Removes [`removals`] from a helper program's environment. Sets nothing: helpers need neither
-/// a terminal type nor a profile's variables.
+/// Removes [`removals`] from a helper program's environment and undoes an AppImage's changes
+/// ([`appimage_fixes`]). Sets nothing else: helpers need neither a terminal type nor a
+/// profile's variables.
 pub fn scrub(target: &mut impl Target) {
     let inherited = inherited();
     for name in removals(
@@ -205,6 +301,7 @@ pub fn scrub(target: &mut impl Target) {
     ) {
         target.remove(&name);
     }
+    apply_fixes(target, own_appimage_fixes(&inherited));
 }
 
 /// Removes [`removals`] from Hangar's own process environment. Called once at the start of
@@ -446,6 +543,113 @@ mod tests {
         assert!(target
             .0
             .contains(&format!("remove {}", crate::gate::TOKEN_ENV)));
+    }
+
+    /// The environment AppRun and linuxdeploy's GTK hook leave behind for Hangar, plus the
+    /// user's own variables.
+    const APPIMAGE_ENV: [(&str, &str); 13] = [
+        ("APPIMAGE", "/home/x/Apps/Hangar.AppImage"),
+        ("APPDIR", "/tmp/.mount_HangarAb12"),
+        ("ARGV0", "./Hangar.AppImage"),
+        ("OWD", "/home/x"),
+        ("GDK_BACKEND", "x11"),
+        ("GTK_THEME", ""),
+        (
+            "GDK_PIXBUF_MODULE_FILE",
+            "/tmp/.mount_HangarAb12/usr/lib/gdk-pixbuf-2.0/loaders.cache",
+        ),
+        (
+            "XDG_DATA_DIRS",
+            "/tmp/.mount_HangarAb12/usr/share:/usr/share:/usr/local/share",
+        ),
+        (
+            "PATH",
+            "/tmp/.mount_HangarAb12/usr/bin:/home/x/.local/bin:/usr/bin",
+        ),
+        ("LD_LIBRARY_PATH", "/tmp/.mount_HangarAb12/usr/lib"),
+        // A folder whose name merely starts like the mount point is not inside it.
+        ("MY_TOOLS", "/tmp/.mount_HangarAb12-other/bin"),
+        ("HOME", "/home/x"),
+        ("SHELL", "/bin/zsh"),
+    ];
+
+    /// Hangar's executable inside the mounted image of [`APPIMAGE_ENV`].
+    fn image_exe() -> Option<&'static Path> {
+        Some(Path::new("/tmp/.mount_HangarAb12/usr/bin/hangar"))
+    }
+
+    fn fix_of<'a>(fixes: &'a [Fix], name: &str) -> Option<&'a Option<String>> {
+        fixes.iter().find(|(n, _)| n == name).map(|(_, v)| v)
+    }
+
+    #[test]
+    fn appimage_variables_do_not_reach_children() {
+        let fixes = appimage_fixes(APPIMAGE_ENV, image_exe());
+        for name in APPIMAGE_RUNTIME
+            .iter()
+            .chain(&["GDK_BACKEND", "GTK_THEME", "GDK_PIXBUF_MODULE_FILE"])
+            .chain(&["LD_LIBRARY_PATH"])
+        {
+            assert_eq!(fix_of(&fixes, name), Some(&None), "{name}: {fixes:?}");
+        }
+        assert_eq!(
+            fix_of(&fixes, "PATH"),
+            Some(&Some("/home/x/.local/bin:/usr/bin".to_owned()))
+        );
+        assert_eq!(
+            fix_of(&fixes, "XDG_DATA_DIRS"),
+            Some(&Some("/usr/share:/usr/local/share".to_owned()))
+        );
+        for kept in ["MY_TOOLS", "HOME", "SHELL"] {
+            assert_eq!(fix_of(&fixes, kept), None, "{kept}: {fixes:?}");
+        }
+    }
+
+    #[test]
+    fn outside_an_appimage_nothing_changes() {
+        // Without APPIMAGE, a user's own APPDIR or GDK_BACKEND stays.
+        let without_image: Vec<_> = APPIMAGE_ENV
+            .iter()
+            .copied()
+            .filter(|(name, _)| *name != "APPIMAGE")
+            .collect();
+        assert!(appimage_fixes(without_image, image_exe()).is_empty());
+        // A mount point of `/` would put every path inside the image.
+        let anywhere = Some(Path::new("/usr/bin/hangar"));
+        assert!(
+            appimage_fixes([("APPIMAGE", "/x.AppImage"), ("APPDIR", "/")], anywhere).is_empty()
+        );
+        assert!(
+            appimage_fixes([("APPIMAGE", "/x.AppImage"), ("APPDIR", "rel")], anywhere).is_empty()
+        );
+    }
+
+    #[test]
+    fn variables_of_an_image_hangar_does_not_run_from_stay() {
+        // Hangar installed from the .deb, started by a program that runs as an AppImage itself:
+        // its APPDIR is not Hangar's, and with APPDIR=/usr the fixes would strip /usr/bin.
+        let deb = Some(Path::new("/usr/bin/hangar"));
+        assert!(appimage_fixes(APPIMAGE_ENV, deb).is_empty());
+        let foreign = [
+            ("APPIMAGE", "/home/x/Other.AppImage"),
+            ("APPDIR", "/usr"),
+            ("PATH", "/usr/local/bin:/usr/bin"),
+        ];
+        assert!(appimage_fixes(foreign, Some(Path::new("/opt/hangar/hangar"))).is_empty());
+        assert!(appimage_fixes(APPIMAGE_ENV, None).is_empty());
+        // A folder that merely starts like the mount point does not count either.
+        let beside = Some(Path::new("/tmp/.mount_HangarAb12-other/usr/bin/hangar"));
+        assert!(appimage_fixes(APPIMAGE_ENV, beside).is_empty());
+    }
+
+    #[test]
+    fn appimage_fixes_are_written_to_the_child() {
+        let mut target = Recorded::default();
+        apply_fixes(&mut target, appimage_fixes(APPIMAGE_ENV, image_exe()));
+        assert!(target.0.contains(&"remove APPDIR".to_owned()));
+        assert!(target
+            .0
+            .contains(&"set PATH=/home/x/.local/bin:/usr/bin".to_owned()));
     }
 
     #[test]
