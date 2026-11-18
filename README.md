@@ -125,7 +125,7 @@ your own accounts, on your own machine. The desktop app is open source under the
 - **Your sub-agents in one place.** _Settings > Sub-agents_ lists your Claude Code agents from
   `~/.claude/agents` and your projects, and Codex CLI's own agent files. Add a new one by pasting it
   or from a file; Hangar never replaces a file unasked.
-- **A figure for every agent.** Each sub-agent wears a whole figure: one of 25 bundled ones or
+- **A figure for every agent.** Each sub-agent wears a whole figure: one of 31 bundled ones or
   your own image, also animated. A session started as a sub-agent wears it in the sidebar, and the
   crew column shows it while the sub-agent works.
 - **Start as an agent.** The arrow beside Claude Code starts a session as one of your sub-agents
@@ -239,9 +239,9 @@ your own accounts, on your own machine. The desktop app is open source under the
     <td width="50%" valign="top">
       <picture>
         <source media="(prefers-color-scheme: light)" srcset="docs/images/hangar-sub-agents-light.png">
-        <img alt="Settings, Sub-agents: the figure picker of the backend sub-agent open with all 25 bundled figures and the chosen one marked, below it the developer and frontend sub-agents with their figures and a model per program" src="docs/images/hangar-sub-agents-dark.png">
+        <img alt="Settings, Sub-agents: the figure picker of the backend sub-agent open with all 31 bundled figures and the chosen one marked, below it the developer sub-agent with its figure" src="docs/images/hangar-sub-agents-dark.png">
       </picture>
-      <br><sub>25 figures to choose from, a model per agent and per program, provided to Codex CLI as well.</sub>
+      <br><sub>31 figures to choose from, a model per agent and per program, provided to Codex CLI as well.</sub>
     </td>
   </tr>
   <tr>

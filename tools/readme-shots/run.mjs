@@ -204,7 +204,7 @@ const SCENES = [
     maxBytes: 300 * KB,
     layout: { snapLayout: "single", closedGroups: ["newSession"] },
     // A tall settings dialog, so the picker and the agents around it show together.
-    storage: { "hangar.settingsDialogSize": { width: 1100, height: 800 } },
+    storage: { "hangar.settingsDialogSize": { width: 1100, height: 740 } },
     steps: [
       { run: click(".footer-settings"), ready: shows("[role=tab]", "Sub-agents") },
       { run: click("[role=tab]", "Sub-agents"), ready: shows(".sub-agent-row") },
