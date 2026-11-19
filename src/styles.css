@@ -1670,8 +1670,8 @@ h2 .beta-badge {
   padding-bottom: 10px;
 }
 
-/* System bar: one row as tall as a group header above New session; CPU, RAM and GPU of the
-   machine. Each gauge is a small tile whose background is the sparkline of the last minute, with
+/* System bar: one row above New session, half a line taller than a group header so the
+   sparklines have room; CPU, RAM and GPU of the machine. Each gauge is a small tile whose background is the sparkline of the last minute, with
    the name on the left and the share on the right on top of it, so all three keep their graph,
    name and value down to the narrowest sidebar. The amounts behind RAM and GPU ("62 % 19.8 GB")
    join the share where their tiles have room for them; below that they live in the tooltip. */
@@ -1681,7 +1681,7 @@ h2 .beta-badge {
   flex: none;
   align-items: center;
   gap: 3px;
-  height: 24px;
+  height: 31px;
   padding: 2px 6px;
   font-size: 10px;
   font-variant-numeric: tabular-nums;
