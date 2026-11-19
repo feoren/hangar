@@ -219,6 +219,7 @@ import {
 } from "./usePower";
 import { pollInterval } from "./power";
 import { observeResources, setResourcesEnabled } from "./useSessionResources";
+import { setTreeFlow } from "./treeFlowStore";
 import {
   discardMessage,
   EMPTY_QUEUE,
@@ -1430,6 +1431,11 @@ export function App() {
       style.setProperty(name, value);
     }
   }, [settings.looks, theme]);
+
+  useEffect(() => {
+    // The flow on the tree guides: off, nothing is counted and nothing moves (treeFlowStore.ts).
+    setTreeFlow(settings.treeFlow);
+  }, [settings.treeFlow]);
 
   useEffect(() => {
     // How the working dots move (styles.css, `:root[data-dots]`).

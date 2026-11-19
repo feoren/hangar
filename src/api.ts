@@ -14,6 +14,7 @@ import type { PushEvent, PushInput } from "./phonePush";
 import type { ProtectedSettings, SecuritySwitches } from "./settings";
 import { backendErrorText } from "./backendError";
 import { InputStalled, inputQueue } from "./sessionInput";
+import { noteInput } from "./treeFlowStore";
 import type { FigureInput } from "./subAgentLibrary";
 import type { DefProgram, SubAgentSettings } from "./subAgentModels";
 import type { WorkspaceTemplate } from "./templates";
@@ -279,7 +280,11 @@ export const api = {
    * Input to a session, in order per session; a large paste goes in pieces below the backend's
    * limit, and a full input queue is waited out (sessionInput.ts).
    */
-  write: (id: number, data: string) => writeSession(id, data),
+  write: (id: number, data: string) => {
+    // The tree flow's input rate; returns at once while the flow is off.
+    noteInput(id, data);
+    return writeSession(id, data);
+  },
   resize: (id: number, size: TermSize) => invoke<null>("resize_session", { id, size }),
   ack: (id: number, bytes: number) => invoke<null>("ack_session", { id, bytes }),
   kill: (id: number) => invoke<null>("kill_session", { id }),

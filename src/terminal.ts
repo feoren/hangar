@@ -32,6 +32,7 @@ import { SubmittedLines } from "./handover";
 import { StepPrompt } from "./timeline";
 import { PtySizeSync } from "./ptySize";
 import { SCROLLBACK_LINES } from "./settings";
+import { noteOutput } from "./treeFlowStore";
 import type { Activity } from "./statusLine";
 import { tailLines } from "./overview";
 import { PEEK_COLUMNS, plainLines, styledTail, type PeekContent, type PeekLine } from "./peekStyle";
@@ -1183,6 +1184,7 @@ export class SessionTerminal {
       this.lastOutputAt = performance.now();
       this.endRestoreGrace();
       this.attention.output(event.bytes);
+      noteOutput(this.id, event.bytes);
       if (this.devServer.feed(event.data)) this.onDevServer?.(this.devServer.url);
       // Acknowledge as soon as xterm has processed the chunk: this is the backpressure to the backend.
       this.term.write(event.data, () => {

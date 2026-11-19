@@ -25,6 +25,8 @@ import { ProgramsSettings } from "./ProgramsSettings";
 import { AttentionSettings } from "./AttentionSettings";
 import { RangeField } from "./RangeField";
 import { RowLayoutField } from "./RowLayoutSettings";
+import { treeFlowSupported } from "./treeFlow";
+import { TreeFlowField } from "./TreeFlowSettings";
 import { clampScrollbackLines, SCROLLBACK_LINES, type Settings } from "./settings";
 import { DictationSettings } from "./DictationSettings";
 import { SnippetsSettings } from "./SnippetsSettings";
@@ -646,6 +648,13 @@ function AppearanceSection(props: Props) {
         language={settings.language}
         onChange={(rowLayout) => {
           onChange({ rowLayout });
+        }}
+      />
+      <TreeFlowField
+        value={settings.treeFlow}
+        supported={treeFlowSupported()}
+        onChange={(treeFlow) => {
+          onChange({ treeFlow });
         }}
       />
       <TerminalLookFields {...props} />
