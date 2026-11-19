@@ -114,6 +114,8 @@ import { useSessionResources } from "./useSessionResources";
 import { useGpuColumn } from "./useSystemUsage";
 import { SystemBar } from "./SystemBar";
 import { TeamUnavailable } from "./TeamUnavailable";
+import { litRows, TreeFlowElbow, TreeFlowRate, TreeFlowTrunk } from "./TreeFlowView";
+import { useTreeFlow } from "./treeFlowStore";
 import { displayVersion } from "./version";
 import { VersionText } from "./VersionText";
 
@@ -937,6 +939,13 @@ export function Sidebar(props: Props) {
       const hiddenWaiting = waitingIn(agents.sessions.filter((s) => !shownIds.has(s.id))).length;
       const groupProfile = profileById.get(agents.profileId);
       const project = agents.path;
+      // Tree flow: the way from the header to every working session lights up (TreeFlowView.tsx).
+      const flow = litRows(
+        `group:${agents.key}`,
+        groupRows,
+        (s) => s.id,
+        (s) => chipOf(s) === "working",
+      );
       return (
         <AgentGroupSection
           key={agents.key}
@@ -956,6 +965,7 @@ export function Sidebar(props: Props) {
           onToggle={props.onToggleAgentGroup}
           onMenu={openGroupingMenu}
         >
+          {flow.end !== null && <TreeFlowTrunk live={flow.live} />}
           {groupRows.map((session, index) => {
             const last = index === groupRows.length - 1;
             const tree = subAgentTree?.sessionId === session.id ? subAgentTree : null;
@@ -977,6 +987,7 @@ export function Sidebar(props: Props) {
                   chip={chipOf(session)}
                   editing={props.renamingId === session.id}
                   dragClass={rowDrag}
+                  flow={{ live: flow.live.includes(session.id), end: flow.end === session.id }}
                   placement={props.placements.get(session.id) ?? null}
                   peekEvents={peekHandlers(session.id)}
                   {...props}
@@ -1662,6 +1673,8 @@ interface ItemProps extends Props {
   editing: boolean;
   /** "dragging", "drop-before", "drop-after" or empty. */
   dragClass: string;
+  /** Tree flow: the row's way is lit (`live`), and its elbow ends the group's lit trunk. */
+  flow: { live: boolean; end: boolean };
   /** Where the session is shown in a split layout; `null` in single view or when hidden. */
   placement: PanePlacement | null;
   onRowKey: (event: React.KeyboardEvent<HTMLElement>, id: number) => void;
@@ -1681,6 +1694,7 @@ function SessionItem({
   chip,
   editing,
   dragClass,
+  flow,
   placement,
   onRowKey,
   peekEvents,
@@ -1734,6 +1748,8 @@ function SessionItem({
   const outlier = resources?.outlier === true ? t("session.outlier") : null;
   const usage = resources === undefined || exited ? null : resourceParts(resources, language);
   const gpuColumn = useGpuColumn();
+  // The tree flow's rate on the row: a cell kept while the session runs, the numbers while it works.
+  const showRate = useTreeFlow()?.showRate === true && !exited;
   const openDevServer =
     devServer === undefined ? null : t("session.openDevServer", { url: devServer });
   const className = [
@@ -1757,7 +1773,9 @@ function SessionItem({
       {...peekEvents}
     >
       {/* Guide line and elbow from the agent group's header, drawn like the sub-agent tree's. */}
-      <span className="tree-guide" aria-hidden="true" />
+      <span className="tree-guide" aria-hidden="true">
+        <TreeFlowElbow sessionId={session.id} live={flow.live} end={flow.end} />
+      </span>
       {editing ? (
         <div className="session-main">
           <input
@@ -1823,6 +1841,11 @@ function SessionItem({
             runtime={where.runtime}
             context={context}
             language={language}
+            rate={
+              showRate ? (
+                <TreeFlowRate sessionId={session.id} live={flow.live} language={language} />
+              ) : null
+            }
             signs={
               (gateOff !== null ||
                 overlap !== undefined ||

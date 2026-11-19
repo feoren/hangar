@@ -2149,6 +2149,306 @@ h2 .beta-badge {
   }
 }
 
+/* --- Tree flow (treeFlow.ts, TreeFlowView.tsx) ---
+   Optional: light flows along the tree guides from a group's header to every working session and
+   along a sub-agent branch to every running sub-agent. A trunk per group or branch (a list item
+   of its own, ended by an anchor on the last lit elbow) and an elbow per row lie over the dotted
+   guides; rows that are not live keep their parts faded out and still, so the flow fades in and
+   out. Only background-position moves, no script runs per frame. Three styles: a thin stream of
+   particles (3 px, soft glow), single pulses, or the guide's own dots lighting up and moving in
+   whole dot steps. The speed comes from the session's output rate in three levels. */
+:root {
+  --tree-flow-a: var(--accent);
+  --tree-flow-b: #b48cff;
+  --tree-flow-spark: #ffffff;
+  --tree-flow-tint: color-mix(in srgb, var(--tree-flow-a) 22%, transparent);
+  --tree-flow-glow: color-mix(in srgb, var(--tree-flow-a) 55%, transparent);
+  --tree-flow-dot-glow: color-mix(in srgb, var(--tree-flow-a) 70%, transparent);
+  --tree-flow-fade: 500ms;
+  /* The rate cell on a row: two values like "999 KB/s" in 11 px tabular digits, so the line does
+     not shift while the numbers change; a longer unit widens the cell rather than being cut. */
+  --fact-rate: 11.4em;
+}
+
+:root[data-theme="light"] {
+  --tree-flow-b: #7c4ddb;
+  --tree-flow-spark: color-mix(in srgb, var(--accent) 30%, #ffffff);
+}
+
+.tree-flow-line,
+.tree-flow-elbow {
+  position: absolute;
+  z-index: 1;
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity var(--tree-flow-fade) var(--ease-out);
+  animation-duration: var(--tree-flow-speed);
+  animation-timing-function: linear;
+  animation-iteration-count: infinite;
+  animation-play-state: paused;
+}
+
+.tree-flow-line.live,
+.tree-flow-elbow.live {
+  opacity: 1;
+  animation-play-state: running;
+}
+
+/* Thickness and offset from the guide: the stream and the pulses 3 px centered on the guide, the
+   lit dots exactly on it. */
+.tree-flow-line.flow-stream,
+.tree-flow-line.flow-pulse,
+.tree-flow-elbow.flow-stream,
+.tree-flow-elbow.flow-pulse {
+  --tree-flow-width: 3px;
+  --tree-flow-offset: 1px;
+}
+
+.tree-flow-line.flow-dots,
+.tree-flow-elbow.flow-dots {
+  --tree-flow-width: var(--tree-dot);
+  --tree-flow-offset: 0px;
+}
+
+.tree-flow-line[data-flow-level="1"],
+.tree-flow-elbow[data-flow-level="1"] {
+  --tree-flow-speed: 2.4s;
+}
+
+.tree-flow-line[data-flow-level="2"],
+.tree-flow-elbow[data-flow-level="2"] {
+  --tree-flow-speed: 1.2s;
+}
+
+.tree-flow-line[data-flow-level="3"],
+.tree-flow-elbow[data-flow-level="3"] {
+  --tree-flow-speed: 0.6s;
+}
+
+/* A group's trunk: from below the header's badge, as the dotted guide, to the last lit elbow. */
+.agent-rows > li.tree-flow-line {
+  top: calc(-7px + var(--tree-gap));
+  bottom: anchor(--tree-flow-end bottom);
+  left: calc(var(--agent-tree-x) - var(--tree-flow-offset));
+  width: var(--tree-flow-width);
+  margin: 0;
+}
+
+/* A session row's elbow, in its tree guide, from the trunk up to the row's frame. */
+.tree-guide > .tree-flow-elbow {
+  top: calc(var(--agent-elbow-y) - var(--tree-flow-offset));
+  left: 0;
+  width: var(--tree-step);
+  height: var(--tree-flow-width);
+}
+
+.tree-guide > .tree-flow-elbow.end {
+  anchor-name: --tree-flow-end;
+}
+
+/* A sub-agent branch: from below its session's row to the last lit sub-agent's elbow. */
+.subagent-tree > li.tree-flow-line {
+  top: 0;
+  bottom: anchor(--subagent-flow-end bottom);
+  left: calc(var(--subagent-indent) - var(--tree-flow-offset));
+  width: var(--tree-flow-width);
+}
+
+.subagent-tree-item > .tree-flow-elbow {
+  top: calc(12px - var(--tree-flow-offset));
+  left: 0;
+  width: var(--tree-elbow);
+  height: var(--tree-flow-width);
+}
+
+.subagent-tree-item > .tree-flow-elbow.end {
+  anchor-name: --subagent-flow-end;
+}
+
+/* Stream: three layers of particles in blue, violet and a spark, each with its own spacing and
+   pace, over a faint tint. */
+.tree-flow-line.flow-stream {
+  background:
+    radial-gradient(circle, var(--tree-flow-a) 0 0.8px, transparent 1.2px) 0 0 / 3px 7px,
+    radial-gradient(circle, var(--tree-flow-b) 0 0.7px, transparent 1.1px) 1px 3px / 3px 11px,
+    radial-gradient(circle, var(--tree-flow-spark) 0 0.5px, transparent 0.9px) 0 5px / 3px 17px,
+    linear-gradient(var(--tree-flow-tint), var(--tree-flow-tint));
+  border-radius: 2px;
+  box-shadow: 0 0 6px var(--tree-flow-glow);
+  animation-name: tree-flow-stream-y;
+}
+
+.tree-flow-elbow.flow-stream {
+  background:
+    radial-gradient(circle, var(--tree-flow-a) 0 0.8px, transparent 1.2px) 0 0 / 7px 3px,
+    radial-gradient(circle, var(--tree-flow-b) 0 0.7px, transparent 1.1px) 3px 1px / 11px 3px,
+    linear-gradient(var(--tree-flow-tint), var(--tree-flow-tint));
+  border-radius: 2px;
+  box-shadow: 0 0 6px var(--tree-flow-glow);
+  animation-name: tree-flow-stream-x;
+}
+
+/* Each layer moves a whole number of its tiles per round, so the loop has no seam. */
+@keyframes tree-flow-stream-y {
+  from {
+    background-position:
+      0 0,
+      1px 3px,
+      0 5px,
+      0 0;
+  }
+  to {
+    background-position:
+      0 42px,
+      1px 69px,
+      0 107px,
+      0 0;
+  }
+}
+
+@keyframes tree-flow-stream-x {
+  from {
+    background-position:
+      0 0,
+      3px 1px,
+      0 0;
+  }
+  to {
+    background-position:
+      42px 0,
+      69px 1px,
+      0 0;
+  }
+}
+
+/* Pulse: single points of light, slower than the stream. */
+.tree-flow-line.flow-pulse {
+  background: linear-gradient(
+      to bottom,
+      transparent 0 40%,
+      var(--tree-flow-a) 50%,
+      transparent 60% 100%
+    )
+    0 0 / 3px 60px;
+  filter: drop-shadow(0 0 3px var(--tree-flow-a));
+  animation-name: tree-flow-pulse-y;
+  animation-duration: calc(var(--tree-flow-speed) * 2.2);
+}
+
+.tree-flow-elbow.flow-pulse {
+  background: linear-gradient(
+      to right,
+      transparent 0 40%,
+      var(--tree-flow-a) 50%,
+      transparent 60% 100%
+    )
+    0 0 / 30px 3px;
+  filter: drop-shadow(0 0 3px var(--tree-flow-a));
+  animation-name: tree-flow-pulse-x;
+  animation-duration: calc(var(--tree-flow-speed) * 2.2);
+}
+
+@keyframes tree-flow-pulse-y {
+  from {
+    background-position: 0 -60px;
+  }
+  to {
+    background-position: 0 0;
+  }
+}
+
+@keyframes tree-flow-pulse-x {
+  from {
+    background-position: -30px 0;
+  }
+  to {
+    background-position: 0 0;
+  }
+}
+
+/* Flow: every fourth dot of the guide lights up; the light steps on one whole dot at a time, so
+   it stays as sharp as the guide at any display scale. */
+.tree-flow-line.flow-dots {
+  background: repeating-linear-gradient(
+    to bottom,
+    var(--tree-flow-a) 0 var(--tree-dot),
+    transparent var(--tree-dot) calc(4 * var(--tree-dot))
+  );
+  box-shadow: 0 0 4px var(--tree-flow-dot-glow);
+  animation-name: tree-flow-dots-y;
+  animation-duration: calc(var(--tree-flow-speed) * 0.5);
+  animation-timing-function: steps(8);
+}
+
+.tree-flow-elbow.flow-dots {
+  background: repeating-linear-gradient(
+    to right,
+    var(--tree-flow-a) 0 var(--tree-dot),
+    transparent var(--tree-dot) calc(4 * var(--tree-dot))
+  );
+  box-shadow: 0 0 4px var(--tree-flow-dot-glow);
+  animation-name: tree-flow-dots-x;
+  animation-duration: calc(var(--tree-flow-speed) * 0.5);
+  animation-timing-function: steps(8);
+}
+
+@keyframes tree-flow-dots-y {
+  from {
+    background-position: 0 0;
+  }
+  to {
+    background-position: 0 calc(8 * var(--tree-dot));
+  }
+}
+
+@keyframes tree-flow-dots-x {
+  from {
+    background-position: 0 0;
+  }
+  to {
+    background-position: calc(8 * var(--tree-dot)) 0;
+  }
+}
+
+/* Still with reduced motion and while saving energy on battery: the way stays lit. */
+@media (prefers-reduced-motion: reduce) {
+  .tree-flow-line,
+  .tree-flow-elbow {
+    animation: none;
+  }
+}
+
+:root.power-saving .tree-flow-line,
+:root.power-saving .tree-flow-elbow {
+  animation: none;
+}
+
+/* The rate at the end of a row's line: output in blue, input in violet. */
+.tree-flow-rate {
+  display: inline-flex;
+  flex: none;
+  gap: 0.6em;
+  justify-content: flex-end;
+  min-width: var(--fact-rate);
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+  opacity: 0;
+  transition: opacity var(--tree-flow-fade) var(--ease-out);
+}
+
+.tree-flow-rate.live {
+  opacity: 1;
+}
+
+.tree-flow-rate-down {
+  color: var(--tree-flow-a);
+}
+
+.tree-flow-rate-up {
+  color: var(--tree-flow-b);
+}
+
 /* Collapsed sessions with one waiting: dot with a ring, plus tooltip and screen reader text. */
 .group-waiting {
   display: inline-grid;

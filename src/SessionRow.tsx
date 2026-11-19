@@ -57,6 +57,11 @@ export interface RowBodyProps {
   session?: { subAgent?: string | null; cwd: string };
   /** The program's name for the figure's tooltip. */
   programName?: string;
+  /**
+   * The tree flow's rate cell (TreeFlowView.tsx), at the right end of one line: the load's line, else
+   * the last line below the title. Missing or `null`: none. It never makes a line show.
+   */
+  rate?: ReactNode;
 }
 
 function hasFigure(props: RowBodyProps): boolean {
@@ -108,10 +113,27 @@ function present(element: RowElement, props: RowBodyProps): boolean {
   }
 }
 
+/** Which planned line takes the rate cell; -1: none shows. */
+export function rateLine(
+  lines: readonly PlannedLine[],
+  present: (e: RowElement) => boolean,
+): number {
+  const shown = lines
+    .map((line, index) => ({ index, title: line.title, all: [...line.left, ...line.right] }))
+    .filter((line) => line.all.some(present));
+  const load = present("load") ? shown.find((line) => line.all.includes("load")) : undefined;
+  const below = shown.filter((line) => !line.title);
+  return (load ?? below[below.length - 1] ?? shown[shown.length - 1])?.index ?? -1;
+}
+
 export function SessionRowBody(props: RowBodyProps) {
   const { plan, context, language } = props;
   const t = useT();
   const hint = context === undefined ? null : contextHint(context, language, t);
+  const rateAt =
+    props.rate === undefined || props.rate === null
+      ? -1
+      : rateLine(plan.lines, (element) => present(element, props));
   const className = [
     "session-text",
     plan.lead === null ? "" : "has-lead",
@@ -123,7 +145,7 @@ export function SessionRowBody(props: RowBodyProps) {
     <span className={className}>
       {plan.lead !== null && <Spanning kind={plan.lead} end={false} {...props} />}
       {plan.lines.map((line, index) => (
-        <RowLineView key={index} planned={line} {...props} />
+        <RowLineView key={index} planned={line} withRate={index === rateAt} {...props} />
       ))}
       {plan.trail !== null && <Spanning kind={plan.trail} end {...props} />}
       {/* The context's exact numbers, once, wherever and however the row shows it. */}
@@ -165,7 +187,11 @@ function Avatar({ look, ...props }: { look: BadgeLook } & RowBodyProps) {
  * elements back in front (styles.css, "First line"). A run time keeps its empty cell on a line
  * that shows, so what follows it starts at the same place in every row.
  */
-function RowLineView({ planned: line, ...props }: { planned: PlannedLine } & RowBodyProps) {
+function RowLineView({
+  planned: line,
+  withRate,
+  ...props
+}: { planned: PlannedLine; withRate: boolean } & RowBodyProps) {
   const shows = (element: RowElement) => element === "runtime" || present(element, props);
   if (![...line.left, ...line.right].some((element) => present(element, props))) return null;
   const left = line.left.filter(shows);
@@ -188,8 +214,9 @@ function RowLineView({ planned: line, ...props }: { planned: PlannedLine } & Row
   return (
     <span className={className}>
       {after.map(element)}
-      {right.length > 0 && <span className="row-push" aria-hidden="true" />}
+      {(right.length > 0 || withRate) && <span className="row-push" aria-hidden="true" />}
       {right.map(element)}
+      {withRate && props.rate}
       {before.length > 0 && <span className="row-before-title">{before.map(element)}</span>}
     </span>
   );

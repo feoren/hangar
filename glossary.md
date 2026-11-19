@@ -299,3 +299,4 @@ UI texts in `src/i18n.ts` are translated per language and are not bound by this 
 | Login-Shell-PATH                                | login shell PATH                  | PATH of `$SHELL -ilc`, put in front at startup; `login_path.rs`                      |
 | AppImage-Variablen                              | AppImage variables                | what AppRun sets for Hangar, removed for child processes; `appimage_fixes`           |
 | Dateimanager                                    | file manager                      | Explorer, Finder or the Linux desktop's file manager; `revealLabelKey`               |
+| Datenfluss (Baumlinien)                         | tree flow                         | optional light on the sidebar tree guides to working sessions; `treeFlow.ts`         |

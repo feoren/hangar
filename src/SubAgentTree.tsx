@@ -21,6 +21,7 @@ import {
   visibleAgents,
   type SubAgent,
 } from "./subAgents";
+import { litRows, TreeFlowBranch, TreeFlowElbow } from "./TreeFlowView";
 import { useClock } from "./useClock";
 import { useSubAgentView } from "./useSubAgents";
 
@@ -62,6 +63,13 @@ export function SubAgentTree({
   const agents = visibleAgents(useSubAgentView(watchKey).view.agents, hidden);
   const tree = subAgentTree(agents, undefined, picked);
   const finished = finishedIds(agents);
+  // Tree flow: the branch to every running sub-agent lights up (TreeFlowView.tsx).
+  const flow = litRows(
+    `branch:${String(sessionId)}`,
+    tree.agents,
+    (agent) => agent.id,
+    (agent) => agent.status === "running",
+  );
   const list = useRef<HTMLUListElement>(null);
   /** Row that gets the keyboard focus once a removal has re-rendered the tree. */
   const focusAfter = useRef<string | null>(null);
@@ -90,10 +98,16 @@ export function SubAgentTree({
       aria-label={t("subAgents.region", { title: sessionTitle })}
       ref={list}
     >
+      {flow.end !== null && <TreeFlowBranch sessionId={sessionId} live={flow.live.length > 0} />}
       {tree.agents.map((agent) => (
         <SubAgentItem
           key={agent.id}
           agent={agent}
+          flow={{
+            sessionId,
+            live: agent.status === "running",
+            end: agent.id === flow.end,
+          }}
           cwd={cwd}
           now={now}
           picked={agent.id === picked}
@@ -156,8 +170,11 @@ export function SubAgentItem({
   picked,
   onShow,
   onClose,
+  flow,
 }: {
   agent: SubAgent;
+  /** Tree flow: the session the branch belongs to, whether this row is lit and ends the branch. */
+  flow?: { sessionId: number; live: boolean; end: boolean };
   /** The session's folder (`runningFigure`). */
   cwd: string | null;
   now: number;
@@ -190,6 +207,9 @@ export function SubAgentItem({
       className={closable ? "subagent-tree-item closable" : "subagent-tree-item"}
       data-agent={agent.id}
     >
+      {flow !== undefined && (
+        <TreeFlowElbow sessionId={flow.sessionId} live={flow.live} end={flow.end} />
+      )}
       <button
         type="button"
         className={`subagent-node agent ${agent.status}${picked ? " picked" : ""}`}

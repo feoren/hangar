@@ -50,6 +50,7 @@ describe("parseSettings", () => {
       },
       dotAnimation: "wave",
       rowLayout: presetLayout("ring"),
+      treeFlow: { enabled: true, style: "pulse", showRate: false },
       quietSeconds: 10,
       stallMinutes: 12,
       taskbarFlash: false,
@@ -137,6 +138,7 @@ describe("parseSettings", () => {
       dotAnimation: "spin",
       rowStyle: "fancy",
       rowLayout: "grid",
+      treeFlow: "on",
       sessionGrouping: "folder",
     };
     expect(parseSettings(JSON.stringify(stored), "de")).toEqual(defaultSettings("de"));

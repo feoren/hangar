@@ -14,6 +14,7 @@ import { clamp } from "./layout";
 import { isLanguage, type Language } from "./i18n";
 import { DEFAULT_PROGRAM_PREFS, parseProgramPrefs, type ProgramPrefs } from "./programPrefs";
 import { DEFAULT_ROW_LAYOUT, parseRowLayout, type RowLayout } from "./rowLayout";
+import { DEFAULT_TREE_FLOW, parseTreeFlow, type TreeFlowPrefs } from "./treeFlow";
 import { defaultSnippets, parseSnippets, type Snippet } from "./snippets";
 import {
   DEFAULT_TERMINAL_LOOK,
@@ -114,6 +115,8 @@ export interface Settings {
   dotAnimation: DotAnimation;
   /** How a session row in the sidebar lays out its facts: the row builder (rowLayout.ts). */
   rowLayout: RowLayout;
+  /** The animated flow on the sidebar's tree guides and the rate on the rows (treeFlow.ts). */
+  treeFlow: TreeFlowPrefs;
   quietSeconds: number;
   /**
    * Minutes without anything new on a working agent's screen before its row hints that it may be
@@ -258,6 +261,7 @@ export function defaultSettings(language: Language): Settings {
     looks: DEFAULT_LOOKS,
     dotAnimation: DEFAULT_DOT_ANIMATION,
     rowLayout: DEFAULT_ROW_LAYOUT,
+    treeFlow: DEFAULT_TREE_FLOW,
     quietSeconds: QUIET_SECONDS.default,
     stallMinutes: STALL_MINUTES.default,
     taskbarFlash: true,
@@ -351,6 +355,7 @@ export function parseSettings(text: string | null, fallbackLanguage: Language): 
     // Versions before the row builder stored one of fourteen row styles; it becomes its preset
     // once, and the next save stores the layout instead.
     rowLayout: parseRowLayout(get("rowLayout"), Reflect.get(raw, "rowStyle")),
+    treeFlow: parseTreeFlow(get("treeFlow")),
     quietSeconds:
       typeof quiet === "number" && Number.isFinite(quiet)
         ? clampQuietSeconds(quiet)

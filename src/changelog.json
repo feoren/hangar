@@ -2,7 +2,22 @@
   {
     "version": "0.12.0",
     "date": null,
-    "items": []
+    "items": [
+      {
+        "de": "Datenfluss: Auf Wunsch fließt Licht die Linien der Sidebar entlang zu arbeitenden Sessions, im Tempo ihrer Ausgabe. Unter Einstellungen > Darstellung.",
+        "en": "Data flow: if you like, light flows along the sidebar's lines to working sessions, at the pace of their output. Under Settings > Appearance.",
+        "el": "Ροή δεδομένων: αν θέλεις, φως κυλά στις γραμμές της πλαϊνής στήλης προς τις ενεργές συνεδρίες, στον ρυθμό της εξόδου τους. Ρυθμίσεις > Εμφάνιση.",
+        "es": "Flujo de datos: si quieres, la luz recorre las líneas de la barra lateral hacia las sesiones que trabajan, al ritmo de su salida. En Configuración > Apariencia.",
+        "fr": "Flux de données : si tu veux, la lumière parcourt les lignes de la barre latérale vers les sessions actives, au rythme de leur sortie. Paramètres > Apparence.",
+        "it": "Flusso di dati: se vuoi, la luce scorre lungo le linee della barra laterale verso le sessioni al lavoro, al ritmo del loro output. Impostazioni > Aspetto.",
+        "ja": "データフロー：作業中のセッションへ、出力の速さに合わせてサイドバーの線に光が流れます（任意）。設定 > 外観。",
+        "pl": "Przepływ danych: na życzenie światło płynie liniami paska bocznego do pracujących sesji, w tempie ich wyjścia. Ustawienia > Wygląd.",
+        "pt": "Fluxo de dados: se quiser, a luz percorre as linhas da barra lateral até as sessões que trabalham, no ritmo da saída. Em Configurações > Aparência.",
+        "ru": "Поток данных: по желанию свет бежит по линиям боковой панели к работающим сессиям в темпе их вывода. Настройки > Оформление.",
+        "tr": "Veri akışı: istersen kenar çubuğunun çizgilerinde çalışan oturumlara, çıktılarının hızında ışık akar. Ayarlar > Görünüm altında.",
+        "zh": "数据流：可选，光沿侧边栏的线条按输出速度流向正在工作的会话。在 设置 > 外观 中开启。"
+      }
+    ]
   },
   {
     "version": "0.11.0",
