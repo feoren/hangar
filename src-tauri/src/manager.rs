@@ -173,8 +173,8 @@ pub trait LaunchGate: Send + Sync {
     fn ended(&self, session: SessionId);
 }
 
-/// What sending cross-project messages (ADR 0012, `hangar-send`) adds to one process start of an
-/// agent session; empty for a session whose project has no partners.
+/// What sending with `hangar-send` (partner projects, ADR 0012; link groups, ADR 0014) adds to one
+/// process start of an agent session; empty for a shell or without the client.
 #[derive(Default)]
 pub struct SendLaunch {
     /// Set in the child's environment only, last of all.
@@ -483,7 +483,7 @@ struct Shared {
     /// The default model of every sub-agent per program, read at every agent process start
     /// ([`SessionManager::set_sub_agent_models`]).
     sub_agent_models: Mutex<BTreeMap<DefProgram, ModelChoice>>,
-    /// The send client for sessions with partner projects ([`SessionManager::set_launch_send`]).
+    /// The send client for agent sessions ([`SessionManager::set_launch_send`]).
     send: Mutex<Option<Arc<dyn LaunchSend>>>,
 }
 
@@ -1227,6 +1227,15 @@ impl SessionManager {
         list
     }
 
+    /// The start arguments of each session's profile, for telling an agent that runs without
+    /// asking before tools (`links::runs_without_prompts`).
+    pub fn session_args(&self) -> HashMap<SessionId, Vec<String>> {
+        lock(&self.shared.sessions)
+            .iter()
+            .map(|(id, entry)| (*id, entry.agent.profile.args.clone()))
+            .collect()
+    }
+
     /// Kind of the session, `None` for unknown ones.
     pub fn kind(&self, id: SessionId) -> Option<SessionKind> {
         lock(&self.shared.sessions).get(&id).map(|e| e.info.kind)
@@ -1881,7 +1890,8 @@ fn spawn(
     } else {
         agent_models::ModelLaunch::default()
     };
-    // Private and team sessions alike may send to partner projects; an installer never.
+    // Private and team sessions alike may send (partner projects, link groups); an installer
+    // never.
     let send = match (launch.kind, shared.launch_send()) {
         (SessionKind::Agent, Some(send)) => send.prepare(id, cwd, &program),
         _ => SendLaunch::default(),

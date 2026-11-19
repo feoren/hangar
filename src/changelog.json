@@ -2,7 +2,22 @@
   {
     "version": "0.12.0",
     "date": null,
-    "items": []
+    "items": [
+      {
+        "de": "Sessions verknüpfen: Wähle zwei oder mehr laufende Agenten aus, dann schreiben sie sich mit hangar-send gegenseitig. Eine farbige Kette zeigt die Gruppe.",
+        "en": "Link sessions: pick two or more running agents and they message each other with hangar-send. A colored chain marks the group.",
+        "el": "Σύνδεση sessions: διάλεξε δύο ή περισσότερους agents που τρέχουν και γράφουν ο ένας στον άλλον με το hangar-send. Μια χρωματιστή αλυσίδα δείχνει την ομάδα.",
+        "es": "Vincular sesiones: elige dos o más agentes en marcha y se escriben entre sí con hangar-send. Una cadena de color marca el grupo.",
+        "fr": "Relier des sessions : choisis deux agents en cours ou plus, et ils s’écrivent avec hangar-send. Une chaîne colorée marque le groupe.",
+        "it": "Collega sessioni: scegli due o più agenti in esecuzione e si scrivono con hangar-send. Una catena colorata indica il gruppo.",
+        "ja": "セッションの連携：実行中のエージェントを 2 つ以上選ぶと、hangar-send で互いにメッセージを送り合います。色付きのチェーンがグループを示します。",
+        "pl": "Łączenie sesji: wybierz co najmniej dwa działające agenty, a będą pisać do siebie przez hangar-send. Kolorowy łańcuch oznacza grupę.",
+        "pt": "Vincular sessões: escolha dois ou mais agentes em execução e eles se escrevem com hangar-send. Uma corrente colorida marca o grupo.",
+        "ru": "Связь сессий: выбери два или больше работающих агента, и они будут писать друг другу через hangar-send. Цветная цепочка отмечает группу.",
+        "tr": "Oturumları bağla: çalışan iki veya daha fazla agent seç, hangar-send ile birbirlerine yazsınlar. Renkli bir zincir grubu gösterir.",
+        "zh": "关联会话：选择两个或更多正在运行的代理，它们会通过 hangar-send 互相发送消息。彩色链条标出所在的组。"
+      }
+    ]
   },
   {
     "version": "0.11.0",

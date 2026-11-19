@@ -505,6 +505,32 @@ export const api = {
   /** Removes waiting message `id`: pasted into `pastedInto`, or discarded (`null`). */
   closeWaitingMessage: (id: number, pastedInto: number | null) =>
     invoke<null>("close_waiting_message", { id, pastedInto }),
+  /** Link groups, linkable sessions and their messages (ADR 0014); check with `parseLinkState`. */
+  linkState: () => invoke<unknown>("link_state"),
+  /** Links the running agent sessions `ids` into a new group; rejects with the reason. */
+  linkSessions: (ids: readonly number[]) => invoke<unknown>("link_sessions", { ids }),
+  /** Ends link group `group`; what still waits in it goes. */
+  unlinkGroup: (group: number) => invoke<null>("unlink_group", { group }),
+  /** New member names and the "Ask before pasting" toggle of link group `group`. */
+  editLinkGroup: (
+    group: number,
+    names: readonly { session: number; name: string }[],
+    askFirst: boolean,
+  ) => invoke<null>("edit_link_group", { group, names, askFirst }),
+  /**
+   * The checked text of link message `id` for session `to` (header line first), claimed for
+   * this one paste until `closeLinkMessage` or `holdLinkMessage`. `automatic`: pasted without a
+   * click, which the backend refuses once the message waits for one (toggle, brake).
+   */
+  linkMessageText: (id: number, to: number, automatic: boolean) =>
+    invoke<string>("link_message_text", { id, to, automatic }),
+  /** The person typed into session `id`; a link group's budget starts again. */
+  linkPersonTyped: (id: number) => invoke<null>("link_person_typed", { id }),
+  /** Link message `id` waits for a click from now on. */
+  holdLinkMessage: (id: number) => invoke<null>("hold_link_message", { id }),
+  /** Removes link message `id`: pasted into `pastedInto`, or discarded (`null`). */
+  closeLinkMessage: (id: number, pastedInto: number | null) =>
+    invoke<null>("close_link_message", { id, pastedInto }),
   /** Queued message texts per session key, `null` before the first save. */
   loadMessageQueue: () => invoke<unknown>("load_message_queue"),
   /** Replaces the stored queued messages; keys are session keys (UUIDs). */
@@ -918,6 +944,11 @@ export const GATE_CHANGED = "gate-changed";
  * read them with `waitingMessages`. Other webviews may hear it too, so it carries no text.
  */
 export const PARTNER_MESSAGES_CHANGED = "partner-messages-changed";
+/**
+ * Signal without payload: link groups, linkable sessions or link messages changed (ADR 0014);
+ * read them with `linkState`. Other webviews may hear it too, so it carries no text.
+ */
+export const LINK_GROUPS_CHANGED = "link-groups-changed";
 /**
  * Signal without payload: the account state changed; read it with `accountStatus`. Other webviews
  * may hear it too, so it carries nothing.

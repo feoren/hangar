@@ -14,6 +14,8 @@ import { useSubAgentLibrary } from "./subAgentLibraryStore";
 import { SessionLook } from "./SessionLook";
 import { exitDetail } from "./format";
 import { gateHint } from "./gate";
+import { LinkMarkSign, linkMarkText } from "./LinkMark";
+import { toggleSelection, type LinkMark } from "./links";
 import { queuedPreview, type QueuedMessage } from "./messageQueue";
 import type { WaitingMessage } from "./partnerInbox";
 import { WaitingMessages } from "./WaitingMessages";
@@ -286,6 +288,18 @@ interface Props {
   inboxGeneration: number;
   onInboxPaste: (sessionId: number, messageId: number, submit: boolean) => void;
   onInboxDiscard: (messageId: number) => void;
+  /** Members of link groups: the chain on each row (links.ts `linkMarks`). */
+  links: ReadonlyMap<number, LinkMark>;
+  /** Sessions that can be linked right now (links.ts `canLink`); only these can be selected. */
+  linkable: ReadonlySet<number>;
+  /** Links the sessions selected with Ctrl or Cmd click. */
+  onLinkSessions: (ids: number[]) => void;
+  /** Link messages that wait for a click, per target row ("Ask before pasting", loop brake). */
+  linkInbox: ReadonlyMap<number, readonly WaitingMessage[]>;
+  /** Link messages whose paste runs right now. */
+  linkBusy: ReadonlySet<number>;
+  onLinkPaste: (sessionId: number, messageId: number, submit: boolean) => void;
+  onLinkDiscard: (messageId: number) => void;
   /** Working agent sessions that showed nothing new for a while: since when (stall.ts). */
   stalls: ReadonlyMap<number, number>;
   /**
@@ -324,6 +338,22 @@ export function Sidebar(props: Props) {
   const newButton = useRef<HTMLButtonElement>(null);
   /** Program picker of the collapsed bar, open at this position. */
   const [programMenu, setProgramMenu] = useState<{ x: number; y: number } | null>(null);
+  /** Rows selected with Ctrl or Cmd click, to link them (ADR 0014). */
+  const [selected, setSelected] = useState<ReadonlySet<number>>(() => new Set());
+  // Only what can still be linked counts: a session that ended or joined a group drops out.
+  const linkPick = sessions.filter((s) => selected.has(s.id) && props.linkable.has(s.id));
+  const chosenIds = new Set(linkPick.map((s) => s.id));
+  const onSelectClick = (event: React.MouseEvent, id: number): boolean => {
+    if (!(event.ctrlKey || event.metaKey)) {
+      // A plain click opens the session and ends the selection.
+      if (selected.size > 0) setSelected(new Set());
+      return false;
+    }
+    const next = toggleSelection(chosenIds, id, props.linkable.has(id));
+    if (next === null) return false;
+    setSelected(next);
+    return true;
+  };
   /** The open "start as sub-agent" menu: its program and where it opens. */
   const [agentMenu, setAgentMenu] = useState<{
     profile: Profile;
@@ -746,7 +776,10 @@ export function Sidebar(props: Props) {
             const placement = props.placements.get(session.id);
             const placeText = placement === undefined ? "" : placementText(t, placement);
             // Messages from partner projects wait on the row; collapsed, only this mark shows it.
-            const waitingCount = props.inbox.get(session.id)?.length ?? 0;
+            const waitingCount =
+              (props.inbox.get(session.id)?.length ?? 0) +
+              (props.linkInbox.get(session.id)?.length ?? 0);
+            const link = props.links.get(session.id);
             const className = [
               "rail-session",
               session.id === activeId ? "active" : "",
@@ -782,6 +815,7 @@ export function Sidebar(props: Props) {
                       props.overlaps.get(session.id),
                       props.queued.has(session.id) ? t("queue.marker") : "",
                       waitingCount > 0 ? t("inbox.marker", { count: waitingCount }) : "",
+                      link === undefined ? "" : linkMarkText(link, t),
                       placeText,
                       markerColorText(session.marker, t),
                     ]
@@ -819,6 +853,7 @@ export function Sidebar(props: Props) {
                         {waitingCount}
                       </span>
                     )}
+                    {link !== undefined && <LinkMarkSign mark={link} rail />}
                     {props.overlaps.has(session.id) && (
                       <span className="rail-overlap" aria-hidden="true">
                         <OverlapIcon size={10} />
@@ -979,6 +1014,8 @@ export function Sidebar(props: Props) {
                   dragClass={rowDrag}
                   placement={props.placements.get(session.id) ?? null}
                   peekEvents={peekHandlers(session.id)}
+                  selected={chosenIds.has(session.id)}
+                  onSelectClick={onSelectClick}
                   {...props}
                   onClose={onClose}
                   onKill={onKill}
@@ -999,6 +1036,20 @@ export function Sidebar(props: Props) {
                         props.onInboxPaste(session.id, messageId, submit);
                       }}
                       onDiscard={props.onInboxDiscard}
+                    />
+                  </li>
+                )}
+                {/* Messages from members of its link group that wait for a click. */}
+                {props.linkInbox.has(session.id) && props.renamingId !== session.id && (
+                  <li className="waiting-messages-row">
+                    <WaitingMessages
+                      messages={props.linkInbox.get(session.id) ?? []}
+                      busy={props.linkBusy}
+                      generation={props.inboxGeneration}
+                      onPaste={(messageId, submit) => {
+                        props.onLinkPaste(session.id, messageId, submit);
+                      }}
+                      onDiscard={props.onLinkDiscard}
                     />
                   </li>
                 )}
@@ -1067,6 +1118,34 @@ export function Sidebar(props: Props) {
         </ul>
         <WaitingEdge edge="below" hint={edgeHints.below} onReveal={revealRow} />
       </div>
+      {/* Rows selected with Ctrl or Cmd click: link them, or end the selection. */}
+      {linkPick.length > 0 && (
+        <div className="link-selection" role="group" aria-label={t("links.title")}>
+          <span className="link-selection-count">
+            {t("links.selected", { count: linkPick.length })}
+          </span>
+          {linkPick.length >= 2 && (
+            <button
+              type="button"
+              className="primary-button link-selection-link"
+              onClick={() => {
+                props.onLinkSessions(linkPick.map((s) => s.id));
+                setSelected(new Set());
+              }}
+            >
+              {t("links.link")}
+            </button>
+          )}
+          <IconButton
+            label={t("links.clearSelection")}
+            onClick={() => {
+              setSelected(new Set());
+            }}
+          >
+            <CloseIcon />
+          </IconButton>
+        </div>
+      )}
       {groupingMenu !== null && (
         <PopupMenu
           items={[
@@ -1667,6 +1746,10 @@ interface ItemProps extends Props {
   onRowKey: (event: React.KeyboardEvent<HTMLElement>, id: number) => void;
   /** The row layout, made ready once for every row (rowLayout.ts planRow). */
   plan: RowPlan;
+  /** Selected with Ctrl or Cmd click, for linking. */
+  selected: boolean;
+  /** A click on the row: `true` when it changed the selection instead of opening the session. */
+  onSelectClick: (event: React.MouseEvent, id: number) => boolean;
 }
 
 function SessionItem({
@@ -1705,6 +1788,9 @@ function SessionItem({
   onAgentCommand,
   plan,
   badgeFor,
+  links,
+  selected,
+  onSelectClick,
 }: ItemProps) {
   const t = useT();
   // Read here rather than in the context line: the ring and the small bars show it too. Only this
@@ -1736,9 +1822,11 @@ function SessionItem({
   const gpuColumn = useGpuColumn();
   const openDevServer =
     devServer === undefined ? null : t("session.openDevServer", { url: devServer });
+  const link = links.get(session.id);
   const className = [
     "session",
     active ? "active" : "",
+    selected ? "selected" : "",
     exited ? "exited" : "",
     waiting ? "attention" : "",
     lookClass(rowLook(session, state, chip)),
@@ -1788,7 +1876,9 @@ function SessionItem({
           type="button"
           className="session-main"
           aria-current={active ? "true" : undefined}
-          onClick={() => {
+          aria-pressed={selected ? true : undefined}
+          onClick={(event) => {
+            if (onSelectClick(event, session.id)) return;
             onActivate(session.id);
           }}
           onDoubleClick={() => {
@@ -1827,6 +1917,7 @@ function SessionItem({
               (gateOff !== null ||
                 overlap !== undefined ||
                 outlier !== null ||
+                link !== undefined ||
                 queued ||
                 placement !== null ||
                 devServer !== undefined ||
@@ -1853,6 +1944,8 @@ function SessionItem({
                       <span className="sr-only">{outlier}</span>
                     </span>
                   )}
+                  {/* A member of a link group: the chain in its group's color. */}
+                  {link !== undefined && <LinkMarkSign mark={link} />}
                   {/* A queued message: a quiet clock, the text is in the peek. */}
                   {queued && (
                     <span className="session-queued">

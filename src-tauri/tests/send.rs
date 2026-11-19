@@ -1,6 +1,7 @@
-//! Cross-project messages from an agent (ADR 0012, part 2), end to end on this machine: the real
-//! `hangar-send` binary posts over HTTP to the hook endpoint on 127.0.0.1, with the environment a
-//! session of a project with partners gets, and the message waits in the partner inbox.
+//! Messages from an agent, end to end on this machine: the real `hangar-send` binary posts over
+//! HTTP to the hook endpoint on 127.0.0.1 with the environment an agent session gets. A message
+//! to a partner project (ADR 0012, part 2) waits in the partner inbox; one to a member of the
+//! sender's link group (ADR 0014) is queued for that member.
 
 use std::io::Write;
 use std::path::{Path, PathBuf};
@@ -9,6 +10,7 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 
 use hangar_lib::gate_service::GateService;
+use hangar_lib::link_service::{self, LinkService};
 use hangar_lib::main_store::MainStore;
 use hangar_lib::manager::LaunchSend;
 use hangar_lib::partner_service::{self, PartnerInbox, PartnerLaunch, Probe};
@@ -54,6 +56,8 @@ struct Fixture {
     store: MainStore,
     gate: GateService,
     inbox: PartnerInbox,
+    links: LinkService,
+    sessions: Arc<Mutex<Vec<SessionInfo>>>,
     launch: PartnerLaunch,
     signals: Arc<AtomicUsize>,
     app: PathBuf,
@@ -92,11 +96,16 @@ fn fixture(name: &str) -> Fixture {
     let mut shell = running(3, &app);
     shell.profile_id = "pwsh".into();
     let sessions = Arc::new(Mutex::new(vec![running(1, &app), running(2, &web), shell]));
+    let links = LinkService::new(|| {});
     let receiver = inbox.clone();
+    let linked = links.clone();
     let book_store = store.clone();
+    let listed = Arc::clone(&sessions);
     gate.set_messages(move |from, request| {
-        let list = sessions.lock().unwrap().clone();
-        receiver.answer_send(
+        let list = listed.lock().unwrap().clone();
+        link_service::answer_send(
+            &linked,
+            &receiver,
             &book_store.load_partners(),
             &list,
             from,
@@ -108,12 +117,15 @@ fn fixture(name: &str) -> Fixture {
             1,
         )
     });
-    let launch = PartnerLaunch::new(gate.clone(), store.clone(), Some(tmp.0.join("bin")));
+    let launch = PartnerLaunch::new(gate.clone(), store.clone(), Some(tmp.0.join("bin")))
+        .with_links(links.clone());
     Fixture {
         tmp,
         store,
         gate,
         inbox,
+        links,
+        sessions,
         launch,
         signals,
         app,
@@ -274,12 +286,24 @@ fn without_a_valid_token_nothing_is_sent() {
 }
 
 #[test]
-fn sessions_without_partners_get_nothing() {
+fn a_session_without_partners_or_group_gets_a_token_that_grants_nothing() {
     let fixture = fixture("send-no-partner");
     let other = fixture.tmp.0.join("other");
     std::fs::create_dir_all(other.join(".git")).unwrap();
-    let launch = fixture.launch.prepare(3, &other, Path::new(AGENT));
-    assert!(launch.env.is_empty() && launch.path_dir.is_none() && launch.hint.is_none());
+    fixture.sessions.lock().unwrap().push(running(4, &other));
+    // Every agent session gets the client, so it can be linked later (ADR 0014); the
+    // instructions name partners only where there are some.
+    let launch = fixture.launch.prepare(4, &other, Path::new(AGENT));
+    assert_eq!(launch.env.len(), 1);
+    assert!(launch.path_dir.is_some() && launch.hint.is_none());
+    let env = launch.env[0].1.to_string();
+    let refused = run(Some(&env), &["web", "x"]);
+    assert_eq!(refused.status.code(), Some(4), "{}", text(&refused.stderr));
+    assert!(text(&refused.stderr).contains("no link group"));
+    assert!(fixture
+        .inbox
+        .waiting(&fixture.store.load_partners())
+        .is_empty());
     // Without the client next to Hangar, no session is offered sending.
     let bare = PartnerLaunch::new(fixture.gate.clone(), fixture.store.clone(), None);
     assert!(bare
@@ -308,4 +332,71 @@ fn shell_sessions_do_not_send() {
         .inbox
         .waiting(&fixture.store.load_partners())
         .is_empty());
+}
+
+#[test]
+fn linked_agents_message_each_other_by_member_name() {
+    let fixture = fixture("send-linked");
+    let other = fixture.tmp.0.join("other");
+    std::fs::create_dir_all(other.join(".git")).unwrap();
+    let mut lone = running(4, &other);
+    lone.title = "Relay".into();
+    fixture.sessions.lock().unwrap().push(lone);
+    let app_env = send_env(&fixture, 1, &fixture.app);
+    let lone_env = send_env(&fixture, 4, &other);
+    let list = fixture.sessions.lock().unwrap().clone();
+    let group = fixture
+        .links
+        .link(
+            &[1, 4],
+            &list,
+            &|_| link_service::MemberFacts {
+                program: "Claude Code".into(),
+                unattended: false,
+            },
+            1,
+        )
+        .unwrap();
+    let names: Vec<&str> = group.members.iter().map(|m| m.name.as_str()).collect();
+    assert_eq!(names, ["t", "relay"]);
+    // Both got the introduction.
+    assert_eq!(fixture.links.snapshot(1, &|_| false).messages.len(), 2);
+
+    let sent = run(Some(&lone_env), &["t", "the relay is up"]);
+    assert_eq!(sent.status.code(), Some(0), "{}", text(&sent.stderr));
+    assert!(text(&sent.stdout).contains("as soon as the agent there waits"));
+    let all = run(Some(&app_env), &["all", "thanks"]);
+    assert_eq!(all.status.code(), Some(0), "{}", text(&all.stderr));
+    let queued: Vec<(u64, String)> = fixture
+        .links
+        .snapshot(1, &|_| false)
+        .messages
+        .into_iter()
+        .filter(|m| m.from_name.is_some())
+        .map(|m| (m.to, m.text))
+        .collect();
+    assert_eq!(
+        queued,
+        [(1, "the relay is up".to_owned()), (4, "thanks".to_owned())]
+    );
+
+    // A linked session still reaches its partner project by its short name.
+    let partner = run(Some(&app_env), &["web", "x"]);
+    assert_eq!(partner.status.code(), Some(0), "{}", text(&partner.stderr));
+    // Neither a member nor a partner: refused with the members named.
+    let unknown = run(Some(&lone_env), &["site", "x"]);
+    assert_eq!(unknown.status.code(), Some(4));
+    assert!(
+        text(&unknown.stderr).contains("Members: t"),
+        "{}",
+        text(&unknown.stderr)
+    );
+    let own = run(Some(&lone_env), &["relay", "x"]);
+    assert_eq!(own.status.code(), Some(6));
+
+    // Once the other member ends, the group ends and the token grants nothing again.
+    fixture.launch.ended(1);
+    assert!(fixture.links.snapshot(1, &|_| false).groups.is_empty());
+    let after = run(Some(&lone_env), &["t", "x"]);
+    assert_eq!(after.status.code(), Some(4), "{}", text(&after.stderr));
 }

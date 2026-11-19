@@ -51,7 +51,7 @@ function WaitingMessageCard({
 }) {
   const t = useT();
   const { armed, guard } = useArmDelay(`${String(message.id)}:${String(generation)}`);
-  const title = t("inbox.from", { project: message.from });
+  const title = message.title ?? t("inbox.from", { project: message.from });
   const button = (label: string, action: () => void, primary = false) => (
     <button
       type="button"

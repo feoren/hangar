@@ -6,7 +6,7 @@ superseded_by:
 tags: [daily-review, persistence, privacy, git]
 sources: []
 created: 2026-11-14
-updated: 2026-11-15
+updated: 2026-11-20
 ---
 
 # ADR 0011: Work log for the daily review
@@ -50,6 +50,12 @@ created for the user only (0700 and 0600 on Unix, like the notes; on Windows the
   working phase once, when it ends (`log_work_phase`: session id and two times; the backend adds
   the details), never per output chunk. The phase ends at the program's last output, not when
   the quiet time noticed it. Update sessions are not logged.
+- **Messages:** a cross-project message ([[0012-cross-project-messages]]) adds `message` with
+  the target's `toKey` and `toCwd`; a message delivered inside a link group
+  ([[0014-session-links]]) adds `linkMessage` with the same fields and the sender's `member`
+  name. Neither carries the text, and the review counts neither as work. A `linkMessage` is
+  checked like a phase: a valid member name and a time no later than a minute from now and no
+  earlier than 48 hours ago.
 - **Never stored:** terminal output, prompts, environment variables, secrets, file contents.
 - **Titles are kept, on purpose.** Without them the review cannot say which session did what.
   A title Hangar derives from the first prompt ([[agent-workflow-features]]) is the start of

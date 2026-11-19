@@ -20,6 +20,7 @@ import {
 import {
   api,
   errorText,
+  LINK_GROUPS_CHANGED,
   NOTIFICATION_ACTIVATED,
   PARTNER_MESSAGES_CHANGED,
   parseActivatedSession,
@@ -123,6 +124,26 @@ import {
 } from "./handover";
 import { HandoverDialog } from "./HandoverDialog";
 import { PartnerMessageDialog, type PartnerSend, type TargetView } from "./PartnerMessageDialog";
+import { LinkDialog, LinkGroupDialog } from "./LinkDialog";
+import {
+  BRAKE_WINDOW_MS,
+  deliverAutomatically,
+  EMPTY_LINKS,
+  groupOf,
+  INTRO_PATIENCE_MS,
+  MESSAGE_PATIENCE_MS,
+  TYPING_PATIENCE_MS,
+  heldBySession,
+  linkCandidates,
+  linkMarks,
+  linkOffer,
+  newlyBraked,
+  nextDeliveries,
+  parseLinkState,
+  type LinkMessage,
+  type LinkState,
+} from "./links";
+import { currentPlatform } from "./platform";
 import { deliverMessage, deliveryPlan, parsePartnerTargets } from "./partnerMessage";
 import {
   inboxBySession,
@@ -864,6 +885,21 @@ export function App() {
   const lastWaitingIds = useRef("");
   /** The waiting messages already seen, so an arrival is announced once. */
   const seenWaiting = useRef<Set<number> | null>(null);
+  /** Link groups, linkable sessions and their messages (ADR 0014), as the backend keeps them. */
+  const [linkState, setLinkState] = useState<LinkState>(EMPTY_LINKS);
+  /** The open link dialog: link a session with others, or edit a group. */
+  const [linkDialog, setLinkDialog] = useState<
+    { kind: "link"; id: number } | { kind: "edit"; group: number } | null
+  >(null);
+  /** Held link messages whose paste after a click runs right now. */
+  const [linkBusy, setLinkBusy] = useState<ReadonlySet<number>>(() => new Set());
+  /** Targets whose automatic delivery runs right now: one message at a time per target. */
+  const linkDelivering = useRef<Set<number>>(new Set());
+  /** The link groups for listeners outside React (the terminals' key handlers). */
+  const linkStateRef = useRef(linkState);
+  useEffect(() => {
+    linkStateRef.current = linkState;
+  });
   /** A handover text that was not pasted (the new agent never turned bracketed paste on). */
   const [unpastedHandover, setUnpastedHandover] = useState<{
     text: string;
@@ -1194,6 +1230,18 @@ export function App() {
       });
   });
 
+  /** Reads the link groups (on start and after each `link-groups-changed`). */
+  const loadLinksRef = useRef(() => {
+    api
+      .linkState()
+      .then((value) => {
+        setLinkState(parseLinkState(value));
+      })
+      .catch((e: unknown) => {
+        setError(errorText(e));
+      });
+  });
+
   // A new message no row can show (no agent session runs in its project) is named once; one a
   // row shows speaks for itself. After a restart that includes the messages that still wait.
   useEffect(() => {
@@ -1211,6 +1259,27 @@ export function App() {
     const [first] = unshownMessages(fresh, rows);
     if (first !== undefined) setStartHint(t("inbox.arrived", { from: first.from, to: first.to }));
   }, [waitingMessages, partnerBook, state.sessions, profiles, t]);
+
+  // A group whose loop brake turns on says so once; its messages then wait below the rows.
+  const previousGroups = useRef(linkState.groups);
+  useEffect(() => {
+    if (newlyBraked(previousGroups.current, linkState.groups).length > 0) {
+      setStartHint(t("links.braked"));
+    }
+    previousGroups.current = linkState.groups;
+  }, [linkState.groups, t]);
+  // The backend tells when the brake turns on, not when a quiet minute released it: ask again
+  // then, so the hint does not outlast it.
+  const anyBraked = linkState.groups.some((entry) => entry.braked);
+  useEffect(() => {
+    if (!anyBraked) return;
+    const timer = window.setTimeout(() => {
+      loadLinksRef.current();
+    }, BRAKE_WINDOW_MS + 1000);
+    return () => {
+      window.clearTimeout(timer);
+    };
+  }, [anyBraked, linkState.groups]);
 
   /**
    * Loads the profile list. Focus and visibility often both fire on return; the running
@@ -1288,6 +1357,7 @@ export function App() {
       })
       .catch(showError);
     loadWaitingRef.current();
+    loadLinksRef.current();
     getVersion()
       .then(async (v) => {
         setVersion(withBuild(v, HANGAR_BUILD));
@@ -2222,6 +2292,12 @@ export function App() {
         confirmPaste(stateRef.current.sessions.find((s) => s.id === id)?.title ?? "")(warning);
       terminal.onImagePasteFailed = () => {
         setStartHint(createTranslator(settingsRef.current.language)("paste.imageFailed"));
+      };
+      // The person's own Enter in a link group member: the group's budget starts again.
+      terminal.onPersonSubmit = () => {
+        if (groupOf(linkStateRef.current, id) !== undefined) {
+          api.linkPersonTyped(id).catch(() => undefined);
+        }
       };
       // An agent session is named after its first task, unless the user named it (promptTitle.ts).
       terminal.onPromptLine = (line) => {
@@ -3325,6 +3401,12 @@ export function App() {
       })
         .then(keep)
         .catch(() => undefined);
+      // A bare signal as well: link messages carry an agent's text.
+      listen(LINK_GROUPS_CHANGED, () => {
+        loadLinksRef.current();
+      })
+        .then(keep)
+        .catch(() => undefined);
       // A bare signal: the results name program paths, so they come from a main-only command.
       listen(PROGRAM_UPDATE_RESULT, () => {
         api
@@ -4150,6 +4232,11 @@ export function App() {
   /** The session may show a question, so a command's Enter would answer it (`asksQuestion`). */
   const sessionAsks = (id: number) =>
     asksQuestion(reasons.get(id) ?? null, () => terminals.get(id)?.screenLines() ?? []);
+  // A delivery that waits for a long time asks again with the newest values, not its render's.
+  const sessionAsksRef = useRef(sessionAsks);
+  useEffect(() => {
+    sessionAsksRef.current = sessionAsks;
+  });
 
   /**
    * An agent command into one running session, sent like "Send to several" (agentCommands.ts);
@@ -4740,6 +4827,23 @@ export function App() {
   }, []);
 
   const profileById = new Map(profiles.map((profile) => [profile.id, profile]));
+  /** Link messages that wait for a click, as cards below their target's row. */
+  const linkInboxRows = new Map(
+    [...heldBySession(linkState.messages)].map(([to, list]) => [
+      to,
+      list.map((message) => ({
+        id: message.id,
+        from: message.fromName ?? "hangar",
+        to: String(message.to),
+        text: message.text,
+        at: message.at,
+        title:
+          message.fromName === null
+            ? t("links.fromHangar")
+            : t("links.from", { name: message.fromName }),
+      })),
+    ]),
+  );
   /** Where messages from partner projects wait: on each running agent session of their project. */
   const inboxRows = inboxBySession(
     waitingMessages,
@@ -5312,6 +5416,19 @@ export function App() {
       case "partner":
         setPartnerId(id);
         break;
+      case "link":
+        setLinkDialog({ kind: "link", id });
+        break;
+      case "linkEdit": {
+        const group = groupOf(linkState, id);
+        if (group !== undefined) setLinkDialog({ kind: "edit", group: group.id });
+        break;
+      }
+      case "unlink": {
+        const group = groupOf(linkState, id);
+        if (group !== undefined) api.unlinkGroup(group.id).catch(showError);
+        break;
+      }
       case "report":
         exportReport(id);
         break;
@@ -5359,6 +5476,8 @@ export function App() {
             menuSession.kind !== "update" &&
             shellKind(profileById.get(menuSession.profileId)?.command ?? "") === "agent" &&
             partnersOfSession(menuSession).length > 0,
+          // Only where another session could join; members edit or unlink their group.
+          link: linkOffer(linkState, menuSession, state.sessions),
           commands:
             sessionCommands(menuSession, profiles).length > 0 && !sessionAsks(menuSession.id),
           crewShown: settings.crewColumn,
@@ -5668,6 +5787,206 @@ export function App() {
   /** Discards waiting message `id`; nothing of it stays. */
   const discardWaiting = (id: number) => {
     api.closeWaitingMessage(id, null).catch(showError);
+  };
+
+  /**
+   * Pastes link message `message` into its target after the person's click, the way a partner
+   * message is pasted (ADR 0014): held while the target works, pasted once it can take a paste,
+   * then Enter when `submit`. The backend checks the target again, heads the text and claims the
+   * message; it goes once it was pasted, and a paste that did not get through frees it again.
+   */
+  const pasteLinkMessage = async (message: LinkMessage, submit: boolean) => {
+    const terminal = terminals.get(message.to);
+    if (!terminal) return { kind: "gone" } as const;
+    const gone = () => terminals.get(message.to) !== terminal;
+    const result = await deliverMessage(
+      {
+        working: () => terminal.attention.state === "working",
+        gone,
+        onHeld: () => undefined,
+        ready: () =>
+          waitUntilReady(
+            {
+              bracketedPaste: () => terminal.bracketedPaste(),
+              quietFor: () => {
+                const last = terminal.activity().lastOutput;
+                return last === null ? null : Date.now() - last;
+              },
+              gone,
+            },
+            delay,
+          ),
+        bracketedPaste: () => terminal.bracketedPaste(),
+        prepare: () => api.linkMessageText(message.id, message.to, false),
+        paste: (text) => terminal.pasteAndWait(text),
+        submit: () => {
+          terminal.submit();
+        },
+        wait: delay,
+      },
+      submit,
+      BROADCAST_ENTER_DELAY_MS,
+    );
+    if (result.kind === "pasted") {
+      await api.closeLinkMessage(message.id, message.to).catch(showError);
+    } else if (result.kind !== "refused") {
+      // Claimed by `prepare`, not pasted: free it for the next click.
+      await api.holdLinkMessage(message.id).catch(() => undefined);
+    }
+    return result;
+  };
+
+  /**
+   * Delivers a link message on its own, with Enter, once its target went quiet after working and
+   * nobody types there (links.ts `autoReadiness`, `deliverAutomatically`). Whatever stops it turns
+   * it into a message that waits for a click, so nothing is lost or retried without end. The
+   * introduction waits only a few seconds: a session that never worked may show a trust dialog,
+   * which an Enter would answer.
+   */
+  const deliverLinkMessage = async (message: LinkMessage) => {
+    const terminal = terminals.get(message.to);
+    if (!terminal) return;
+    linkDelivering.current.add(message.to);
+    const gone = () => terminals.get(message.to) !== terminal;
+    try {
+      const intro = message.fromName === null;
+      const result = await deliverAutomatically(
+        {
+          facts: () => ({
+            state: terminal.attention.state,
+            reason: terminal.attention.reason,
+            endedBy: terminal.attention.endedBy,
+            // On its own, the Enter would answer a question or permission dialog the target
+            // shows (agentCommands.ts `asksQuestion`), so the message holds until it is answered.
+            asks: sessionAsksRef.current(message.to),
+            gatePending: gateWaitingRef.current.has(message.to),
+            ...terminal.personInput(),
+          }),
+          gone,
+          bracketedPaste: () => terminal.bracketedPaste(),
+          quietFor: () => {
+            const last = terminal.activity().lastOutput;
+            return last === null ? null : Date.now() - last;
+          },
+          take: () => api.linkMessageText(message.id, message.to, true),
+          paste: (text) => terminal.pasteAndWait(text),
+          submit: () => {
+            terminal.submit();
+          },
+          close: () => api.closeLinkMessage(message.id, message.to).then(() => undefined),
+          wait: delay,
+        },
+        {
+          waitWhileWorking: !intro,
+          patienceMs: intro ? INTRO_PATIENCE_MS : MESSAGE_PATIENCE_MS,
+          typingPatienceMs: TYPING_PATIENCE_MS,
+        },
+        BROADCAST_ENTER_DELAY_MS,
+      );
+      if (result !== "pasted") {
+        await api.holdLinkMessage(message.id).catch(() => undefined);
+        if (result === "timeout" || result === "typing" || result === "failed") {
+          setStartHint(t("links.notReady", { session: titleOf(message.to) }));
+        }
+      }
+    } finally {
+      linkDelivering.current.delete(message.to);
+      loadLinksRef.current();
+    }
+  };
+
+  // Link messages that go on their own (ADR 0014): one at a time per target, each once the
+  // target waits for input. The effect runs again whenever the backend's list changes; the ref
+  // takes this render's function first, so it never delivers with a stale one.
+  const deliverLinkRef = useRef<(message: LinkMessage) => void>(() => undefined);
+  useEffect(() => {
+    deliverLinkRef.current = (message) => {
+      void deliverLinkMessage(message);
+    };
+  });
+  useEffect(() => {
+    for (const message of nextDeliveries(linkState.messages, linkDelivering.current)) {
+      deliverLinkRef.current(message);
+    }
+  }, [linkState.messages]);
+
+  /** Pastes held link message `id` into session `to` after the person's click. */
+  const pasteHeldLink = async (to: number, id: number, submit: boolean) => {
+    const message = linkState.messages.find((entry) => entry.id === id && entry.to === to);
+    if (message === undefined || linkBusy.has(id)) return;
+    setLinkBusy((current) => new Set(current).add(id));
+    try {
+      const result = await pasteLinkMessage(message, submit);
+      const name = titleOf(to);
+      switch (result.kind) {
+        case "pasted":
+          if (!submit) {
+            dispatch({ type: "activated", id: to });
+            focusTerminal();
+          }
+          break;
+        case "notReady":
+          setStartHint(t("partner.notReady", { session: name }));
+          break;
+        case "refused":
+          showError(result.error);
+          break;
+        case "gone":
+        case "pasteFailed":
+          setStartHint(t("partner.unsent", { session: name }));
+          break;
+      }
+    } finally {
+      setLinkBusy((current) => {
+        const next = new Set(current);
+        next.delete(id);
+        return next;
+      });
+    }
+  };
+
+  /** Discards held link message `id`; nothing of it stays. */
+  const discardLink = (id: number) => {
+    api.closeLinkMessage(id, null).catch(showError);
+  };
+
+  const closeLinkDialog = () => {
+    setLinkDialog(null);
+    focusActive();
+  };
+  /** The group the "Edit group" dialog shows; gone once the group ended. */
+  const editedGroup =
+    linkDialog?.kind === "edit"
+      ? linkState.groups.find((entry) => entry.id === linkDialog.group)
+      : undefined;
+  const saveLinkGroup = async (
+    names: { session: number; name: string }[],
+    askFirst: boolean,
+  ): Promise<string | null> => {
+    if (editedGroup === undefined) return null;
+    try {
+      await api.editLinkGroup(editedGroup.id, names, askFirst);
+      closeLinkDialog();
+      return null;
+    } catch (e) {
+      return errorText(e);
+    }
+  };
+  const linkFromDialog = async (ids: number[]): Promise<string | null> => {
+    const problem = await linkSessions(ids);
+    if (problem === null) closeLinkDialog();
+    return problem;
+  };
+
+  /** Links sessions `ids`; answers why not, or `null` once linked. */
+  const linkSessions = async (ids: readonly number[]): Promise<string | null> => {
+    try {
+      await api.linkSessions(ids);
+      loadLinksRef.current();
+      return null;
+    } catch (e) {
+      return errorText(e);
+    }
   };
 
   /** The project cards' partner list (ProjectPartners.tsx). */
@@ -6054,6 +6373,19 @@ export function App() {
             void pasteWaiting(sessionId, messageId, submit);
           }}
           onInboxDiscard={discardWaiting}
+          links={linkMarks(linkState)}
+          linkable={new Set(linkCandidates(linkState, state.sessions).map((s) => s.id))}
+          onLinkSessions={(ids) => {
+            void linkSessions(ids).then((problem) => {
+              if (problem !== null) setError(problem);
+            });
+          }}
+          linkInbox={linkInboxRows}
+          linkBusy={linkBusy}
+          onLinkPaste={(sessionId, messageId, submit) => {
+            void pasteHeldLink(sessionId, messageId, submit);
+          }}
+          onLinkDiscard={discardLink}
           stalls={stalls}
           peekRequest={peekRequest}
           rowLayout={settings.rowLayout}
@@ -6959,6 +7291,26 @@ export function App() {
               void handOver(handoverSession.id, profile);
             }}
             onClose={closeHandover}
+          />
+        )}
+        {linkDialog?.kind === "link" && (
+          <LinkDialog
+            candidates={linkCandidates(linkState, state.sessions)}
+            initial={[linkDialog.id]}
+            badgeFor={badgeFor}
+            programOf={(profileId) => profileById.get(profileId)?.name ?? profileId}
+            unattended={linkState.unattended}
+            selectKey={currentPlatform() === "mac" ? "\u2318" : t("key.ctrl")}
+            onLink={linkFromDialog}
+            onClose={closeLinkDialog}
+          />
+        )}
+        {editedGroup !== undefined && (
+          <LinkGroupDialog
+            group={editedGroup}
+            titleOf={titleOf}
+            onSave={saveLinkGroup}
+            onClose={closeLinkDialog}
           />
         )}
         {partnerSession !== undefined && (

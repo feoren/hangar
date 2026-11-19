@@ -1,15 +1,18 @@
-//! `hangar-send`: sends a cross-project message (ADR 0012) from an agent session in Hangar to an
-//! agent session of a partner project. Hangar puts it on the `PATH` of sessions whose project has
-//! partners; the message then waits in Hangar until the person there pastes or discards it.
+//! `hangar-send`: sends a message from an agent session in Hangar to a member of its link group
+//! (ADR 0014), to every other member (`all`), or to an agent session of a partner project
+//! (ADR 0012). Hangar puts it on the `PATH` of every agent session. Inside a link group the
+//! message is pasted on its own once the target waits for input; to a partner project it waits in
+//! Hangar until the person there pastes or discards it.
 //!
 //! ```text
-//! hangar-send <partner> <message...>
-//! hangar-send <partner> < message.txt
+//! hangar-send <name> <message...>
+//! hangar-send <name> < message.txt
 //! ```
 //!
 //! It posts to the send route of Hangar's endpoint on 127.0.0.1, with the port and token from the
-//! session's environment (`HANGAR_SEND=<port>:<token>`). Hangar checks everything (partnership,
-//! length, control characters); this program only carries the text and reports the answer.
+//! session's environment (`HANGAR_SEND=<port>:<token>`). Hangar checks everything (link group,
+//! partnership, length, control characters); this program only carries the text and reports the
+//! answer.
 //!
 //! Its own binary, not a mode of `hangar`, so it stays small (the standard library and
 //! serde_json, none of Hangar's code) and has a name no shell alias shadows. The names it shares
@@ -30,15 +33,16 @@ const MAX_ANSWER_BYTES: u64 = 64 * 1024;
 const TIMEOUT: Duration = Duration::from_secs(10);
 
 const USAGE: &str = "\
-Usage: hangar-send <partner> <message...>
-       hangar-send <partner> < file
+Usage: hangar-send <name> <message...>
+       hangar-send <name> < file
 
-Sends a message to an agent session of a partner project in Hangar. The message waits
-there until the person pastes or discards it. Partners are the short names Hangar lists
-for this project.
+Sends a message to another agent session in Hangar. <name> is a member name of this
+session's link group, all for every other member, or the short name of a partner
+project. Inside a link group the message is pasted once the other agent waits for
+input; to a partner project it waits until the person there pastes or discards it.
 
-Exit codes: 0 waiting, 1 failed, 2 usage, 3 no Hangar session, 4 unknown partner,
-5 too many waiting messages, 6 message refused.";
+Exit codes: 0 waiting or queued, 1 failed, 2 usage, 3 no Hangar session,
+4 unknown member or partner, 5 too many waiting messages, 6 message refused.";
 
 /// The exit codes, documented in [`USAGE`].
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -79,7 +83,7 @@ fn parse_args(args: &[String]) -> Result<Command, String> {
         }
     }
     let Some((partner, text)) = words.split_first() else {
-        return Err("name the partner project".to_owned());
+        return Err("name the member or partner project".to_owned());
     };
     Ok(Command::Send {
         partner: (*partner).to_owned(),
@@ -154,8 +158,8 @@ fn parse_response(raw: &[u8]) -> Option<(u16, Option<(String, String)>)> {
 fn outcome(status: u16, answer: Option<(String, String)>) -> (Exit, String) {
     if let Some((code, message)) = answer {
         let exit = match code.as_str() {
-            "waiting" => Exit::Waiting,
-            "not_partner" => Exit::NotPartner,
+            "waiting" | "queued" => Exit::Waiting,
+            "not_partner" | "not_member" => Exit::NotPartner,
             "full" => Exit::Full,
             "refused" => Exit::Refused,
             "no_session" | "not_agent" => Exit::NoHangar,
@@ -204,7 +208,7 @@ fn run(args: &[String]) -> (Exit, String) {
             Exit::NoHangar,
             format!(
                 "This is no Hangar session that can send ({SEND_ENV} is not set). Hangar sets it \
-                 in agent sessions of projects with partner projects."
+                 in agent sessions it starts."
             ),
         );
     };
@@ -356,7 +360,9 @@ mod tests {
         assert_eq!(outcome(status, answer), (Exit::Full, "5 wait".to_owned()));
         for (code, exit) in [
             ("waiting", Exit::Waiting),
+            ("queued", Exit::Waiting),
             ("not_partner", Exit::NotPartner),
+            ("not_member", Exit::NotPartner),
             ("refused", Exit::Refused),
             ("no_session", Exit::NoHangar),
             ("other", Exit::Failed),
@@ -400,6 +406,7 @@ mod tests {
         ] {
             assert_eq!(exit as u8, number);
         }
-        assert!(USAGE.contains("0 waiting, 1 failed, 2 usage, 3 no Hangar session"));
+        assert!(USAGE.contains("0 waiting or queued, 1 failed, 2 usage, 3 no Hangar session"));
+        assert!(USAGE.contains("4 unknown member or partner, 5 too many waiting messages"));
     }
 }

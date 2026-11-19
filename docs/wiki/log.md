@@ -1160,3 +1160,16 @@ The `server-check` scene (Settings > Account, Test connection with a missing pro
 ## [2026-11-19] query | Link groups of sessions
 ADR 0014 accepted: link groups of running agent sessions with automatic delivery inside the
 group. Pages changed: [[0014-session-links]].
+
+## [2026-11-20] query | Link groups built
+ADR 0014 implemented: every agent session gets the send client, link groups in memory, member
+names, introduction, automatic delivery with the loop brake and the toggle, chain marks in the
+sidebar and the rail. Choices filed under "As built". Pages changed: [[0014-session-links]], index.
+
+## [2026-11-20] query | Link groups hardened
+After the security and acceptance reviews: permissions for the link commands with a contract
+test in both directions, stricter readiness for the automatic Enter, the toggle and the brake
+checked again when the text is fetched, claim before paste, a budget of 20 automatic deliveries,
+a header that names the sender as an agent with an indented text, groups with an agent without
+prompts ask first, and a `linkMessage` work log record. Pages changed: [[0014-session-links]],
+[[0011-work-log-and-daily-review]].

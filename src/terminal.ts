@@ -218,6 +218,12 @@ export class SessionTerminal {
   private readonly devServer = new DevServerDetector();
   /** The user typed, pasted or sent text since `takeTyped` last asked. */
   private typedSinceTaken = false;
+  /** When the person last pressed a key here (wall clock), `null` before any. */
+  private personKeyAt: number | null = null;
+  /** The person typed since their last Enter: a half-typed line may stand at the prompt. */
+  private personDraft = false;
+  /** The person pressed Enter here themselves (not Hangar's `submit`). */
+  onPersonSubmit: (() => void) | null = null;
   /** How the program in the session reads a pasted image path; the app knows its profile. */
   shellKind: () => ShellKind = () => "agent";
   /** An image paste of this session is waiting for the backend (clipboardPaste.ts). */
@@ -324,10 +330,11 @@ export class SessionTerminal {
       this.trackTyped(data);
     });
     // Real key presses only, not xterm's automatic replies (cursor position, focus).
-    this.term.onKey(() => {
+    this.term.onKey(({ key }) => {
       this.typedSinceTaken = true;
       this.attention.typed();
       this.programSelection.keyTyped();
+      this.personKey(key);
     });
     // xterm has no OSC 52 handler: the clipboard write is only read here, not carried out, and
     // `false` leaves it to any later handler. Only a program that tracks the mouse can have
@@ -947,6 +954,28 @@ export class SessionTerminal {
     const typed = this.typedSinceTaken;
     this.typedSinceTaken = false;
     return typed;
+  }
+
+  /**
+   * What the person's own keys tell (link groups, ADR 0014): when they last typed here and
+   * whether a line they began still waits for its Enter. Hangar's own pastes do not count.
+   */
+  personInput(now: number = Date.now()): { typedAgoMs: number | null; draft: boolean } {
+    return {
+      typedAgoMs: this.personKeyAt === null ? null : Math.max(0, now - this.personKeyAt),
+      draft: this.personDraft,
+    };
+  }
+
+  private personKey(key: string): void {
+    this.personKeyAt = Date.now();
+    // Enter sends the line; Ctrl+C clears it in the agent CLIs.
+    if (key === "\r" || key === "\x03") {
+      this.personDraft = false;
+      if (key === "\r") this.onPersonSubmit?.();
+    } else {
+      this.personDraft = true;
+    }
   }
 
   /** Like `takeTyped`, without resetting: whether the work that starts now follows input. */

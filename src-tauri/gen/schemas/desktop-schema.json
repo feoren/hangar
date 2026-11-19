@@ -291,6 +291,12 @@
           "markdownDescription": "Enables the clear_scrollbacks command without any pre-configured scope."
         },
         {
+          "description": "Enables the close_link_message command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-close-link-message",
+          "markdownDescription": "Enables the close_link_message command without any pre-configured scope."
+        },
+        {
           "description": "Enables the close_panel_window command without any pre-configured scope.",
           "type": "string",
           "const": "allow-close-panel-window",
@@ -483,6 +489,12 @@
           "markdownDescription": "Enables the dictation_take_text command without any pre-configured scope."
         },
         {
+          "description": "Enables the edit_link_group command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-edit-link-group",
+          "markdownDescription": "Enables the edit_link_group command without any pre-configured scope."
+        },
+        {
           "description": "Enables the export_note command without any pre-configured scope.",
           "type": "string",
           "const": "allow-export-note",
@@ -615,16 +627,46 @@
           "markdownDescription": "Enables the hangar_worktree_size command without any pre-configured scope."
         },
         {
+          "description": "Enables the hold_link_message command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-hold-link-message",
+          "markdownDescription": "Enables the hold_link_message command without any pre-configured scope."
+        },
+        {
           "description": "Enables the kill_session command without any pre-configured scope.",
           "type": "string",
           "const": "allow-kill-session",
           "markdownDescription": "Enables the kill_session command without any pre-configured scope."
         },
         {
+          "description": "Enables the link_message_text command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-link-message-text",
+          "markdownDescription": "Enables the link_message_text command without any pre-configured scope."
+        },
+        {
           "description": "Enables the link_partner command without any pre-configured scope.",
           "type": "string",
           "const": "allow-link-partner",
           "markdownDescription": "Enables the link_partner command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the link_person_typed command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-link-person-typed",
+          "markdownDescription": "Enables the link_person_typed command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the link_sessions command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-link-sessions",
+          "markdownDescription": "Enables the link_sessions command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the link_state command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-link-state",
+          "markdownDescription": "Enables the link_state command without any pre-configured scope."
         },
         {
           "description": "Enables the list_hangar_worktrees command without any pre-configured scope.",
@@ -1257,6 +1299,12 @@
           "markdownDescription": "Enables the team_status command without any pre-configured scope."
         },
         {
+          "description": "Enables the unlink_group command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-unlink-group",
+          "markdownDescription": "Enables the unlink_group command without any pre-configured scope."
+        },
+        {
           "description": "Enables the unlink_partner command without any pre-configured scope.",
           "type": "string",
           "const": "allow-unlink-partner",
@@ -1411,6 +1459,12 @@
           "type": "string",
           "const": "deny-clear-scrollbacks",
           "markdownDescription": "Denies the clear_scrollbacks command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the close_link_message command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-close-link-message",
+          "markdownDescription": "Denies the close_link_message command without any pre-configured scope."
         },
         {
           "description": "Denies the close_panel_window command without any pre-configured scope.",
@@ -1605,6 +1659,12 @@
           "markdownDescription": "Denies the dictation_take_text command without any pre-configured scope."
         },
         {
+          "description": "Denies the edit_link_group command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-edit-link-group",
+          "markdownDescription": "Denies the edit_link_group command without any pre-configured scope."
+        },
+        {
           "description": "Denies the export_note command without any pre-configured scope.",
           "type": "string",
           "const": "deny-export-note",
@@ -1737,16 +1797,46 @@
           "markdownDescription": "Denies the hangar_worktree_size command without any pre-configured scope."
         },
         {
+          "description": "Denies the hold_link_message command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-hold-link-message",
+          "markdownDescription": "Denies the hold_link_message command without any pre-configured scope."
+        },
+        {
           "description": "Denies the kill_session command without any pre-configured scope.",
           "type": "string",
           "const": "deny-kill-session",
           "markdownDescription": "Denies the kill_session command without any pre-configured scope."
         },
         {
+          "description": "Denies the link_message_text command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-link-message-text",
+          "markdownDescription": "Denies the link_message_text command without any pre-configured scope."
+        },
+        {
           "description": "Denies the link_partner command without any pre-configured scope.",
           "type": "string",
           "const": "deny-link-partner",
           "markdownDescription": "Denies the link_partner command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the link_person_typed command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-link-person-typed",
+          "markdownDescription": "Denies the link_person_typed command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the link_sessions command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-link-sessions",
+          "markdownDescription": "Denies the link_sessions command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the link_state command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-link-state",
+          "markdownDescription": "Denies the link_state command without any pre-configured scope."
         },
         {
           "description": "Denies the list_hangar_worktrees command without any pre-configured scope.",
@@ -2377,6 +2467,12 @@
           "type": "string",
           "const": "deny-team-status",
           "markdownDescription": "Denies the team_status command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the unlink_group command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-unlink-group",
+          "markdownDescription": "Denies the unlink_group command without any pre-configured scope."
         },
         {
           "description": "Denies the unlink_partner command without any pre-configured scope.",

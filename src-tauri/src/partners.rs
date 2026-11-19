@@ -333,8 +333,10 @@ pub fn in_project(project: &NamedProject, place: &SessionPlace<'_>) -> bool {
         || key_within(&path_key(place.cwd.as_ref()), &folder)
 }
 
-/// The start of the header line ([`compose`]); no line of a message may begin with it.
-const HEADER_START: &str = "[Message from project ";
+/// The start of every header line, a partner project's ([`compose`]) and a link group member's
+/// (`links::compose`); no line of a message may begin with it, so no text poses as another
+/// sender.
+const HEADER_START: &str = "[Message from ";
 
 /// Characters that change how a text reads without being seen, as `src/invisible.ts` lists them:
 /// bidi embeddings, overrides, isolates and marks (the "Trojan Source" trick), the Arabic letter
@@ -361,7 +363,7 @@ fn is_hidden(c: char) -> bool {
 /// bracketed paste early or send keys) and the invisible characters of [`is_hidden`];
 /// surrounding blank space trimmed. Refused, not cut or changed: empty, longer than
 /// [`MAX_MESSAGE_CHARS`] (a cut instruction could mean something else), or a line that starts
-/// like the header, so no text can pose as a message from another project.
+/// like a header, so no text can pose as a message from another project or link group member.
 pub fn clean_message(text: &str) -> Result<String, PartnerError> {
     let cleaned: String = text
         .replace("\r\n", "\n")

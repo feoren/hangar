@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-link-message-text"
+description = "Enables the link_message_text command without any pre-configured scope."
+commands.allow = ["link_message_text"]
+
+[[permission]]
+identifier = "deny-link-message-text"
+description = "Denies the link_message_text command without any pre-configured scope."
+commands.deny = ["link_message_text"]

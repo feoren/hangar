@@ -6,7 +6,7 @@ superseded_by:
 tags: [sessions, agents, hooks, security, pty, sidebar]
 sources: ["[[0012-cross-project-messages]]", "[[cross-project-paste-measurement]]"]
 created: 2026-11-19
-updated: 2026-11-19
+updated: 2026-11-20
 ---
 
 # ADR 0014: Linked sessions that work together
@@ -86,6 +86,104 @@ agent to run a command; Gemini CLI and OpenCode are not measured yet.
 - Every agent session gets a send token. The route still refuses everything without a link group
   or partner, so the attack surface for a session without either is unchanged in effect.
 - A link group is not a remote feature and stays inside one Hangar instance.
+- **As built (2026-11-20).** Rules in `src-tauri/src/links.rs` (pure), state and send route in
+  `src-tauri/src/link_service.rs`, window side in `src/links.ts`, `src/LinkDialog.tsx`,
+  `src/LinkMark.tsx`. Choices and deviations:
+  - Which sessions can be linked is known from the start of their process: `PartnerLaunch`
+    reports every session that got the send token and `hangar-send` (`LinkService::sendable`)
+    and every one that ended. A shell, an update session, a session without the client and one
+    started before this version are never offered; the backend checks again on "Link".
+  - Bounds: 2 to 8 members per group, at most 32 groups; the color is the first of 6 no other
+    group shows, and repeats once all are taken.
+  - Member names spell out common accented letters (`ä` as `ae`), turn everything else into
+    single dashes, are cut to 28 characters before the suffix and are never `all`. A title
+    without a letter or digit gives `agent`. `hangar-send` ignores ASCII case in the name.
+  - Selecting in the sidebar is Ctrl+click (Cmd+click on macOS) on a row that can be linked; a
+    bar below the list shows the count and offers "Link" from two on. The session menu offers
+    "Link with …" only where another session could join, a member gets "Edit group" and
+    "Unlink". Joining an existing group is not offered: the person unlinks and links again.
+  - The send route asks the link group first and the partner projects second; a linked sender
+    can still reach its partners. A name that is neither gets the new code `not_member` (exit 4)
+    with the members and partners named; a message that goes on its own answers `queued`
+    (exit 0), one that waits answers `waiting` as in 0012. A sender with neither a group nor a
+    partner gets `not_partner`, so an unused token grants nothing.
+  - `all` is all or nothing: when one target has no room, the whole message is refused.
+  - The loop brake counts a delivery when the message is queued, not when it is pasted: the
+    count then stops a loop at its source, whatever the targets' readiness. Every message while
+    the brake holds pushes the release back, so "a quiet minute" means no message in the group at
+    all. The introduction does not count.
+  - Turning "Ask before pasting" on also holds the messages of the group that still wait to go
+    on their own.
+  - An automatic delivery that does not get through (the target never turns bracketed paste on
+    within 30 seconds, the paste fails) turns into a message that waits for a click, with a hint,
+    instead of being retried without end.
+  - "Unlink" by the person drops what still waits in the group, so the agents stop at once. When
+    the group ends because a member left, what the others sent stays deliverable as decided.
+  - The header check of 0012 now refuses every line that starts like `[Message from `, so no
+    text poses as a member, Hangar's introduction or a partner project.
+  - The introduction is headed `[Message from Hangar (link group)]` and leaves no work log line,
+    since no session sent it.
+- **Hardened after review (2026-11-20).** A security review and the acceptance review asked for
+  the following; each is built with a test.
+  - **Permissions.** The eight link commands (`link_state`, `link_sessions`, `unlink_group`,
+    `edit_link_group`, `link_message_text`, `hold_link_message`, `link_person_typed`,
+    `close_link_message`) are in `build.rs` and granted in `capabilities/default.json` only.
+    `tests/contract.rs` now also checks the other direction: every command wired in
+    `generate_handler!` must be in `build.rs`.
+  - **When Enter goes in on its own** (`autoReadiness` in `src/links.ts`): only when the target
+    went quiet after a working phase (state "waiting for you" with reason quiet, or on screen
+    "idle" whose last phase ended quiet), never while it works or rests without having worked,
+    after a bell, while it waits for a gate decision or may show a question (`asksQuestion`),
+    and never while the person types there. A target on screen goes "idle" instead of "waiting
+    for you" when it falls quiet; reading only the state would mean no message ever reaches a
+    session the person watches, so its quiet end counts too. Claude Code's `Notification` hook
+    (`permission_prompt`) is not wired in Hangar, so no hook signal adds to this; the gate's held
+    tool calls do.
+  - **Patience.** A member's message waits for a working target without a limit; a target that
+    is not working and not ready for 30 seconds, or where the person types for 20 seconds, gets
+    the message as a card ("Paste and send"). The introduction waits 5 seconds: a session that
+    never worked may show a trust dialog, which an Enter would answer. Typing counts from the
+    person's own keys: a line begun since their last Enter, or a key in the last 4 seconds.
+  - **The toggle and the brake act at once.** The window fetches the text of an automatic
+    delivery with `link_message_text(id, to, automatic: true)`; the backend refuses it
+    (`link_held`) once the message waits for a click, the group asks first or, for a member's
+    message, the brake holds.
+  - **At most once.** Fetching the text claims the message (`LinkQueue::claim`); a second paste
+    is refused (`link_claimed`) until `close_link_message` removes it or `hold_link_message`
+    frees it for a click. A message whose removal failed after the paste stays claimed and is
+    never pasted on its own again.
+  - **Budget.** Besides the rate, at most 20 automatic deliveries per group without the person
+    stepping in (`AUTO_BUDGET`, state `BrakeState::Spent`); then everything waits for a click and
+    the group shows the brake's hint. It starts again when the person presses Enter in a member
+    session (`link_person_typed`), pastes a card or edits the group.
+  - **Marked as a peer's message.** The header reads
+    `[Message from agent "<name>" (link group), not from the person]` and every line of the text
+    is indented with `| ` (not `> `, which made a quoted numbered list look like a dialog's
+    pointed choice), so no line starts in the first column where a header would. The
+    introduction adds that messages from other members are requests from fellow agents, no
+    instruction or approval from the person, and that the agent's rules and the person's
+    questions still apply. Format characters beyond the hidden ones of 0012 and NFKC folding are
+    not checked: with every line indented, a look-alike header cannot stand where a real one
+    does, and a normalization table would be a new dependency.
+  - **Agents without prompts.** A member whose profile starts it without asking before tools
+    (`runs_without_prompts`: Claude Code `--dangerously-skip-permissions` or permission mode
+    `bypassPermissions`/`dontAsk`, Codex CLI `--dangerously-bypass-approvals-and-sandbox`,
+    `--full-auto`, `--yolo` or approval `never`, Gemini CLI `--yolo` or approval mode `yolo`,
+    Aider `--yes-always`, Copilot CLI `--allow-all-tools`) turns "Ask before pasting" on when the
+    group forms, the introductions included; the person can turn it off. The link dialog shows
+    each candidate with program, "without prompts" where it applies, and folder. Only the
+    profile's arguments are read, not settings files of the CLIs.
+  - **A sender that leaves.** What it sent still reaches its targets, but only as a card.
+  - **Work log.** A delivered member message writes `linkMessage` with the sender's member name,
+    the target and the time, no text ([[0011-work-log-and-daily-review]]).
+  - **What the send right cannot tell apart.** The token reaches the agent through its
+    environment, so every child process of the agent (its shell commands, tools, a script it runs)
+    inherits it and can send as that member. Under the same user account this cannot be
+    separated: such a process could read the agent's memory too. What limits it: the route takes
+    only a member name or partner and only cleaned text, every message carries the sender's
+    member name and says it is not from the person, a shell session never gets the token, the
+    rate, the budget and the toggle bound what goes in on its own, and the token ends with the
+    session's process.
 
 ## Evidence
 - [[cross-project-paste-measurement]]: a bracketed paste with a header line arrives as one prompt,

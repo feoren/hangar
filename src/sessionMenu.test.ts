@@ -228,4 +228,41 @@ describe("stall hint entries", () => {
     }).find((item) => item.key === "interrupt");
     expect(entry?.type === "action" ? entry.label : "").toBe("Strg+C senden");
   });
+
+  it("offers linking only where it works, and editing and unlinking to members", () => {
+    const keys = (link: "link" | "member" | null | undefined) =>
+      sessionMenuEntries({ status: "running" }, t, false, {
+        queue: null,
+        stall: null,
+        partner: true,
+        ...(link === undefined ? {} : { link }),
+      }).map((entry) => entry.key);
+    expect(keys(undefined)).toEqual(["rename", "marker", "partner", "sep", "kill", "close"]);
+    expect(keys(null)).toEqual(keys(undefined));
+    expect(keys("link")).toEqual(["rename", "marker", "partner", "link", "sep", "kill", "close"]);
+    expect(keys("member")).toEqual([
+      "rename",
+      "marker",
+      "partner",
+      "linkEdit",
+      "unlink",
+      "sep",
+      "kill",
+      "close",
+    ]);
+    const labels = sessionMenuEntries({ status: "running" }, t, false, {
+      queue: null,
+      stall: null,
+      link: "member",
+    }).map((entry) => (entry.type === "action" ? entry.label : ""));
+    expect(labels).toContain("Edit group …");
+    expect(labels).toContain("Unlink");
+    const german = createTranslator("de");
+    const link = sessionMenuEntries({ status: "running" }, german, false, {
+      queue: null,
+      stall: null,
+      link: "link",
+    })[2];
+    expect(link?.type === "action" ? link.label : "").toBe("Verknüpfen mit …");
+  });
 });

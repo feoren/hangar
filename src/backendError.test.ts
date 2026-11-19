@@ -54,6 +54,31 @@ describe("backendErrorText", () => {
     ).toBe(t("partnerError.nameInUse"));
   });
 
+  it("shows link group errors in the window's own words", () => {
+    // The codes of `LinkError` (links.rs) the window can meet; the rest only reach agents.
+    const codes: [string, MessageKey][] = [
+      ["link_too_few", "linkError.tooFew"],
+      ["link_too_many", "linkError.tooMany"],
+      ["link_twice", "linkError.twice"],
+      ["link_already", "linkError.already"],
+      ["link_groups_full", "linkError.groupsFull"],
+      ["link_not_linkable", "linkError.notLinkable"],
+      ["link_unknown_group", "linkError.unknownGroup"],
+      ["link_not_member", "linkError.notMember"],
+      ["link_name", "links.nameInvalid"],
+      ["link_name_reserved", "links.nameReserved"],
+      ["link_name_taken", "links.nameTwice"],
+      ["link_message_gone", "partnerError.messageGone"],
+      ["link_wrong_target", "linkError.wrongTarget"],
+      ["link_claimed", "linkError.claimed"],
+    ];
+    for (const [code, key] of codes) {
+      const text = backendErrorText(`[${code}] English text`);
+      expect(text, code).toBe(t(key));
+      expect(text, code).not.toBe("English text");
+    }
+  });
+
   it("keeps the text of an unknown code, without the code", () => {
     expect(backendErrorText("[later_kind] Something new")).toBe("Something new");
   });

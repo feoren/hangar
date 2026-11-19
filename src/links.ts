@@ -1,0 +1,444 @@
+// Link groups (ADR 0014), the window's part: reads the backend's state, decides which sessions
+// can be linked (running agent sessions that got the send client, in no group yet), how each
+// member row is marked, which link messages go on their own and which wait for a click below a
+// row, and checks member names in the link dialog. Pure; the backend keeps the groups and checks
+// everything again (links.rs, link_service.rs).
+
+import type { AttentionReason, AttentionState } from "./attention";
+import { READY_QUIET_MS } from "./handover";
+
+/** Colors of the fixed palette (`--link-0` to `--link-5` in styles.css; backend `PALETTE_SIZE`). */
+export const LINK_COLORS = 6;
+/** Members of one group (backend `MAX_MEMBERS`). */
+export const MAX_LINK_MEMBERS = 8;
+/** The loop brake's window and the quiet time that releases it (backend `BRAKE_WINDOW_MS`). */
+export const BRAKE_WINDOW_MS = 60_000;
+/** Names every other member in `hangar-send all`; no member carries it (backend `ALL`). */
+export const ALL_MEMBERS = "all";
+
+export interface LinkMember {
+  session: number;
+  name: string;
+}
+
+/** The backend's `GroupView`. */
+export interface LinkGroup {
+  id: number;
+  /** Index into the palette, below LINK_COLORS. */
+  color: number;
+  askFirst: boolean;
+  /** The loop brake holds messages right now. */
+  braked: boolean;
+  members: LinkMember[];
+}
+
+/** The backend's `LinkMessageView`. */
+export interface LinkMessage {
+  id: number;
+  group: number;
+  /** The sender's member name; `null` for Hangar's introduction. */
+  fromName: string | null;
+  to: number;
+  /** Cleaned by the backend, without the header line. */
+  text: string;
+  at: number;
+  /** Pasted with Enter once the target waits for input; else it waits for a click. */
+  auto: boolean;
+  /** A paste of it runs right now. */
+  claimed: boolean;
+}
+
+/** The backend's `LinkSnapshot`. */
+export interface LinkState {
+  groups: LinkGroup[];
+  /** Sessions whose current process got the send client. */
+  sendable: ReadonlySet<number>;
+  /** Of those, the ones whose agent runs without asking before tools. */
+  unattended: ReadonlySet<number>;
+  messages: LinkMessage[];
+}
+
+export const EMPTY_LINKS: LinkState = {
+  groups: [],
+  sendable: new Set(),
+  unattended: new Set(),
+  messages: [],
+};
+
+const NAME = /^[a-z0-9-]{1,32}$/;
+
+/** A member name as the backend takes it: `[a-z0-9-]{1,32}`, not "all". */
+export function validMemberName(name: string): boolean {
+  return NAME.test(name) && name !== ALL_MEMBERS;
+}
+
+function id(value: unknown): number | null {
+  return typeof value === "number" && Number.isSafeInteger(value) && value >= 0 ? value : null;
+}
+
+function member(value: unknown): LinkMember | null {
+  if (typeof value !== "object" || value === null) return null;
+  const session = id(Reflect.get(value, "session"));
+  const name: unknown = Reflect.get(value, "name");
+  if (session === null || typeof name !== "string" || !validMemberName(name)) return null;
+  return { session, name };
+}
+
+function group(value: unknown): LinkGroup | null {
+  if (typeof value !== "object" || value === null) return null;
+  const groupId = id(Reflect.get(value, "id"));
+  const color = id(Reflect.get(value, "color"));
+  const askFirst: unknown = Reflect.get(value, "askFirst");
+  const braked: unknown = Reflect.get(value, "braked");
+  const members: unknown = Reflect.get(value, "members");
+  if (groupId === null || color === null || color >= LINK_COLORS) return null;
+  if (typeof askFirst !== "boolean" || typeof braked !== "boolean") return null;
+  if (!Array.isArray(members)) return null;
+  const parsed = members.map(member);
+  if (parsed.length < 2 || parsed.some((entry) => entry === null)) return null;
+  return {
+    id: groupId,
+    color,
+    askFirst,
+    braked,
+    members: parsed.filter((entry): entry is LinkMember => entry !== null),
+  };
+}
+
+function message(value: unknown): LinkMessage | null {
+  if (typeof value !== "object" || value === null) return null;
+  const messageId = id(Reflect.get(value, "id"));
+  const groupId = id(Reflect.get(value, "group"));
+  const fromName: unknown = Reflect.get(value, "fromName");
+  const to = id(Reflect.get(value, "to"));
+  const text: unknown = Reflect.get(value, "text");
+  const at: unknown = Reflect.get(value, "at");
+  const auto: unknown = Reflect.get(value, "auto");
+  const claimed: unknown = Reflect.get(value, "claimed");
+  if (messageId === null || messageId === 0 || groupId === null || to === null) return null;
+  if (fromName !== null && (typeof fromName !== "string" || !validMemberName(fromName))) {
+    return null;
+  }
+  if (typeof text !== "string" || text.trim() === "") return null;
+  if (typeof at !== "number" || !Number.isFinite(at) || typeof auto !== "boolean") return null;
+  if (typeof claimed !== "boolean") return null;
+  return { id: messageId, group: groupId, fromName, to, text, at, auto, claimed };
+}
+
+/** The backend's answer; malformed entries are left out, anything else malformed reads as none. */
+export function parseLinkState(value: unknown): LinkState {
+  if (typeof value !== "object" || value === null) return EMPTY_LINKS;
+  const groups: unknown = Reflect.get(value, "groups");
+  const sendable: unknown = Reflect.get(value, "sendable");
+  const unattended: unknown = Reflect.get(value, "unattended");
+  const messages: unknown = Reflect.get(value, "messages");
+  const ids = (list: unknown) =>
+    new Set(
+      Array.isArray(list) ? list.map(id).filter((entry): entry is number => entry !== null) : [],
+    );
+  return {
+    groups: Array.isArray(groups)
+      ? groups.map(group).filter((entry): entry is LinkGroup => entry !== null)
+      : [],
+    sendable: ids(sendable),
+    unattended: ids(unattended),
+    messages: Array.isArray(messages)
+      ? messages.map(message).filter((entry): entry is LinkMessage => entry !== null)
+      : [],
+  };
+}
+
+/** The group session `id` belongs to. */
+export function groupOf(state: LinkState, id: number): LinkGroup | undefined {
+  return state.groups.find((entry) => entry.members.some((m) => m.session === id));
+}
+
+/** What decides whether a session can be linked. */
+export interface LinkableSession {
+  id: number;
+  status: string;
+  kind?: string | undefined;
+}
+
+/**
+ * Whether session `session` can be linked now: running, an agent session (no update), its
+ * current process got the send client (so no shell and none started before this version), and
+ * in no group yet. Only these are offered (only offer what works).
+ */
+export function canLink(state: LinkState, session: LinkableSession): boolean {
+  return (
+    session.status === "running" &&
+    session.kind !== "update" &&
+    state.sendable.has(session.id) &&
+    groupOf(state, session.id) === undefined
+  );
+}
+
+/** The sessions that can be linked, in the given (sidebar) order. */
+export function linkCandidates<T extends LinkableSession>(
+  state: LinkState,
+  sessions: readonly T[],
+): T[] {
+  return sessions.filter((session) => canLink(state, session));
+}
+
+/** What the session menu offers: "Link with …", or editing and unlinking the own group. */
+export type LinkOffer = "link" | "member" | null;
+
+/**
+ * "Link with …" only where at least one other session could join (only offer what works); a
+ * member gets "Edit group" and "Unlink" instead.
+ */
+export function linkOffer<T extends LinkableSession>(
+  state: LinkState,
+  session: T,
+  sessions: readonly T[],
+): LinkOffer {
+  if (groupOf(state, session.id) !== undefined) return "member";
+  if (!canLink(state, session)) return null;
+  return linkCandidates(state, sessions).some((other) => other.id !== session.id) ? "link" : null;
+}
+
+/** How a member row is marked: the group's color, the member's name, and the brake's hint. */
+export interface LinkMark {
+  group: number;
+  color: number;
+  name: string;
+  braked: boolean;
+}
+
+/** The mark of every member row. */
+export function linkMarks(state: LinkState): Map<number, LinkMark> {
+  const marks = new Map<number, LinkMark>();
+  for (const entry of state.groups) {
+    for (const m of entry.members) {
+      marks.set(m.session, {
+        group: entry.id,
+        color: entry.color,
+        name: m.name,
+        braked: entry.braked,
+      });
+    }
+  }
+  return marks;
+}
+
+/** The CSS color of palette entry `color`. */
+export function linkColor(color: number): string {
+  const index = Number.isInteger(color) && color >= 0 ? color % LINK_COLORS : 0;
+  return `var(--link-${String(index)})`;
+}
+
+/** The messages that wait for a click, per target row, oldest first. */
+export function heldBySession(messages: readonly LinkMessage[]): Map<number, LinkMessage[]> {
+  const rows = new Map<number, LinkMessage[]>();
+  for (const entry of messages) {
+    // A claimed one is being pasted; its card would offer a second paste.
+    if (entry.auto || entry.claimed) continue;
+    const list = rows.get(entry.to);
+    if (list === undefined) rows.set(entry.to, [entry]);
+    else list.push(entry);
+  }
+  return rows;
+}
+
+/**
+ * The next message to paste on its own for each target, oldest first: one at a time per target,
+ * so a second message never lands in the middle of the first. `busy`: targets whose delivery
+ * runs right now.
+ */
+export function nextDeliveries(
+  messages: readonly LinkMessage[],
+  busy: ReadonlySet<number>,
+): LinkMessage[] {
+  const next = new Map<number, LinkMessage>();
+  for (const entry of messages) {
+    if (!entry.auto || entry.claimed || busy.has(entry.to) || next.has(entry.to)) continue;
+    next.set(entry.to, entry);
+  }
+  return [...next.values()];
+}
+
+/** Groups whose brake turned on since `before`: each gets one hint. */
+export function newlyBraked(
+  before: readonly LinkGroup[],
+  after: readonly LinkGroup[],
+): LinkGroup[] {
+  const was = new Set(before.filter((entry) => entry.braked).map((entry) => entry.id));
+  return after.filter((entry) => entry.braked && !was.has(entry.id));
+}
+
+/** Why the edited names cannot be saved, `null` when they can. */
+export type NameProblem = "invalid" | "reserved" | "twice";
+
+/** Checks the names of the link dialog the way the backend will (links.rs `edit`). */
+export function nameProblem(names: readonly string[]): NameProblem | null {
+  const trimmed = names.map((name) => name.trim());
+  if (trimmed.some((name) => name === ALL_MEMBERS)) return "reserved";
+  if (trimmed.some((name) => !NAME.test(name))) return "invalid";
+  if (new Set(trimmed).size !== trimmed.length) return "twice";
+  return null;
+}
+
+/**
+ * The sidebar's selection after a Ctrl or Cmd click on `id`: toggled when the session can be
+ * linked, else unchanged. `null` tells the caller the click was no selection (a normal click).
+ */
+export function toggleSelection(
+  selected: ReadonlySet<number>,
+  id: number,
+  linkable: boolean,
+): ReadonlySet<number> | null {
+  if (!linkable) return null;
+  const next = new Set(selected);
+  if (next.has(id)) next.delete(id);
+  else next.add(id);
+  return next;
+}
+
+/** The selected sessions that can still be linked, in sidebar order. */
+export function selectedForLink<T extends LinkableSession>(
+  state: LinkState,
+  sessions: readonly T[],
+  selected: ReadonlySet<number>,
+): T[] {
+  return linkCandidates(state, sessions).filter((session) => selected.has(session.id));
+}
+
+/** Typing stops a delivery this long after the person's last key, even after their Enter. */
+export const TYPING_PAUSE_MS = 4000;
+/** How often an automatic delivery looks at its target again. */
+export const AUTO_POLL_MS = 250;
+/** The introduction waits this long for its target to be ready, then becomes a card. */
+export const INTRO_PATIENCE_MS = 5000;
+/**
+ * A member's message waits this long for a target that is not working and not ready (resting,
+ * asking, a bell, a gate decision), then becomes a card. A working target is waited for.
+ */
+export const MESSAGE_PATIENCE_MS = 30_000;
+/** A message waits this long while the person types in its target, then becomes a card. */
+export const TYPING_PATIENCE_MS = 20_000;
+
+/** What the window knows about a target session at this moment. */
+export interface TargetFacts {
+  state: AttentionState;
+  /** Why it waits, while the state is "attention". */
+  reason: AttentionReason | null;
+  /** Why its last working phase ended ("quiet" also while the session is on screen). */
+  endedBy: AttentionReason | null;
+  /** It may show a question, whose answer an Enter would give (agentCommands.ts). */
+  asks: boolean;
+  /** The agent waits for the person's decision on a held tool call (gate). */
+  gatePending: boolean;
+  /** Milliseconds since the person last typed there, `null` before any key. */
+  typedAgoMs: number | null;
+  /** The person began a line there that waits for its Enter. */
+  draft: boolean;
+}
+
+/**
+ * Whether Hangar may paste a message with Enter into this target now (ADR 0014): only when the
+ * target went quiet after a working phase, which is its prompt waiting for the next task. Never
+ * while it works or rests without having worked, rang the bell, waits for a gate decision or may
+ * show a question, and never while the person types there (`typing`). A target on screen turns
+ * "idle" instead of "attention" when it goes quiet; its `endedBy` still says "quiet".
+ */
+export function autoReadiness(facts: TargetFacts): "ready" | "wait" | "typing" {
+  if (facts.draft || (facts.typedAgoMs !== null && facts.typedAgoMs < TYPING_PAUSE_MS)) {
+    return "typing";
+  }
+  if (facts.asks || facts.gatePending) return "wait";
+  const quietAfterWork =
+    facts.state === "attention"
+      ? facts.reason === "quiet"
+      : facts.state === "idle" && facts.endedBy === "quiet";
+  return quietAfterWork ? "ready" : "wait";
+}
+
+/** How patient an automatic delivery is. */
+export interface AutoPatience {
+  /** A working target is waited for without a limit (a member's message, not the introduction). */
+  waitWhileWorking: boolean;
+  /** Not working and not ready this long: it becomes a card. */
+  patienceMs: number;
+  /** The person types this long: it becomes a card. */
+  typingPatienceMs: number;
+}
+
+/** What an automatic delivery needs from the window and the backend (faked in tests). */
+export interface AutoDeliveryDeps {
+  facts: () => TargetFacts;
+  gone: () => boolean;
+  bracketedPaste: () => boolean;
+  /** Milliseconds since the target's last output, `null` before any. */
+  quietFor: () => number | null;
+  /** The backend checks again and claims the message for this paste; rejects when it waits. */
+  take: () => Promise<string>;
+  paste: (text: string) => Promise<void>;
+  submit: () => void;
+  /** The second step after the paste; a failure leaves it claimed, never pasted again. */
+  close: () => Promise<void>;
+  wait: (ms: number) => Promise<void>;
+}
+
+/**
+ * How it ended: `pasted` with Enter; `gone` with its target; `refused` by the backend (it waits
+ * for a click now); `timeout` or `typing` when the target was not ready in time; `failed` when
+ * the target changed between the claim and the paste or the paste did not arrive. Everything
+ * but `pasted` and `gone` turns the message into a card.
+ */
+export type AutoResult = "pasted" | "gone" | "refused" | "timeout" | "typing" | "failed";
+
+/**
+ * Delivers one link message on its own: waits until the target is ready (`autoReadiness`, then
+ * bracketed paste on and output quiet as for the handover), has the backend claim it, checks the
+ * target once more, pastes, presses Enter as a write of its own and closes it.
+ */
+export async function deliverAutomatically(
+  deps: AutoDeliveryDeps,
+  patience: AutoPatience,
+  enterDelayMs: number,
+): Promise<AutoResult> {
+  let waited = 0;
+  let typing = 0;
+  for (;;) {
+    if (deps.gone()) return "gone";
+    const facts = deps.facts();
+    const readiness = autoReadiness(facts);
+    const quiet = deps.quietFor();
+    if (
+      readiness === "ready" &&
+      deps.bracketedPaste() &&
+      quiet !== null &&
+      quiet >= READY_QUIET_MS
+    ) {
+      break;
+    }
+    if (readiness === "typing") {
+      typing += AUTO_POLL_MS;
+      if (typing >= patience.typingPatienceMs) return "typing";
+    } else if (!(patience.waitWhileWorking && facts.state === "working")) {
+      waited += AUTO_POLL_MS;
+      if (waited >= patience.patienceMs) return "timeout";
+    }
+    await deps.wait(AUTO_POLL_MS);
+  }
+  let text: string;
+  try {
+    text = await deps.take();
+  } catch {
+    return "refused";
+  }
+  if (deps.gone()) return "gone";
+  // The backend's round trip lies between the check and here.
+  if (autoReadiness(deps.facts()) !== "ready" || !deps.bracketedPaste()) return "failed";
+  try {
+    await deps.paste(text);
+  } catch {
+    return "failed";
+  }
+  await deps.wait(enterDelayMs);
+  if (!deps.gone()) deps.submit();
+  await deps.close().catch(() => undefined);
+  return "pasted";
+}

@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-hold-link-message"
+description = "Enables the hold_link_message command without any pre-configured scope."
+commands.allow = ["hold_link_message"]
+
+[[permission]]
+identifier = "deny-hold-link-message"
+description = "Denies the hold_link_message command without any pre-configured scope."
+commands.deny = ["hold_link_message"]

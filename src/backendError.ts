@@ -32,6 +32,20 @@ const MESSAGES: ReadonlyMap<string, MessageKey> = new Map<string, MessageKey>([
   ["partner_message_gone", "partnerError.messageGone"],
   ["partner_pair_full", "partnerError.pairFull"],
   ["partner_shell_sender", "partnerError.shellSender"],
+  ["link_too_few", "linkError.tooFew"],
+  ["link_too_many", "linkError.tooMany"],
+  ["link_twice", "linkError.twice"],
+  ["link_already", "linkError.already"],
+  ["link_groups_full", "linkError.groupsFull"],
+  ["link_not_linkable", "linkError.notLinkable"],
+  ["link_unknown_group", "linkError.unknownGroup"],
+  ["link_not_member", "linkError.notMember"],
+  ["link_name", "links.nameInvalid"],
+  ["link_name_reserved", "links.nameReserved"],
+  ["link_name_taken", "links.nameTwice"],
+  ["link_message_gone", "partnerError.messageGone"],
+  ["link_wrong_target", "linkError.wrongTarget"],
+  ["link_claimed", "linkError.claimed"],
 ]);
 
 export interface BackendError {

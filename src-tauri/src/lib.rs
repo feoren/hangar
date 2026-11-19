@@ -48,6 +48,8 @@ pub mod hook_recipes;
 pub mod icon;
 pub mod install_source;
 pub mod instructions;
+pub mod link_service;
+pub mod links;
 pub mod login_path;
 pub mod main_store;
 pub mod manager;
@@ -482,13 +484,23 @@ pub fn run() -> tauri::Result<()> {
             let inbox = partner_service::PartnerInbox::load(partner_store.clone(), move || {
                 let _ = events.emit_to(panel_window::MAIN_LABEL, partner_service::EVENT, ());
             });
+            // Link groups (ADR 0014): linked agent sessions message each other through the same
+            // route, the target looked up among the group's members first. Only a signal again:
+            // the texts come from `link_state`, a main window command.
+            let events = app.handle().clone();
+            let links = link_service::LinkService::new(move || {
+                let _ = events.emit_to(panel_window::MAIN_LABEL, link_service::EVENT, ());
+            });
             let receiver = inbox.clone();
+            let linked = links.clone();
             let sessions = app.handle().clone();
             let book_store = partner_store.clone();
             gate.set_messages(move |from, request| {
                 let manager = sessions.state::<SessionManager>();
                 let shells = manager.shell_profiles();
-                receiver.answer_send(
+                link_service::answer_send(
+                    &linked,
+                    &receiver,
                     &book_store.load_partners(),
                     &manager.list(),
                     from,
@@ -513,11 +525,11 @@ pub fn run() -> tauri::Result<()> {
                         })
                 });
             app.state::<SessionManager>()
-                .set_launch_send(std::sync::Arc::new(partner_service::PartnerLaunch::new(
-                    gate.clone(),
-                    partner_store,
-                    bin_dir,
-                )));
+                .set_launch_send(std::sync::Arc::new(
+                    partner_service::PartnerLaunch::new(gate.clone(), partner_store, bin_dir)
+                        .with_links(links.clone()),
+                ));
+            app.manage(links);
             app.manage(gate);
             let source = app.handle().clone();
             app.state::<team_service::TeamService>()
@@ -707,6 +719,14 @@ pub fn run() -> tauri::Result<()> {
             commands::waiting_messages,
             commands::waiting_message_text,
             commands::close_waiting_message,
+            commands::link_state,
+            commands::link_sessions,
+            commands::unlink_group,
+            commands::edit_link_group,
+            commands::link_message_text,
+            commands::hold_link_message,
+            commands::link_person_typed,
+            commands::close_link_message,
             commands::set_panel_session,
             commands::take_update_results,
             commands::dictation_status,

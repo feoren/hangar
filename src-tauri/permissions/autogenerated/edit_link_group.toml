@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-edit-link-group"
+description = "Enables the edit_link_group command without any pre-configured scope."
+commands.allow = ["edit_link_group"]
+
+[[permission]]
+identifier = "deny-edit-link-group"
+description = "Denies the edit_link_group command without any pre-configured scope."
+commands.deny = ["edit_link_group"]
