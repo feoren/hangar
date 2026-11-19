@@ -16,6 +16,20 @@
         "ru": "Поток данных: по желанию свет бежит по линиям боковой панели к работающим сессиям в темпе их вывода. Настройки > Оформление.",
         "tr": "Veri akışı: istersen kenar çubuğunun çizgilerinde çalışan oturumlara, çıktılarının hızında ışık akar. Ayarlar > Görünüm altında.",
         "zh": "数据流：可选，光沿侧边栏的线条按输出速度流向正在工作的会话。在 设置 > 外观 中开启。"
+      },
+      {
+        "de": "Hangar öffnet sich wieder in der Größe und an der Stelle, die du zuletzt hattest, und bleibt maximiert, wenn du es maximiert hattest.",
+        "en": "Hangar opens again at the size and place you last had, and stays maximized if you had maximized it.",
+        "el": "Το Hangar ανοίγει ξανά στο μέγεθος και στη θέση που είχε τελευταία και μένει μεγιστοποιημένο, αν το είχες μεγιστοποιήσει.",
+        "es": "Hangar vuelve a abrirse con el tamaño y en el lugar de la última vez, y sigue maximizado si lo habías maximizado.",
+        "fr": "Hangar se rouvre à la taille et à la place de la dernière fois, et reste agrandi si tu l’avais agrandi.",
+        "it": "Hangar si riapre con le dimensioni e nella posizione dell’ultima volta e resta ingrandito se lo avevi ingrandito.",
+        "ja": "Hangar は前回のサイズと位置で開き、最大化していた場合は最大化したまま開きます。",
+        "pl": "Hangar otwiera się w rozmiarze i miejscu z ostatniego razu i pozostaje zmaksymalizowany, jeśli go zmaksymalizowałeś.",
+        "pt": "O Hangar volta a abrir com o tamanho e no lugar da última vez e continua maximizado se o tinhas maximizado.",
+        "ru": "Hangar открывается с прежним размером и на прежнем месте и остаётся развёрнутым, если ты его развернул.",
+        "tr": "Hangar son kullandığın boyut ve konumda yeniden açılır; pencereyi ekranı kaplayacak şekilde büyüttüysen öyle kalır.",
+        "zh": "Hangar 会以上次的大小和位置打开；如果你上次将它最大化，它也会保持最大化。"
       }
     ]
   },

@@ -53,8 +53,9 @@ pub enum PanelMessage {
     Ready {},
 }
 
-/// Where the panel window was last, in logical pixels, as the frontend remembered it.
-#[derive(Debug, Clone, Copy, PartialEq, Deserialize)]
+/// Where the panel window was last, in logical pixels, as the frontend remembered it. The main
+/// window's remembered place uses the same shape (`main_window.rs`).
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct Bounds {
     pub x: f64,
@@ -81,28 +82,57 @@ pub struct Placement {
     pub position: Option<(f64, f64)>,
 }
 
+/// Default and minimum size of a window placed by [`placement_within`].
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct Limits {
+    pub width: f64,
+    pub height: f64,
+    pub min_width: f64,
+    pub min_height: f64,
+}
+
+/// The panel window's sizes.
+pub const LIMITS: Limits = Limits {
+    width: WIDTH,
+    height: HEIGHT,
+    min_width: MIN_WIDTH,
+    min_height: MIN_HEIGHT,
+};
+
 pub fn placement(bounds: Option<Bounds>, monitors: &[Area]) -> Placement {
+    placement_within(bounds, monitors, LIMITS)
+}
+
+/// [`placement`] for any window: the remembered size clamped to `limits`, the position only while
+/// it is on a monitor.
+pub fn placement_within(bounds: Option<Bounds>, monitors: &[Area], limits: Limits) -> Placement {
     let fallback = Placement {
-        width: WIDTH,
-        height: HEIGHT,
+        width: limits.width,
+        height: limits.height,
         position: None,
     };
-    let Some(b) = bounds else {
+    let Some(b) = bounds.filter(plausible) else {
         return fallback;
     };
-    let finite = [b.x, b.y, b.width, b.height].iter().all(|v| v.is_finite());
-    if !finite || b.width <= 0.0 || b.height <= 0.0 || b.width > MAX_SIDE || b.height > MAX_SIDE {
-        return fallback;
-    }
-    let (grip_x, grip_y) = (b.x + GRIP_X.min(b.width), b.y + GRIP_Y);
-    let visible = monitors.iter().any(|m| {
-        grip_x >= m.x && grip_x < m.x + m.width && grip_y >= m.y && grip_y < m.y + m.height
-    });
     Placement {
-        width: b.width.max(MIN_WIDTH),
-        height: b.height.max(MIN_HEIGHT),
-        position: visible.then_some((b.x, b.y)),
+        width: b.width.max(limits.min_width),
+        height: b.height.max(limits.min_height),
+        position: monitor_of(&b, monitors).map(|_| (b.x, b.y)),
     }
+}
+
+/// Finite, with a size above zero and below [`MAX_SIDE`]; anything else is garbage.
+pub fn plausible(b: &Bounds) -> bool {
+    let finite = [b.x, b.y, b.width, b.height].iter().all(|v| v.is_finite());
+    finite && b.width > 0.0 && b.height > 0.0 && b.width <= MAX_SIDE && b.height <= MAX_SIDE
+}
+
+/// The index of the monitor that holds the grip of the title bar at `b`, if any.
+pub fn monitor_of(b: &Bounds, monitors: &[Area]) -> Option<usize> {
+    let (grip_x, grip_y) = (b.x + GRIP_X.min(b.width), b.y + GRIP_Y);
+    monitors.iter().position(|m| {
+        grip_x >= m.x && grip_x < m.x + m.width && grip_y >= m.y && grip_y < m.y + m.height
+    })
 }
 
 #[derive(Debug, thiserror::Error)]

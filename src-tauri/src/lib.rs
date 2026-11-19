@@ -50,6 +50,7 @@ pub mod install_source;
 pub mod instructions;
 pub mod login_path;
 pub mod main_store;
+pub mod main_window;
 pub mod manager;
 pub mod model_prices;
 pub mod no_links;
@@ -123,6 +124,8 @@ pub fn run() -> tauri::Result<()> {
         builder = builder.plugin(single_instance::plugin());
     }
     let app = builder
+        // Places the hidden main window where it was and shows it (main_window.rs).
+        .plugin(main_window::plugin())
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_updater::Builder::new().build())
         .plugin(tauri_plugin_process::init())
