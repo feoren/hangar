@@ -1156,3 +1156,7 @@ agent CLIs on the WSL `PATH` and installed `hangar-send`. Filed
 ## [2026-11-18] query | README scenes for 0.11.0
 The `server-check` scene (Settings > Account, Test connection with a missing proxy rule) replaces
 `arena` in the README screenshots for 0.11.0. Pages changed: [[release-rollout]].
+
+## [2026-11-19] query | Link groups of sessions
+ADR 0014 accepted: link groups of running agent sessions with automatic delivery inside the
+group. Pages changed: [[0014-session-links]].
