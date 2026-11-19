@@ -1156,3 +1156,9 @@ agent CLIs on the WSL `PATH` and installed `hangar-send`. Filed
 ## [2026-11-18] query | README scenes for 0.11.0
 The `server-check` scene (Settings > Account, Test connection with a missing proxy rule) replaces
 `arena` in the README screenshots for 0.11.0. Pages changed: [[release-rollout]].
+
+## [2026-11-19] ingest | Main window state across restarts
+Read the tao 0.37 Windows sources (`WindowFlags::apply_diff`, the `WM_WINDOWPOSCHANGED` and
+`WM_SIZE` handlers) and the Tauri 2.12 plugin hooks; the main window now starts hidden and is
+restored from `main-window.json` (`main_window.rs`). Pages changed: [[0007-detachable-side-panel]],
+index.

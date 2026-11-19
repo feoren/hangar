@@ -6,7 +6,7 @@ superseded_by:
 tags: [ui, windows, tauri, capabilities, notes, changes, files]
 sources: []
 created: 2026-11-12
-updated: 2026-11-15
+updated: 2026-11-19
 ---
 
 # ADR 0007: Detachable side panel
@@ -99,6 +99,39 @@ Option 3 with transport b.
   backend clamps the size and uses the position only while the top left of the title bar lies on
   a monitor (`panel_window::placement`, unit-tested), so an unplugged monitor cannot hide the
   window. No window-state plugin: one window, a pure function, no new dependency.
+
+### Main window state (added 2026-11-19)
+Until 0.11.0 the main window always opened at the config's 1280 x 800, even after the person had
+maximized it. Now `src-tauri/src/main_window.rs` remembers it, still without the window-state
+plugin, for the same reasons as above:
+
+- **What.** Whether it was maximized, and its last normal (not maximized) size and place in
+  logical pixels, so "Restore" after a maximized start gives a sensible window. A minimized window
+  is never stored; its place stays the one before minimizing.
+- **Where.** `main-window.json` in the local app data folder (the monitor layout belongs to this
+  machine), written atomically and validated on reading; a damaged or implausible file gives the
+  default. Not in `localStorage`, which the panel and viewer windows share
+  ([[process-launch-hardening]], "Main window state out of localStorage").
+- **When.** 500 ms after the last move or resize, on a close request (also when the tray only
+  hides the window) and on exit. The window is read after the delay, not at the event: on Windows
+  the move event of maximizing arrives before tao marks the window maximized, so a reading at the
+  event would take the maximized rectangle for the normal one.
+- **Restore.** The window is declared `"visible": false` in `tauri.conf.json`; a small backend
+  plugin (`main-window`, no commands, no permissions) places it when it is created and then shows
+  it, with `RunEvent::Ready` as a fallback so it is shown even if that hook never ran. Placement
+  goes through `panel_window::placement_within` with the main window's sizes: the remembered
+  bounds only while the title bar lies on a monitor, at most that monitor's size, else the
+  default size, centered. The position and size are set in physical pixels of the matched
+  monitor's scale factor, position first. Maximizing a hidden window only sets tao's flag, so
+  showing it opens it maximized without first drawing it at its normal size (tao 0.37 source,
+  `WindowFlags::apply_diff`).
+- **Tests.** Parsing, validation, the reading rules and the plan are unit tests in
+  `main_window.rs`; a test keeps its sizes equal to the config and checks `"visible": false`.
+
+> [!question] Unverified
+> Mixed-DPI setups (the window remembered on a monitor with another scale factor than the
+> primary one) and macOS and Linux behavior of the hidden start were not measured; Wayland does
+> not let apps place windows at all, so only the size and maximized state apply there.
 
 ## Consequences
 - One detached window type and one capability instead of a notes-only special case; the
