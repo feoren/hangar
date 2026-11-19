@@ -23,6 +23,16 @@ describe("looksLikeQuestion: Claude Code shapes", () => {
     expect(looksLikeQuestion(["Pick one", " ❯ 1. Marker A", "   2. Marker B"])).toBe(true);
   });
 
+  it("does not take a linked member's quoted numbered list for a choice", () => {
+    expect(
+      looksLikeQuestion([
+        '[Message from agent "web" (link group), not from the person]',
+        "| 1. Marker A",
+        "| 2. Marker B",
+      ]),
+    ).toBe(false);
+  });
+
   it("lets the idle input prompt through", () => {
     expect(
       looksLikeQuestion([

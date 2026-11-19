@@ -21,6 +21,13 @@
   --active-bar: 3px;
   --ok: #57ab5a;
   --warn: #c69026;
+  /* Link groups (ADR 0014): one color per group, apart from the state colors and the accent. */
+  --link-0: #b083f0;
+  --link-1: #2fb8ac;
+  --link-2: #e46fb4;
+  --link-3: #e0823d;
+  --link-4: #8fbf3f;
+  --link-5: #4fb3e0;
   /* Text on the warn color (the count of open team requests). */
   --on-warn: #1a1d21;
   --error: #f47067;
@@ -200,6 +207,13 @@
   --row-hover-shade: color-mix(in srgb, #000 6%, transparent);
   --ok: #1a7f37;
   --warn: #9a6700;
+  /* Darker on the light sidebar, so the chain keeps 3 : 1 against it. */
+  --link-0: #8250df;
+  --link-1: #0f7f76;
+  --link-2: #bf3989;
+  --link-3: #b04700;
+  --link-4: #4d7c0f;
+  --link-5: #0b6f8c;
   --on-warn: #ffffff;
   --error: #cf222e;
   --avatar-bg: #dde3ea;
@@ -13584,4 +13598,196 @@ body.session-dragging .session-actions {
   .waiting-message .secondary-button {
     transition: none;
   }
+}
+
+/* Link groups (ADR 0014). A member row carries a chain in its group's color; while the loop brake
+   holds messages, a ring around it says so by shape as well. */
+.session-link {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  border-radius: 50%;
+  line-height: 0;
+}
+
+.session-link.braked {
+  box-shadow: 0 0 0 1.5px currentcolor;
+}
+
+/* The same chain beside the badge in the collapsed sidebar, at its right edge between the emoji
+   above and the state below, which take the corners. */
+.rail-link {
+  position: absolute;
+  right: 2px;
+  top: 50%;
+  transform: translateY(-50%);
+  display: flex;
+  padding: 1px;
+  border-radius: 50%;
+  background: var(--panel);
+  line-height: 0;
+}
+
+.rail-link.braked {
+  box-shadow: 0 0 0 1.5px currentcolor;
+}
+
+/* Hover, active and the breathing attention tint colour the button itself: follow it. */
+.rail-session:hover .rail-link,
+.rail-session.active .rail-link,
+.rail-session.attention .rail-link {
+  background: inherit;
+}
+
+/* A row selected with Ctrl or Cmd click for linking: a dashed frame, apart from the active one. */
+.session.selected {
+  outline: 1.5px dashed var(--accent);
+  outline-offset: -2px;
+}
+
+/* Below the list while rows are selected: the count, "Link" from two on, and the way out. */
+.link-selection {
+  display: flex;
+  flex: none;
+  align-items: center;
+  gap: 8px;
+  margin: 4px 8px;
+  padding: 4px 4px 4px 10px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--panel-raised);
+  font-size: 12px;
+}
+
+.link-selection-count {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  color: var(--muted);
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.link-selection-link {
+  padding: 3px 12px;
+}
+
+/* "Link with …" and "Edit group" (LinkDialog.tsx). */
+.dialog.link-dialog {
+  width: min(480px, calc(100vw - 32px));
+}
+
+.link-help {
+  margin: 0 0 10px;
+  font-size: 12.5px;
+}
+
+.link-list,
+.link-names {
+  max-height: 260px;
+  margin: 0;
+  padding: 0;
+  overflow-y: auto;
+  list-style: none;
+}
+
+.link-session {
+  gap: 8px;
+  padding: 2px 4px;
+  border-radius: 5px;
+}
+
+.link-session:hover {
+  background: var(--hover);
+}
+
+.link-session .badge,
+.link-session .badge-icon img {
+  width: 20px;
+  height: 20px;
+  font-size: 9.5px;
+  border-radius: 5px;
+}
+
+/* Title above a line with program, mode and folder, so each member says where it works. */
+.link-session-text {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-width: 0;
+  line-height: 1.3;
+}
+
+.link-session-title,
+.link-session-facts {
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.link-session-facts {
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.link-note {
+  margin: 10px 0 0;
+  font-size: 12.5px;
+  color: var(--warn);
+}
+
+.link-tip {
+  margin: 10px 0 0;
+  font-size: 12px;
+}
+
+.link-name {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  align-items: center;
+  gap: 10px;
+  padding: 3px 0;
+  font-size: 12.5px;
+}
+
+.link-name-session {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.link-name .text-input {
+  font-family: var(--mono);
+}
+
+.link-swatch {
+  flex: none;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+}
+
+.link-ask {
+  align-items: flex-start;
+  margin-top: 12px;
+  font-size: 12.5px;
+}
+
+.link-ask input {
+  margin-top: 2px;
+}
+
+.link-ask-help {
+  display: block;
+  font-size: 12px;
+}
+
+.link-problem {
+  margin-top: 8px;
+  color: var(--error);
 }

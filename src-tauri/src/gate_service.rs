@@ -12,8 +12,8 @@
 //! file, an argument or a log and never sent to the window. A request without a known token is
 //! refused before its body is read.
 //!
-//! The same endpoint serves the send route of cross-project messages (ADR 0012, `hangar-send`)
-//! for every session whose project has partners, private ones included, so it also starts
+//! The same endpoint serves the send route of `hangar-send` (cross-project messages, ADR 0012,
+//! and link groups, ADR 0014) for every agent session, private ones included, so it also starts
 //! without the gate ([`GateService::send_token`]). Each token carries one scope
 //! ([`TokenScope`]): a send token opens no hook route and a hook token sends no message.
 //!
@@ -327,7 +327,8 @@ impl GateService {
     }
 
     /// A send token for the session's next process and the endpoint's port, which starts now if
-    /// it does not run yet: sending works in private sessions too, without the gate (ADR 0012).
+    /// it does not run yet: sending works in private sessions too, without the gate (ADR 0012,
+    /// ADR 0014).
     /// The token opens the send route only ([`TokenScope::Send`]).
     pub fn send_token(&self, session: SessionId) -> io::Result<(u16, Zeroizing<String>)> {
         let port = self.ensure_server()?;

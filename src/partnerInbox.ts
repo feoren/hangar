@@ -18,6 +18,11 @@ export interface WaitingMessage {
   text: string;
   /** Unix time in milliseconds when it arrived. */
   at: number;
+  /**
+   * The card's heading when it is not "Message from <from>": a link group member's message
+   * (ADR 0014) shown with the same card. Set by the window, never by the backend.
+   */
+  title?: string;
 }
 
 function waitingMessage(value: unknown): WaitingMessage | null {

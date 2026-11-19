@@ -4,6 +4,7 @@
 
 import type { AttentionState } from "./attention";
 import type { Translate } from "./i18n";
+import type { LinkOffer } from "./links";
 import type { SessionView } from "./sessions";
 import { canExportReport } from "./sessionReport";
 
@@ -12,6 +13,9 @@ export type SessionAction =
   | "marker"
   | "handover"
   | "partner"
+  | "link"
+  | "linkEdit"
+  | "unlink"
   | "commands"
   | "report"
   | "subAgents"
@@ -70,6 +74,11 @@ export interface SessionMenuExtras {
   /** The session's project has partner projects (partners.ts), so a message can go there. */
   partner?: boolean;
   /**
+   * Link groups (links.ts `linkOffer`): "Link with …" where another session could join, "Edit
+   * group" and "Unlink" for a member, nothing otherwise.
+   */
+  link?: LinkOffer;
+  /**
    * Whether the crew column beside the terminal is on (crew.ts); offered only for sessions that
    * have sub-agents, so it can be hidden and shown again where it is seen.
    */
@@ -80,7 +89,8 @@ const NO_EXTRAS: SessionMenuExtras = { queue: null, stall: null };
 
 /**
  * Rename, marker, hand over (only agent sessions, `handover`), send to a partner project (only
- * where the project has partners, `partner`), then the program's commands (only while the session offers some,
+ * where the project has partners, `partner`), link with other sessions or edit and unlink the
+ * session's group (`link`), then the program's commands (only while the session offers some,
  * agentCommands.ts), export as report (only for programs whose transcript Hangar reads), then show
  * or hide the sub-agents (only for sessions that have them), then the stall hint's help (last
  * lines, Ctrl+C) and the queued message, then restart (ended) or end process (running), then
@@ -144,6 +154,15 @@ export function sessionMenuEntries(
       : []),
     ...(extras.partner === true
       ? [{ type: "action", key: "partner", label: t("partner.menu") } as const]
+      : []),
+    ...(extras.link === "link"
+      ? [{ type: "action", key: "link", label: t("links.menu") } as const]
+      : []),
+    ...(extras.link === "member"
+      ? [
+          { type: "action", key: "linkEdit", label: t("links.edit") } as const,
+          { type: "action", key: "unlink", label: t("links.unlink") } as const,
+        ]
       : []),
     ...(extras.commands === true
       ? [{ type: "action", key: "commands", label: t("agentCommand.menu") } as const]

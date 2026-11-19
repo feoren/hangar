@@ -154,8 +154,12 @@ pub fn merge(
     live: &HashSet<String>,
 ) -> DailyReview {
     let mut by_key: BTreeMap<&str, Vec<&Record>> = BTreeMap::new();
-    // A cross-project message is no work of its own; it neither opens nor extends a run.
-    for record in records.iter().filter(|r| r.event != EventKind::Message) {
+    // A message (cross-project or in a link group) is no work of its own; it neither opens nor
+    // extends a run.
+    for record in records
+        .iter()
+        .filter(|r| !matches!(r.event, EventKind::Message | EventKind::LinkMessage))
+    {
         by_key.entry(record.key.as_str()).or_default().push(record);
     }
     let mut projects: BTreeMap<String, ProjectBuild> = BTreeMap::new();
@@ -444,7 +448,7 @@ fn event_order(event: EventKind) -> u8 {
         EventKind::End => 0,
         EventKind::Phase => 1,
         EventKind::Start => 2,
-        EventKind::Message => 3,
+        EventKind::Message | EventKind::LinkMessage => 3,
     }
 }
 
@@ -475,7 +479,7 @@ impl SessionBuild {
                     phases.push((from, record.at));
                     open.get_or_insert(from);
                 }
-                EventKind::Message => continue,
+                EventKind::Message | EventKind::LinkMessage => continue,
                 EventKind::End => {
                     // An end without a start (start older than the files read) ends a run that
                     // began before them; the clip to the day keeps only the day's part.
@@ -591,6 +595,7 @@ mod tests {
             worktree: false,
             to_key: None,
             to_cwd: None,
+            member: None,
         }
     }
 
@@ -615,6 +620,9 @@ mod tests {
         // Sent after the end, by a session the window never saw start: still no run.
         with.push(rec(EventKind::Message, "r-1", DAY + 11 * HOUR, None, a));
         with.push(rec(EventKind::Message, "r-9", DAY + 12 * HOUR, None, a));
+        // A message inside a link group neither.
+        with.push(rec(EventKind::LinkMessage, "r-1", DAY + 13 * HOUR, None, a));
+        with.push(rec(EventKind::LinkMessage, "r-8", DAY + 14 * HOUR, None, a));
         let review = |records: &[Record]| {
             merge(records, DAY, DAY + DAY_MS, DAY + 20 * HOUR, &HashSet::new())
         };

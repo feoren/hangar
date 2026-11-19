@@ -16,6 +16,7 @@ use zeroize::Zeroizing;
 use crate::gate_service::GateService;
 use crate::git::repo_place_of;
 use crate::hook_http;
+use crate::link_service::LinkService;
 use crate::lock;
 use crate::main_store::{MainStore, MainStoreError};
 use crate::manager::{LaunchSend, SendLaunch};
@@ -329,7 +330,7 @@ pub fn send_answer(
         Err(PartnerServiceError::Partner(PartnerError::NoProject)) => answer(
             hook_http::Status::NotFound,
             "not_partner",
-            "This session's project has no partner projects (any more).".to_owned(),
+            "This session is in no link group, and its project has no partner projects.".to_owned(),
         ),
         Err(PartnerServiceError::Partner(
             error @ (PartnerError::InboxFull(_) | PartnerError::PairFull(_)),
@@ -370,6 +371,23 @@ pub fn partner_names(book: &PartnerBook, root: &str, cwd: &str) -> Vec<String> {
                 .into_iter()
                 .map(|project| project.name.clone())
                 .collect()
+        })
+        .unwrap_or_default()
+}
+
+/// The short names of the partners of session `from`'s project; none for an unknown session.
+pub fn sender_partners(
+    book: &PartnerBook,
+    sessions: &[SessionInfo],
+    from: SessionId,
+    probe: &Probe<'_>,
+) -> Vec<String> {
+    sessions
+        .iter()
+        .find(|info| info.id == from)
+        .map(|info| {
+            let (root, cwd) = place_of(info, probe.root);
+            partner_names(book, &root, &cwd)
         })
         .unwrap_or_default()
 }
@@ -441,14 +459,7 @@ impl PartnerInbox {
         now: i64,
     ) -> (hook_http::Status, String) {
         let result = self.receive(book, sessions, from, request, probe, now);
-        let partners = sessions
-            .iter()
-            .find(|info| info.id == from)
-            .map(|info| {
-                let (root, cwd) = place_of(info, probe.root);
-                partner_names(book, &root, &cwd)
-            })
-            .unwrap_or_default();
+        let partners = sender_partners(book, sessions, from, probe);
         let (status, answer) = send_answer(&result, &partners);
         // A struct of two strings always serializes.
         let body = serde_json::to_string(&answer).unwrap_or_default();
@@ -502,14 +513,19 @@ impl PartnerInbox {
     }
 }
 
-/// Hands a session whose project has partners what `hangar-send` needs: a send token on the
-/// hook endpoint, the folder with the client for its `PATH` and a line for its instructions.
+/// Hands every agent session what `hangar-send` needs (ADR 0014, decision point 4): a send token
+/// on the hook endpoint and the folder with the client for its `PATH`, and a line for its
+/// instructions when its project has partners. A link is made while the session runs, when its
+/// environment can no longer change, so every agent session gets the client at its start; the
+/// send route refuses a sender that is neither linked nor has the named partner.
 pub struct PartnerLaunch {
     gate: GateService,
     store: MainStore,
     /// The folder that holds only `hangar-send` ([`crate::send_bin`]); without it no session
     /// gets anything, since the agent could not run the client.
     bin_dir: Option<PathBuf>,
+    /// Told which sessions can send, so only those are offered for linking.
+    links: Option<LinkService>,
 }
 
 impl PartnerLaunch {
@@ -518,7 +534,14 @@ impl PartnerLaunch {
             gate,
             store,
             bin_dir,
+            links: None,
         }
+    }
+
+    /// Reports every session that got the client, and every one that ended, to `links`.
+    pub fn with_links(mut self, links: LinkService) -> Self {
+        self.links = Some(links);
+        self
     }
 }
 
@@ -532,26 +555,30 @@ impl LaunchSend for PartnerLaunch {
             return SendLaunch::default();
         }
         let book = self.store.load_partners();
-        if book.projects.is_empty() {
-            return SendLaunch::default();
-        }
-        let names = partner_names(&book, &project_root(cwd), &cwd.to_string_lossy());
-        if names.is_empty() {
-            return SendLaunch::default();
-        }
+        let names = if book.projects.is_empty() {
+            Vec::new()
+        } else {
+            partner_names(&book, &project_root(cwd), &cwd.to_string_lossy())
+        };
         match self.gate.send_token(session) {
-            Ok((port, token)) => SendLaunch {
-                env: vec![(
-                    SEND_ENV.to_owned(),
-                    Zeroizing::new(format!("{port}:{}", token.as_str())),
-                )],
-                path_dir: Some(bin_dir.clone()),
-                hint: Some(send_hint(
-                    &names.iter().map(String::as_str).collect::<Vec<_>>(),
-                )),
-            },
+            Ok((port, token)) => {
+                if let Some(links) = &self.links {
+                    links.sendable(session);
+                }
+                SendLaunch {
+                    env: vec![(
+                        SEND_ENV.to_owned(),
+                        Zeroizing::new(format!("{port}:{}", token.as_str())),
+                    )],
+                    path_dir: Some(bin_dir.clone()),
+                    // Link groups introduce themselves when they form; the instructions only
+                    // name the partners, which hold for the session's whole life.
+                    hint: (!names.is_empty())
+                        .then(|| send_hint(&names.iter().map(String::as_str).collect::<Vec<_>>())),
+                }
+            }
             Err(error) => {
-                eprintln!("hangar: sending to partners not set up: {error}");
+                eprintln!("hangar: sending messages not set up: {error}");
                 SendLaunch::default()
             }
         }
@@ -559,6 +586,9 @@ impl LaunchSend for PartnerLaunch {
 
     fn ended(&self, session: SessionId) {
         self.gate.revoke_send(session);
+        if let Some(links) = &self.links {
+            links.ended(session);
+        }
     }
 }
 

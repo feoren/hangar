@@ -45,6 +45,10 @@ use crate::gpu::GpuMonitor;
 use crate::icon::{self, IconCache};
 use crate::install_source::{self, SystemProbe};
 use crate::instructions::{self, StartPrompt};
+use crate::link_service::{
+    GroupView, LinkService, LinkServiceError, LinkSnapshot, MemberFacts, MemberName,
+};
+use crate::links::{self, GroupId};
 use crate::main_store::{
     self, MainPrefs, MainStore, MainStoreError, ProtectedSettings, QueuedMessages,
     SecuritySwitches, SubAgentSettings, WorkspaceTemplate,
@@ -3880,6 +3884,141 @@ pub async fn close_waiting_message(
     })
     .await
     .map_err(|error| PartnerServiceError::Task(error.to_string()))?
+}
+
+/// Link groups, the sessions that can be linked and the messages between members (ADR 0014).
+#[tauri::command]
+pub fn link_state(
+    window: tauri::Window,
+    manager: Manager<'_>,
+    links: State<'_, LinkService>,
+) -> Result<LinkSnapshot, LinkServiceError> {
+    main_store::check_main(window.label())?;
+    let args = manager.session_args();
+    let unattended = |id: SessionId| {
+        args.get(&id)
+            .is_some_and(|args| links::runs_without_prompts(args))
+    };
+    Ok(links.snapshot(work_log::now_ms(), &unattended))
+}
+
+/// Links the sessions `ids` into a new group; each must be a running agent session that got the
+/// send client at its start. Every member gets Hangar's introduction.
+#[tauri::command]
+pub fn link_sessions(
+    window: tauri::Window,
+    manager: Manager<'_>,
+    links: State<'_, LinkService>,
+    ids: Vec<SessionId>,
+) -> Result<GroupView, LinkServiceError> {
+    main_store::check_main(window.label())?;
+    let names = manager.profile_names();
+    let args = manager.session_args();
+    let facts = |info: &SessionInfo| MemberFacts {
+        program: names
+            .get(&info.profile_id)
+            .cloned()
+            .unwrap_or_else(|| info.profile_id.clone()),
+        unattended: args
+            .get(&info.id)
+            .is_some_and(|args| links::runs_without_prompts(args)),
+    };
+    links.link(&ids, &manager.list(), &facts, work_log::now_ms())
+}
+
+/// Ends link group `group`; what still waits in it goes.
+#[tauri::command]
+pub fn unlink_group(
+    window: tauri::Window,
+    links: State<'_, LinkService>,
+    group: GroupId,
+) -> Result<(), LinkServiceError> {
+    main_store::check_main(window.label())?;
+    links.unlink(group)
+}
+
+/// New member names and the "Ask before pasting" toggle of link group `group`.
+#[tauri::command]
+pub fn edit_link_group(
+    window: tauri::Window,
+    links: State<'_, LinkService>,
+    group: GroupId,
+    names: Vec<MemberName>,
+    ask_first: bool,
+) -> Result<(), LinkServiceError> {
+    main_store::check_main(window.label())?;
+    links.edit(group, &names, ask_first)
+}
+
+/// The text to paste for link message `id` into session `to`, checked again and headed with the
+/// sender's member name; the message is claimed for this one paste until `close_link_message`
+/// or `hold_link_message`. `automatic`: the window pastes it on its own, which the backend
+/// refuses (`link_held`) once the message waits for a click, the group asks first or the loop
+/// brake holds.
+#[tauri::command]
+pub fn link_message_text(
+    window: tauri::Window,
+    manager: Manager<'_>,
+    links: State<'_, LinkService>,
+    id: u64,
+    to: SessionId,
+    automatic: bool,
+) -> Result<String, LinkServiceError> {
+    main_store::check_main(window.label())?;
+    links.text_for(id, to, &manager.list(), automatic, work_log::now_ms())
+}
+
+/// The person typed into session `id`: if it is a member of a link group, the group's budget of
+/// automatic deliveries starts again.
+#[tauri::command]
+pub fn link_person_typed(
+    window: tauri::Window,
+    links: State<'_, LinkService>,
+    id: SessionId,
+) -> Result<(), LinkServiceError> {
+    main_store::check_main(window.label())?;
+    links.person_typed(id);
+    Ok(())
+}
+
+/// Link message `id` waits for a click from now on: the window could not paste it on its own.
+#[tauri::command]
+pub fn hold_link_message(
+    window: tauri::Window,
+    links: State<'_, LinkService>,
+    id: u64,
+) -> Result<(), LinkServiceError> {
+    main_store::check_main(window.label())?;
+    links.hold(id)
+}
+
+/// Link message `id` was pasted into session `pasted_into`, or discarded (`null`): it goes with
+/// its text. A pasted message from a member leaves a work log line with its member name, the
+/// target and the time (ADR 0014, decision point 6).
+#[tauri::command]
+pub async fn close_link_message(
+    window: tauri::Window,
+    links: State<'_, LinkService>,
+    work_log: State<'_, WorkLog>,
+    id: u64,
+    pasted_into: Option<SessionId>,
+) -> Result<(), LinkServiceError> {
+    main_store::check_main(window.label())?;
+    let links = links.inner().clone();
+    let log = work_log.inner().clone();
+    // On a blocking thread: the work log appends to its day file.
+    tauri::async_runtime::spawn_blocking(move || {
+        let message = links.close(id)?;
+        if let (Some(from), Some(to)) = (message.from, pasted_into) {
+            let now = work_log::now_ms();
+            if let Err(error) = log.link_message(from, to, &message.from_name, now, now) {
+                eprintln!("hangar: message not logged: {error}");
+            }
+        }
+        Ok(())
+    })
+    .await
+    .map_err(|error| LinkServiceError::Task(error.to_string()))?
 }
 
 /// The session the panel window shows from now on (`null`: none). The main window calls it

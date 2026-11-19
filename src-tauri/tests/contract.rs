@@ -209,6 +209,36 @@ fn commands_are_registered_allowed_and_wired() {
 /// The detached side panel gets exactly what its tabs read (notes, changes, commit history, the
 /// session's file tree and opening a viewer) and a few window permissions, nothing else: no
 /// sessions, no claims or team commands (the main window pushes them), no profiles, no updates.
+/// The other direction: a command wired in `generate_handler` but missing from build.rs has no
+/// permission, so no window may call it and the feature is dead in the real app.
+#[test]
+fn every_wired_command_has_a_permission() {
+    let commands = build_commands();
+    let lib = read("src/lib.rs");
+    let start = lib
+        .find("generate_handler![")
+        .expect("generate_handler missing from lib.rs");
+    let end = start
+        + lib[start..]
+            .find("])")
+            .expect("generate_handler not closed");
+    let wired: Vec<&str> = lib[start..end]
+        .lines()
+        .filter_map(|line| line.trim().strip_prefix("commands::"))
+        .filter_map(|rest| rest.strip_suffix(','))
+        .collect();
+    assert!(
+        wired.len() >= 20,
+        "generate_handler not recognized: {wired:?}"
+    );
+    for command in wired {
+        assert!(
+            commands.iter().any(|known| known == command),
+            "{command} is wired in lib.rs but missing from COMMANDS (build.rs)"
+        );
+    }
+}
+
 #[test]
 fn panel_window_capability_is_narrow() {
     let commands = build_commands();

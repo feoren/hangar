@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-link-sessions"
+description = "Enables the link_sessions command without any pre-configured scope."
+commands.allow = ["link_sessions"]
+
+[[permission]]
+identifier = "deny-link-sessions"
+description = "Denies the link_sessions command without any pre-configured scope."
+commands.deny = ["link_sessions"]

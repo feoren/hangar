@@ -52,6 +52,10 @@ UI texts in `src/i18n.ts` are translated per language and are not bound by this 
 | Sendeprogramm                                   | send client                       | `hangar-send`, run by agents to send a cross-project message, ADR 0012               |
 | Sende-Token                                     | send token                        | token of scope `Send` on the hook endpoint, in `HANGAR_SEND`                         |
 | Partnerliste                                    | partner book                      | the named projects and their pairs, `partner-projects.json`; `PartnerBook`           |
+| Link-Gruppe                                     | link group                        | running agent sessions linked to message each other, ADR 0014; in memory, `links.rs` |
+| Mitgliedsname                                   | member name                       | `[a-z0-9-]{1,32}` name of a session in its link group, `hangar-send <name>`          |
+| Schleifenbremse                                 | loop brake                        | at most 6 automatic deliveries per link group and minute, then a click; `Brake`      |
+| Zustellbudget                                   | budget (link group)               | at most 20 automatic deliveries per link group until the person acts; `AUTO_BUDGET`  |
 | Agenten-Befehl                                  | agent command                     | text the session menu types into a running session, `agent_commands`                 |
 | Kontext komprimieren                            | compact (context)                 | the agent summarizes its conversation (`/compact`), label key `compact`              |
 | Notiz                                           | note                              |                                                                                      |

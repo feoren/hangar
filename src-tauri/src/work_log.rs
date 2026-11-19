@@ -8,7 +8,7 @@
 //!
 //! Stored: a session key, title, program name, working folder, repository root, worktree flag
 //! and times; for a cross-project message (ADR 0012) also the target session's key and folder,
-//! never the text. Never terminal output, prompts, environment variables or secrets. Files older than
+//! for a message inside a link group (ADR 0014) also the sender's member name, never the text. Never terminal output, prompts, environment variables or secrets. Files older than
 //! [`RETENTION_DAYS`] are deleted on startup; a day file stops growing at [`MAX_FILE_BYTES`].
 
 use std::collections::{HashMap, HashSet};
@@ -56,6 +56,9 @@ pub enum EventKind {
     End,
     /// The session sent a cross-project message (ADR 0012) to `to_key` in `to_cwd`; no text.
     Message,
+    /// The session, a member of a link group (ADR 0014) named `member`, sent a message that was
+    /// delivered to `to_key` in `to_cwd`; no text.
+    LinkMessage,
 }
 
 /// One line of a day file.
@@ -85,6 +88,9 @@ pub struct Record {
     pub to_key: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub to_cwd: Option<String>,
+    /// The sender's member name of a [`EventKind::LinkMessage`].
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub member: Option<String>,
 }
 
 #[derive(Debug, thiserror::Error)]
@@ -93,6 +99,8 @@ pub enum WorkLogError {
     UnknownSession(SessionId),
     #[error("Invalid working phase")]
     InvalidPhase,
+    #[error("Invalid link group message")]
+    InvalidLinkMessage,
     #[error("Task failed: {0}")]
     Task(String),
 }
@@ -230,6 +238,43 @@ impl WorkLog {
         Ok(())
     }
 
+    /// A message from session `from`, member `member` of a link group, was delivered to session
+    /// `to` at `at` (ADR 0014): who, where and when, never the text. Checked like a working
+    /// phase: the name must be a member name and `at` lie within the bounds of a report made now.
+    pub fn link_message(
+        &self,
+        from: SessionId,
+        to: SessionId,
+        member: &str,
+        at: i64,
+        now: i64,
+    ) -> Result<(), WorkLogError> {
+        if !crate::partners::valid_name(member)
+            || at > now.saturating_add(FUTURE_SLACK_MS)
+            || at < now.saturating_sub(MAX_PHASE_MS)
+        {
+            return Err(WorkLogError::InvalidLinkMessage);
+        }
+        let (sender, target) = {
+            let sessions = lock(&self.0.sessions);
+            let sender = sessions
+                .get(&from)
+                .cloned()
+                .ok_or(WorkLogError::UnknownSession(from))?;
+            let target = sessions
+                .get(&to)
+                .cloned()
+                .ok_or(WorkLogError::UnknownSession(to))?;
+            (sender, target)
+        };
+        let mut line = record(&sender, EventKind::LinkMessage, at, None);
+        line.to_key = Some(target.key);
+        line.to_cwd = Some(target.cwd);
+        line.member = Some(member.to_owned());
+        self.append(&line);
+        Ok(())
+    }
+
     /// The process exited or the session closed. A second call (exit, then close) does nothing.
     pub fn ended(&self, id: SessionId, at: i64) {
         let meta = {
@@ -333,6 +378,7 @@ fn record(meta: &Meta, event: EventKind, at: i64, from: Option<i64>) -> Record {
         worktree: meta.worktree,
         to_key: None,
         to_cwd: None,
+        member: None,
     }
 }
 
@@ -580,6 +626,50 @@ mod tests {
         }
         assert_eq!(iso_utc(DAY / 1000 + 3723), "2026-11-14T01:02:03Z");
         assert_eq!(iso_utc(-1), "1969-12-31T23:59:59Z");
+    }
+
+    #[test]
+    fn a_link_message_names_the_member_target_and_time_but_no_text() {
+        let tmp = TempDir::new("work-log-link-message");
+        let log = WorkLog::with_run(tmp.path().join(DIR), "r1");
+        let app = tmp.path().join("app");
+        let web = tmp.path().join("web");
+        fs::create_dir_all(&app).unwrap();
+        fs::create_dir_all(&web).unwrap();
+        log.started(&info(1, &app), "Claude Code", DAY + 1000);
+        log.started(&info(2, &web), "Codex CLI", DAY + 1000);
+        log.link_message(1, 2, "app", DAY + 2000, DAY + 2000)
+            .unwrap();
+        for (member, at) in [
+            ("App", DAY + 2000),
+            ("a\nb", DAY + 2000),
+            ("app", DAY + 2000 + FUTURE_SLACK_MS + 1),
+            ("app", DAY + 2000 - MAX_PHASE_MS - 1),
+        ] {
+            assert!(
+                matches!(
+                    log.link_message(1, 2, member, at, DAY + 2000),
+                    Err(WorkLogError::InvalidLinkMessage)
+                ),
+                "{member:?} {at}"
+            );
+        }
+        assert!(matches!(
+            log.link_message(1, 9, "app", DAY + 2000, DAY + 2000),
+            Err(WorkLogError::UnknownSession(9))
+        ));
+        let (records, _) = log.read_window(DAY, DAY + DAY_MS);
+        let line: Vec<&Record> = records
+            .iter()
+            .filter(|r| r.event == EventKind::LinkMessage)
+            .collect();
+        assert_eq!(line.len(), 1);
+        assert_eq!(line[0].key, "r1-1");
+        assert_eq!(line[0].member.as_deref(), Some("app"));
+        assert_eq!(line[0].to_key.as_deref(), Some("r1-2"));
+        let text = fs::read_to_string(log.dir().join("2026-11-14.jsonl")).unwrap();
+        assert!(text.contains("\"event\":\"linkMessage\""), "{text}");
+        assert!(text.contains("\"member\":\"app\""), "{text}");
     }
 
     #[test]

@@ -1162,3 +1162,20 @@ Read the tao 0.37 Windows sources (`WindowFlags::apply_diff`, the `WM_WINDOWPOSC
 `WM_SIZE` handlers) and the Tauri 2.12 plugin hooks; the main window now starts hidden and is
 restored from `main-window.json` (`main_window.rs`). Pages changed: [[0007-detachable-side-panel]],
 index.
+
+## [2026-11-19] query | Link groups of sessions
+ADR 0014 accepted: link groups of running agent sessions with automatic delivery inside the
+group. Pages changed: [[0014-session-links]].
+
+## [2026-11-20] query | Link groups built
+ADR 0014 implemented: every agent session gets the send client, link groups in memory, member
+names, introduction, automatic delivery with the loop brake and the toggle, chain marks in the
+sidebar and the rail. Choices filed under "As built". Pages changed: [[0014-session-links]], index.
+
+## [2026-11-20] query | Link groups hardened
+After the security and acceptance reviews: permissions for the link commands with a contract
+test in both directions, stricter readiness for the automatic Enter, the toggle and the brake
+checked again when the text is fetched, claim before paste, a budget of 20 automatic deliveries,
+a header that names the sender as an agent with an indented text, groups with an agent without
+prompts ask first, and a `linkMessage` work log record. Pages changed: [[0014-session-links]],
+[[0011-work-log-and-daily-review]].
