@@ -71,7 +71,7 @@ job on ubuntu-latest), but nothing is bundled, and three things would hurt a fir
 | Area | State on Linux | What Hangar does |
 | --- | --- | --- |
 | Desktop notifications | `org.freedesktop.Notifications` through zbus ([[freedesktop-notifications]]) | offered |
-| GPU readings | per session from DRM fdinfo; machine from amdgpu sysfs and NVML ([[gpu-readings]]) | offered (new 2026-11-20); an Intel GPU has no system bar figure, its rows still show one |
+| GPU readings | per session from DRM fdinfo; machine from amdgpu sysfs and `nvidia-smi` ([[gpu-readings]]) | offered (new 2026-11-20); an Intel GPU has no system bar figure, its rows still show one |
 | Battery or AC | `/sys/class/power_supply`, no battery saver ([[power-detection]]) | offered |
 | Launcher badge | Tauri 2.12.5's `setBadgeCount` goes through tao's libunity wrapper, which acts only while the Unity shell runs and sends no D-Bus signal itself ([[platform-parity-reading]]) | Hangar sends the `LauncherEntry` signal itself (new 2026-11-20, `badgeKind` `launcher`) |
 

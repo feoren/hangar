@@ -1306,3 +1306,9 @@ held during a reading, the macOS notification center's first access guarded agai
 autorelease pools on worker threads, AppImageLauncher files checked on the opened handle and the
 launcher's desktop id worked out on the first count. Pages changed: [[0013-linux-release]],
 [[0017-macos-release]], [[power-detection]], [[gpu-readings]].
+
+## [2026-11-20] lint | NVIDIA figures from nvidia-smi instead of NVML
+A failed `dlopen` of `libnvidia-ml.so.1` crashed Hangar's process with SIGSEGV on a Linux machine
+without the NVIDIA driver (CI, and WSL with the library hidden); the machine figures now come from
+`nvidia-smi` in a process of its own, at most every 5 s. Pages changed: [[gpu-readings]],
+[[0013-linux-release]], [[session-resources-and-phone-push]], index.

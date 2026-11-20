@@ -11,7 +11,7 @@
 //! - Windows: `GetSystemTimes`, `GlobalMemoryStatusEx`; the GPU from the shared PDH reading
 //!   (`gpu.rs`).
 //! - Linux: `/proc/stat` and `/proc/meminfo`; the GPU from the shared reading where amdgpu or
-//!   NVIDIA's NVML give it (`gpu.rs`).
+//!   NVIDIA's `nvidia-smi` give it (`gpu.rs`).
 //! - macOS: `host_statistics` (CPU ticks), `hw.memsize` and `host_statistics64` (pages in use,
 //!   counted like Activity Monitor's "Memory Used"); the GPU from the shared reading (`gpu.rs`).
 //! - Other systems: nothing yet.

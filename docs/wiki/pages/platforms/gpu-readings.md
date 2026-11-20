@@ -16,7 +16,7 @@ Where the GPU load and GPU memory of the system bar and the session rows come fr
 | Platform | Machine (system bar) | Per session (rows) |
 | --- | --- | --- |
 | Windows | PDH counters, busiest engine, dedicated adapter memory | PDH per process id |
-| Linux | amdgpu sysfs and NVIDIA's NVML; else none | DRM client statistics in fdinfo |
+| Linux | amdgpu sysfs and NVIDIA's `nvidia-smi`; else none | DRM client statistics in fdinfo |
 | macOS | IOAccelerator `PerformanceStatistics` via `ioreg` | none |
 
 The window shows whatever comes back: a gauge or cell with `null` is hidden. The rows keep a GPU
@@ -44,10 +44,14 @@ whose link target is under `/dev/dri/`, `/proc/<pid>/fdinfo/<fd>` is parsed:
   and the busiest engine is the tree's load, as on Windows. At most 4096 open files per process.
 
 **Machine:** `gpu_busy_percent` and `mem_info_vram_used` of every `/sys/class/drm/card<n>/device`
-(amdgpu only), plus NVML when `libnvidia-ml.so.1` loads (`src-tauri/src/gpu/nvml.rs`, dlopen,
-nothing linked): `nvmlDeviceGetUtilizationRates` and `nvmlDeviceGetMemoryInfo` per device. The
-busiest device is the load, the memory is summed. An Intel GPU has neither source, so its system
-bar shows no GPU while the rows still do.
+(amdgpu only), plus `/usr/bin/nvidia-smi --query-gpu=utilization.gpu,memory.used
+--format=csv,noheader,nounits` when the driver installed it (one line per device, memory in MiB;
+run at most every 5 s, with the 2 s limit of `bounded_output.rs`). NVML was first loaded into
+Hangar with `dlopen`; on a machine without the driver the failed `dlopen` crashed the process
+(SIGSEGV in CI on ubuntu-latest and in WSL with the library hidden; a minimal program with the same
+call did not crash, the cause inside Hangar's binary is unknown), so the driver's own tool runs in
+a process of its own instead. The busiest device is the load, the memory is summed. An Intel GPU
+has neither source, so its system bar shows no GPU while the rows still do.
 
 > [!question] Unverified
 > - Nothing ran on a Linux desktop. The fdinfo shapes in the tests follow the kernel
@@ -55,8 +59,9 @@ bar shows no GPU while the rows still do.
 >   `/sys/class/drm/card<n>/device` folder of the amdgpu files are assumptions.
 > - NVIDIA's proprietary driver gives no fdinfo engine statistics (assumed), so NVIDIA sessions
 >   show no per-session GPU.
-> - The NVML function declarations other than `nvmlDeviceGetMemoryInfo` were not in the fetched
->   excerpt of `nvml.h`; they follow the published NVML API.
+> - The `nvidia-smi` output shape follows NVIDIA's documented CSV query format, not captured
+>   output; `[N/A]` for a missing value is assumed. A driver that installs the tool elsewhere than
+>   `/usr/bin` gives no machine figure.
 
 ## macOS
 

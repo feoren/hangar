@@ -5,7 +5,7 @@
 //!   (kernel documentation "DRM client usage stats"): busy time per engine and resident memory per
 //!   region. The busy time is a counter, so a load needs two readings ([`History`]).
 //! - Per machine: amdgpu's `gpu_busy_percent` and `mem_info_vram_used` in the card's device folder
-//!   and NVIDIA's NVML (`nvml.rs`), combined by [`combine`].
+//!   and NVIDIA's `nvidia-smi` ([`parse_nvidia_smi`]), combined by [`combine`].
 
 use std::collections::{HashMap, HashSet};
 use std::time::{Duration, Instant};
@@ -284,6 +284,29 @@ pub fn parse_sysfs_number(text: &str) -> Option<u64> {
     text.trim().parse().ok()
 }
 
+/// Load in percent and memory in use in bytes of every NVIDIA device from
+/// `nvidia-smi --query-gpu=utilization.gpu,memory.used --format=csv,noheader,nounits`: one line
+/// per device like `37, 1234` with the memory in MiB. A value the driver does not give (`[N/A]`)
+/// stays `None`; a line without two fields is skipped.
+pub fn parse_nvidia_smi(text: &str) -> Vec<(Option<f64>, Option<u64>)> {
+    text.lines()
+        .filter_map(|line| {
+            let (load, memory) = line.split_once(',')?;
+            let load = load
+                .trim()
+                .parse::<f64>()
+                .ok()
+                .filter(|value| value.is_finite());
+            let memory = memory
+                .trim()
+                .parse::<u64>()
+                .ok()
+                .and_then(|mib| mib.checked_mul(1024 * 1024));
+            Some((load, memory))
+        })
+        .collect()
+}
+
 /// The machine from every device's reading: the busiest device as the load (with one decimal,
 /// capped at 100), the memory of all devices summed; `None` where no device gives it.
 pub fn combine(
@@ -526,5 +549,32 @@ mod tests {
         assert_eq!(combine([(Some(f64::NAN), None)]), (None, None));
         assert_eq!(parse_sysfs_number("37\n"), Some(37));
         assert_eq!(parse_sysfs_number("busy"), None);
+    }
+
+    #[test]
+    fn nvidia_smi_lines_give_load_and_memory_per_device() {
+        assert_eq!(
+            parse_nvidia_smi(
+                "37, 1234
+5, 0
+"
+            ),
+            vec![(Some(37.0), Some(1234 * 1024 * 1024)), (Some(5.0), Some(0))]
+        );
+        assert_eq!(
+            parse_nvidia_smi(
+                "[N/A], 512
+"
+            ),
+            vec![(None, Some(512 * 1024 * 1024))]
+        );
+        assert_eq!(
+            parse_nvidia_smi(
+                "No devices were found
+"
+            ),
+            vec![]
+        );
+        assert_eq!(parse_nvidia_smi(""), vec![]);
     }
 }

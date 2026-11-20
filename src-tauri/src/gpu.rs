@@ -9,7 +9,7 @@
 //! - Windows: one PDH query that stays open, with `\GPU Engine(*)\Utilization Percentage`,
 //!   `\GPU Process Memory(*)\Dedicated Usage` and `\GPU Adapter Memory(*)\Dedicated Usage`.
 //! - Linux: per process the DRM client statistics in `/proc/<pid>/fdinfo` of the sessions'
-//!   processes; per machine amdgpu's sysfs files and NVIDIA's NVML (`drm.rs`, `nvml.rs`). A
+//!   processes; per machine amdgpu's sysfs files and NVIDIA's `nvidia-smi` (`drm.rs`). A
 //!   machine with neither (an Intel GPU, say) gives the sessions' figures only.
 //! - macOS: the machine from the IOAccelerator registry entries (`ioreg.rs`); no per-process
 //!   figures without root.
@@ -17,8 +17,6 @@
 
 pub mod drm;
 pub mod ioreg;
-#[cfg(target_os = "linux")]
-mod nvml;
 
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
@@ -418,22 +416,33 @@ mod platform {
 mod platform {
     use std::fs;
     use std::path::Path;
-    use std::time::Instant;
+    use std::time::{Duration, Instant};
 
     use super::drm::{self, History, ProcessEntry, Reading};
-    use super::nvml::Nvml;
     use super::GpuSnapshot;
+    use crate::bounded_output::{output_within, TOOL_LIMIT};
 
     /// Open files read at most per process; an agent with more than this many is counted
     /// partially rather than walked without bound.
     const MAX_FILES: usize = 4096;
+    /// NVIDIA's tool, installed with the driver. A tool in its own process rather than NVML loaded
+    /// into Hangar: loading a missing library crashed the process on a machine without the driver
+    /// (CI on ubuntu-latest), and a fault in the driver now ends only the tool.
+    const NVIDIA_SMI: &str = "/usr/bin/nvidia-smi";
+    /// Each run of `nvidia-smi` costs a driver start; its figures are reused for this long.
+    const NVIDIA_EVERY: Duration = Duration::from_secs(5);
 
-    /// The busy counters of the last reading and NVML, opened on the first reading and kept.
+    /// Load in percent and memory in use in bytes of one device.
+    type Device = (Option<f64>, Option<u64>);
+
+    /// The busy counters of the last reading and NVIDIA's last figures.
     #[derive(Default)]
     pub struct Sampler {
         history: History,
-        /// `None` until tried, then `Some(None)` on a machine without NVML.
-        nvml: Option<Option<Nvml>>,
+        /// `None` until looked for, then whether `nvidia-smi` is installed.
+        nvidia: Option<bool>,
+        /// When `nvidia-smi` last ran, and what it gave.
+        nvidia_figures: Option<(Instant, Vec<Device>)>,
         /// The first reading only sets the busy counters' baseline, as on Windows.
         started: bool,
     }
@@ -441,11 +450,8 @@ mod platform {
     impl Sampler {
         pub fn read(&mut self) -> Option<GpuSnapshot> {
             let now = Instant::now();
-            let nvml = self.nvml.get_or_insert_with(Nvml::open);
             let mut devices = amdgpu_devices();
-            if let Some(nvml) = nvml {
-                devices.extend(nvml.read());
-            }
+            devices.extend(self.nvidia_devices(now));
             let (load, memory) = drm::combine(devices);
             let members = drm::session_members(&processes(), std::process::id());
             let (engines, process_memory) = self.history.update(readings(&members), now);
@@ -458,6 +464,33 @@ mod platform {
                 load,
                 memory,
             ))
+        }
+
+        /// NVIDIA's devices, at most every [`NVIDIA_EVERY`]; nothing without the driver's tool.
+        fn nvidia_devices(&mut self, now: Instant) -> Vec<Device> {
+            if !*self
+                .nvidia
+                .get_or_insert_with(|| Path::new(NVIDIA_SMI).is_file())
+            {
+                return Vec::new();
+            }
+            if let Some((at, figures)) = &self.nvidia_figures {
+                if now.duration_since(*at) < NVIDIA_EVERY {
+                    return figures.clone();
+                }
+            }
+            let figures = output_within(
+                NVIDIA_SMI,
+                &[
+                    "--query-gpu=utilization.gpu,memory.used",
+                    "--format=csv,noheader,nounits",
+                ],
+                TOOL_LIMIT,
+            )
+            .map(|output| drm::parse_nvidia_smi(&String::from_utf8_lossy(&output)))
+            .unwrap_or_default();
+            self.nvidia_figures = Some((now, figures.clone()));
+            figures
         }
     }
 

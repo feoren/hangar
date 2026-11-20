@@ -32,7 +32,7 @@ Catalog of all wiki pages. Updated on every ingest.
 
 ## Platforms
 - [[power-detection]]: battery or AC per platform for the power saving mode: Windows `GetSystemPowerStatus` mapping (no battery, AC, battery, battery saver), Linux `/sys/class/power_supply`, macOS `pmset -g batt` with Low Power Mode as saver; 30 s poll, `power-changed` on change, what saving slows and stills (sources: 2, updated: 2026-11-20)
-- [[gpu-readings]]: GPU load and memory per platform: Windows PDH, Linux DRM fdinfo per session process plus amdgpu sysfs and NVML (dlopen) per machine, macOS `ioreg` IOAccelerator statistics per machine only; rows keep a GPU column only with per-session figures (sources: 2, updated: 2026-11-20)
+- [[gpu-readings]]: GPU load and memory per platform: Windows PDH, Linux DRM fdinfo per session process plus amdgpu sysfs and `nvidia-smi` per machine, macOS `ioreg` IOAccelerator statistics per machine only; rows keep a GPU column only with per-session figures (sources: 2, updated: 2026-11-20)
 
 ## Agent CLIs
 - [[catalog]]: built-in agent catalog: inclusion rules, name collision risks, verified agent commands per program, bundled icons and their precedence, unverified points (sources: 3, updated: 2026-11-14)

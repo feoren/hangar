@@ -72,7 +72,7 @@ is required; without a memory counter its numbers stay `null`. The snapshot is s
 within a second; one collection took about 3 ms with 26 processes on the GPU (`reads_this_machine`).
 The tree's process ids come from the Job Object's process list (`TreeUsage::processes`, only ids
 confirmed in the job by `IsProcessInJob`); on Linux from the same `/proc` pass. Linux reads DRM
-fdinfo per process and amdgpu or NVML per machine, macOS the IOAccelerator statistics per machine
+fdinfo per process and amdgpu or `nvidia-smi` per machine, macOS the IOAccelerator statistics per machine
 only ([[gpu-readings]]).
 
 **Polling, not events.** `useSessionResources.ts` asks every `RESOURCE_POLL_MS` (2 s) and only
