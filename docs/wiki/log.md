@@ -1246,3 +1246,8 @@ macOS arm64 and x64 bundles built in CI per architecture, `.app.tar.gz` plus `.d
 minimum, ad hoc signature until an Apple Developer ID exists, `release.py --macos`, the login
 shell from the account or zsh, an own Cmd+Q item, and a platform check list. Pages changed:
 [[macos-release-reading]], [[0017-macos-release]], [[release-rollout]], [[overview]], index.
+
+## [2026-11-20] lint | Partner messages indented like link messages
+A partner project's message now reads `[Message from project "<name>", not from the person]` with
+every line indented by `| `, as ADR 0014 does for link groups, so no line of it can stand where a
+header would. Pages changed: [[0012-cross-project-messages]], index.

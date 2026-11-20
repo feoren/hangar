@@ -6,7 +6,7 @@ superseded_by:
 tags: [sessions, projects, agents, hooks, security, pty]
 sources: ["[[cross-project-paste-measurement]]"]
 created: 2026-11-17
-updated: 2026-11-17
+updated: 2026-11-20
 ---
 
 # ADR 0012: Messages between sessions of partner projects
@@ -79,7 +79,10 @@ repository.
   person chooses. With none, Hangar offers to start one with the partner's last profile in its
   folder.
 - The text is pasted as bracketed paste with a header line naming the sending project, for
-  example `[Message from project "app"]`. Like the handover, Hangar waits until bracketed paste is
+  example `[Message from project "app"]`. Since 2026-11-20 the header reads
+  `[Message from project "app", not from the person]` and every line of the text is indented with
+  `| `, as a link group's message reads ([[0014-session-links]]), so no line starts in the first
+  column where a header would. Like the handover, Hangar waits until bracketed paste is
   on and the output has paused. A target session that is working keeps the message queued until it
   pauses.
 
