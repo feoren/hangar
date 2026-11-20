@@ -460,6 +460,9 @@ pub(crate) mod tests {
         "rk_live_",
     ];
 
+    // A quadratic scan of 8 MiB would take hours; a linear one takes well under a second in a
+    // release build but up to about one second in a debug build on a shared CI runner. The
+    // bound therefore leaves room for slow machines and still catches any superlinear shape.
     #[test]
     fn every_shape_stays_linear_on_8_mib_of_one_prefix_repeated() {
         for prefix in PREFIXES {
@@ -470,7 +473,7 @@ pub(crate) mod tests {
                 let _ = scan(&text);
                 let took = started.elapsed();
                 assert!(
-                    took < std::time::Duration::from_secs(1),
+                    took < std::time::Duration::from_secs(10),
                     "{unit:?}: {took:?}"
                 );
             }
