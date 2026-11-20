@@ -54,7 +54,7 @@ export type SystemFont = (typeof SYSTEM_FONTS)[number];
 
 /** Every font a setting may name. Saved names from older versions are all still in here. */
 export const TERMINAL_FONTS = [...BUNDLED_FONTS, ...SYSTEM_FONTS] as const;
-/** "default" is the previous font stack. */
+/** "default" is the stack of the Windows fonts, with the bundled Cascadia behind them. */
 export type TerminalFont = "default" | (typeof TERMINAL_FONTS)[number];
 
 export interface TerminalLook {
@@ -92,7 +92,39 @@ export function sameLook(a: TerminalLook, b: TerminalLook): boolean {
   );
 }
 
+/**
+ * Cascadia Mono as Hangar ships it (fonts.css), under its own family name. Only WebKit (macOS,
+ * Linux) gets it in the stack, after the Windows fonts. Chromium (Windows) keeps the stack without
+ * it: there it would draw every glyph the installed Cascadia or Consolas lacks (Arabic, Braille,
+ * U+276F) in place of the system fallback, with other widths.
+ */
+export const BUNDLED_DEFAULT_FONT = "Hangar Cascadia Mono";
+
+/** The Windows fonts of the default stack; when one is installed, the bundled one is never used. */
+const SYSTEM_DEFAULT_FONTS = ["Cascadia Mono", "Cascadia Code", "Consolas"] as const;
+
 const FALLBACK_FONTS = ['"Cascadia Mono"', '"Cascadia Code"', "Consolas", '"DejaVu Sans Mono"'];
+
+/** Whether the stacks name the bundled Cascadia; set once at startup (main.tsx) for WebKit. */
+let bundledMono = false;
+
+export function setBundledMonoFont(enabled: boolean): void {
+  bundledMono = enabled;
+}
+
+export function bundledMonoFont(): boolean {
+  return bundledMono;
+}
+
+function fallbackFonts(): string[] {
+  if (!bundledMono) return FALLBACK_FONTS;
+  const afterWindowsFonts = FALLBACK_FONTS.indexOf("Consolas") + 1;
+  return [
+    ...FALLBACK_FONTS.slice(0, afterWindowsFonts),
+    `"${BUNDLED_DEFAULT_FONT}"`,
+    ...FALLBACK_FONTS.slice(afterWindowsFonts),
+  ];
+}
 
 /**
  * CSS font stack: the chosen font first, then the fallbacks that applied before. Deliberately no
@@ -102,8 +134,17 @@ const FALLBACK_FONTS = ['"Cascadia Mono"', '"Cascadia Code"', "Consolas", '"Deja
  */
 export function fontStack(font: TerminalFont): string {
   const first = font === "default" ? [] : [`"${font}"`];
-  const rest = FALLBACK_FONTS.filter((name) => !first.includes(name));
+  const rest = fallbackFonts().filter((name) => !first.includes(name));
   return [...first, ...rest, "monospace"].join(", ");
+}
+
+/**
+ * Stack for the moment the chosen font is not loaded yet: the default stack without the bundled
+ * Cascadia. It differs from the final stack of every font that has to load, so switching to that
+ * makes xterm measure the cell size anew.
+ */
+export function waitingStack(): string {
+  return [...FALLBACK_FONTS, "monospace"].join(", ");
 }
 
 /** Measures the width of a sample text in the given CSS font (`font` shorthand). */
@@ -138,10 +179,26 @@ export function fontChoices(
 }
 
 /**
- * `document.fonts.load` queries for the faces xterm draws with (regular and bold). Empty for fonts
- * that are not bundled: system fonts need no loading.
+ * Whether the default stack ends up at the bundled Cascadia: it is in the stack (WebKit) and none
+ * of the Windows fonts before it is installed. Without a canvas to measure with, the answer is no,
+ * which keeps the stack as it always worked.
  */
-export function fontLoadQueries(font: TerminalFont): string[] {
+export function defaultUsesBundledFont(measure: MeasureText | null): boolean {
+  if (!bundledMono || measure === null) return false;
+  return !SYSTEM_DEFAULT_FONTS.some((font) => isFontInstalled(font, measure));
+}
+
+/**
+ * `document.fonts.load` queries for the faces xterm draws with (regular and bold). Empty for fonts
+ * that are not bundled: system fonts need no loading. The default needs the bundled Cascadia only
+ * where it is the font actually drawn (`bundledDefault`).
+ */
+export function fontLoadQueries(font: TerminalFont, bundledDefault = false): string[] {
+  if (font === "default") {
+    return bundledDefault
+      ? [`16px "${BUNDLED_DEFAULT_FONT}"`, `bold 16px "${BUNDLED_DEFAULT_FONT}"`]
+      : [];
+  }
   if (!isBundledFont(font)) return [];
   return [`16px "${font}"`, `bold 16px "${font}"`];
 }
@@ -160,16 +217,24 @@ export interface FontLoader {
  * xterm measures the cell size once when the font is set. A web font that is still loading would
  * be measured in its fallback and keep wrong cell widths, so terminals wait for this loader.
  */
-export function createFontLoader(loadFace: LoadFontFace): FontLoader {
+export function createFontLoader(
+  loadFace: LoadFontFace,
+  bundledDefault: () => boolean = () => false,
+): FontLoader {
   const ready = new Set<TerminalFont>();
   const pending = new Map<TerminalFont, Promise<void>>();
-  const isReady = (font: TerminalFont): boolean =>
-    fontLoadQueries(font).length === 0 || ready.has(font);
+  // Asked once, on first use: measuring needs the document and its installed fonts.
+  let usesBundled: boolean | null = null;
+  const queries = (font: TerminalFont): string[] => {
+    if (font === "default") usesBundled ??= bundledDefault();
+    return fontLoadQueries(font, usesBundled ?? false);
+  };
+  const isReady = (font: TerminalFont): boolean => queries(font).length === 0 || ready.has(font);
   const load = (font: TerminalFont): Promise<void> => {
     if (isReady(font)) return Promise.resolve();
     const running = pending.get(font);
     if (running !== undefined) return running;
-    const promise = Promise.all(fontLoadQueries(font).map((query) => loadFace(query)))
+    const promise = Promise.all(queries(font).map((query) => loadFace(query)))
       .catch(() => undefined)
       .then(() => {
         ready.add(font);

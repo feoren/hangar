@@ -84,6 +84,7 @@
   --heat-2: color-mix(in srgb, var(--accent) 15%, transparent);
   --heat-3: color-mix(in srgb, var(--accent) 24%, transparent);
   --heat-4: color-mix(in srgb, var(--accent) 34%, transparent);
+  /* WebKit (macOS, Linux) adds the bundled Cascadia after Consolas (webkit.css). */
   --mono: "Cascadia Mono", "Cascadia Code", Consolas, "DejaVu Sans Mono", monospace;
   --sidebar-width: 320px;
   /* Width of the collapsed sidebar; the same value as SIDEBAR_RAIL_WIDTH in layout.ts. */
@@ -175,6 +176,7 @@
   font-family:
     "Segoe UI Variable Text",
     "Segoe UI",
+    Selawik,
     system-ui,
     -apple-system,
     sans-serif;

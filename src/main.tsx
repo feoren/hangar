@@ -1,19 +1,28 @@
 import "@xterm/xterm/css/xterm.css";
 import "./fonts.css";
 import "./styles.css";
+import "./webkit.css";
 
 import { lazy, StrictMode, Suspense } from "react";
 import { createRoot } from "react-dom/client";
 
 import { watchDevicePx } from "./devicePixel";
+import { applyDocumentEngine } from "./engine";
 import { detectLanguage } from "./i18n";
 import { loadSettings } from "./settings";
+import { setBundledMonoFont } from "./terminalLook";
 import { applyDocumentTheme, resolveTheme, systemPrefersDark } from "./theme";
 
 // Before the first render, so a light window does not briefly flash dark (and vice versa).
 applyDocumentTheme(
   resolveTheme(loadSettings(detectLanguage(navigator.language)).theme, systemPrefersDark()),
 );
+
+// WebKit (macOS, Linux) redraws form controls and scrollbars the way WebView2 draws them on
+// Windows (webkit.css); set before the first render, so no control changes its look visibly.
+const engine = applyDocumentEngine(document.documentElement, navigator.userAgent);
+// The terminal and file viewer stacks name the bundled Cascadia on WebKit only (terminalLook.ts).
+setBundledMonoFont(engine === "webkit");
 
 // Lines on whole device pixels (tree guides), also after moving to a display with another scale.
 watchDevicePx(document.documentElement);

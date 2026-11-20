@@ -1,0 +1,412 @@
+/*
+ * Form controls and scrollbars for WebKit (WKWebView on macOS, WebKitGTK on Linux), drawn the way
+ * WebView2 (Chromium) draws them on Windows, so Hangar looks the same on every platform. Only for
+ * `[data-engine="webkit"]` (engine.ts); Chromium keeps its native controls untouched.
+ *
+ * Every selector sits inside `:where()`, so its specificity is zero: any rule in styles.css wins
+ * and these only fill in what the engine would otherwise draw itself. The few `!important`s mark
+ * the spots where Chromium adds something on top of the author's styles (the arrow of a select).
+ *
+ * The colors are Chromium's own form control colors for light and dark (measured in Edge), not
+ * app tokens, because they stand in for what WebView2 draws natively.
+ */
+
+:where([data-engine="webkit"]) {
+  --native-bg: #3b3b3b;
+  --native-border: #858585;
+  --native-track: #3b3b3b;
+  --native-disabled-bg: #252629;
+  --native-disabled-border: #4a4b4e;
+  --native-progress: #99c8ff;
+  --native-field-text: #ffffff;
+  --native-swatch-bg: #6b6b6b;
+  --native-scroll-track: #2c2c2c;
+  --native-scroll-thumb: #9f9f9f;
+  /* Check mark and arrows, as images: their colors cannot come from custom properties. */
+  --native-check: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Cpath d='M3.2 8.4l3 3 6.6-6.8' fill='none' stroke='%233b3b3b' stroke-width='2.2'/%3E%3C/svg%3E");
+  --native-calendar: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Crect x='2.5' y='3.5' width='11' height='10' rx='1.5' fill='none' stroke='%23d6dde6'/%3E%3Cpath d='M2.5 6.5h11' stroke='%23d6dde6'/%3E%3Cpath d='M5 8.5h1.4M7.3 8.5h1.4M9.6 8.5h1.4M5 10.8h1.4M7.3 10.8h1.4' stroke='%23d6dde6' stroke-width='1.2'/%3E%3C/svg%3E");
+  --native-clock: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Ccircle cx='8' cy='8' r='6' fill='none' stroke='%23d6dde6' stroke-width='1.2'/%3E%3Cpath d='M8 4.6V8.3h2.8' fill='none' stroke='%23d6dde6' stroke-width='1.2'/%3E%3C/svg%3E");
+  --native-select-arrow: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 10 6'%3E%3Cpath d='M1 1l4 4 4-4' fill='none' stroke='%23d6dde6' stroke-width='1.6'/%3E%3C/svg%3E");
+  --native-arrow-up: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 8 6'%3E%3Cpath d='M4 0.5L8 6H0z' fill='%239f9f9f'/%3E%3C/svg%3E");
+  --native-arrow-down: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 8 6'%3E%3Cpath d='M4 5.5L8 0H0z' fill='%239f9f9f'/%3E%3C/svg%3E");
+  --native-arrow-left: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 6 8'%3E%3Cpath d='M0.5 4L6 0V8z' fill='%239f9f9f'/%3E%3C/svg%3E");
+  --native-arrow-right: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 6 8'%3E%3Cpath d='M5.5 4L0 0V8z' fill='%239f9f9f'/%3E%3C/svg%3E");
+  /* macOS draws text heavier than Windows unless smoothing is grayscale. */
+  -webkit-font-smoothing: antialiased;
+}
+
+:where([data-engine="webkit"][data-theme="light"]) {
+  --native-bg: #ffffff;
+  --native-border: #767676;
+  --native-track: #efefef;
+  --native-disabled-bg: #ffffff;
+  --native-disabled-border: #d4d4d4;
+  --native-progress: #0075ff;
+  --native-field-text: #000000;
+  --native-swatch-bg: #efefef;
+  --native-scroll-track: #fcfcfc;
+  --native-scroll-thumb: #8b8b8b;
+  --native-check: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Cpath d='M3.2 8.4l3 3 6.6-6.8' fill='none' stroke='%23ffffff' stroke-width='2.2'/%3E%3C/svg%3E");
+  --native-calendar: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Crect x='2.5' y='3.5' width='11' height='10' rx='1.5' fill='none' stroke='%231f2328'/%3E%3Cpath d='M2.5 6.5h11' stroke='%231f2328'/%3E%3Cpath d='M5 8.5h1.4M7.3 8.5h1.4M9.6 8.5h1.4M5 10.8h1.4M7.3 10.8h1.4' stroke='%231f2328' stroke-width='1.2'/%3E%3C/svg%3E");
+  --native-clock: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Ccircle cx='8' cy='8' r='6' fill='none' stroke='%231f2328' stroke-width='1.2'/%3E%3Cpath d='M8 4.6V8.3h2.8' fill='none' stroke='%231f2328' stroke-width='1.2'/%3E%3C/svg%3E");
+  --native-select-arrow: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 10 6'%3E%3Cpath d='M1 1l4 4 4-4' fill='none' stroke='%231f2328' stroke-width='1.6'/%3E%3C/svg%3E");
+  --native-arrow-up: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 8 6'%3E%3Cpath d='M4 0.5L8 6H0z' fill='%238b8b8b'/%3E%3C/svg%3E");
+  --native-arrow-down: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 8 6'%3E%3Cpath d='M4 5.5L8 0H0z' fill='%238b8b8b'/%3E%3C/svg%3E");
+  --native-arrow-left: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 6 8'%3E%3Cpath d='M0.5 4L6 0V8z' fill='%238b8b8b'/%3E%3C/svg%3E");
+  --native-arrow-right: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 6 8'%3E%3Cpath d='M5.5 4L0 0V8z' fill='%238b8b8b'/%3E%3C/svg%3E");
+}
+
+/*
+ * Text fields and text areas: Chromium's user agent box, so a property the app leaves unset looks
+ * as on Windows (WebKit rounds the corners and uses its own font and colors). Chromium lays out a
+ * 2px border but paints only its outer pixel; the border image does the same and drops out as soon
+ * as the app sets its own `border`.
+ */
+:where(
+  [data-engine="webkit"]
+    input:is(
+      :not([type]),
+      [type="text"],
+      [type="password"],
+      [type="url"],
+      [type="email"],
+      [type="search"],
+      [type="number"],
+      [type="tel"],
+      [type="date"],
+      [type="time"]
+    )
+) {
+  padding: 1px 2px;
+  font:
+    400 13.3333px Arial,
+    "Liberation Sans",
+    sans-serif;
+  color: var(--native-field-text);
+  background-color: var(--native-bg);
+  border: 2px solid transparent;
+  border-image: linear-gradient(var(--native-border), var(--native-border)) 1 / 1px;
+  border-radius: 0;
+}
+
+:where([data-engine="webkit"] textarea) {
+  padding: 2px;
+  font:
+    400 13.3333px Consolas,
+    "Hangar Cascadia Mono",
+    monospace;
+  color: var(--native-field-text);
+  background-color: var(--native-bg);
+  border: 1px solid var(--native-border);
+  border-radius: 0;
+}
+
+/*
+ * Date and time: monospace digits, 1px more above and below the text and the picker icon at the
+ * end, as Chromium draws them. WebKit opens its own picker; the icon only shows what the field is.
+ */
+:where([data-engine="webkit"] input:is([type="date"], [type="time"])) {
+  padding-inline-start: 1px;
+  font-family: Consolas, "Hangar Cascadia Mono", monospace;
+  line-height: round(down, 1.33em + 2px, 1px) !important;
+  padding-inline-end: 28px !important;
+  background-repeat: no-repeat !important;
+  background-position: right 6px center !important;
+  background-size: 16px 16px !important;
+}
+
+:where([data-engine="webkit"] input[type="date"]) {
+  background-image: var(--native-calendar) !important;
+}
+
+:where([data-engine="webkit"] input[type="time"]) {
+  background-image: var(--native-clock) !important;
+}
+
+:where([data-engine="webkit"] input:is([type="date"], [type="time"]))::-webkit-datetime-edit {
+  padding: 0;
+}
+
+:where([data-engine="webkit"] input:is([type="date"], [type="time"]))::-webkit-date-and-time-value {
+  text-align: start;
+}
+
+/* Color fields: Chromium's gray button with a framed swatch (the accent picker styles its own). */
+:where([data-engine="webkit"] input[type="color"]) {
+  appearance: none;
+  inline-size: 50px;
+  block-size: 27px;
+  padding: 1px 2px;
+  background-color: var(--native-swatch-bg);
+  border: 1px solid var(--native-border);
+  border-radius: 0;
+}
+
+:where([data-engine="webkit"] input[type="color"])::-webkit-color-swatch-wrapper {
+  padding: 4px 2px;
+}
+
+:where([data-engine="webkit"] input[type="color"])::-webkit-color-swatch {
+  border: 1px solid #777777;
+}
+
+/*
+ * Monospace text: the bundled Cascadia after the Windows fonts, so macOS and Linux get the Windows
+ * 11 look. Only here: in Chromium it would draw the glyphs the installed Cascadia or Consolas lack.
+ */
+:where([data-engine="webkit"]):root {
+  --mono:
+    "Cascadia Mono", "Cascadia Code", Consolas, "Hangar Cascadia Mono", "DejaVu Sans Mono",
+    monospace;
+}
+
+/* The install command names its own stack (styles.css); WebKit swaps in the one with the bundled
+   Cascadia. One class of specificity, so it beats the rule in styles.css. */
+:where([data-engine="webkit"]) .install-command {
+  font-family: var(--mono);
+}
+
+/* Buttons: Chromium's user agent box; WebKit on macOS adds its own margin and padding. */
+:where([data-engine="webkit"] button) {
+  appearance: none;
+  margin: 0;
+  padding: 1px 6px;
+}
+
+/* Checkboxes and radios (the switch in styles.css draws itself). */
+:where([data-engine="webkit"] input[type="checkbox"]:not(.switch)),
+:where([data-engine="webkit"] input[type="radio"]) {
+  appearance: none;
+  width: 13px;
+  height: 13px;
+  margin: 3px 3px 3px 4px;
+  vertical-align: middle;
+  background: var(--native-bg) center / 100% no-repeat;
+  border: 1px solid var(--native-border);
+  border-radius: 2px;
+}
+
+:where([data-engine="webkit"] input[type="radio"]) {
+  margin: 3px 3px 0 5px;
+  border-radius: 50%;
+}
+
+:where([data-engine="webkit"] input[type="checkbox"]:not(.switch):checked) {
+  background-color: var(--accent);
+  background-image: var(--native-check);
+  border-color: var(--accent);
+}
+
+:where([data-engine="webkit"] input[type="radio"]:checked) {
+  background-image: radial-gradient(
+    circle closest-side,
+    var(--accent) 0 64%,
+    var(--native-bg) calc(64% + 0.5px)
+  );
+  border-color: var(--accent);
+}
+
+:where([data-engine="webkit"] input[type="checkbox"]:not(.switch):disabled),
+:where([data-engine="webkit"] input[type="radio"]:disabled) {
+  background-color: var(--native-disabled-bg);
+  border-color: var(--native-disabled-border);
+}
+
+:where([data-engine="webkit"] input[type="checkbox"]:not(.switch):checked:disabled) {
+  background-color: var(--native-disabled-border);
+}
+
+/* Sliders: a bordered track filled up to the thumb (`--range-ratio`, rangeFill.ts). */
+:where([data-engine="webkit"] input[type="range"]) {
+  appearance: none;
+  height: 16px;
+  margin: 2px;
+  background: transparent;
+}
+
+:where([data-engine="webkit"] input[type="range"])::-webkit-slider-runnable-track {
+  height: 8px;
+  background: linear-gradient(
+    to right,
+    var(--accent) 0 calc(6.5px + (100% - 13px) * var(--range-ratio, 0)),
+    var(--native-track) 0
+  );
+  border: 1px solid var(--native-border);
+  border-radius: 4px;
+}
+
+:where([data-engine="webkit"] input[type="range"])::-webkit-slider-thumb {
+  appearance: none;
+  width: 15px;
+  height: 15px;
+  margin-top: -4.5px;
+  background: var(--accent);
+  border: none;
+  border-radius: 50%;
+}
+
+:where([data-engine="webkit"] input[type="range"]:disabled)::-webkit-slider-thumb {
+  background: var(--native-border);
+}
+
+/* Selects: the author's box plus what Chromium adds on top of the author's padding: 1px above and
+   below the text and room for the chevron at the end. Chromium also indents the text by 4px; an
+   indent here would clip the text, so those 4px of width go to the end instead. */
+:where([data-engine="webkit"] select:not([multiple], [size])) {
+  appearance: none;
+  line-height: round(down, 1.33em + 2px, 1px) !important;
+  padding-inline-end: 28px !important;
+  background-image: var(--native-select-arrow) !important;
+  background-repeat: no-repeat !important;
+  background-position: right 4px center !important;
+  background-size: 10px 6px !important;
+}
+
+/* Search fields: a plain text box as in Chromium (cancel buttons are hidden by their owners). */
+:where([data-engine="webkit"] input[type="search"]) {
+  appearance: none;
+}
+
+:where([data-engine="webkit"] input[type="search"])::-webkit-search-decoration {
+  appearance: none;
+}
+
+/* Progress bars: Chromium's bordered, rounded bar, centered in a 13px tall box. */
+:where([data-engine="webkit"] progress) {
+  appearance: none;
+  height: 13px;
+  padding: 3px 0;
+  vertical-align: middle;
+  background: transparent;
+  border: none;
+}
+
+:where([data-engine="webkit"] progress)::-webkit-progress-bar {
+  background: var(--native-track);
+  border: 1px solid var(--native-border);
+  border-radius: 4px;
+  overflow: hidden;
+}
+
+:where([data-engine="webkit"] progress)::-webkit-progress-value {
+  background: var(--native-progress);
+}
+
+/*
+ * Scrollbars: Chromium's classic Windows scrollbar, 15px with arrow buttons and a round thumb,
+ * 10px where styles.css asks for `scrollbar-width: thin`. Classic, not overlay, so a scrolling
+ * box keeps the same inner width as on Windows. The terminal draws its own scrollbar.
+ */
+:where([data-engine="webkit"] :not(.xterm-viewport))::-webkit-scrollbar {
+  width: 15px;
+  height: 15px;
+  background: var(--native-scroll-track);
+}
+
+:where([data-engine="webkit"] :not(.xterm-viewport))::-webkit-scrollbar-corner {
+  background: var(--native-scroll-track);
+}
+
+:where([data-engine="webkit"] :not(.xterm-viewport))::-webkit-scrollbar-thumb {
+  background: var(--native-scroll-thumb) padding-box;
+  border: solid transparent;
+  border-width: 0 3px;
+  border-radius: 8px;
+}
+
+:where([data-engine="webkit"] :not(.xterm-viewport))::-webkit-scrollbar-thumb:horizontal {
+  border-width: 3px 0;
+}
+
+:where([data-engine="webkit"] :not(.xterm-viewport))::-webkit-scrollbar-button:single-button {
+  display: block;
+  width: 15px;
+  height: 15px;
+  background: transparent no-repeat center / 8px 6px;
+}
+
+:where([data-engine="webkit"] :not(.xterm-viewport))::-webkit-scrollbar-button:vertical:decrement {
+  background-image: var(--native-arrow-up);
+}
+
+:where([data-engine="webkit"] :not(.xterm-viewport))::-webkit-scrollbar-button:vertical:increment {
+  background-image: var(--native-arrow-down);
+}
+
+:where(
+    [data-engine="webkit"] :not(.xterm-viewport)
+  )::-webkit-scrollbar-button:horizontal:decrement {
+  background-image: var(--native-arrow-left);
+  background-size: 6px 8px;
+}
+
+:where(
+    [data-engine="webkit"] :not(.xterm-viewport)
+  )::-webkit-scrollbar-button:horizontal:increment {
+  background-image: var(--native-arrow-right);
+  background-size: 6px 8px;
+}
+
+/* The boxes styles.css gives `scrollbar-width: thin`; WebKit would draw its own thin bar there. */
+:where(
+  [data-engine="webkit"] .notes-list-wrap,
+  [data-engine="webkit"] .changes-body,
+  [data-engine="webkit"] .diff,
+  [data-engine="webkit"] .claims,
+  [data-engine="webkit"] .crew-column
+) {
+  scrollbar-width: auto !important;
+}
+
+:where(
+  [data-engine="webkit"] .notes-list-wrap,
+  [data-engine="webkit"] .changes-body,
+  [data-engine="webkit"] .diff,
+  [data-engine="webkit"] .claims,
+  [data-engine="webkit"] .crew-column
+)::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+
+:where(
+  [data-engine="webkit"] .notes-list-wrap,
+  [data-engine="webkit"] .changes-body,
+  [data-engine="webkit"] .diff,
+  [data-engine="webkit"] .claims,
+  [data-engine="webkit"] .crew-column
+)::-webkit-scrollbar-thumb {
+  border-width: 0 2px;
+}
+
+:where(
+    [data-engine="webkit"] .notes-list-wrap,
+    [data-engine="webkit"] .changes-body,
+    [data-engine="webkit"] .diff,
+    [data-engine="webkit"] .claims,
+    [data-engine="webkit"] .crew-column
+  )::-webkit-scrollbar-thumb:horizontal {
+  border-width: 2px 0;
+}
+
+:where(
+    [data-engine="webkit"] .notes-list-wrap,
+    [data-engine="webkit"] .changes-body,
+    [data-engine="webkit"] .diff,
+    [data-engine="webkit"] .claims,
+    [data-engine="webkit"] .crew-column
+  )::-webkit-scrollbar-button:single-button {
+  width: 10px;
+  height: 10px;
+  background-size: 5px 4px;
+}
+
+:where(
+    [data-engine="webkit"] .notes-list-wrap,
+    [data-engine="webkit"] .changes-body,
+    [data-engine="webkit"] .diff,
+    [data-engine="webkit"] .claims,
+    [data-engine="webkit"] .crew-column
+  )::-webkit-scrollbar-button:horizontal:single-button {
+  background-size: 4px 5px;
+}

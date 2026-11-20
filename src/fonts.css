@@ -102,3 +102,49 @@
   font-display: block;
   src: url("./assets/fonts/victor-mono/victor-mono-bold.woff2") format("woff2");
 }
+
+/*
+ * App fonts for macOS and Linux, where Segoe UI and Cascadia Mono are missing. Windows keeps its
+ * own fonts: both stacks in styles.css name them first, so these files never load there.
+ *
+ * Selawik is Microsoft's open replacement for Segoe UI with the same metrics, so text keeps its
+ * width and every layout stays as on Windows. It covers Latin only; the unicode-range keeps the
+ * browser from loading it for Greek, Cyrillic and CJK text, which come from the system font.
+ * Weight 500 resolves to regular and 650 to bold, as with Segoe UI on Windows 10.
+ */
+
+@font-face {
+  font-family: "Selawik";
+  font-weight: 400;
+  font-display: block;
+  src: url("./assets/fonts/selawik/selawik-regular.woff2") format("woff2");
+  unicode-range: U+0000-024F, U+02C6-02DD, U+0300-0336, U+1E80-1EF3, U+2013-2122;
+}
+
+@font-face {
+  font-family: "Selawik";
+  font-weight: 600;
+  font-display: block;
+  src: url("./assets/fonts/selawik/selawik-semibold.woff2") format("woff2");
+  unicode-range: U+0000-024F, U+02C6-02DD, U+0300-0336, U+1E80-1EF3, U+2013-2122;
+}
+
+@font-face {
+  font-family: "Selawik";
+  font-weight: 700;
+  font-display: block;
+  src: url("./assets/fonts/selawik/selawik-bold.woff2") format("woff2");
+  unicode-range: U+0000-024F, U+02C6-02DD, U+0300-0336, U+1E80-1EF3, U+2013-2122;
+}
+
+/*
+ * Cascadia Mono, the variable font (weights 200 to 700) Windows 11 has installed. Its own family
+ * name keeps it apart from the installed "Cascadia Mono": the terminal font picker detects that one
+ * by measuring, which a web font of the same name would confuse.
+ */
+@font-face {
+  font-family: "Hangar Cascadia Mono";
+  font-weight: 200 700;
+  font-display: block;
+  src: url("./assets/fonts/cascadia-mono/cascadia-mono.woff2") format("woff2");
+}
