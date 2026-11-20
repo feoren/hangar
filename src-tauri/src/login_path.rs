@@ -1,4 +1,5 @@
-//! The `PATH` of the user's login shell, for Hangar's own process on macOS and Linux (ADR 0013).
+//! The `PATH` of the user's login shell, for Hangar's own process on macOS and Linux (ADR 0013,
+//! ADR 0017).
 //!
 //! A program started from the desktop (an application menu, the Dock, an AppImage) gets the
 //! environment of the desktop session, not of the user's shell: whatever `~/.profile`,
@@ -25,8 +26,13 @@ pub const TIMEOUT: Duration = Duration::from_secs(3);
 pub const START: &str = "__HANGAR_LOGIN_PATH_START__";
 pub const END: &str = "__HANGAR_LOGIN_PATH_END__";
 
-/// The shell when `$SHELL` is unset or not an absolute path.
-pub const FALLBACK_SHELL: &str = "/bin/sh";
+/// The shell when neither `$SHELL` nor the account names an absolute path. zsh is the default
+/// login shell of every account created since macOS 10.15, and every macOS from 13 on has it.
+pub const FALLBACK_SHELL: &str = if cfg!(target_os = "macos") {
+    "/bin/zsh"
+} else {
+    "/bin/sh"
+};
 
 /// The command the login shell runs. POSIX shells and fish both have `printf`; fish joins a path
 /// variable such as `PATH` with colons when it is quoted.
@@ -84,20 +90,25 @@ pub fn merge(login: &OsStr, own: Option<&OsStr>) -> Result<OsString, JoinPathsEr
     std::env::join_paths(entries)
 }
 
-/// `$SHELL` when it is an absolute path, otherwise [`FALLBACK_SHELL`].
-pub fn login_shell(shell: Option<&OsStr>) -> PathBuf {
-    shell
+/// The first absolute path of `$SHELL` (`shell`) and the account's login shell from the user
+/// database (`account`), otherwise [`FALLBACK_SHELL`]. The account comes second: a program
+/// started from the Dock or Finder may get no `$SHELL`, and the shell the user chose with
+/// `chsh` is the one a terminal would start.
+pub fn login_shell(shell: Option<&OsStr>, account: Option<&OsStr>) -> PathBuf {
+    [shell, account]
+        .into_iter()
+        .flatten()
         .map(PathBuf::from)
-        .filter(|path| path.is_absolute())
+        .find(|path| path.is_absolute())
         .unwrap_or_else(|| PathBuf::from(FALLBACK_SHELL))
 }
 
 #[cfg(unix)]
-pub use unix::{adopt, query, run};
+pub use unix::{account_shell, adopt, query, run};
 
 #[cfg(unix)]
 mod unix {
-    use std::ffi::OsString;
+    use std::ffi::{CStr, OsString};
     use std::io::{self, Read};
     use std::os::unix::ffi::OsStringExt;
     use std::os::unix::process::CommandExt;
@@ -125,7 +136,10 @@ mod unix {
     /// environment. On any
     /// failure the inherited `PATH` stays, as before this existed.
     pub fn adopt() {
-        let shell = login_shell(std::env::var_os("SHELL").as_deref());
+        let shell = login_shell(
+            std::env::var_os("SHELL").as_deref(),
+            account_shell().as_deref(),
+        );
         let login = match query(&shell, super::TIMEOUT) {
             Ok(login) => login,
             Err(error) => {
@@ -137,6 +151,36 @@ mod unix {
             Ok(path) => std::env::set_var("PATH", path),
             Err(error) => eprintln!("hangar: the login shell's PATH is unusable: {error}"),
         }
+    }
+
+    /// The login shell of the account Hangar runs as, from the user database (`getpwuid_r`), or
+    /// `None` when there is no entry or no shell in it.
+    pub fn account_shell() -> Option<OsString> {
+        // Large enough for any real entry; a larger one fails with ERANGE and yields `None`.
+        let mut buffer = vec![0 as libc::c_char; 16 * 1024];
+        // SAFETY: an all-zero `passwd` is a valid value of this plain C struct (null pointers,
+        // zero ids); getpwuid_r overwrites it before it is read.
+        let mut entry: libc::passwd = unsafe { std::mem::zeroed() };
+        let mut found: *mut libc::passwd = std::ptr::null_mut();
+        // SAFETY: getuid has no preconditions. getpwuid_r writes only into `entry` and `buffer`,
+        // whose sizes are passed, and sets `found` to `&mut entry` or null; the strings it
+        // stores point into `buffer`, which outlives every read below.
+        let status = unsafe {
+            libc::getpwuid_r(
+                libc::getuid(),
+                &mut entry,
+                buffer.as_mut_ptr(),
+                buffer.len(),
+                &mut found,
+            )
+        };
+        if status != 0 || found.is_null() || entry.pw_shell.is_null() {
+            return None;
+        }
+        // SAFETY: `pw_shell` is non-null and points to a NUL-terminated string inside `buffer`.
+        let shell = unsafe { CStr::from_ptr(entry.pw_shell) };
+        let shell = OsString::from_vec(shell.to_bytes().to_vec());
+        (!shell.is_empty()).then_some(shell)
     }
 
     /// The `PATH` of `shell` as a login and interactive shell (`-ilc`: interactive, because many
@@ -366,22 +410,44 @@ mod tests {
     }
 
     #[test]
-    fn the_shell_falls_back_to_bin_sh() {
-        assert_eq!(login_shell(None), PathBuf::from(FALLBACK_SHELL));
+    fn the_shell_falls_back_to_the_platform_default() {
+        let fallback = PathBuf::from(FALLBACK_SHELL);
+        assert_eq!(login_shell(None, None), fallback);
+        assert_eq!(login_shell(Some(OsStr::new("")), None), fallback);
         assert_eq!(
-            login_shell(Some(OsStr::new(""))),
-            PathBuf::from(FALLBACK_SHELL)
+            login_shell(Some(OsStr::new("zsh")), Some(OsStr::new("bash"))),
+            fallback
+        );
+    }
+
+    #[test]
+    fn the_fallback_is_zsh_on_macos_and_sh_elsewhere() {
+        let expected = if cfg!(target_os = "macos") {
+            "/bin/zsh"
+        } else {
+            "/bin/sh"
+        };
+        assert_eq!(FALLBACK_SHELL, expected);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn shell_beats_the_account_and_the_account_beats_the_fallback() {
+        let (env, account) = (OsStr::new("/usr/bin/fish"), OsStr::new("/bin/bash"));
+        assert_eq!(
+            login_shell(Some(env), Some(account)),
+            PathBuf::from("/usr/bin/fish")
+        );
+        // A Dock or Finder start without `$SHELL`, or a relative one: the account decides.
+        assert_eq!(login_shell(None, Some(account)), PathBuf::from("/bin/bash"));
+        assert_eq!(
+            login_shell(Some(OsStr::new("zsh")), Some(account)),
+            PathBuf::from("/bin/bash")
         );
         assert_eq!(
-            login_shell(Some(OsStr::new("zsh"))),
+            login_shell(None, Some(OsStr::new("nologin"))),
             PathBuf::from(FALLBACK_SHELL)
         );
-        if cfg!(unix) {
-            assert_eq!(
-                login_shell(Some(OsStr::new("/usr/bin/zsh"))),
-                PathBuf::from("/usr/bin/zsh")
-            );
-        }
     }
 
     #[cfg(unix)]
@@ -449,6 +515,28 @@ mod tests {
             unsafe {
                 libc::kill(pid, libc::SIGKILL);
             }
+        }
+
+        #[test]
+        fn the_account_has_an_absolute_login_shell() {
+            // CI runners and developer machines run as an account with a shell in the user
+            // database; a missing entry would yield `None` and leave the choice to `$SHELL`.
+            let shell = account_shell().expect("no login shell in the user database");
+            assert!(Path::new(&shell).is_absolute(), "{shell:?}");
+        }
+
+        /// zsh is the default shell on macOS: as a login and interactive shell in a session of
+        /// its own and without a terminal it must still print the markers, and its `PATH` must
+        /// keep the system folders.
+        #[cfg(target_os = "macos")]
+        #[test]
+        fn zsh_answers_as_a_login_shell_on_macos() {
+            let path = query(Path::new("/bin/zsh"), TIMEOUT).unwrap();
+            let entries: Vec<_> = std::env::split_paths(&path).collect();
+            assert!(
+                entries.iter().any(|entry| entry == Path::new("/usr/bin")),
+                "{path:?}"
+            );
         }
 
         #[test]
