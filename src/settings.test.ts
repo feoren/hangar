@@ -97,6 +97,8 @@ describe("parseSettings", () => {
       quietHours: DEFAULT_QUIET_HOURS,
       restoreSessions: true,
       dailyBudget: null,
+      budgetEarlyPercent: 80,
+      morningReview: true,
       claimsEnabled: true,
       gateEnabled: true,
       commandGuardEnabled: true,
@@ -364,7 +366,12 @@ describe("parseSettings", () => {
     expect(noticesOf(parseSettings(JSON.stringify(stored), "de"))).toEqual(
       noticesOf(defaultSettings("de")),
     );
-    expect(legacyNotices(JSON.stringify(stored))).toEqual(stored);
+    // The early warning and the morning summary came after the move: always the defaults.
+    expect(legacyNotices(JSON.stringify({ ...stored, morningReview: false }))).toEqual({
+      ...stored,
+      budgetEarlyPercent: 80,
+      morningReview: true,
+    });
     const kept = withoutBackendKeys({ ...defaultSettings("de"), ...stored });
     for (const key of NOTICE_KEYS) expect(kept).not.toHaveProperty(key);
     expect(legacyNotices(null)).toEqual(noticesOf(defaultSettings("de")));

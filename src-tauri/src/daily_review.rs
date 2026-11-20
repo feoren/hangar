@@ -85,7 +85,8 @@ pub struct ProjectReview {
     /// Files touched by the day's commits, sorted, at most [`MAX_PROJECT_FILES`].
     pub files: Vec<String>,
     pub file_count: u32,
-    /// Only for a day that includes now: the work trees with uncommitted changes.
+    /// For a day that includes now, or when asked for (the morning summary of yesterday): the
+    /// work trees with uncommitted changes right now.
     pub uncommitted: Vec<TreeChanges>,
 }
 
@@ -226,28 +227,31 @@ pub fn merge(
 }
 
 /// The whole review of `[start, end)`: the log merged, then git where it is installed.
+/// `open_now`: also list what is uncommitted right now for a past day.
 pub fn review(
     log: &WorkLog,
     git: Option<&Git>,
     start: i64,
     end: i64,
     now: i64,
+    open_now: bool,
 ) -> Result<DailyReview, ReviewError> {
     check_window(start, end, now)?;
     let (records, truncated) = log.read_window(start, end);
     let mut review = merge(&records, start, end, now, &log.live_keys());
     review.truncated |= truncated;
     if let Some(git) = git {
-        add_git(git, &mut review, now);
+        add_git(git, &mut review, now, open_now);
     }
     Ok(review)
 }
 
-/// Commits of the day and, for a day that includes now, the uncommitted changes, for every
-/// project that is a repository (at most [`MAX_GIT_PROJECTS`], most active first).
-pub fn add_git(git: &Git, review: &mut DailyReview, now: i64) {
+/// Commits of the day and the uncommitted changes, for every project that is a repository (at
+/// most [`MAX_GIT_PROJECTS`], most active first). The uncommitted changes are of now, so a past
+/// day lists them only with `open_now` (the morning summary: what yesterday left open).
+pub fn add_git(git: &Git, review: &mut DailyReview, now: i64, open_now: bool) {
     let total_end = Instant::now() + TOTAL_TIME;
-    let today = review.start <= now && now < review.end;
+    let today = open_now || (review.start <= now && now < review.end);
     let (start, end) = (review.start, review.end);
     for project in review
         .projects
@@ -860,7 +864,7 @@ mod tests {
         );
         // The session ran in `<repo>/src`; its work tree is the repository.
         std::fs::create_dir_all(repo.join("src")).unwrap();
-        add_git(&git, &mut review, DAY + 13 * HOUR);
+        add_git(&git, &mut review, DAY + 13 * HOUR, false);
         assert_eq!(review.commit_count, 2);
         let project = &review.projects[0];
         assert_eq!(project.files, ["a.txt", "c.txt"]);
@@ -877,9 +881,21 @@ mod tests {
             DAY + 3 * DAY_MS,
             &HashSet::new(),
         );
-        add_git(&git, &mut past, DAY + 3 * DAY_MS);
+        add_git(&git, &mut past, DAY + 3 * DAY_MS, false);
         assert!(past.projects[0].uncommitted.is_empty());
         assert_eq!(past.commit_count, 2);
+
+        // Asked for, a past day lists what is open now (the morning summary of yesterday).
+        let mut open = merge(
+            &records,
+            DAY,
+            DAY + DAY_MS,
+            DAY + 3 * DAY_MS,
+            &HashSet::new(),
+        );
+        add_git(&git, &mut open, DAY + 3 * DAY_MS, true);
+        assert_eq!(open.projects[0].uncommitted.len(), 1);
+        assert_eq!(open.projects[0].uncommitted[0].files, ["open.txt"]);
     }
 
     #[test]

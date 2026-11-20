@@ -1,5 +1,6 @@
 import { useId, useState } from "react";
 
+import { costNote, groupCost } from "./costs";
 import { Dialog } from "./Dialog";
 import { shortPath } from "./format";
 import { useT, type MessageKey } from "./i18n";
@@ -14,6 +15,7 @@ import {
 import type { BadgeLook } from "./programPrefs";
 import { SessionLook } from "./SessionLook";
 import type { SessionView } from "./sessions";
+import { useCostReport } from "./useCosts";
 
 const PROBLEM_TEXT: Record<NameProblem, MessageKey> = {
   invalid: "links.nameInvalid",
@@ -152,6 +154,8 @@ export function LinkDialog(props: {
  */
 export function LinkGroupDialog(props: {
   group: LinkGroup;
+  /** For the group's cost today; the browser's language without. */
+  language?: string;
   titleOf: (session: number) => string;
   /** Saves and closes, or answers why not; the dialog then stays open and shows it. */
   onSave: (names: { session: number; name: string }[], askFirst: boolean) => Promise<string | null>;
@@ -167,6 +171,12 @@ export function LinkGroupDialog(props: {
   const [saving, setSaving] = useState(false);
   const local = nameProblem(names);
   const ready = local === null && !saving;
+  const report = useCostReport();
+  const today = groupCost(
+    report,
+    props.group.members.map((member) => member.session),
+  );
+  const cost = costNote(today ?? undefined, props.language ?? navigator.language, t);
 
   const save = () => {
     if (!ready) return;
@@ -224,6 +234,7 @@ export function LinkGroupDialog(props: {
           );
         })}
       </ul>
+      {cost !== null && <p className="muted link-cost">{t("links.groupCost", { cost })}</p>}
       <label className="check link-ask">
         <input
           type="checkbox"

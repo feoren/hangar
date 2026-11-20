@@ -43,7 +43,8 @@ UI texts in `src/i18n.ts` are translated per language and are not bound by this 
 | Kostenübersicht                                 | cost overview                     | tokens and estimated cost per session and day, `cost_service.rs`, `CostDialog.tsx`   |
 | Preistabelle                                    | price table                       | dollars per million tokens per model, `model_prices.toml`, user `model-prices.toml`  |
 | Kostenbuch                                      | cost ledger                       | per conversation id and local day, `cost-ledger.json`                                |
-| Tagesbudget                                     | daily budget                      | dollars per day, one notice when reached                                             |
+| Tagesbudget                                     | daily budget                      | dollars per day, one notice per level and day                                        |
+| Vorwarnung (Tagesbudget)                        | early warning                     | notice at a share of the daily budget, level `early`; `budgetEarlyPercent`           |
 | Übergabe (Session)                              | handover                          | new session of another agent in the same folder with a handover text, `handover.ts`  |
 | Partnerprojekt                                  | partner project                   | project linked for cross-project messages, ADR 0012; not a linked repository         |
 | Projektnachricht                                | cross-project message             | text a session sends to a partner project's session, ADR 0012                        |
@@ -204,6 +205,7 @@ UI texts in `src/i18n.ts` are translated per language and are not bound by this 
 | Änderungen (Bereich)                            | changes panel                     | `gitDiff.ts`, `ChangesPanel.tsx`; Ctrl+Shift+D                                       |
 | Aktivitätskalender                              | activity calendar                 | the user's own commits of the last year in the empty window; `activity.ts`           |
 | Tagesrückblick                                  | daily review                      | one local day's sessions, times and commits; `daily_review.rs`, ADR 0011             |
+| Morgenzusammenfassung                           | morning summary                   | yesterday's short review on the first start or focus of a day; `morningReview.ts`    |
 | Arbeitsprotokoll                                | work log                          | JSON Lines per UTC day under `activity/`, `work_log.rs`; not the activity log        |
 | Arbeitsphase                                    | working phase                     | one stretch of the state "working", logged when it ends                              |
 | Aktive Zeit                                     | active time                       | the union of the working phases; parallel sessions count once                        |

@@ -111,6 +111,8 @@ import { LinkAddress } from "./LinkAddress";
 import type { Marker } from "./marker";
 import { MarkerDialog } from "./MarkerDialog";
 import { BudgetNotice } from "./BudgetNotice";
+import type { BudgetWarned } from "./costs";
+import { MorningNotice } from "./MorningNotice";
 import { CostDialog } from "./CostDialog";
 import {
   buildHandover,
@@ -823,8 +825,12 @@ export function App() {
   const [noteFolders, setNoteFolders] = useState<NoteFolderInfo[]>([]);
   /** Favorite and recent working folders ("Starts in" menu). */
   const [folders, setFolders] = useState<FolderPrefs>(EMPTY_FOLDERS);
-  /** The day the budget notice last showed, kept by the backend with the preferences. */
-  const [budgetWarnedDay, setBudgetWarnedDay] = useState<string | null>(null);
+  /** The day and level the budget notice last showed, kept by the backend with the preferences. */
+  const [budgetWarned, setBudgetWarned] = useState<BudgetWarned | null>(null);
+  /** The day the morning summary was last offered for, kept by the backend too. */
+  const [morningOfferedDay, setMorningOfferedDay] = useState<string | null>(null);
+  /** The day the daily review opens on when the morning summary asked for it. */
+  const [reviewDay, setReviewDay] = useState<Date | undefined>(undefined);
   useEffect(() => {
     void loadMainPrefs(oldPrefs).then((stored) => {
       const {
@@ -832,14 +838,16 @@ export function App() {
         lastProgram,
         favorites,
         recent,
-        budgetWarnedDay,
+        budgetWarned,
+        morningOfferedDay,
         ...notices
       } = stored;
       savedPrefs.current = JSON.stringify(stored);
       setStartMode(mode);
       setLastProgramId(lastProgram);
       setFolders({ favorites, recent });
-      setBudgetWarnedDay(budgetWarnedDay);
+      setBudgetWarned(budgetWarned);
+      setMorningOfferedDay(morningOfferedDay);
       setSettings((current) => ({ ...current, ...notices }));
       setPrefsReady(true);
     });
@@ -1459,14 +1467,15 @@ export function App() {
       favorites: folders.favorites,
       recent: folders.recent,
       ...noticesOf(settings),
-      budgetWarnedDay,
+      budgetWarned,
+      morningOfferedDay,
       dictationEnabled: settings.dictationEnabled,
     };
     const text = JSON.stringify(next);
     if (text === savedPrefs.current) return;
     savedPrefs.current = text;
     saveMainPrefs(next).catch(() => undefined);
-  }, [prefsReady, startMode, lastProgramId, folders, settings, budgetWarnedDay]);
+  }, [prefsReady, startMode, lastProgramId, folders, settings, budgetWarned, morningOfferedDay]);
 
   // Only after the backend answered, and only a list that differs from the one it holds.
   useEffect(() => {
@@ -6945,11 +6954,23 @@ export function App() {
             <BudgetNotice
               language={settings.language}
               budget={prefsReady ? settings.dailyBudget : null}
-              warnedDay={budgetWarnedDay}
-              onWarned={setBudgetWarnedDay}
+              earlyPercent={settings.budgetEarlyPercent}
+              warned={budgetWarned}
+              onWarned={setBudgetWarned}
               quietHours={settings.quietHours}
               onShowCosts={() => {
                 setDialog("costs");
+              }}
+            />
+            <MorningNotice
+              language={settings.language}
+              enabled={prefsReady && settings.morningReview}
+              offeredDay={morningOfferedDay}
+              onOffered={setMorningOfferedDay}
+              load={api.morningReview}
+              onOpenReview={(day) => {
+                setReviewDay(day);
+                setDialog("dailyReview");
               }}
             />
             {startHint !== null && (
@@ -7314,6 +7335,7 @@ export function App() {
         {editedGroup !== undefined && (
           <LinkGroupDialog
             group={editedGroup}
+            language={settings.language}
             titleOf={titleOf}
             onSave={saveLinkGroup}
             onClose={closeLinkDialog}
@@ -7399,7 +7421,11 @@ export function App() {
             load={api.dailyReview}
             onCopy={writeClipboard}
             onToNotes={saveReviewNote}
-            onClose={closeDialog}
+            initialDay={reviewDay}
+            onClose={() => {
+              setReviewDay(undefined);
+              closeDialog();
+            }}
           />
         )}
         {dialog === "overview" && (

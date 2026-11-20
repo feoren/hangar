@@ -12740,6 +12740,78 @@ body.session-dragging .session-actions {
   width: 10em;
 }
 
+/* --- Cost on the row, group cost, morning summary (costs.ts, morningReview.ts) ---
+   The row's cost reads like the tokens beside it: a quiet fact with tabular figures. The morning
+   summary is a short dialog: one block of three lines per project, the newest commit's subject
+   cut to one line, open changes in the warning color. */
+.session-cost {
+  flex: none;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.link-cost {
+  margin: 8px 0 0;
+  font-size: 12.5px;
+  font-variant-numeric: tabular-nums;
+}
+
+.budget-early-field .select {
+  width: 10em;
+}
+
+.dialog.morning-review {
+  width: min(480px, calc(100vw - 32px));
+  max-height: min(600px, calc(100vh - 32px));
+  overflow-y: auto;
+}
+
+.morning-sum {
+  margin: 4px 0 10px;
+  font-size: 12.5px;
+}
+
+.morning-projects {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.morning-project {
+  padding: 8px 0;
+  border-top: 1px solid var(--border);
+  font-size: 13px;
+}
+
+.morning-project h3 {
+  margin: 0 0 4px;
+  overflow: hidden;
+  font-size: 13.5px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.morning-project p {
+  margin: 2px 0 0;
+}
+
+/* "Nothing open" is quieter in color only: the three lines keep one size. */
+.morning-project p.muted {
+  font-size: inherit;
+}
+
+.morning-commits {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.morning-open {
+  color: var(--warn);
+}
+
+/* --- End of cost on the row, group cost, morning summary --- */
+
 /* Hand over to (HandoverDialog.tsx): one row per agent, the summary request below. */
 .handover-help {
   margin: 0 0 10px;

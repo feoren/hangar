@@ -106,12 +106,19 @@ import type { UpdateState } from "./useUpdater";
 import { useWaitingEdges } from "./useWaitingEdges";
 import { resourceParts } from "./resources";
 import { contextHint } from "./contextUsage";
-import { loadSummary, planRow, rowAttributes, type RowLayout, type RowPlan } from "./rowLayout";
+import {
+  isPlaced,
+  loadSummary,
+  planRow,
+  rowAttributes,
+  type RowLayout,
+  type RowPlan,
+} from "./rowLayout";
 import { SessionRowBody } from "./SessionRow";
 import { useSessionContext } from "./useContextUsage";
 import { CompactAction } from "./CompactAction";
 import { commandBusy, sessionCommands } from "./agentCommands";
-import { useSessionCost } from "./useCosts";
+import { useSessionCost, useSessionCostText } from "./useCosts";
 import { useSessionResources } from "./useSessionResources";
 import { useGpuColumn } from "./useSystemUsage";
 import { SystemBar } from "./SystemBar";
@@ -1839,6 +1846,8 @@ function SessionItem({
   const openDevServer =
     devServer === undefined ? null : t("session.openDevServer", { url: devServer });
   const link = links.get(session.id);
+  // Read only where the row shows it, so other rows never re-render for a new cost.
+  const cost = useSessionCostText(isPlaced(plan.layout, "cost") ? session.id : -1, language);
   const className = [
     "session",
     active ? "active" : "",
@@ -1930,6 +1939,7 @@ function SessionItem({
             gpuColumn={gpuColumn}
             runtime={where.runtime}
             context={context}
+            cost={cost}
             language={language}
             rate={
               showRate ? (

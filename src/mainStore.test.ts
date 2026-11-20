@@ -305,7 +305,11 @@ describe("start and notice preferences", () => {
     chime: false,
     quietHours: { enabled: true, from: 1320, to: 420 },
     dailyBudget: 12.5,
-    budgetWarnedDay: "2026-11-14",
+    budgetEarlyPercent: 80,
+    morningReview: true,
+    // What the old key "hangar.costs.warnedDay" held: that version warned only at the budget.
+    budgetWarned: { day: "2026-11-14", level: "reached" },
+    morningOfferedDay: null,
     dictationEnabled: false,
   };
   /** What a viewer of the same origin could write to the old places after the migration. */
@@ -333,12 +337,38 @@ describe("start and notice preferences", () => {
     expect(parseMainPrefs({ ...MINE, chime: "no" })).toBeNull();
     expect(parseMainPrefs({ ...MINE, dailyBudget: 0 })).toBeNull();
     expect(parseMainPrefs({ ...MINE, dailyBudget: "5" })).toBeNull();
-    expect(parseMainPrefs({ ...MINE, budgetWarnedDay: "2026-13-01" })).toBeNull();
-    expect(parseMainPrefs({ ...MINE, dailyBudget: null, budgetWarnedDay: null })).toEqual({
+    expect(parseMainPrefs({ ...MINE, budgetWarned: "2026-13-01" })).toBeNull();
+    expect(parseMainPrefs({ ...MINE, budgetWarned: { day: "2026-11-14" } })).toBeNull();
+    expect(
+      parseMainPrefs({ ...MINE, budgetWarned: { day: "2026-11-14", level: "over" } }),
+    ).toBeNull();
+    expect(parseMainPrefs({ ...MINE, budgetEarlyPercent: 100 })).toBeNull();
+    expect(parseMainPrefs({ ...MINE, budgetEarlyPercent: 12.5 })).toBeNull();
+    expect(parseMainPrefs({ ...MINE, morningReview: "yes" })).toBeNull();
+    expect(parseMainPrefs({ ...MINE, morningOfferedDay: "yesterday" })).toBeNull();
+    expect(
+      parseMainPrefs({
+        ...MINE,
+        dailyBudget: null,
+        budgetWarned: null,
+        budgetEarlyPercent: null,
+        morningReview: false,
+        morningOfferedDay: "2026-11-19",
+      }),
+    ).toEqual({
       ...MINE,
       dailyBudget: null,
-      budgetWarnedDay: null,
+      budgetWarned: null,
+      budgetEarlyPercent: null,
+      morningReview: false,
+      morningOfferedDay: "2026-11-19",
     });
+    // An answer of an older backend: the early warning and the morning summary at their defaults.
+    const later = ["budgetEarlyPercent", "morningReview", "morningOfferedDay"];
+    const beforeEarly = Object.fromEntries(
+      Object.entries(MINE).filter(([key]) => !later.includes(key)),
+    );
+    expect(parseMainPrefs(beforeEarly)).toEqual(MINE);
     expect(parseMainPrefs({ ...MINE, dictationEnabled: "yes" })).toBeNull();
     // A file from before dictation: the choice is left open for the migration.
     const older = withoutDictation(MINE);
@@ -440,8 +470,23 @@ describe("start and notice preferences", () => {
       fake,
     );
     expect(saved.prefs).toEqual([{ ...MINE, lastProgram: null, recent: ["/r"] }]);
-    await saveMainPrefs({ ...MINE, dailyBudget: 0.001, budgetWarnedDay: "yesterday" }, fake);
-    expect(saved.prefs[1]).toEqual({ ...MINE, dailyBudget: null, budgetWarnedDay: null });
+    await saveMainPrefs(
+      {
+        ...MINE,
+        dailyBudget: 0.001,
+        budgetWarned: { day: "yesterday", level: "early" },
+        budgetEarlyPercent: 0,
+        morningOfferedDay: "2026-02-31x",
+      },
+      fake,
+    );
+    expect(saved.prefs[1]).toEqual({
+      ...MINE,
+      dailyBudget: null,
+      budgetWarned: null,
+      budgetEarlyPercent: null,
+      morningOfferedDay: null,
+    });
   });
 
   it("takes the old dictation key over once, also into a file from before dictation", async () => {

@@ -9,6 +9,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 
 import type { SessionContext } from "./contextUsage";
+import { formatUsd } from "./costs";
 import { badgeColor } from "./format";
 import { useT, type MessageKey } from "./i18n";
 import { ArrowUpIcon, CloseIcon, GripIcon, PlusIcon } from "./icons";
@@ -80,6 +81,7 @@ export const ROW_ELEMENT_NAMES: Record<RowElement, MessageKey> = {
   runtime: "rowElement.runtime",
   context: "rowElement.context",
   tokens: "rowElement.tokens",
+  cost: "rowElement.cost",
 };
 
 type FormName = RowForms[keyof RowForms];
@@ -667,6 +669,8 @@ interface PreviewRow {
   usage: { cpu: number; memory: number };
   minutes: number;
   context: SessionContext;
+  /** Estimated dollars so far. */
+  cost: number;
 }
 
 const PREVIEW_ROWS: readonly PreviewRow[] = [
@@ -681,6 +685,7 @@ const PREVIEW_ROWS: readonly PreviewRow[] = [
     usage: { cpu: 12.4, memory: 476 * 1024 * 1024 },
     minutes: 64,
     context: { used: 215_500, window: 1_000_000 },
+    cost: 3.42,
   },
   {
     id: 2,
@@ -693,6 +698,7 @@ const PREVIEW_ROWS: readonly PreviewRow[] = [
     usage: { cpu: 0.3, memory: 182 * 1024 * 1024 },
     minutes: 14,
     context: { used: 168_000, window: 200_000 },
+    cost: 0.38,
   },
 ];
 
@@ -761,6 +767,7 @@ export function RowLayoutPreview({ plan, language }: { plan: RowPlan; language: 
                     gpuColumn={false}
                     runtime={formatDuration(row.minutes * 60_000, language)}
                     context={row.context}
+                    cost={`~${formatUsd(row.cost, language)}`}
                     language={language}
                   />
                 </span>

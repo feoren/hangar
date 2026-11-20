@@ -660,6 +660,9 @@ export const api = {
     invoke<null>("log_work_phase", { id, from, to }),
   /** One local day `[start, end)` in Unix ms. Check with `parseDailyReview` (dailyReview.ts). */
   dailyReview: (start: number, end: number) => invoke<unknown>("daily_review", { start, end }),
+  /** The same for a past day, with what is uncommitted right now (morningReview.ts). */
+  morningReview: (start: number, end: number) =>
+    invoke<unknown>("daily_review", { start, end, openChanges: true }),
   /**
    * One page of the commits reachable from HEAD of a session's folder, newest first; with
    * `root`, of its repository's main folder. The backend clamps `limit` to 1..=100. Check with

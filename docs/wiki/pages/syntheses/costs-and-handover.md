@@ -4,7 +4,7 @@ type: synthesis
 tags: [costs, tokens, handover, claude-code]
 sources: ["[[token-usage-measurement]]", "[[context-window-measurement]]"]
 created: 2026-11-13
-updated: 2026-11-15
+updated: 2026-11-20
 ---
 
 # Costs per session and day, session handover
@@ -59,17 +59,28 @@ updated: 2026-11-15
 - Session peek: "Tokens 123k · ~$0.42" (a trailing "+" when part is unpriced; tokens only without
   any price), after the load and context lines the row builder leaves to the peek. Nothing for
   sessions without data. The row builder's "tokens" element stays the context window's tokens;
-  costs have no row element.
+  the "cost" element (in no template) shows the session's conversation so far as `costText` writes
+  it ("~$0.42", "+" when part is unpriced, nothing without a price). A row reads it as text
+  (`useSessionCostText`) and only while the element is placed, so a new report re-renders only
+  the rows whose text changed.
+- Link groups ([[0014-session-links]]): "Edit group" shows "Group's cost today", the sum of the
+  members' shares of today (`groupCost`: `days[today].sessions` by session id, so a conversation
+  that began yesterday counts from midnight; partial when one member is or has no price).
 - View menu "Costs …": today per session, the last 7 days as bars, the price source and date.
-- Settings, Attention, Resources: daily budget in dollars. When today's estimate reaches it, a
-  notice shows once per local day; during quiet hours it waits until they end.
-- The budget (`dailyBudget`) and the day the notice last showed (`budgetWarnedDay`) live in the
+- Settings, Attention, Resources: daily budget in dollars and, with a budget, "Warn early at"
+  (off, 50, 70, 80 or 90 %, default 80). Each level (`early`, `reached`) shows once per local day;
+  during quiet hours they wait until they end, and when the cost passed both meanwhile only
+  "reached" shows (`budgetWarning`).
+- The budget (`dailyBudget`), the early share (`budgetEarlyPercent`, 1 to 99 or null) and the day
+  and level the notice last showed (`budgetWarned: { day, level }`) live in the
   protected `main-prefs.json` (`MainPrefs` in `main_store.rs`, main window only), not in
   localStorage: the panel and file viewer windows share the origin and could otherwise set the
   budget out of reach or mark today as warned. The backend refuses a budget that is not finite,
   below one cent (`MIN_BUDGET_USD`, so the window never rounds a stored budget to zero) or above
   `MAX_BUDGET_USD` (100,000), and a day that is not strictly `YYYY-MM-DD` (month 01 to 12, day 01
-  to 31); the window rounds to cents before it checks, so it never sends a zero. Files written before these fields existed load with both unset. An older value in
+  to 31); the window rounds to cents before it checks, so it never sends a zero. Files written before these fields existed load with both unset and the early share at 80. A file from
+  before the early warning keeps the day alone under `budgetWarnedDay`; the backend reads it as
+  that day at the level `reached` (the only level then) and writes `budgetWarned` from then on. An older value in
   localStorage (`dailyBudget` in `hangar.settings`, `hangar.costs.warnedDay`) is taken over once
   with the other preferences, only while the backend has none stored, and then removed.
 

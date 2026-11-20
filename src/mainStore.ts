@@ -2,7 +2,8 @@
 // (claims, gate, command guard), the queued messages, the protected settings (paste warning,
 // automatic updates, HANGAR.md, snippets), the workspace templates and the start and notice
 // preferences (private or team start, last program, folders, session restore, notices, the daily
-// budget and the day its notice last showed, the dictation key). The
+// budget with its early warning and the day and level its notice last showed, the morning summary
+// and the day it was last offered for, the dictation key). The
 // panel and file viewer windows share the main window's origin and with it its localStorage; a
 // compromised viewer could otherwise turn the gate or the paste warning off, queue a message or
 // plant a snippet Hangar later pastes into an agent session, plant a template or a recent folder
@@ -16,7 +17,15 @@
 // read from there again.
 
 import { api } from "./api";
-import { BUDGET_WARNED_STORAGE_KEY, parseBudget, parseWarnedDay } from "./costs";
+import {
+  BUDGET_WARNED_STORAGE_KEY,
+  DEFAULT_EARLY_PERCENT,
+  parseBudget,
+  parseBudgetWarned,
+  parseEarlyPercent,
+  parseWarnedDay,
+  type BudgetWarned,
+} from "./costs";
 import { legacyDictationEnabled } from "./dictation";
 import {
   FOLDERS_STORAGE_KEY,
@@ -80,8 +89,10 @@ export interface MainPrefs extends FolderPrefs, NoticeSettings {
   startMode: StartMode;
   /** The profile Ctrl+Shift+T starts; `null`: the first program in the list. */
   lastProgram: string | null;
-  /** The local day ("YYYY-MM-DD") the budget notice last showed; it shows once a day. */
-  budgetWarnedDay: string | null;
+  /** The local day and level the budget notice last showed; each level shows once a day. */
+  budgetWarned: BudgetWarned | null;
+  /** The local day ("YYYY-MM-DD") whose summary was last offered (morningReview.ts). */
+  morningOfferedDay: string | null;
   /** Holding Ctrl+Shift+Space dictates (useDictation.ts). */
   dictationEnabled: boolean;
 }
@@ -311,7 +322,8 @@ export function defaultMainPrefs(): MainPrefs {
     favorites: [],
     recent: [],
     ...noticesOf(defaultSettings("en")),
-    budgetWarnedDay: null,
+    budgetWarned: null,
+    morningOfferedDay: null,
     dictationEnabled: false,
   };
 }
@@ -336,11 +348,19 @@ export function parseMainPrefs(value: unknown): StoredMainPrefs | null {
   const notifyDesktop = read("notifyDesktop");
   const chime = read("chime");
   const dailyBudget: unknown = Reflect.get(value, "dailyBudget") ?? null;
-  const budgetWarnedDay: unknown = Reflect.get(value, "budgetWarnedDay") ?? null;
+  // The backend answers every field; missing ones are read as an older backend would mean them.
+  const early: unknown = Reflect.get(value, "budgetEarlyPercent");
+  const earlyPercent: unknown = early === undefined ? DEFAULT_EARLY_PERCENT : early;
+  const budgetWarned: unknown = Reflect.get(value, "budgetWarned") ?? null;
+  const morning: unknown = Reflect.get(value, "morningReview") ?? true;
+  const morningOfferedDay: unknown = Reflect.get(value, "morningOfferedDay") ?? null;
   const dictation: unknown = Reflect.get(value, "dictationEnabled");
   if (startMode !== "private" && startMode !== "team") return null;
   if (dailyBudget !== null && parseBudget(dailyBudget) === null) return null;
-  if (budgetWarnedDay !== null && parseWarnedDay(budgetWarnedDay) === null) return null;
+  if (earlyPercent !== null && parseEarlyPercent(earlyPercent) === null) return null;
+  if (budgetWarned !== null && parseBudgetWarned(budgetWarned) === null) return null;
+  if (typeof morning !== "boolean") return null;
+  if (morningOfferedDay !== null && parseWarnedDay(morningOfferedDay) === null) return null;
   if (typeof dictation !== "boolean" && dictation !== null && dictation !== undefined) return null;
   if (lastProgram !== null && parseLastProgram(lastProgram) === null) return null;
   if (
@@ -365,7 +385,10 @@ export function parseMainPrefs(value: unknown): StoredMainPrefs | null {
     chime,
     quietHours: parseQuietHours(Reflect.get(value, "quietHours")),
     dailyBudget: parseBudget(dailyBudget),
-    budgetWarnedDay: parseWarnedDay(budgetWarnedDay),
+    budgetEarlyPercent: parseEarlyPercent(earlyPercent),
+    morningReview: morning,
+    budgetWarned: parseBudgetWarned(budgetWarned),
+    morningOfferedDay: parseWarnedDay(morningOfferedDay),
     dictationEnabled: typeof dictation === "boolean" ? dictation : null,
   };
 }
@@ -381,7 +404,10 @@ export function persistableMainPrefs(prefs: MainPrefs): MainPrefs {
     ...noticesOf(prefs),
     quietHours: parseQuietHours(prefs.quietHours),
     dailyBudget: parseBudget(prefs.dailyBudget),
-    budgetWarnedDay: parseWarnedDay(prefs.budgetWarnedDay),
+    budgetEarlyPercent: parseEarlyPercent(prefs.budgetEarlyPercent),
+    morningReview: prefs.morningReview,
+    budgetWarned: parseBudgetWarned(prefs.budgetWarned),
+    morningOfferedDay: parseWarnedDay(prefs.morningOfferedDay),
     dictationEnabled: prefs.dictationEnabled,
   };
 }
@@ -399,9 +425,10 @@ export function legacyMainPrefs(
   const notices = legacyNotices(settingsText);
   const dictationEnabled = legacyDictationEnabled(settingsText);
   if (storage === null) return { ...defaultMainPrefs(), ...notices, dictationEnabled };
-  let warnedDay: string | null = null;
+  let warned: BudgetWarned | null = null;
   try {
-    warnedDay = parseWarnedDay(storage.getItem(BUDGET_WARNED_STORAGE_KEY));
+    // A day alone: that version warned only when the budget was reached.
+    warned = parseBudgetWarned(storage.getItem(BUDGET_WARNED_STORAGE_KEY));
   } catch {
     // Blocked storage: the notice may show once more today.
   }
@@ -410,7 +437,8 @@ export function legacyMainPrefs(
     lastProgram: legacyLastProgram(storage),
     ...legacyFolderPrefs(storage),
     ...notices,
-    budgetWarnedDay: warnedDay,
+    budgetWarned: warned,
+    morningOfferedDay: null,
     dictationEnabled,
   };
 }
