@@ -2,9 +2,9 @@
 title: Session resources and push to the phone
 type: synthesis
 tags: [sessions, resources, system-bar, process-tree, notifications, push, keychain, contract]
-sources: ["[[system-usage-measurement]]"]
+sources: ["[[system-usage-measurement]]", "[[launcher-entry-and-macos-usage-reading]]"]
 created: 2026-11-12
-updated: 2026-11-15
+updated: 2026-11-20
 ---
 
 # Session resources and push to the phone
@@ -58,10 +58,11 @@ Resources, default on) also controls the system bar below; off, the window never
 - `gpu` is the busiest GPU engine counting only the tree's processes (their shares summed per
   engine, like the machine's load below), percent with one decimal; `gpuMemory` the tree's
   dedicated GPU memory in bytes. Both `null` when no process of the tree has a counter instance,
-  and always `null` outside Windows.
+  and always `null` on macOS ([[gpu-readings]]).
 - An answer younger than `CACHE_FOR` (1 s) is repeated without reading again.
 
-**GPU reading** (`src-tauri/src/gpu.rs`, `GpuMonitor`, Windows only). One PDH query, opened on the
+**GPU reading** (`src-tauri/src/gpu.rs`, `GpuMonitor`; Windows below, Linux and macOS in
+[[gpu-readings]]). One PDH query, opened on the
 first reading and kept open, with three counters added through `PdhAddEnglishCounterW`:
 `\GPU Engine(*)\Utilization Percentage` (instances `pid_<n>_luid_..._phys_<p>_eng_<e>_engtype_<t>`),
 `\GPU Process Memory(*)\Dedicated Usage` (instances `pid_<n>_luid_..._phys_<p>`) and
@@ -70,8 +71,9 @@ is required; without a memory counter its numbers stay `null`. The snapshot is s
 `session_resources` and `system_usage` and cached for 1 s, so the two polls never collect twice
 within a second; one collection took about 3 ms with 26 processes on the GPU (`reads_this_machine`).
 The tree's process ids come from the Job Object's process list (`TreeUsage::processes`, only ids
-confirmed in the job by `IsProcessInJob`); on Linux from the same `/proc` pass. Linux and macOS
-have no GPU numbers: there is no vendor-neutral source on Linux and no reader yet on macOS.
+confirmed in the job by `IsProcessInJob`); on Linux from the same `/proc` pass. Linux reads DRM
+fdinfo per process and amdgpu or NVML per machine, macOS the IOAccelerator statistics per machine
+only ([[gpu-readings]]).
 
 **Polling, not events.** `useSessionResources.ts` asks every `RESOURCE_POLL_MS` (2 s) and only
 while the setting is on, `document.visibilityState` is `visible` and at least one row listens.
@@ -152,7 +154,7 @@ wants the other. Fewer controls; the label became "Show CPU, memory and GPU".
 - Memory: `(total - available) / total`. Windows `GlobalMemoryStatusEx` (`ullTotalPhys`,
   `ullAvailPhys`; windows-sys feature `Win32_System_SystemInformation`); Linux `/proc/meminfo`
   `MemTotal` and `MemAvailable`.
-- GPU (Windows only): from the shared GPU reading above (`gpu.rs`), whose engine counter is
+- GPU on Windows: from the shared GPU reading above (`gpu.rs`), whose engine counter is
   `GPU Engine(*)\Utilization Percentage`, added with `PdhAddEnglishCounterW` so the path resolves
   on every display language (windows-sys feature `Win32_System_Performance`); the GPU memory is
   the adapters' dedicated usage summed. The counter is a rate:
@@ -162,8 +164,27 @@ wants the other. Fewer controls; the label became "Show CPU, memory and GPU".
   "sum of the 3D engines" because the task manager reads the same counters this way: a video
   decode or compute job on its own engine shows as load while 3D is idle. Without the counter (no
   WDDM 2.0 driver) the query is given up for good and the GPU stays `null`.
-- Linux GPU and macOS: `null`; there is no vendor-neutral source on Linux and no reader yet on
-  macOS.
+- GPU on Linux and macOS: from the same shared reading ([[gpu-readings]]); `null` where the
+  machine has no source (an Intel GPU on Linux, a Mac without accelerator statistics).
+- CPU and memory on macOS ([[launcher-entry-and-macos-usage-reading]]): CPU from
+  `host_statistics(HOST_CPU_LOAD_INFO)`, idle the `CPU_STATE_IDLE` ticks, total all four
+  (`cpu_times_from_ticks`); memory total `sysctl hw.memsize`, in use as Activity Monitor's
+  "Memory Used" counts it, app memory (internal minus purgeable pages) plus wired plus compressed
+  pages from `host_statistics64(HOST_VM_INFO64)`, so file cache counts as available like
+  `MemAvailable` (`mac_available_memory`). `mach_host_self` is asked once (each call adds a port
+  reference).
+- Session trees on macOS (`proctree.rs`, `darwin::members`): one `proc_listallpids` pass with
+  `proc_pidinfo(PROC_PIDTBSDINFO)` for the parent and `getsid` for the session; a tree is every
+  process of the child's session plus every descendant of the child (so a helper that started a
+  session of its own still counts). CPU is `proc_pid_rusage(RUSAGE_INFO_V2)` own plus reaped
+  children's user and system time, converted from Mach time units with `mach_timebase_info`;
+  memory is `ri_resident_size`, like RSS on Linux.
+
+> [!question] Unverified
+> No Mac was measured. That `rusage_info` times count Mach time units (125/3 ns per unit on Apple
+> silicon), that `getsid` answers for processes of other sessions of the same user, and that the
+> "Memory Used" formula matches Activity Monitor are assumptions; the descendant walk keeps a tree
+> complete if `getsid` fails.
 
 **Measured** ([[system-usage-measurement]]): one reading with 806 GPU engine instances took about
 2 ms; `Get-Counter` on the same counter, grouped by engine the same way, agreed within a couple of

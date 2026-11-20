@@ -1263,3 +1263,25 @@ The `macos-bundle` job now starts the app from the unpacked updater archive on t
 desktop: it must still run after 30 s; screenshot and log go into the artifact
 `macos-start-<arch>`, Gatekeeper's verdict on a quarantined copy into the run summary. Pages
 changed: [[0017-macos-release]].
+
+## [2026-11-20] ingest | Platform parity for macOS and Linux
+Read the objc2 notification bindings, `pmset` output, the kernel's DRM client statistics, amdgpu
+sysfs, `nvml.h`, IOAccelerator statistics and tao's Linux badge code. Built macOS notifications
+(`notify/macos.rs`), macOS battery state (`power.rs`), GPU figures on Linux (fdinfo, amdgpu, NVML)
+and macOS (`ioreg`, machine only); the Linux launcher badge stays hidden. Pages changed:
+[[platform-parity-reading]] (new), [[gpu-readings]] (new), [[power-detection]],
+[[0017-macos-release]], [[0013-linux-release]], [[session-resources-and-phone-push]], index.
+
+## [2026-11-20] ingest | Linux launcher count and macOS CPU and memory
+Read the Tauri bundler's desktop file name, GLib's launch variables and libc's macOS bindings.
+Hangar now sends the LauncherEntry count itself on Linux (`launcher_badge.rs`) and reads CPU and
+memory of the machine and of each session on macOS (`system_usage.rs`, `proctree.rs`). Pages
+changed: [[launcher-entry-and-macos-usage-reading]] (new), [[0013-linux-release]],
+[[0017-macos-release]], [[session-resources-and-phone-push]], index.
+
+## [2026-11-20] lint | Review follow-ups for the platform readers
+Time limit of 2 s for `pmset` and `ioreg`, `power_state` on a blocking thread, the GPU lock not
+held during a reading, the macOS notification center's first access guarded against exceptions,
+autorelease pools on worker threads, AppImageLauncher files checked on the opened handle and the
+launcher's desktop id worked out on the first count. Pages changed: [[0013-linux-release]],
+[[0017-macos-release]], [[power-detection]], [[gpu-readings]].

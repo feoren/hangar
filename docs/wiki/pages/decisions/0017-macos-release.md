@@ -4,7 +4,7 @@ type: decision
 status: accepted
 superseded_by:
 tags: [macos, release, dmg, updater, signing, gatekeeper, environment, platform]
-sources: ["[[macos-release-reading]]", "[[linux-bundling-reading]]", "[[tauri-updater-and-nsis]]"]
+sources: ["[[macos-release-reading]]", "[[linux-bundling-reading]]", "[[tauri-updater-and-nsis]]", "[[platform-parity-reading]]", "[[launcher-entry-and-macos-usage-reading]]"]
 created: 2026-11-20
 updated: 2026-11-20
 ---
@@ -78,9 +78,10 @@ hurt a first macOS user:
 ## Platform check (macOS)
 | Area | State on macOS | What Hangar does |
 | --- | --- | --- |
-| Desktop notifications | no backend (`notify.rs` returns "not shown") | hidden (`hasDesktopNotifications`), unchanged |
-| GPU readings | Windows performance counters only (`gpu.rs`) | hidden (`hasGpuReading`), unchanged |
-| Battery or AC | unknown ([[power-detection]]) | hidden, unchanged |
+| Desktop notifications | `UNUserNotificationCenter` (`notify/macos.rs`), see "Desktop notifications" below | offered (new); outside an app bundle (`tauri dev`) "not shown" |
+| GPU readings | machine from `ioreg` IOAccelerator statistics; no per-session figures without root ([[gpu-readings]]) | system bar shows GPU (new); rows have no GPU column (`hasSessionGpu`) |
+| Battery or AC | `pmset -g batt` and Low Power Mode as saver ([[power-detection]]) | power saving setting offered on Macs with a battery (new) |
+| CPU and memory | machine: `host_statistics` ticks, `hw.memsize`, `host_statistics64` pages; per session: libproc's process list, parent and `proc_pid_rusage` ([[launcher-entry-and-macos-usage-reading]], [[session-resources-and-phone-push]]) | system bar and rows show CPU and memory (new) |
 | Notification area icon | Tauri `tray-icon` draws a menu bar icon | offered; closing hides the window, the Dock icon or the menu bar icon brings it back (new: `Reopen`) |
 | Dictation audio | CoreAudio through cpal; `NSMicrophoneUsageDescription` in `Info.plist`, audio-input entitlement | offered; CI checks both |
 | Shortcuts | every Hangar shortcut tests `ctrlKey`, not `metaKey` (`src/shortcuts.ts`) | the text "Ctrl" is right on macOS; the link dialog says ⌘ for multi-select because Ctrl+click is a right click there; Cmd+C, Cmd+V and Cmd+A come from the default Edit menu |
@@ -101,6 +102,26 @@ hurt a first macOS user:
 > - Whether macOS takes Ctrl+Shift+Space (dictation) for itself; Ctrl+Space switches input sources
 >   by default.
 > - Whether the menu bar icon should be a template image (it uses the colored app icon now).
+
+## Desktop notifications
+- **`UNUserNotificationCenter` through `objc2-user-notifications`** (already in the lock file;
+  only the named features compile), one request per session with the identifier `session-<id>`:
+  a new one replaces the delivered one, `forget` removes delivered and pending ones. A delegate
+  (kept alive by the notifier, the center holds it weakly) shows banners while Hangar is active
+  and turns a click on the notification into the session's click handler, run on a thread of its
+  own, which shows the window and selects the session. Permission is asked on the first
+  notification, not at start ([[platform-parity-reading]]).
+- **Rejected:** mac-notification-sys (the `NSUserNotification` API, deprecated since macOS 11);
+  `osascript` `display notification` (a click opens Script Editor, not Hangar);
+  tauri-plugin-notification (no replacement per session, a second Windows path).
+- **Outside an app bundle** (`tauri dev`, `cargo run`) there is no bundle identifier and the
+  framework would raise an exception, so the notifier reports "not shown" there. The first access to the center runs inside `objc2::exception::catch` (objc2 feature `exception`); the object is not kept, because objc2 does not mark it `Send` or `Sync`, and later calls get the same shared center. `post` and `remove` run on worker threads inside an autorelease pool.
+
+> [!question] Unverified
+> Whether an ad hoc signed bundle gets the permission at all: no source settles it, and the ad hoc
+> identity changes with every build, so macOS may ask again after each update or refuse with
+> `UNErrorDomain` 1 ("Notifications are not allowed"). A refusal is logged and the window keeps
+> its own signals. A Developer ID removes the doubt.
 
 ## What users get without an Apple Developer account
 - **Apple silicon:** the ad hoc signature lets the app run at all ([[macos-release-reading]]).
@@ -133,6 +154,8 @@ hurt a first macOS user:
 - [[macos-release-reading]]: runner labels, ad hoc signing, Gatekeeper, identity precedence,
   updater archive layout, Cmd+Q path, zsh default.
 - [[linux-bundling-reading]]: the bundler's target filter per platform.
+- [[platform-parity-reading]]: notification center bindings, `pmset`, IOAccelerator statistics;
+  code in `src-tauri/src/notify/macos.rs`, `src-tauri/src/power.rs`, `src-tauri/src/gpu/ioreg.rs`.
 - Code: `src-tauri/tauri.conf.json`, `src-tauri/src/login_path.rs`, `src-tauri/src/app_menu.rs`,
   `src-tauri/src/lib.rs`, `src-tauri/tests/contract.rs`, `.github/workflows/ci.yml`
   (`macos-bundle`, `macos-bundles`), `tools/release.py` (`--macos`).

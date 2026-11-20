@@ -5,7 +5,7 @@ status: accepted
 tags: [notifications, search, split-view, launcher, git, worktree, snippets, themes, profiles, secrets, tray]
 sources: ["[[terminal-font-coverage-measurement]]", "[[session-report-transcripts]]", "[[worktree-remove-missing-measurement]]"]
 created: 2026-11-08
-updated: 2026-11-18
+updated: 2026-11-20
 ---
 
 # Agent workflow features (0.3.0)
@@ -67,8 +67,9 @@ like a dropped file. Text on the clipboard always wins over an image.
 
 ### Notifications
 - `notify_session(id: number, title: string, body: string) -> boolean`: shows a desktop
-  notification; `false` when the platform has no support (macOS for now) or no notification
-  service runs. Linux: `org.freedesktop.Notifications` through zbus, `replaces_id` per session,
+  notification; `false` when the platform has no support, macOS runs outside an app bundle, permission is
+  missing or no notification service runs. macOS: `UNUserNotificationCenter`, the request
+  identifier per session ([[0017-macos-release]]). Linux: `org.freedesktop.Notifications` through zbus, `replaces_id` per session,
   body escaped for servers with `body-markup` ([[freedesktop-notifications]]).
   Windows: the WinRT toast API through the `windows` crate (`tauri-winrt-notification` cannot
   set a toast tag, [[windows-toast-notifications]]); app id = bundle identifier, the PowerShell
@@ -568,7 +569,9 @@ request). Right click opens the menu. No window capability is needed for hiding;
     attention setting (without attention the count is 0). Windows draws a 32 px disc in the
     attention color with a dark ring, "1" to "9", then "9+", passed through `Image.fromBytes`
     (permission `core:image:allow-from-bytes` comes with `core:default`) and closed after
-    `setOverlayIcon`. macOS and Linux get `setBadgeCount` with the real number. The platform comes
+    `setOverlayIcon`. macOS gets `setBadgeCount` with the real number; Linux sends the real number
+    as a LauncherEntry signal through the backend (`set_launcher_count`, since 2026-11-20,
+    [[0013-linux-release]]). The platform comes
     from the user agent. A call is sent only when the label or color changes; errors are swallowed
     and retried on the next change.
     Quitting clears a shown badge first (at most 300 ms), so no count stays on a Dock or launcher
