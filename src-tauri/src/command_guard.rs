@@ -825,6 +825,9 @@ pub const RULE_STDIN_SCRIPT: &str = "hangar-stdin-script";
 pub const RULE_TOO_LONG: &str = "hangar-too-long";
 /// Edits and commands that name Hangar's own settings: the guard's rules, the remembered answers.
 pub const RULE_HANGAR_CONFIG: &str = "hangar-config";
+/// `git add` (or `git stage`) of a file that usually holds a secret (`.env`, `*.pem`, `id_rsa`,
+/// ..., `secret_scan::secret_file_name`), ADR 0015.
+pub const RULE_SECRET_FILE: &str = "hangar-secret-file";
 /// Ids with this start belong to Hangar's built-in rules; a rule of the file may not use one.
 pub const RESERVED_PREFIX: &str = "hangar-";
 
@@ -845,6 +848,9 @@ pub fn builtin_description(id: &str) -> Option<&'static str> {
             "the command or edit touches Hangar's own settings or the hook settings it relies on: \
              its config folder, command-guard.toml, gate-rules.json, the folder that holds them, \
              or a Claude Code .claude/settings.json or settings.local.json"
+        }
+        RULE_SECRET_FILE => {
+            "git add names a file that usually holds a secret (.env, a .pem or .key file, an SSH private key such as id_rsa, credentials.json); once committed it stays in the history"
         }
         _ => return None,
     })
@@ -2230,6 +2236,9 @@ pub fn check(
             {
                 add(Hit::builtin(RULE_HANGAR_CONFIG, shown_call.clone()));
             }
+            if variants.iter().any(|variant| git_adds_secret_file(variant)) {
+                add(Hit::builtin(RULE_SECRET_FILE, shown_call.clone()));
+            }
             if unreadable_call(program, call, info) {
                 add(Hit::builtin(RULE_TOO_COMPLEX, shown_call.clone()));
             }
@@ -2741,6 +2750,46 @@ fn call_variants(call: &[String], info: &CallInfo) -> (Vec<Vec<String>>, bool) {
         }
     }
     (variants, too_complex)
+}
+
+/// Options of `git add` that take the next word as their value.
+const GIT_ADD_VALUE_OPTIONS: &[&str] = &["--chmod", "--pathspec-from-file"];
+
+/// `git add` or `git stage` naming a path whose file name usually holds a secret
+/// ([`crate::secret_scan::secret_file_name`]): `.env`, `*.pem`, `id_rsa` and so on, also as a
+/// pattern such as `*.pem`. Lexical only: `git add .` or `-A` may stage such a file too, which
+/// Hangar cannot tell without reading the folder.
+fn git_adds_secret_file(call: &[String]) -> bool {
+    if call.first().map(|word| program_name(word)).as_deref() != Some("git") {
+        return false;
+    }
+    let mut args = call[1..].iter();
+    let subcommand = loop {
+        let Some(arg) = args.next() else {
+            return false;
+        };
+        if GIT_VALUE_OPTIONS.contains(&arg.as_str()) {
+            args.next();
+        } else if !arg.starts_with('-') {
+            break arg;
+        }
+    };
+    if subcommand != "add" && subcommand != "stage" {
+        return false;
+    }
+    let mut ended = false;
+    while let Some(arg) = args.next() {
+        if !ended && arg == "--" {
+            ended = true;
+        } else if !ended && arg.starts_with('-') {
+            if GIT_ADD_VALUE_OPTIONS.contains(&arg.as_str()) {
+                args.next();
+            }
+        } else if crate::secret_scan::secret_file_name(arg) {
+            return true;
+        }
+    }
+    false
 }
 
 /// A `git push` whose refspecs force (`+main`) or delete (`:main`), with the option each stands
@@ -4613,14 +4662,55 @@ program = ["x"]
     }
 
     #[test]
+    fn git_add_of_a_file_that_usually_holds_a_secret_is_asked_about() {
+        let secret = RULE_SECRET_FILE.to_owned();
+        for command in [
+            "git add .env",
+            "git add -- .env.local",
+            "git add -f config/.env.production",
+            "git add src/main.rs certs/server.pem",
+            "git stage deploy/tls.key",
+            "git -C repo add id_rsa",
+            "git add ~/.ssh/id_ed25519",
+            "git add credentials.json",
+            "git add *.pem",
+            "cd app && git add .env",
+            "git add -v --chmod +x .netrc",
+            "sh -c 'git add .env'",
+        ] {
+            assert!(hits(command).contains(&secret), "{command}");
+        }
+        assert!(hits_in(r"git add .\config\.env", "PowerShell").contains(&secret));
+        for command in [
+            "git add .env.example",
+            "git add .env.sample .env.template",
+            "git add src/env.ts .envrc",
+            "git add id_rsa.pub",
+            "git add -A",
+            "git add .",
+            "git commit -m 'add .env to the ignore list'",
+            "git diff .env",
+            "git rm --cached .env",
+            "cat .env",
+            "git add --chmod .env.example README.md",
+        ] {
+            assert!(!hits(command).contains(&secret), "{command}");
+        }
+    }
+
+    #[test]
     fn no_built_in_rule_can_be_remembered() {
         for id in [
             RULE_TOO_COMPLEX,
             RULE_STDIN_SCRIPT,
             RULE_TOO_LONG,
             RULE_HANGAR_CONFIG,
+            RULE_SECRET_FILE,
         ] {
             assert!(!rememberable(id), "{id}");
+            let description = builtin_description(id).unwrap();
+            // A string continued over lines must not carry the indentation into the text.
+            assert!(!description.contains("  "), "{id}: {description}");
         }
         assert!(rememberable("git-push-force"));
     }

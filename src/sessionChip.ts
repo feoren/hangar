@@ -44,8 +44,10 @@ export function sessionChip(
   agent = false,
 ): ChipKind | null {
   if (exitedWithError(session)) return "failed";
-  // A pending decision (gate) is a question too.
-  if (state === "attention") return reason === "bell" || reason === "gate" ? "asks" : "done";
+  // A pending decision (gate) and a reported dialog (permission) are questions too.
+  if (state === "attention") {
+    return reason === "bell" || reason === "gate" || reason === "permission" ? "asks" : "done";
+  }
   if (session.status === "exited") return "ended";
   if (state === "working") return "working";
   if (session.status === "running" && agent) return "paused";

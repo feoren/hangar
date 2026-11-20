@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-permission-answered"
+description = "Enables the permission_answered command without any pre-configured scope."
+commands.allow = ["permission_answered"]
+
+[[permission]]
+identifier = "deny-permission-answered"
+description = "Denies the permission_answered command without any pre-configured scope."
+commands.deny = ["permission_answered"]

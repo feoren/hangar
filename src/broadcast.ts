@@ -44,7 +44,9 @@ export interface BroadcastTarget {
  * differently than it reads, so such text does not go to that target at all.
  */
 export function blockedFor(target: Pick<BroadcastTarget, "bracketedPaste">, text: string): boolean {
-  return !target.bracketedPaste() && pasteWarning(text, false) !== null;
+  if (target.bracketedPaste()) return false;
+  const warning = pasteWarning(text, false);
+  return warning !== null && (warning.runsLines || warning.hidden);
 }
 
 /** Whether anything is left to send once control characters are stripped (`sanitizePaste`). */

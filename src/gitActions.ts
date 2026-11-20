@@ -7,6 +7,7 @@
 import type { FileChange } from "./gitDiff";
 import { lineKind } from "./gitDiff";
 import { quotePath } from "./pathQuote";
+import { secretKinds, type SecretKind } from "./secretScan";
 
 /** Whether a file's changes are in the index: all of them, some of them, or none. */
 export type StageState = "staged" | "partial" | "unstaged";
@@ -85,6 +86,71 @@ export function stageAllPaths(files: readonly FileChange[]): string[] {
  */
 export function discardDeletes(status: string): boolean {
   return status === "??" || status.charAt(0) === "A";
+}
+
+/** A staged file whose added lines seem to hold a secret (ADR 0015): path and kinds only. */
+export interface SecretFinding {
+  path: string;
+  kinds: SecretKind[];
+}
+
+/** How far the staged changes were checked for secrets before the commit went in. */
+export type CommitChecked = "full" | "partial" | "skipped";
+
+/**
+ * What the backend's commit did: committed (`checked` says how far it looked for secrets), or
+ * nothing yet because the staged changes seem to hold secrets. `findings` may be empty when the
+ * backend named files this window cannot read; the warning stays, without the list. `more`:
+ * files found beyond those listed; `complete`: the whole diff was read; `tree`: the index that was
+ * checked, which "Commit anyway" hands back (`null`: git could not name it, so it cannot be
+ * committed anyway).
+ */
+export type CommitOutcome =
+  | { kind: "committed"; checked: CommitChecked }
+  | {
+      kind: "secrets";
+      findings: SecretFinding[];
+      more: number;
+      complete: boolean;
+      tree: string | null;
+    };
+
+/** A tree id as git prints it: 40 or 64 lowercase hex digits. */
+function treeId(value: unknown): string | null {
+  return typeof value === "string" && /^(?:[0-9a-f]{40}|[0-9a-f]{64})$/.test(value) ? value : null;
+}
+
+/**
+ * The backend's answer to `gitCommit`. A "secrets" answer always stays one, readable findings or
+ * not: reading it as committed would hide the warning. Anything else counts as committed; an
+ * unknown `checked` as not checked at all.
+ */
+export function parseCommitOutcome(value: unknown): CommitOutcome {
+  if (typeof value !== "object" || value === null) return { kind: "committed", checked: "skipped" };
+  if (Reflect.get(value, "kind") !== "secrets") {
+    const checked: unknown = Reflect.get(value, "checked");
+    return {
+      kind: "committed",
+      checked: checked === "full" || checked === "partial" ? checked : "skipped",
+    };
+  }
+  const raw: unknown = Reflect.get(value, "findings");
+  const findings: SecretFinding[] = [];
+  const list: unknown[] = Array.isArray(raw) ? raw : [];
+  for (const entry of list) {
+    if (typeof entry !== "object" || entry === null) continue;
+    const path: unknown = Reflect.get(entry, "path");
+    const kinds = secretKinds(Reflect.get(entry, "kinds"));
+    if (typeof path === "string" && path !== "" && kinds.length > 0) findings.push({ path, kinds });
+  }
+  const more: unknown = Reflect.get(value, "more");
+  return {
+    kind: "secrets",
+    findings,
+    more: typeof more === "number" && Number.isSafeInteger(more) && more > 0 ? more : 0,
+    complete: Reflect.get(value, "complete") !== false,
+    tree: treeId(Reflect.get(value, "tree")),
+  };
 }
 
 /** The commit message as it is sent: trimmed; `null` when nothing is left. */

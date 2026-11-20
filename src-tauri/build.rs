@@ -109,6 +109,8 @@ const COMMANDS: &[&str] = &[
     "claims_snapshot",
     "configure_gate",
     "gate_snapshot",
+    "permission_waiting",
+    "permission_answered",
     "answer_gate",
     "gate_rules",
     "delete_gate_rule",

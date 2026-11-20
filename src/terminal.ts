@@ -27,6 +27,7 @@ import {
 import { t } from "./i18n";
 import { FONT_SIZE } from "./layout";
 import type { ShellKind } from "./pathQuote";
+import { answersDialog } from "./permissionWaits";
 import { PathChecker } from "./pathCheck";
 import { SubmittedLines } from "./handover";
 import { StepPrompt } from "./timeline";
@@ -225,6 +226,11 @@ export class SessionTerminal {
   private personDraft = false;
   /** The person pressed Enter here themselves (not Hangar's `submit`). */
   onPersonSubmit: (() => void) | null = null;
+  /**
+   * The person pressed a key that answers a dialog (`answersDialog`: Enter, Esc, a digit), for the
+   * permission signal of ADR 0016.
+   */
+  onPersonAnswerKey: (() => void) | null = null;
   /** How the program in the session reads a pasted image path; the app knows its profile. */
   shellKind: () => ShellKind = () => "agent";
   /** An image paste of this session is waiting for the backend (clipboardPaste.ts). */
@@ -970,6 +976,7 @@ export class SessionTerminal {
 
   private personKey(key: string): void {
     this.personKeyAt = Date.now();
+    if (answersDialog(key)) this.onPersonAnswerKey?.();
     // Enter sends the line; Ctrl+C clears it in the agent CLIs.
     if (key === "\r" || key === "\x03") {
       this.personDraft = false;

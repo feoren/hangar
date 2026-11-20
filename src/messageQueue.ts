@@ -38,7 +38,8 @@ export type PhaseEnd = "done" | "asks" | "other";
 /**
  * How a change of the attention state ends a working phase; `null` when it ends none.
  * `endedBy` is the tracker's `endedBy` (known also while the session is watched, where the state
- * only turns "idle"); `gateWaiting`: a gate decision of the session is pending.
+ * only turns "idle"); `gateWaiting`: a gate decision of the session is pending or its agent's
+ * hooks report a dialog (ADR 0016).
  */
 export function phaseEnd(
   previous: AttentionState,
@@ -48,7 +49,8 @@ export function phaseEnd(
   gateWaiting: boolean,
 ): PhaseEnd | null {
   if (previous !== "working" || next === "working") return null;
-  if (gateWaiting || reason === "gate" || reason === "bell" || endedBy === "bell") return "asks";
+  if (gateWaiting || reason === "gate" || reason === "permission") return "asks";
+  if (reason === "bell" || endedBy === "bell") return "asks";
   return endedBy === "quiet" ? "done" : "other";
 }
 

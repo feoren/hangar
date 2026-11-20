@@ -199,8 +199,8 @@ fn an_agent_sends_and_the_partner_answers_back() {
 
     let waiting = fixture.inbox.waiting(&fixture.store.load_partners());
     assert_eq!(waiting.len(), 2);
-    assert_eq!(waiting[0].text, "show the server text");
-    assert_eq!(waiting[1].text, "caf\u{e9} menu\nline two");
+    assert_eq!(waiting[0].message.text, "show the server text");
+    assert_eq!(waiting[1].message.text, "caf\u{e9} menu\nline two");
     assert_eq!(fixture.signals.load(Ordering::SeqCst), 2);
 
     // The partner's agent answers with the same client: the pair holds both ways.
@@ -209,7 +209,10 @@ fn an_agent_sends_and_the_partner_answers_back() {
     assert_eq!(answer.status.code(), Some(0), "{}", text(&answer.stderr));
     let waiting = fixture.inbox.waiting(&fixture.store.load_partners());
     assert_eq!(
-        (waiting[2].from.as_str(), waiting[2].to.as_str()),
+        (
+            waiting[2].message.from.as_str(),
+            waiting[2].message.to.as_str()
+        ),
         ("web", "app")
     );
 

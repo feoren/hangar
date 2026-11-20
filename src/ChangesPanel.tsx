@@ -8,13 +8,22 @@ import { CommitBox } from "./CommitBox";
 import { CommitHistory } from "./CommitHistory";
 import { Dialog } from "./Dialog";
 import { folderName } from "./folders";
-import { commitMode, discardDeletes, lineComment, pathBatches, stageAllPaths } from "./gitActions";
+import {
+  commitMode,
+  discardDeletes,
+  lineComment,
+  parseCommitOutcome,
+  pathBatches,
+  stageAllPaths,
+  type SecretFinding,
+} from "./gitActions";
 import { parseGitDiff, splitPath, type ChangeEntry, type GitDiff } from "./gitDiff";
 import type { ChangesView, CommitFocus } from "./gitHistory";
 import { useT, type MessageKey } from "./i18n";
 import { RestartIcon } from "./icons";
 import { revealInvisible } from "./invisible";
 import { Revealed } from "./Revealed";
+import { secretLabels } from "./secretScan";
 import { askFor, stillAsked, type SessionQuestion } from "./sessionQuestion";
 import type { TeammateOverlap } from "./team";
 import { changesViews, shownChangesView, type TimelineAvailability } from "./timeline";
@@ -82,6 +91,19 @@ type Load =
  * open, on a new session, on "Refresh" and whenever the session's attention state changes. Large
  * diffs show a page of lines per file, more on request.
  */
+/** A commit held back because its staged lines seem to hold secrets (ADR 0015). */
+interface SecretAsk {
+  sessionId: number;
+  cwd: string;
+  /** The message as it was sent. */
+  text: string;
+  findings: SecretFinding[];
+  more: number;
+  complete: boolean;
+  /** The checked index, handed back by "Commit anyway"; `null`: it cannot be committed anyway. */
+  tree: string | null;
+}
+
 export function ChangesPanel(props: Props) {
   const { cwd, trigger } = props;
   const view = shownChangesView(props.view, props.timeline);
@@ -99,6 +121,16 @@ export function ChangesPanel(props: Props) {
   const [busy, setBusy] = useState(false);
   const [actionError, setActionError] = useState<ForFolder | null>(null);
   const [draft, setDraft] = useState<ForFolder | null>(null);
+  /**
+   * The commit that waits because its staged lines seem to hold secrets (ADR 0015), for the
+   * session and folder it was asked in, with its message: "Commit anyway" commits exactly that.
+   */
+  const [secretAsk, setSecretAsk] = useState<SecretAsk | null>(null);
+  /** The last commit in this folder went in without its changes being checked in full. */
+  const [checkNote, setCheckNote] = useState<{
+    cwd: string;
+    checked: "partial" | "skipped";
+  } | null>(null);
   /**
    * The file whose changes the user wants to throw away, while the question is open, with the
    * session and folder it was asked for: the answer acts there, never on a session switched to.
@@ -203,19 +235,42 @@ export function ChangesPanel(props: Props) {
   const mode = commitMode(files);
   const message = draft !== null && draft.cwd === cwd ? draft.text : "";
   const error = actionError !== null && actionError.cwd === cwd ? actionError.text : null;
-  const commit = (text: string) => {
+  const commit = (text: string, allowTree: string | null = null) => {
     // Like a commit with `-a`: changed and deleted files, never untracked ones.
     const paths = stageAllPaths(files);
+    let waits = false;
+    setCheckNote(null);
     runAction(
       async (id) => {
         if (mode === "stageAll") await api.gitStage(id, paths);
-        await api.gitCommit(id, text);
+        const outcome = parseCommitOutcome(await api.gitCommit(id, text, allowTree));
+        if (cwd === null) return;
+        if (outcome.kind === "secrets") {
+          waits = true;
+          setSecretAsk({
+            sessionId: id,
+            cwd,
+            text,
+            findings: outcome.findings,
+            more: outcome.more,
+            complete: outcome.complete,
+            tree: outcome.tree,
+          });
+        } else if (outcome.checked !== "full") {
+          setCheckNote({ cwd, checked: outcome.checked });
+        }
       },
       () => {
-        setDraft(null);
+        if (!waits) setDraft(null);
       },
     );
   };
+  // Asked for one session and folder only, like the discard question.
+  const secretShown =
+    secretAsk !== null && secretAsk.sessionId === sessionId && secretAsk.cwd === cwd
+      ? secretAsk
+      : null;
+  if (secretAsk !== null && secretShown === null) setSecretAsk(null);
   const closeDiscard = () => {
     setDiscarding(null);
     panel.current?.focus();
@@ -283,7 +338,10 @@ export function ChangesPanel(props: Props) {
               }}
               mode={mode}
               busy={busy}
-              onCommit={commit}
+              onCommit={(text) => {
+                setSecretAsk(null);
+                commit(text);
+              }}
               onSuggest={
                 props.agent
                   ? () => {
@@ -294,6 +352,23 @@ export function ChangesPanel(props: Props) {
                   : undefined
               }
             />
+          )}
+          {secretShown !== null && (
+            <CommitSecretAsk
+              ask={secretShown}
+              busy={busy}
+              onCancel={() => {
+                setSecretAsk(null);
+              }}
+              onCommitAnyway={(tree) => {
+                const asked = secretShown;
+                setSecretAsk(null);
+                commit(asked.text, tree);
+              }}
+            />
+          )}
+          {checkNote !== null && checkNote.cwd === cwd && (
+            <CommitCheckNote checked={checkNote.checked} />
           )}
           {error !== null && (
             <p className="changes-hint error-text selectable" role="alert">
@@ -362,6 +437,71 @@ export function ChangesPanel(props: Props) {
  * Asks before a file's changes are thrown away; an untracked or newly added file is deleted. The
  * folder it names is the one the question was asked for.
  */
+/**
+ * The commit box's question when the staged changes seem to hold secrets (ADR 0015): files and
+ * kinds, then "Cancel" and "Commit anyway". Without a checked tree only "Cancel" is offered.
+ */
+export function CommitSecretAsk({
+  ask,
+  busy,
+  onCancel,
+  onCommitAnyway,
+}: {
+  ask: Pick<SecretAsk, "findings" | "more" | "complete" | "tree">;
+  busy: boolean;
+  onCancel: () => void;
+  onCommitAnyway: (tree: string) => void;
+}) {
+  const t = useT();
+  const { tree } = ask;
+  return (
+    <div className="changes-hint commit-secrets" role="alert">
+      <p className="commit-secrets-title">{t("changes.secretTitle")}</p>
+      {ask.findings.length > 0 && (
+        <ul className="commit-secrets-list">
+          {ask.findings.map((finding) => (
+            <li key={finding.path}>
+              <Revealed text={finding.path} />
+              {": "}
+              {secretLabels(finding.kinds, t)}
+            </li>
+          ))}
+        </ul>
+      )}
+      {ask.more > 0 && <p>{t("changes.secretMore", { count: String(ask.more) })}</p>}
+      {!ask.complete && <p>{t("changes.secretPartial")}</p>}
+      {tree === null && <p>{t("changes.secretNoTree")}</p>}
+      <div className="link-actions">
+        <button type="button" className="secondary-button" disabled={busy} onClick={onCancel}>
+          {t("common.cancel")}
+        </button>
+        {tree !== null && (
+          <button
+            type="button"
+            className="primary-button"
+            disabled={busy}
+            onClick={() => {
+              onCommitAnyway(tree);
+            }}
+          >
+            {t("changes.commitAnyway")}
+          </button>
+        )}
+      </div>
+    </div>
+  );
+}
+
+/** After a commit whose staged changes were not checked for secrets in full (ADR 0015). */
+export function CommitCheckNote({ checked }: { checked: "partial" | "skipped" }) {
+  const t = useT();
+  return (
+    <p className="changes-hint" role="status">
+      {t(checked === "partial" ? "changes.checkedPartial" : "changes.checkedSkipped")}
+    </p>
+  );
+}
+
 export function DiscardDialog({
   entry,
   cwd,

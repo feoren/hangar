@@ -66,6 +66,7 @@ pub mod partner_service;
 pub mod partners;
 pub mod paste_image;
 pub mod path_links;
+pub mod permission_wait;
 pub mod persist;
 pub mod power;
 pub mod proctree;
@@ -78,6 +79,7 @@ pub mod quit_signal;
 pub mod report;
 pub mod resolve;
 pub mod resources;
+pub mod secret_scan;
 pub mod secrets;
 pub mod send_bin;
 pub mod server_check;
@@ -481,6 +483,13 @@ pub fn run() -> tauri::Result<()> {
                     let _ = events.emit_to(panel_window::MAIN_LABEL, gate_service::EVENT, ());
                 },
             );
+            // Dialog notices (ADR 0016): a signal only, like the gate's; the main window reads the
+            // waiting sessions through `permission_waiting`.
+            let events = app.handle().clone();
+            gate.set_permission_signal(move || {
+                let _ =
+                    events.emit_to(panel_window::MAIN_LABEL, gate_service::PERMISSION_EVENT, ());
+            });
             gate.load_rules(gate_rules_file);
             gate.load_command_guard(guard_file);
             app.state::<SessionManager>()
@@ -684,6 +693,8 @@ pub fn run() -> tauri::Result<()> {
             commands::claims_snapshot,
             commands::configure_gate,
             commands::gate_snapshot,
+            commands::permission_waiting,
+            commands::permission_answered,
             commands::answer_gate,
             commands::gate_rules,
             commands::delete_gate_rule,

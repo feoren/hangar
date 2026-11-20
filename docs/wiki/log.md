@@ -1207,3 +1207,28 @@ ADR 0014 extended: an optional lead per group with role-specific introductions, 
 group in memory, read with `link_history`; workspace templates that link their agent sessions
 with member names, the lead and "Ask before pasting". Pages changed: [[0014-session-links]],
 index.
+
+## [2026-11-20] ingest | Claude Code notification and permission hooks
+Read the hooks reference (Notification, PermissionRequest, hook types per event) and measured
+Claude Code 2.1.329 in print mode with a local listener: PermissionRequest reaches an http hook
+right after PreToolUse, Stop follows a denial. New ADR 0016: report-only notice hooks for every
+Claude Code session, private ones included, with a token of scope `Notify` and the attention
+reason `permission`. Pages changed: [[claude-notification-hooks-reference]],
+[[claude-permission-hooks-measurement]], [[0016-permission-notices]],
+[[0008-private-and-team-sessions]], [[0014-session-links]], [[agent-prompt-shapes]], index.
+
+## [2026-11-20] query | Secret guard
+New ADR 0015: a few key and token shapes, checked the same way in the backend and the window
+against shared vectors; link messages with a secret wait as a card, partner cards and the sender's
+answer name the kind, a built-in command guard rule asks before `git add` of `.env`, `*.pem` and
+similar, the commit box asks before committing staged secrets, a paste asks first. Pages changed:
+[[0015-secret-guard]], [[0010-command-guard]], [[0014-session-links]], index.
+
+## [2026-11-20] ingest | Claude Code permission dialog, interactive
+Measured Claude Code 2.1.329 in a real ConPTY with the notice hooks: PermissionRequest as the dialog
+appears, permission_prompt 6 s later, no idle_prompt while it stands, no hook at all after a "No".
+ADR 0016 now clears the signal on the person's answering key (`permission_answered`). ADR 0015
+hardened after review: linear shapes with a body bound, a deadline for the commit check, the
+checked tree bound to "Commit anyway", the check's extent in the answer, `--text` and staged file
+names. Pages changed: [[claude-permission-hooks-measurement]], [[0016-permission-notices]],
+[[0015-secret-guard]], index.

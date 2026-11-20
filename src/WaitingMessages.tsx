@@ -1,6 +1,7 @@
 import { useT } from "./i18n";
 import { messageLines, type WaitingMessage } from "./partnerInbox";
 import { Revealed } from "./Revealed";
+import { secretLabels } from "./secretScan";
 import { useArmDelay } from "./useArmDelay";
 
 /**
@@ -9,7 +10,8 @@ import { useArmDelay } from "./useArmDelay";
  * The text is plain text with invisible characters shown as marked placeholders, line by line,
  * so it reads exactly as the agent will get it. Whenever the waiting messages change, every card
  * takes no click for a moment (useArmDelay.ts): a new card above or below can move the one under
- * the mouse, and a click meant for it must not answer another.
+ * the mouse, and a click meant for it must not answer another. A message that seems to hold a
+ * secret key says so above its text (ADR 0015); the person decides.
  */
 export function WaitingMessages(props: {
   messages: readonly WaitingMessage[];
@@ -66,6 +68,11 @@ function WaitingMessageCard({
   return (
     <section className="waiting-message" aria-label={title}>
       <div className="waiting-message-from">{title}</div>
+      {message.secrets !== undefined && message.secrets.length > 0 && (
+        <div className="waiting-message-secret" role="note">
+          {t("message.secretHint", { kinds: secretLabels(message.secrets, t) })}
+        </div>
+      )}
       <div className="waiting-message-text">
         {messageLines(message.text).map((line, index) => (
           // Lines never move; the index is stable for this text.

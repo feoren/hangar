@@ -33,6 +33,7 @@ export type StatusPhrase =
   | "attention"
   | "asks"
   | "gate"
+  | "permission"
   | "failed"
   | "exited"
   | "exitedByUser";
@@ -50,6 +51,7 @@ export function statusPhrase(
   if (exitedWithError(session)) return "failed";
   if (attention === "attention") {
     if (reason === "gate" && session.status === "running") return "gate";
+    if (reason === "permission" && session.status === "running") return "permission";
     return reason === "bell" && session.status === "running" ? "asks" : "attention";
   }
   switch (session.status) {
@@ -69,6 +71,7 @@ export const PHRASES: Record<StatusPhrase, MessageKey> = {
   attention: "status.attention",
   asks: "status.asks",
   gate: "status.gate",
+  permission: "status.permission",
   failed: "status.failed",
   exited: "status.exited",
   exitedByUser: "status.exitedByUser",
@@ -82,6 +85,7 @@ export const SHORT_PHRASES: Record<StatusPhrase, MessageKey> = {
   attention: "status.short.attention",
   asks: "status.short.asks",
   gate: "status.short.gate",
+  permission: "status.short.permission",
   failed: "status.short.failed",
   exited: "status.short.exited",
   exitedByUser: "status.short.exitedByUser",

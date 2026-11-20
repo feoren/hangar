@@ -13,11 +13,15 @@ const message: WaitingMessage = {
   at: 1,
 };
 
-function render(busy: number[] = [], language: Language = "en"): string {
+function render(
+  busy: number[] = [],
+  language: Language = "en",
+  shown: WaitingMessage = message,
+): string {
   return renderToStaticMarkup(
     <I18nContext.Provider value={createTranslator(language)}>
       <WaitingMessages
-        messages={[message]}
+        messages={[shown]}
         busy={new Set(busy)}
         generation={1}
         onPaste={() => undefined}
@@ -28,6 +32,16 @@ function render(busy: number[] = [], language: Language = "en"): string {
 }
 
 describe("WaitingMessages", () => {
+  it("says above the text when it seems to hold a secret key, and names the kind", () => {
+    const html = render([], "en", { ...message, secrets: ["githubToken", "privateKey"] });
+    expect(html).toContain("Probably contains a secret key (GitHub token, private key).");
+    expect(html).toContain('class="waiting-message-secret"');
+    expect(render([], "de", { ...message, secrets: ["stripeKey"] })).toContain(
+      "Enthält vermutlich einen geheimen Schlüssel (Stripe-Schlüssel).",
+    );
+    expect(render()).not.toContain("waiting-message-secret");
+  });
+
   it("names the sender and offers the three answers", () => {
     const html = render();
     expect(html).toContain("Message from “app”");

@@ -117,6 +117,8 @@ fn commands_are_registered_allowed_and_wired() {
         "answer_gate",
         "gate_rules",
         "delete_gate_rule",
+        "permission_waiting",
+        "permission_answered",
     ] {
         assert!(commands.iter().any(|c| c == command), "{command} missing");
     }
@@ -178,6 +180,9 @@ fn commands_are_registered_allowed_and_wired() {
         "close_waiting_message",
         // A link group's history holds what agents wrote each other (ADR 0014).
         "link_history",
+        // Which sessions wait for a dialog (ADR 0016): the main window's alone.
+        "permission_waiting",
+        "permission_answered",
         "set_panel_session",
         "take_update_results",
         "claims_snapshot",
@@ -473,6 +478,33 @@ fn file_viewer_capability_is_narrow() {
     for command in FILE_VIEWER_ONLY {
         let permission = format!("allow-{}", command.replace('_', "-"));
         assert!(!panel.contains(&permission), "{permission} in panel.json");
+    }
+}
+
+/// The dialog notices of ADR 0016: a signal without payload, a command that checks its caller.
+#[test]
+fn permission_signal_carries_no_payload_and_its_command_checks_the_window() {
+    let lib = read("src/lib.rs");
+    let event = "gate_service::PERMISSION_EVENT";
+    assert_eq!(lib.matches(event).count(), 1, "{event} emitted elsewhere");
+    assert!(
+        lib.contains(&format!("emit_to(panel_window::MAIN_LABEL, {event}, ())")),
+        "{event} must be emitted without payload"
+    );
+    let commands = read("src/commands.rs");
+    for name in ["permission_waiting", "permission_answered"] {
+        assert!(
+            command_body(&commands, name).contains("panel_window::check_main(window.label())?;"),
+            "{name} does not check the caller"
+        );
+    }
+    for path in ["capabilities/panel.json", "capabilities/file-viewer.json"] {
+        for permission in ["allow-permission-waiting", "allow-permission-answered"] {
+            assert!(
+                !read(path).contains(permission),
+                "{path} grants {permission}"
+            );
+        }
     }
 }
 

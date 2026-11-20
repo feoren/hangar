@@ -54,6 +54,11 @@ UI texts in `src/i18n.ts` are translated per language and are not bound by this 
 | Wartende Nachricht                              | waiting message                   | an agent's message until the person pastes or discards it; `partner_inbox.rs`        |
 | Sendeprogramm                                   | send client                       | `hangar-send`, run by agents to send a cross-project message, ADR 0012               |
 | Sende-Token                                     | send token                        | token of scope `Send` on the hook endpoint, in `HANGAR_SEND`                         |
+| Geheimnis-Wächter                               | secret guard                      | ADR 0015; key and token shapes, `secret_scan.rs`, `secretScan.ts`                    |
+| Geheimnis-Art                                   | secret kind                       | `SecretKind`: only the kind is reported, never the matching text                     |
+| Meldender Hook                                  | notice hook                       | ADR 0016; report-only Claude Code hook: a dialog appeared or is gone                 |
+| Melde-Token                                     | notice token                      | token of scope `Notify` on the hook endpoint, in `HANGAR_NOTIFY_TOKEN`               |
+| wartet auf Freigabe                             | waits for approval                | attention reason `permission`, set by the notice hooks                               |
 | Partnerliste                                    | partner book                      | the named projects and their pairs, `partner-projects.json`; `PartnerBook`           |
 | Link-Gruppe                                     | link group                        | running agent sessions linked to message each other, ADR 0014; in memory, `links.rs` |
 | Mitgliedsname                                   | member name                       | `[a-z0-9-]{1,32}` name of a session in its link group, `hangar-send <name>`          |

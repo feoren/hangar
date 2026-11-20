@@ -22,7 +22,9 @@ export function finishedWork(
   next: AttentionState,
   reason: AttentionReason | null,
 ): boolean {
-  return previous === "working" && next !== "working" && reason !== "gate";
+  return (
+    previous === "working" && next !== "working" && reason !== "gate" && reason !== "permission"
+  );
 }
 
 /** Changed files in the answer of `git_changed_count`; 0 outside a repository or when malformed. */

@@ -8,6 +8,7 @@ import {
   GIT_MAX_PATHS,
   lineComment,
   newLineNumbers,
+  parseCommitOutcome,
   pathBatches,
   stageAction,
   stageAllBox,
@@ -179,5 +180,68 @@ describe("lineComment", () => {
 
   it("sends nothing for an empty comment", () => {
     expect(lineComment("a.txt", 1, " \n ")).toBeNull();
+  });
+});
+
+describe("parseCommitOutcome", () => {
+  it("reads how far a commit was checked", () => {
+    expect(parseCommitOutcome({ kind: "committed", checked: "full" })).toEqual({
+      kind: "committed",
+      checked: "full",
+    });
+    expect(parseCommitOutcome({ kind: "committed", checked: "partial" })).toEqual({
+      kind: "committed",
+      checked: "partial",
+    });
+    // Unknown or missing: not checked.
+    expect(parseCommitOutcome({ kind: "committed" })).toEqual({
+      kind: "committed",
+      checked: "skipped",
+    });
+    expect(parseCommitOutcome(null)).toEqual({ kind: "committed", checked: "skipped" });
+  });
+
+  it("reads findings with known kinds and the checked tree", () => {
+    const tree = "a1".repeat(20);
+    expect(
+      parseCommitOutcome({
+        kind: "secrets",
+        findings: [
+          { path: "a.txt", kinds: ["githubToken", "nonsense"] },
+          { path: ".env", kinds: ["secretFile"] },
+          { path: "", kinds: ["githubToken"] },
+          { path: "b.txt", kinds: ["x"] },
+          "junk",
+        ],
+        more: 2,
+        complete: false,
+        tree,
+      }),
+    ).toEqual({
+      kind: "secrets",
+      findings: [
+        { path: "a.txt", kinds: ["githubToken"] },
+        { path: ".env", kinds: ["secretFile"] },
+      ],
+      more: 2,
+      complete: false,
+      tree,
+    });
+    // A tree that is no tree id cannot be handed back.
+    const odd = parseCommitOutcome({ kind: "secrets", findings: [], tree: "HEAD" });
+    expect(odd.kind === "secrets" ? odd.tree : "x").toBeNull();
+  });
+
+  it("never reads a secrets answer without readable findings as committed", () => {
+    expect(parseCommitOutcome({ kind: "secrets", findings: [] })).toEqual({
+      kind: "secrets",
+      findings: [],
+      more: 0,
+      complete: true,
+      tree: null,
+    });
+    expect(
+      parseCommitOutcome({ kind: "secrets", findings: [{ path: "a", kinds: ["?"] }] }).kind,
+    ).toBe("secrets");
   });
 });

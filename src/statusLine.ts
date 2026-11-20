@@ -50,6 +50,7 @@ const AGENT_PHRASES: Record<StatusPhrase, MessageKey> = {
   attention: "status.agent.attention",
   asks: "status.agent.asks",
   gate: "status.agent.gate",
+  permission: "status.agent.permission",
   failed: "status.agent.failed",
   exited: "status.agent.exited",
   exitedByUser: "status.agent.exitedByUser",
@@ -68,7 +69,7 @@ export interface StatusLine {
 }
 
 /** Waiting phrases that name the person as the one to act. */
-const WAIT_PHRASES: readonly StatusPhrase[] = ["attention", "asks", "gate"];
+const WAIT_PHRASES: readonly StatusPhrase[] = ["attention", "asks", "gate", "permission"];
 
 /**
  * The row's state as one word ("working"), and for the peek the whole sentence with the program as

@@ -247,6 +247,13 @@ describe("autoReadiness", () => {
     expect(autoReadiness({ ...QUIET, asks: true })).toBe("wait");
   });
 
+  it("never sends Enter while the agent's hooks report a dialog, whatever the screen says", () => {
+    // A quiet end with an empty-looking screen would be ready; the hook signal decides.
+    expect(autoReadiness({ ...QUIET, permissionPending: true })).toBe("wait");
+    expect(autoReadiness({ ...QUIET, reason: "permission" })).toBe("wait");
+    expect(autoReadiness({ ...QUIET, permissionPending: false })).toBe("ready");
+  });
+
   it("waits while the person types or left a line half typed", () => {
     expect(autoReadiness({ ...QUIET, draft: true })).toBe("typing");
     expect(autoReadiness({ ...QUIET, typedAgoMs: TYPING_PAUSE_MS - 1 })).toBe("typing");
@@ -333,6 +340,13 @@ describe("deliverAutomatically", () => {
     const box = fake({}, { ...QUIET, draft: true });
     expect(await deliverAutomatically(box.deps, PATIENT, 10)).toBe("typing");
     expect(box.log).toEqual([]);
+  });
+
+  it("turns a message into a card while a dialog waits, without pasting", async () => {
+    const asked = fake();
+    asked.facts.current = { ...QUIET, permissionPending: true };
+    expect(await deliverAutomatically(asked.deps, PATIENT, 10)).toBe("timeout");
+    expect(asked.log).toEqual([]);
   });
 
   it("pastes nothing when the backend holds it or the target changed after the claim", async () => {

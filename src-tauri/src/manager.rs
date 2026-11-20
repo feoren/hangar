@@ -170,6 +170,18 @@ pub trait LaunchGate: Send + Sync {
         args: &[String],
         version: Option<&str>,
     ) -> GatePlan;
+    /// For a private agent session (ADR 0016): the report-only notice hooks, which tell Hangar
+    /// when the agent shows a permission or input dialog. Never a gate: `None` for a program
+    /// without them, an unknown or older version, or when the endpoint cannot start.
+    fn notify(
+        &self,
+        _session: SessionId,
+        _agent: &Agent,
+        _program: &Path,
+        _version: Option<&str>,
+    ) -> Option<GateLaunch> {
+        None
+    }
     fn ended(&self, session: SessionId);
 }
 
@@ -1882,6 +1894,16 @@ fn spawn(
     let gate = match plan {
         GatePlan::Launch(launch) => Some(launch),
         GatePlan::Skip | GatePlan::Unavailable(_) => None,
+    };
+    // A private agent session gets the report-only notice hooks (ADR 0016) in the gate's place:
+    // the same start arguments and environment, but no gate, so its status stays as it is. A
+    // profile with settings of its own keeps them.
+    let gate = match (launch.kind, launch.mode, shared.launch_gate()) {
+        (SessionKind::Agent, SessionMode::Private, Some(launcher)) if !own_hooks => {
+            let version = gate_version(shared, agent, &program);
+            launcher.notify(id, agent, &program, version.as_deref())
+        }
+        _ => gate,
     };
     // Update sessions run an installer, never the agent: neither instructions nor a prompt.
     let batch = batch::is_batch(&program);

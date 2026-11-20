@@ -29,6 +29,9 @@ use crate::team_tasks::{self, TeamTask};
 /// Environment variable of the PTY child that carries its session's token. Claude Code puts it
 /// into the hook's `Authorization` header (`allowedEnvVars`); it is never written to a file.
 pub const TOKEN_ENV: &str = "HANGAR_HOOK_TOKEN";
+/// Environment variable with the token of the notice hooks (ADR 0016, [`TokenScope::Notify`]),
+/// apart from [`TOKEN_ENV`] so a team session holds both and each opens its own routes only.
+pub const NOTIFY_TOKEN_ENV: &str = "HANGAR_NOTIFY_TOKEN";
 /// Tools that change files, as the hooks name them: Claude Code's, and those the other agents'
 /// edit matchers send through the helper or an extension (`hook_recipes.rs`, `gate_plugins`).
 /// A test keeps every recipe's matcher inside this list.
@@ -118,6 +121,91 @@ pub const ROUTE_PRE_TOOL_USE_JSON: &str = "/v1/pre-tool-use/json";
 pub const ROUTE_USER_PROMPT_SUBMIT_JSON: &str = "/v1/user-prompt-submit/json";
 /// "No decision" for the JSON routes.
 pub const EMPTY_JSON: &str = "{}";
+/// Notice hooks (ADR 0016): the agent shows a permission or input dialog...
+pub const ROUTE_NOTIFY_ASKS: &str = "/v1/notification/asks";
+/// ...or the person answered it and the agent goes on (or the turn ended).
+pub const ROUTE_NOTIFY_CLEAR: &str = "/v1/notification/clear";
+/// Claude Code's limit for a notice hook. Hangar answers at once and never decides; a hook that
+/// fails or times out changes nothing in Claude Code (no `onFailure`), so a stopped Hangar holds
+/// a permission dialog up by this much at most.
+pub const NOTIFY_HOOK_TIMEOUT_SECS: u64 = 5;
+/// The first Claude Code that gets the notice hooks: every event they use exists there and
+/// `PermissionRequest` fires in every mode (2.1.268 fixed it for `--print`,
+/// docs/wiki/raw/2026-11-20-claude-notification-hooks-reference.md); measured with 2.1.329. An
+/// older or unknown one gets none, so a settings file it might not read never stops a session.
+pub const CLAUDE_NOTIFY_SINCE: &str = "2.1.268";
+/// `Notification` types that mean a dialog waits for the person: a tool's permission (also a
+/// sandboxed command's network request) and an MCP server's question.
+pub const NOTIFY_ASK_TYPES: &[&str] = &[
+    "permission_prompt",
+    "elicitation_dialog",
+    "elicitation_url_dialog",
+];
+/// `Notification` types that mean the MCP server's question was answered.
+pub const NOTIFY_CLEAR_TYPES: &[&str] = &["elicitation_response", "elicitation_complete"];
+/// Events after which no dialog of the agent waits any more (measured: `PostToolUse` after an
+/// allowed tool, `Stop` after a denied one, `UserPromptSubmit` before every turn).
+pub const NOTIFY_CLEAR_EVENTS: &[&str] = &[
+    "UserPromptSubmit",
+    "PostToolUse",
+    "PostToolUseFailure",
+    "Stop",
+    "SessionEnd",
+];
+/// Bytes of a notice hook's body that are read and looked at; the rest is read and dropped.
+pub const MAX_NOTIFY_BODY_BYTES: u64 = 64 * 1024;
+
+/// Whether Claude Code `version` gets the notice hooks ([`CLAUDE_NOTIFY_SINCE`]).
+pub fn claude_notifies(version: Option<&str>) -> bool {
+    let parse = crate::agent_catalog::MinVersion::parse;
+    match (version.and_then(parse), parse(CLAUDE_NOTIFY_SINCE)) {
+        (Some(installed), Some(since)) => installed >= since,
+        _ => false,
+    }
+}
+
+/// The notice hooks for Claude Code (ADR 0016): report-only http hooks that tell Hangar when a
+/// permission or input dialog appears and when it is gone. None of them decides or blocks: the
+/// routes answer an empty 200 (no decision), and a failed hook lets Claude Code go on as without
+/// it. No `PreToolUse`: a private session's tool calls are never held.
+fn notify_hooks(port: u16) -> serde_json::Map<String, serde_json::Value> {
+    let hook = |route: &str| {
+        serde_json::json!({
+            "type": "http",
+            "url": format!("http://127.0.0.1:{port}{route}"),
+            "timeout": NOTIFY_HOOK_TIMEOUT_SECS,
+            "headers": { "Authorization": format!("Bearer ${NOTIFY_TOKEN_ENV}") },
+            "allowedEnvVars": [NOTIFY_TOKEN_ENV],
+        })
+    };
+    let mut hooks = serde_json::Map::new();
+    // Comes the moment the dialog appears, before the person can answer it.
+    hooks.insert(
+        "PermissionRequest".to_owned(),
+        serde_json::json!([{ "matcher": "*", "hooks": [hook(ROUTE_NOTIFY_ASKS)] }]),
+    );
+    hooks.insert(
+        "Notification".to_owned(),
+        serde_json::json!([
+            { "matcher": NOTIFY_ASK_TYPES.join("|"), "hooks": [hook(ROUTE_NOTIFY_ASKS)] },
+            { "matcher": NOTIFY_CLEAR_TYPES.join("|"), "hooks": [hook(ROUTE_NOTIFY_CLEAR)] },
+        ]),
+    );
+    for event in NOTIFY_CLEAR_EVENTS {
+        let entry = if event.starts_with("PostToolUse") {
+            serde_json::json!({ "matcher": "*", "hooks": [hook(ROUTE_NOTIFY_CLEAR)] })
+        } else {
+            serde_json::json!({ "hooks": [hook(ROUTE_NOTIFY_CLEAR)] })
+        };
+        hooks.insert((*event).to_owned(), serde_json::json!([entry]));
+    }
+    hooks
+}
+
+/// `--settings` for a private Claude Code session: the notice hooks only, no gate.
+pub fn claude_notify_settings(port: u16) -> String {
+    serde_json::json!({ "hooks": notify_hooks(port) }).to_string()
+}
 
 // ---------------------------------------------------------------------------------------------
 // Launch
@@ -125,8 +213,9 @@ pub const EMPTY_JSON: &str = "{}";
 /// `--settings` for Claude Code: the gate's hooks for this one session, merged by Claude Code
 /// with the user's own settings and hooks (measured: a project hook still ran). Holds no secret:
 /// the token stays in the environment and only its name appears here. `block_on_failure`
-/// ([`claude_blocks_on_failure`]) adds `onFailure` to the tool hook.
-pub fn claude_settings(port: u16, context: bool, block_on_failure: bool) -> String {
+/// ([`claude_blocks_on_failure`]) adds `onFailure` to the tool hook. `notify`
+/// ([`claude_notifies`]) adds the notice hooks of ADR 0016 next to the gate's.
+pub fn claude_settings(port: u16, context: bool, block_on_failure: bool, notify: bool) -> String {
     let hook = |route: &str, timeout: u64| {
         serde_json::json!({
             "type": "http",
@@ -162,6 +251,20 @@ pub fn claude_settings(port: u16, context: bool, block_on_failure: bool) -> Stri
                 "hooks": [hook(ROUTE_USER_PROMPT_SUBMIT, CONTEXT_HOOK_TIMEOUT_SECS)],
             }]),
         );
+    }
+    if notify {
+        // Each event takes a list of matcher groups: the notice hooks join the gate's.
+        for (event, groups) in notify_hooks(port) {
+            let serde_json::Value::Array(groups) = groups else {
+                continue;
+            };
+            match hooks.get_mut(&event) {
+                Some(serde_json::Value::Array(known)) => known.extend(groups),
+                _ => {
+                    hooks.insert(event, serde_json::Value::Array(groups));
+                }
+            }
+        }
     }
     serde_json::json!({ "hooks": hooks }).to_string()
 }
@@ -362,6 +465,66 @@ pub fn parse_prompt_submit(reader: impl Read) -> Result<Option<String>, HookErro
         serde_json::from_reader(std::io::BufReader::with_capacity(16 * 1024, reader))
             .map_err(|_| HookError::Shape)?;
     body.session_id.map(checked).transpose()
+}
+
+/// What a notice hook's body says, as far as Hangar looks: the event and, for `Notification`, its
+/// type. Nothing else of the body is read into memory, and the text of a notification never
+/// leaves this function.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct NoticeBody {
+    pub event: Option<String>,
+    pub notification_type: Option<String>,
+}
+
+#[derive(Deserialize)]
+struct NoticeFields {
+    hook_event_name: Option<String>,
+    notification_type: Option<String>,
+}
+
+/// Reads a notice hook's body: at most [`MAX_NOTIFY_BODY_BYTES`] of `length` are kept and parsed,
+/// the rest is read and dropped. A body that is too long or no JSON object of that shape gives an
+/// empty [`NoticeBody`]: the route alone then says what happened.
+pub fn parse_notice(mut reader: impl Read, length: u64) -> NoticeBody {
+    if length > MAX_NOTIFY_BODY_BYTES {
+        let _ = std::io::copy(&mut reader, &mut std::io::sink());
+        return NoticeBody::default();
+    }
+    let mut body = Vec::new();
+    if reader
+        .by_ref()
+        .take(MAX_NOTIFY_BODY_BYTES)
+        .read_to_end(&mut body)
+        .is_err()
+    {
+        return NoticeBody::default();
+    }
+    let short = |value: Option<String>| value.filter(|text| text.len() <= 64);
+    match serde_json::from_slice::<NoticeFields>(&body) {
+        Ok(fields) => NoticeBody {
+            event: short(fields.hook_event_name),
+            notification_type: short(fields.notification_type),
+        },
+        Err(_) => NoticeBody::default(),
+    }
+}
+
+/// Whether a notice on the asks route (`asks`) or the clear route changes the session's signal.
+/// The route decides; a body that names a `Notification` of another type (Claude Code ignoring a
+/// matcher, an unknown type) is ignored.
+pub fn notice_counts(body: &NoticeBody, asks: bool) -> bool {
+    match (body.event.as_deref(), body.notification_type.as_deref()) {
+        (Some("Notification"), Some(kind)) => {
+            let types = if asks {
+                NOTIFY_ASK_TYPES
+            } else {
+                NOTIFY_CLEAR_TYPES
+            };
+            types.contains(&kind)
+        }
+        (Some("Notification"), None) => false,
+        _ => true,
+    }
 }
 
 /// The answer that lets the agent's normal permission flow continue: an empty 2xx body.
@@ -1357,6 +1520,8 @@ pub enum TokenScope {
     Hooks,
     /// The send route of cross-project messages (ADR 0012), for sessions with partner projects.
     Send,
+    /// The notice routes (ADR 0016): report that a dialog waits or is gone, never decide.
+    Notify,
 }
 
 /// The gate's state: tokens per session and scope, pending decisions, files allowed per session
@@ -1427,6 +1592,11 @@ impl<W> Gate<W> {
             }
         }
         found
+    }
+
+    /// Whether the session still holds a token of `scope` (its process runs).
+    pub fn holds(&self, session: SessionId, scope: TokenScope) -> bool {
+        self.tokens.contains_key(&(session, scope))
     }
 
     /// The session's token of `scope` stops working.
@@ -1851,7 +2021,7 @@ mod tests {
     #[test]
     fn settings_hold_the_hooks_but_no_token() {
         let json: serde_json::Value =
-            serde_json::from_str(&claude_settings(4711, true, false)).unwrap();
+            serde_json::from_str(&claude_settings(4711, true, false, false)).unwrap();
         let pre = &json["hooks"]["PreToolUse"][0];
         assert_eq!(pre["matcher"], "*");
         let hook = &pre["hooks"][0];
@@ -1872,8 +2042,150 @@ mod tests {
         );
         assert!(HOOK_TIMEOUT_SECS > DECISION_TIMEOUT.as_secs());
         let without: serde_json::Value =
-            serde_json::from_str(&claude_settings(1, false, false)).unwrap();
+            serde_json::from_str(&claude_settings(1, false, false, false)).unwrap();
         assert!(without["hooks"].get("UserPromptSubmit").is_none());
+    }
+
+    /// Every hook of a settings JSON: (event, matcher, url).
+    fn hook_list(json: &serde_json::Value) -> Vec<(String, String, String)> {
+        let mut found = Vec::new();
+        for (event, groups) in json["hooks"].as_object().unwrap() {
+            for group in groups.as_array().unwrap() {
+                for hook in group["hooks"].as_array().unwrap() {
+                    found.push((
+                        event.clone(),
+                        group["matcher"].as_str().unwrap_or("").to_owned(),
+                        hook["url"].as_str().unwrap().to_owned(),
+                    ));
+                }
+            }
+        }
+        found
+    }
+
+    #[test]
+    fn private_sessions_get_report_only_hooks_without_any_gate() {
+        let json: serde_json::Value = serde_json::from_str(&claude_notify_settings(4711)).unwrap();
+        let hooks = hook_list(&json);
+        // No PreToolUse: nothing can hold or deny a tool call of a private session.
+        assert!(hooks.iter().all(|(event, _, _)| event != "PreToolUse"));
+        let asks = "http://127.0.0.1:4711/v1/notification/asks";
+        let clear = "http://127.0.0.1:4711/v1/notification/clear";
+        assert!(hooks.iter().all(|(_, _, url)| url == asks || url == clear));
+        assert!(hooks.contains(&("PermissionRequest".into(), "*".into(), asks.into())));
+        assert!(hooks.contains(&(
+            "Notification".into(),
+            "permission_prompt|elicitation_dialog|elicitation_url_dialog".into(),
+            asks.into()
+        )));
+        for event in NOTIFY_CLEAR_EVENTS {
+            assert!(
+                hooks.iter().any(|(e, _, url)| e == event && url == clear),
+                "{event}"
+            );
+        }
+        for group in json["hooks"].as_object().unwrap().values() {
+            for hook in group[0]["hooks"].as_array().unwrap() {
+                assert_eq!(hook["type"], "http");
+                assert_eq!(hook["timeout"], NOTIFY_HOOK_TIMEOUT_SECS);
+                // Never blocks when Hangar is gone.
+                assert!(hook.get("onFailure").is_none());
+                assert_eq!(
+                    hook["headers"]["Authorization"],
+                    "Bearer $HANGAR_NOTIFY_TOKEN"
+                );
+                assert_eq!(
+                    hook["allowedEnvVars"],
+                    serde_json::json!(["HANGAR_NOTIFY_TOKEN"])
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn team_sessions_get_the_notices_next_to_the_gate() {
+        let json: serde_json::Value =
+            serde_json::from_str(&claude_settings(4711, true, true, true)).unwrap();
+        let hooks = hook_list(&json);
+        assert!(hooks.contains(&(
+            "PreToolUse".into(),
+            "*".into(),
+            "http://127.0.0.1:4711/v1/pre-tool-use".into()
+        )));
+        // The context hook and the notice hook share UserPromptSubmit.
+        let prompt: Vec<&String> = hooks
+            .iter()
+            .filter(|(event, _, _)| event == "UserPromptSubmit")
+            .map(|(_, _, url)| url)
+            .collect();
+        assert_eq!(
+            prompt,
+            [
+                "http://127.0.0.1:4711/v1/user-prompt-submit",
+                "http://127.0.0.1:4711/v1/notification/clear"
+            ]
+        );
+        assert!(hooks
+            .iter()
+            .any(|(event, _, _)| event == "PermissionRequest"));
+        let without: serde_json::Value =
+            serde_json::from_str(&claude_settings(4711, true, true, false)).unwrap();
+        assert!(without["hooks"].get("PermissionRequest").is_none());
+    }
+
+    #[test]
+    fn only_a_claude_code_that_has_every_notice_event_gets_them() {
+        for version in ["2.1.268", "2.1.329", "2.2.0 (Claude Code)"] {
+            assert!(claude_notifies(Some(version)), "{version}");
+        }
+        for version in [None, Some("2.1.267"), Some("1.0.0"), Some("unknown")] {
+            assert!(!claude_notifies(version), "{version:?}");
+        }
+    }
+
+    #[test]
+    fn a_notice_body_gives_its_event_and_type_only() {
+        let body = br#"{"session_id":"s","hook_event_name":"Notification","message":"Claude needs your permission to use Bash","notification_type":"permission_prompt"}"#;
+        let notice = parse_notice(&body[..], body.len() as u64);
+        assert_eq!(
+            notice,
+            NoticeBody {
+                event: Some("Notification".into()),
+                notification_type: Some("permission_prompt".into()),
+            }
+        );
+        assert!(!format!("{notice:?}").contains("needs your permission"));
+        assert!(notice_counts(&notice, true));
+        assert!(!notice_counts(&notice, false));
+        let idle = NoticeBody {
+            event: Some("Notification".into()),
+            notification_type: Some("idle_prompt".into()),
+        };
+        assert!(!notice_counts(&idle, true));
+        assert!(!notice_counts(&idle, false));
+        let answered = NoticeBody {
+            event: Some("Notification".into()),
+            notification_type: Some("elicitation_response".into()),
+        };
+        assert!(notice_counts(&answered, false));
+        // Other events and bodies Hangar does not read: the route decides.
+        let request = parse_notice(&br#"{"hook_event_name":"PermissionRequest"}"#[..], 39);
+        assert!(notice_counts(&request, true));
+        assert!(notice_counts(&NoticeBody::default(), true));
+        assert_eq!(parse_notice(&b"not json"[..], 8), NoticeBody::default());
+        // A long body is read to its end but not kept.
+        let long = vec![b'x'; (MAX_NOTIFY_BODY_BYTES + 1) as usize];
+        let mut reader = &long[..];
+        assert_eq!(
+            parse_notice(&mut reader, long.len() as u64),
+            NoticeBody::default()
+        );
+        assert!(reader.is_empty());
+        let overlong = format!(r#"{{"hook_event_name":"{}"}}"#, "E".repeat(65));
+        assert_eq!(
+            parse_notice(overlong.as_bytes(), overlong.len() as u64).event,
+            None
+        );
     }
 
     #[test]
@@ -1882,7 +2194,7 @@ mod tests {
         // unless the hook says otherwise (docs/wiki/raw/2026-11-09-claude-hooks-reference.md).
         let settings = |version: Option<&str>| -> serde_json::Value {
             let block = claude_blocks_on_failure(version);
-            serde_json::from_str(&claude_settings(4711, true, block)).unwrap()
+            serde_json::from_str(&claude_settings(4711, true, block, false)).unwrap()
         };
         for version in ["2.1.295", "2.1.325", "2.2.0 (Claude Code)", "v3.0.0"] {
             let json = settings(Some(version));

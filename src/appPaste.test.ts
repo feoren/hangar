@@ -4,6 +4,7 @@ import {
   askBeforePaste,
   pasteFromApp,
   pasteWarning,
+  secretWarning,
   type PasteTarget,
   type PasteWarning,
 } from "./appPaste";
@@ -34,6 +35,30 @@ describe("pasteWarning", () => {
   it("warns about bidi and zero-width characters, even with bracketed paste", () => {
     expect(pasteWarning("ls \u202e-la", true)).toEqual({ runsLines: false, hidden: true });
     expect(pasteWarning("a\u200bb\nc", false)).toEqual({ runsLines: true, hidden: true });
+  });
+
+  it("warns about a pasted secret, with its kind only, even with bracketed paste", () => {
+    // A made-up Stripe-shaped key, put together at run time.
+    const key = ["sk", "_live_", "Fake0Marker1Value2Test3Hangar4"].join("");
+    expect(pasteWarning(`token ${key}`, true)).toEqual({
+      runsLines: false,
+      hidden: false,
+      secrets: ["stripeKey"],
+    });
+    const lines = ["a", key].join("\n");
+    expect(pasteWarning(lines, false)).toEqual({
+      runsLines: true,
+      hidden: false,
+      secrets: ["stripeKey"],
+    });
+    expect(JSON.stringify(pasteWarning(key, true))).not.toContain("Marker1");
+    expect(secretWarning(pasteWarning(lines, false))).toEqual({
+      runsLines: false,
+      hidden: false,
+      secrets: ["stripeKey"],
+    });
+    expect(secretWarning(pasteWarning("a\nb", false))).toBeNull();
+    expect(secretWarning(null)).toBeNull();
   });
 
   it("leaves emoji sequences joined by U+200D alone", () => {

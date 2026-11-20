@@ -136,9 +136,10 @@ agent to run a command; Gemini CLI and OpenCode are not measured yet.
     after a bell, while it waits for a gate decision or may show a question (`asksQuestion`),
     and never while the person types there. A target on screen goes "idle" instead of "waiting
     for you" when it falls quiet; reading only the state would mean no message ever reaches a
-    session the person watches, so its quiet end counts too. Claude Code's `Notification` hook
-    (`permission_prompt`) is not wired in Hangar, so no hook signal adds to this; the gate's held
-    tool calls do.
+    session the person watches, so its quiet end counts too. Since [[0016-permission-notices]]
+    a Claude Code session's own hooks report a permission or input dialog (`permissionPending`),
+    private sessions included, and no Enter goes in while one waits; the gate's held tool calls
+    count as before.
   - **Patience.** A member's message waits for a working target without a limit; a target that
     is not working and not ready for 30 seconds, or where the person types for 20 seconds, gets
     the message as a card ("Paste and send"). The introduction waits 5 seconds: a session that
@@ -244,4 +245,10 @@ links, everything above holds unchanged.
 > [!question] Unverified
 > Automatic Enter while an agent shows a permission or trust prompt: the target state must be
 > "waiting for you" at the prompt, not at a dialog. The readiness signals of 0012 cannot always tell
-> these apart; the loop brake and the per-group toggle are the fallback.
+> these apart; the loop brake and the per-group toggle are the fallback. For Claude Code from
+> 2.1.268 the notice hooks of [[0016-permission-notices]] close this gap for permission and MCP
+> input dialogs; a trust dialog at the first start has no hook and keeps the fallback.
+
+> [!note] Secret guard
+> A member's message whose text seems to hold a key or token waits as a card with a hint and never
+> goes in on its own ([[0015-secret-guard]]).

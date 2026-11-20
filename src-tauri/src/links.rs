@@ -8,6 +8,7 @@
 //! members remain ([`Leave::Ended`]); nothing of it survives a restart of Hangar, its history
 //! included.
 
+use crate::secret_scan::SecretKind;
 use std::collections::{BTreeMap, VecDeque};
 
 use serde::Serialize;
@@ -668,6 +669,9 @@ pub struct LinkMessage {
     pub auto: bool,
     /// Taken for a paste right now ([`LinkQueue::claim`]): no second paste may start.
     pub claimed: bool,
+    /// The kinds of secret the text seems to hold (ADR 0015): such a message never goes on its
+    /// own, and its card says why.
+    pub secrets: Vec<SecretKind>,
 }
 
 /// What to queue: one message to one target.
@@ -683,6 +687,8 @@ pub struct Outgoing<'a> {
     pub text: &'a str,
     pub at: i64,
     pub auto: bool,
+    /// What [`crate::secret_scan::scan`] found in `text`; a message with any is never `auto`.
+    pub secrets: &'a [SecretKind],
 }
 
 /// The messages of every group, oldest first.
@@ -738,8 +744,9 @@ impl LinkQueue {
             to_name: message.to_name.to_owned(),
             text: message.text.to_owned(),
             at: message.at,
-            auto: message.auto,
+            auto: message.auto && message.secrets.is_empty(),
             claimed: false,
+            secrets: message.secrets.to_vec(),
         });
         Ok(self.next_id)
     }
@@ -1285,6 +1292,7 @@ mod tests {
             text: "go on",
             at: 5,
             auto: true,
+            secrets: &[],
         }
     }
 

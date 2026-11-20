@@ -106,6 +106,7 @@ const RULE_KEYS: Readonly<Record<string, MessageKey>> = {
   "hangar-stdin-script": "guardRule.stdinScript",
   "hangar-too-long": "guardRule.tooLong",
   "hangar-config": "guardRule.hangarConfig",
+  "hangar-secret-file": "guardRule.secretFile",
 };
 
 /** Whether `id` names one of the rules Hangar ships (its file defaults and its built-in rules). */
