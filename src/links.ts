@@ -1,8 +1,9 @@
 // Link groups (ADR 0014), the window's part: reads the backend's state, decides which sessions
 // can be linked (running agent sessions that got the send client, in no group yet), how each
 // member row is marked, which link messages go on their own and which wait for a click below a
-// row, and checks member names in the link dialog. Pure; the backend keeps the groups and checks
-// everything again (links.rs, link_service.rs).
+// row, checks member names in the link dialog, reads a group's history and turns the members of
+// a running group into what a workspace template keeps. Pure; the backend keeps the groups and
+// checks everything again (links.rs, link_service.rs).
 
 import type { AttentionReason, AttentionState } from "./attention";
 import { READY_QUIET_MS } from "./handover";
@@ -15,10 +16,16 @@ export const MAX_LINK_MEMBERS = 8;
 export const BRAKE_WINDOW_MS = 60_000;
 /** Names every other member in `hangar-send all`; no member carries it (backend `ALL`). */
 export const ALL_MEMBERS = "all";
+/** Names the group's lead in `hangar-send lead`; no member carries it (backend `LEAD`). */
+export const LEAD_ALIAS = "lead";
+
+/** A member's part in its group: at most one leads (backend `Role`). */
+export type LinkRole = "lead" | "member";
 
 export interface LinkMember {
   session: number;
   name: string;
+  role: LinkRole;
 }
 
 /** The backend's `GroupView`. */
@@ -67,9 +74,14 @@ export const EMPTY_LINKS: LinkState = {
 
 const NAME = /^[a-z0-9-]{1,32}$/;
 
-/** A member name as the backend takes it: `[a-z0-9-]{1,32}`, not "all". */
+/** A member name as the backend takes it: `[a-z0-9-]{1,32}`, neither "all" nor "lead". */
 export function validMemberName(name: string): boolean {
-  return NAME.test(name) && name !== ALL_MEMBERS;
+  return NAME.test(name) && name !== ALL_MEMBERS && name !== LEAD_ALIAS;
+}
+
+/** A role as the backend sends it; anything else reads as a plain member. */
+export function parseRole(value: unknown): LinkRole {
+  return value === "lead" ? "lead" : "member";
 }
 
 function id(value: unknown): number | null {
@@ -81,7 +93,7 @@ function member(value: unknown): LinkMember | null {
   const session = id(Reflect.get(value, "session"));
   const name: unknown = Reflect.get(value, "name");
   if (session === null || typeof name !== "string" || !validMemberName(name)) return null;
-  return { session, name };
+  return { session, name, role: parseRole(Reflect.get(value, "role")) };
 }
 
 function group(value: unknown): LinkGroup | null {
@@ -96,12 +108,17 @@ function group(value: unknown): LinkGroup | null {
   if (!Array.isArray(members)) return null;
   const parsed = members.map(member);
   if (parsed.length < 2 || parsed.some((entry) => entry === null)) return null;
+  const kept = parsed.filter((entry): entry is LinkMember => entry !== null);
+  // At most one lead: a second one reads as a member.
+  const lead = kept.findIndex((entry) => entry.role === "lead");
   return {
     id: groupId,
     color,
     askFirst,
     braked,
-    members: parsed.filter((entry): entry is LinkMember => entry !== null),
+    members: kept.map((entry, index) =>
+      entry.role === "lead" && index !== lead ? { ...entry, role: "member" } : entry,
+    ),
   };
 }
 
@@ -153,6 +170,11 @@ export function groupOf(state: LinkState, id: number): LinkGroup | undefined {
   return state.groups.find((entry) => entry.members.some((m) => m.session === id));
 }
 
+/** The session that leads `group`, `null` when none does. */
+export function leadOf(group: LinkGroup): number | null {
+  return group.members.find((m) => m.role === "lead")?.session ?? null;
+}
+
 /** What decides whether a session can be linked. */
 export interface LinkableSession {
   id: number;
@@ -199,12 +221,14 @@ export function linkOffer<T extends LinkableSession>(
   return linkCandidates(state, sessions).some((other) => other.id !== session.id) ? "link" : null;
 }
 
-/** How a member row is marked: the group's color, the member's name, and the brake's hint. */
+/** How a member row is marked: the group's color, the member's name, the brake's hint, and
+ * whether it leads the group. */
 export interface LinkMark {
   group: number;
   color: number;
   name: string;
   braked: boolean;
+  lead: boolean;
 }
 
 /** The mark of every member row. */
@@ -217,6 +241,7 @@ export function linkMarks(state: LinkState): Map<number, LinkMark> {
         color: entry.color,
         name: m.name,
         braked: entry.braked,
+        lead: m.role === "lead",
       });
     }
   }
@@ -274,7 +299,7 @@ export type NameProblem = "invalid" | "reserved" | "twice";
 /** Checks the names of the link dialog the way the backend will (links.rs `edit`). */
 export function nameProblem(names: readonly string[]): NameProblem | null {
   const trimmed = names.map((name) => name.trim());
-  if (trimmed.some((name) => name === ALL_MEMBERS)) return "reserved";
+  if (trimmed.some((name) => name === ALL_MEMBERS || name === LEAD_ALIAS)) return "reserved";
   if (trimmed.some((name) => !NAME.test(name))) return "invalid";
   if (new Set(trimmed).size !== trimmed.length) return "twice";
   return null;
@@ -303,6 +328,143 @@ export function selectedForLink<T extends LinkableSession>(
   selected: ReadonlySet<number>,
 ): T[] {
   return linkCandidates(state, sessions).filter((session) => selected.has(session.id));
+}
+
+/** What became of a message in a group's history. */
+export type LinkOutcome = "delivered" | "discarded";
+
+/** One message of a group's history (backend `HistoryView`), newest first. */
+export interface LinkHistoryEntry {
+  /** Unix milliseconds when it was delivered or discarded. */
+  at: number;
+  /** The sender's member name; `null` for Hangar's introduction. */
+  fromName: string | null;
+  fromRole: LinkRole;
+  toName: string;
+  outcome: LinkOutcome;
+  /** Cleaned by the backend, without the header line. */
+  text: string;
+}
+
+function historyEntry(value: unknown): LinkHistoryEntry | null {
+  if (typeof value !== "object" || value === null) return null;
+  const at: unknown = Reflect.get(value, "at");
+  const fromName: unknown = Reflect.get(value, "fromName");
+  const toName: unknown = Reflect.get(value, "toName");
+  const outcome: unknown = Reflect.get(value, "outcome");
+  const text: unknown = Reflect.get(value, "text");
+  if (typeof at !== "number" || !Number.isFinite(at)) return null;
+  if (fromName !== null && (typeof fromName !== "string" || !validMemberName(fromName))) {
+    return null;
+  }
+  if (typeof toName !== "string" || !validMemberName(toName)) return null;
+  if (outcome !== "delivered" && outcome !== "discarded") return null;
+  if (typeof text !== "string") return null;
+  return {
+    at,
+    fromName,
+    fromRole: parseRole(Reflect.get(value, "fromRole")),
+    toName,
+    outcome,
+    text,
+  };
+}
+
+/** The backend's `link_history` answer; malformed entries are left out. */
+export function parseLinkHistory(value: unknown): LinkHistoryEntry[] {
+  if (!Array.isArray(value)) return [];
+  return value.map(historyEntry).filter((entry): entry is LinkHistoryEntry => entry !== null);
+}
+
+/** Characters of a message's first line the closed history row shows. */
+export const HISTORY_PREVIEW_CHARS = 120;
+
+/** The first non-empty line of `text`, cut for the closed history row. */
+export function historyPreview(text: string): string {
+  const line = text
+    .split("\n")
+    .map((part) => part.trim())
+    .find((part) => part !== "");
+  if (line === undefined) return "";
+  const chars = Array.from(line);
+  return chars.length > HISTORY_PREVIEW_CHARS
+    ? `${chars.slice(0, HISTORY_PREVIEW_CHARS - 1).join("")}\u2026`
+    : line;
+}
+
+/** How a session joins the link group a workspace template forms. */
+export interface TemplateMember {
+  memberName: string;
+  role: LinkRole;
+}
+
+/**
+ * What a workspace template keeps of the link group among the sessions `ids`: the members of
+ * the group with the most of them (the first such group on a tie), with name and role. Empty
+ * when no two of them share a group.
+ */
+export function templateMembers(
+  state: LinkState,
+  ids: readonly number[],
+): Map<number, TemplateMember> {
+  let best: LinkGroup | undefined;
+  let most = 1;
+  for (const entry of state.groups) {
+    const count = entry.members.filter((m) => ids.includes(m.session)).length;
+    if (count > most) {
+      best = entry;
+      most = count;
+    }
+  }
+  const members = new Map<number, TemplateMember>();
+  for (const m of best?.members ?? []) {
+    if (ids.includes(m.session)) members.set(m.session, { memberName: m.name, role: m.role });
+  }
+  return members;
+}
+
+/** The group among `ids` a template would keep (`templateMembers`), for its "Ask before pasting". */
+export function templateGroup(state: LinkState, ids: readonly number[]): LinkGroup | undefined {
+  const [first] = templateMembers(state, ids).keys();
+  return first === undefined ? undefined : groupOf(state, first);
+}
+
+/** A session a template started, with how it joins the template's link group. */
+export interface StartedMember {
+  id: number;
+  memberName?: string | undefined;
+  role?: LinkRole | undefined;
+}
+
+/** What `link_sessions` gets for a template's group. */
+export interface TemplateLinkRequest {
+  ids: number[];
+  names: { session: number; name: string }[];
+  lead: number | null;
+}
+
+/**
+ * How the sessions a template started form its link group: only those whose process got the
+ * send client (`sendable`; shells and failed starts are left out), with the names and the lead
+ * the template keeps. A name twice or a second lead is dropped, so the backend gets a request it
+ * can take. `null` when fewer than two can be linked (the caller says so).
+ */
+export function templateLinkRequest(
+  started: readonly StartedMember[],
+  sendable: ReadonlySet<number>,
+): TemplateLinkRequest | null {
+  const linkable = started.filter((entry) => sendable.has(entry.id)).slice(0, MAX_LINK_MEMBERS);
+  if (linkable.length < 2) return null;
+  const names: { session: number; name: string }[] = [];
+  let lead: number | null = null;
+  for (const entry of linkable) {
+    const name = entry.memberName;
+    if (name !== undefined && validMemberName(name) && !names.some((n) => n.name === name)) {
+      names.push({ session: entry.id, name });
+    }
+    if (entry.role === "lead" && lead === null) lead = entry.id;
+  }
+  return { ids: linkable.map((entry) => entry.id), names, lead };
 }
 
 /** Typing stops a delivery this long after the person's last key, even after their Enter. */

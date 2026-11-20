@@ -2,9 +2,12 @@
 // title) that starts again with one click. The backend keeps them for the main window alone
 // (mainStore.ts, `main_store.rs`): a template starts programs in folders, and the panel and file
 // viewer windows share localStorage. An older version kept them in localStorage; that list is
-// migrated once. A broken value is read as far as it is valid, the rest is dropped.
+// migrated once. A broken value is read as far as it is valid, the rest is dropped. A template
+// may also link its agent sessions once they run (ADR 0014), with the member names and the lead
+// it keeps; older templates link nothing.
 
 import { folderKey } from "./folders";
+import { parseRole, validMemberName, type LinkRole } from "./links";
 import { isProgramTitle } from "./sessionLabel";
 import { teamCapable, type StartMode, type TeamProfile } from "./startMode";
 
@@ -24,6 +27,10 @@ export interface TemplateSession {
   mode: StartMode;
   /** A title the user chose; without one the session is named as on any start. */
   title?: string;
+  /** Its name in the template's link group; without one it comes from the title. */
+  memberName?: string;
+  /** Its role in the template's link group; without one it is a plain member. */
+  role?: LinkRole;
 }
 
 export interface WorkspaceTemplate {
@@ -31,6 +38,16 @@ export interface WorkspaceTemplate {
   id: string;
   name: string;
   sessions: TemplateSession[];
+  /** Its agent sessions form a link group once they run. */
+  link?: boolean;
+  /** That group starts with "Ask before pasting" on. */
+  askFirst?: boolean;
+}
+
+/** How a saved template links its sessions. */
+export interface TemplateLink {
+  link: boolean;
+  askFirst: boolean;
 }
 
 const ID = /^[a-z0-9-]{1,40}$/;
@@ -64,7 +81,41 @@ function parseSession(value: unknown): TemplateSession | null {
   if (!validFolder(folder)) return null;
   const mode: StartMode = Reflect.get(value, "mode") === "team" ? "team" : "private";
   const title = cleanText(Reflect.get(value, "title"), TITLE_LENGTH);
-  return { profileId, folder, mode, ...(title === null ? {} : { title }) };
+  const memberName: unknown = Reflect.get(value, "memberName");
+  const role: unknown = Reflect.get(value, "role");
+  return {
+    profileId,
+    folder,
+    mode,
+    ...(title === null ? {} : { title }),
+    ...(typeof memberName === "string" && validMemberName(memberName) ? { memberName } : {}),
+    ...(role === "lead" || role === "member" ? { role: parseRole(role) } : {}),
+  };
+}
+
+/** A template's sessions with unique member names and at most one lead, as the backend takes
+ * them; a second name or lead is dropped. */
+function linkable(sessions: readonly TemplateSession[]): TemplateSession[] {
+  const names = new Set<string>();
+  let lead = false;
+  return sessions.map((session) => {
+    const { memberName, role, ...rest } = session;
+    const keepName = memberName !== undefined && !names.has(memberName);
+    if (keepName) names.add(memberName);
+    const keepRole = role !== undefined && !(role === "lead" && lead);
+    if (role === "lead" && keepRole) lead = true;
+    return {
+      ...rest,
+      ...(keepName ? { memberName } : {}),
+      ...(keepRole ? { role } : {}),
+    };
+  });
+}
+
+/** The template's own fields beyond name and sessions: set only where true. */
+function linkFields(link: TemplateLink | undefined): Pick<WorkspaceTemplate, "link" | "askFirst"> {
+  if (link?.link !== true) return {};
+  return { link: true, ...(link.askFirst ? { askFirst: true } : {}) };
 }
 
 function newId(taken: ReadonlySet<string>): string {
@@ -85,16 +136,22 @@ export function parseTemplates(value: unknown): WorkspaceTemplate[] {
     const name = cleanText(Reflect.get(entry, "name"), TEMPLATE_NAME_LENGTH);
     const list: unknown = Reflect.get(entry, "sessions");
     if (name === null || !Array.isArray(list)) continue;
-    const sessions = list
-      .map(parseSession)
-      .filter((session): session is TemplateSession => session !== null)
-      .slice(0, TEMPLATE_SESSION_LIMIT);
+    const sessions = linkable(
+      list
+        .map(parseSession)
+        .filter((session): session is TemplateSession => session !== null)
+        .slice(0, TEMPLATE_SESSION_LIMIT),
+    );
     if (sessions.length === 0) continue;
     if (result.some((template) => sameName(template.name, name))) continue;
     const id: unknown = Reflect.get(entry, "id");
     const key = typeof id === "string" && ID.test(id) && !ids.has(id) ? id : newId(ids);
     ids.add(key);
-    result.push({ id: key, name, sessions });
+    const link = linkFields({
+      link: Reflect.get(entry, "link") === true,
+      askFirst: Reflect.get(entry, "askFirst") === true,
+    });
+    result.push({ id: key, name, sessions, ...link });
   }
   return result;
 }
@@ -122,29 +179,36 @@ export function templateNamed(
 }
 
 /**
- * Saves a template under `name`. A template of the same name is replaced in place, so saving
- * again updates it; a new one goes last. Without a valid name or sessions nothing changes.
+ * Saves a template under `name`, linking its sessions as `link` says (not at all without it). A
+ * template of the same name is replaced in place, so saving again updates it; a new one goes
+ * last. Without a valid name or sessions nothing changes.
  */
 export function storeTemplate(
   templates: readonly WorkspaceTemplate[],
   name: string,
   sessions: readonly TemplateSession[],
+  link?: TemplateLink,
 ): WorkspaceTemplate[] {
   const clean = cleanText(name, TEMPLATE_NAME_LENGTH);
-  const valid = sessions
-    .map(parseSession)
-    .filter((session): session is TemplateSession => session !== null)
-    .slice(0, TEMPLATE_SESSION_LIMIT);
+  const valid = linkable(
+    sessions
+      .map(parseSession)
+      .filter((session): session is TemplateSession => session !== null)
+      .slice(0, TEMPLATE_SESSION_LIMIT),
+  );
   if (clean === null || valid.length === 0) return [...templates];
+  const fields = linkFields(link);
   const existing = templateNamed(templates, clean);
   if (existing !== undefined) {
     return templates.map((template) =>
-      template.id === existing.id ? { id: template.id, name: clean, sessions: valid } : template,
+      template.id === existing.id
+        ? { id: template.id, name: clean, sessions: valid, ...fields }
+        : template,
     );
   }
   if (templates.length >= TEMPLATE_LIMIT) return [...templates];
   const id = newId(new Set(templates.map((template) => template.id)));
-  return [...templates, { id, name: clean, sessions: valid }];
+  return [...templates, { id, name: clean, sessions: valid, ...fields }];
 }
 
 /** Why a new name cannot be used for template `id`, `null` when it can. */
@@ -237,6 +301,8 @@ export interface PlannedStart<P> {
   folder: string;
   mode: StartMode;
   title?: string;
+  memberName?: string;
+  role?: LinkRole;
 }
 
 /**
@@ -263,6 +329,8 @@ export function planTemplate<P extends TeamProfile & { id: string }>(
       folder: entry.folder,
       mode: team ? "team" : "private",
       ...(entry.title === undefined ? {} : { title: entry.title }),
+      ...(entry.memberName === undefined ? {} : { memberName: entry.memberName }),
+      ...(entry.role === undefined ? {} : { role: entry.role }),
     });
   }
   return { starts, skipped };

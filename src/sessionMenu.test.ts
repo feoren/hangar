@@ -245,6 +245,7 @@ describe("stall hint entries", () => {
       "marker",
       "partner",
       "linkEdit",
+      "linkHistory",
       "unlink",
       "sep",
       "kill",
@@ -256,6 +257,7 @@ describe("stall hint entries", () => {
       link: "member",
     }).map((entry) => (entry.type === "action" ? entry.label : ""));
     expect(labels).toContain("Edit group …");
+    expect(labels).toContain("Group history …");
     expect(labels).toContain("Unlink");
     const german = createTranslator("de");
     const link = sessionMenuEntries({ status: "running" }, german, false, {

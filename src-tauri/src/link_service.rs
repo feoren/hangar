@@ -1,8 +1,8 @@
 //! Link groups (ADR 0014), the service: holds the groups and their messages in memory, knows
 //! which sessions got the send client at their start, checks a link request against the running
-//! sessions, queues the introduction and the messages agents send with `hangar-send`, and answers
-//! the send route together with the partner projects of ADR 0012. The rules live in
-//! [`crate::links`].
+//! sessions, queues the introduction and the messages agents send with `hangar-send`, keeps each
+//! group's history of messages until the group ends, and answers the send route together with
+//! the partner projects of ADR 0012. The rules live in [`crate::links`].
 //!
 //! Delivery is split like in ADR 0012: this side decides who may send to whom, what text may be
 //! pasted and whether it goes on its own ([`Pace`]); the window decides when (the target waiting
@@ -19,8 +19,8 @@ use serde::{Deserialize, Serialize};
 
 use crate::hook_http;
 use crate::links::{
-    compose, introduction, GroupId, Leave, LinkError, LinkGroup, LinkMessage, LinkQueue, Links,
-    Outgoing, Pace, Peer, Resolve,
+    compose, introduction, GroupId, History, HistoryEntry, Leave, LinkError, LinkGroup,
+    LinkMessage, LinkQueue, Links, NewMember, Outcome, Outgoing, Pace, Peer, Resolve, Role,
 };
 use crate::lock;
 use crate::main_store::MainStoreError;
@@ -56,6 +56,7 @@ impl Serialize for LinkServiceError {
 pub struct MemberView {
     pub session: SessionId,
     pub name: String,
+    pub role: Role,
 }
 
 /// A group as the window shows it.
@@ -88,6 +89,21 @@ pub struct LinkMessageView {
     pub claimed: bool,
 }
 
+/// One message of a group's history as the window shows it, newest first.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct HistoryView {
+    /// Unix milliseconds when it was delivered or discarded.
+    pub at: i64,
+    /// The sender's member name; `None` for Hangar's introduction.
+    pub from_name: Option<String>,
+    pub from_role: Role,
+    pub to_name: String,
+    pub outcome: Outcome,
+    /// Cleaned, without the header.
+    pub text: String,
+}
+
 /// Everything the window needs about link groups, in one answer.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -116,6 +132,16 @@ pub struct MemberFacts {
 pub struct MemberName {
     pub session: SessionId,
     pub name: String,
+}
+
+/// How a new group is set up beyond its sessions: names chosen beforehand, the lead and
+/// "Ask before pasting" (a workspace template, or the lead picked in the link dialog).
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct LinkRequest {
+    pub names: Vec<MemberName>,
+    pub lead: Option<SessionId>,
+    /// Starts the group asking first; an agent without prompts turns it on anyway.
+    pub ask_first: bool,
 }
 
 /// Why a message waits for a click instead of going on its own.
@@ -149,6 +175,8 @@ pub enum LinkRoute {
 struct State {
     links: Links,
     queue: LinkQueue,
+    /// The last messages of each group, until it ends.
+    history: History,
     /// Sessions whose current process holds a send token and has `hangar-send` on its `PATH`.
     sendable: BTreeSet<SessionId>,
 }
@@ -193,11 +221,22 @@ impl LinkService {
         let changed = {
             let mut state = lock(&self.inner.state);
             let was_sendable = state.sendable.remove(&session);
-            let left = state.links.leave(session) != Leave::NotLinked;
+            let leave = state.links.leave(session);
             let dropped = state.queue.drop_for(session);
+            match leave {
+                Leave::Ended { group, .. } => state.history.end(group),
+                Leave::Left { group } => {
+                    let now = crate::work_log::now_ms();
+                    for message in dropped.iter().filter(|m| m.group == group) {
+                        let entry = HistoryEntry::of(message, Outcome::Discarded, now);
+                        state.history.record(group, entry);
+                    }
+                }
+                Leave::NotLinked => {}
+            }
             // A sender that left is no member any more: what it sent waits for a click.
             let held = state.queue.hold_from(session);
-            was_sendable || left || dropped || held
+            was_sendable || leave != Leave::NotLinked || !dropped.is_empty() || held
         };
         if changed {
             self.signal();
@@ -226,18 +265,29 @@ impl LinkService {
     }
 
     /// Links the sessions `ids`: each must be a running agent session whose process got the send
-    /// client. Every member then gets Hangar's introduction; it does not count against the loop
-    /// brake. `facts` tells each member's program and whether its agent runs without asking
-    /// before tools: then the group starts with "Ask before pasting" on, since a message would go
-    /// straight into that agent's work (the person can turn it off).
+    /// client. `request` may name members beforehand and pick the lead. Every member then gets
+    /// Hangar's introduction for its role; it does not count against the loop brake. `facts`
+    /// tells each member's program and whether its agent runs without asking before tools: then
+    /// the group starts with "Ask before pasting" on, since a message would go straight into
+    /// that agent's work (the person can turn it off).
     pub fn link(
         &self,
         ids: &[SessionId],
         sessions: &[SessionInfo],
         facts: &dyn Fn(&SessionInfo) -> MemberFacts,
         now: i64,
+        request: &LinkRequest,
     ) -> Result<GroupView, LinkServiceError> {
         let mut state = lock(&self.inner.state);
+        if request
+            .names
+            .iter()
+            .map(|entry| entry.session)
+            .chain(request.lead)
+            .any(|session| !ids.contains(&session))
+        {
+            return Err(LinkError::NotMember.into());
+        }
         let mut chosen = Vec::with_capacity(ids.len());
         for id in ids {
             let info = sessions
@@ -249,55 +299,41 @@ impl LinkService {
                         && state.sendable.contains(&info.id)
                 })
                 .ok_or(LinkError::NotLinkable)?;
-            chosen.push((info.id, info.title.as_str()));
+            chosen.push(NewMember {
+                session: info.id,
+                title: info.title.as_str(),
+                name: request
+                    .names
+                    .iter()
+                    .find(|entry| entry.session == info.id)
+                    .map(|entry| entry.name.as_str()),
+                lead: request.lead == Some(info.id),
+            });
         }
-        let group_id = state.links.link(&chosen)?.id;
+        let group_id = state.links.link_members(&chosen)?.id;
         let unattended = ids.iter().any(|id| {
             sessions
                 .iter()
                 .find(|info| info.id == *id)
                 .is_some_and(|info| facts(info).unattended)
         });
-        state.links.set_ask_first(group_id, unattended)?;
+        state
+            .links
+            .set_ask_first(group_id, unattended || request.ask_first)?;
         let group = state
             .links
             .group(group_id)
             .cloned()
             .ok_or(LinkError::UnknownGroup)?;
-        for member in &group.members {
-            let peers: Vec<(String, String, String)> = group
-                .members
-                .iter()
-                .filter(|other| other.session != member.session)
-                .filter_map(|other| {
-                    let info = sessions.iter().find(|info| info.id == other.session)?;
-                    Some((
-                        other.name.clone(),
-                        facts(info).program,
-                        info.cwd.to_string_lossy().into_owned(),
-                    ))
-                })
-                .collect();
-            let peers: Vec<Peer<'_>> = peers
-                .iter()
-                .map(|(name, program, folder)| Peer {
-                    name,
-                    program,
-                    folder,
-                })
-                .collect();
-            let text = introduction(&member.name, &peers);
-            // A new member has nothing queued yet, so there is always room.
-            state.queue.push(Outgoing {
-                group: group.id,
-                from: None,
-                from_name: "",
-                to: member.session,
-                to_name: &member.name,
-                text: &text,
-                at: now,
-                auto: !group.ask_first,
-            })?;
+        // A new member has nothing queued yet; only a queue full in every group refuses it, and
+        // then the group does not form.
+        if let Some(refused) = introduce(&mut state.queue, &group, sessions, facts, now, false)
+            .into_iter()
+            .next()
+        {
+            state.queue.drop_group(group.id);
+            state.links.unlink(group.id)?;
+            return Err(refused.into());
         }
         drop(state);
         self.signal();
@@ -305,24 +341,32 @@ impl LinkService {
     }
 
     /// The person unlinks the group: it ends, and what still waits in it goes, so the agents stop
-    /// steering each other at once.
+    /// steering each other at once. Its history goes with it.
     pub fn unlink(&self, group: GroupId) -> Result<(), LinkServiceError> {
         {
             let mut state = lock(&self.inner.state);
             state.links.unlink(group)?;
             state.queue.drop_group(group);
+            state.history.end(group);
         }
         self.signal();
         Ok(())
     }
 
-    /// New member names and the "Ask before pasting" toggle. Turning it on holds what waits to go
-    /// on its own, too.
+    /// New member names, the "Ask before pasting" toggle and the lead (`None`: no member leads).
+    /// Turning the toggle on holds what waits to go on its own, too. A new lead, or none any
+    /// more, gives every member a fresh introduction with its role; a member whose queue is full
+    /// misses it, since the change itself must not fail on that.
+    #[allow(clippy::too_many_arguments)] // The group's new state plus what an introduction needs.
     pub fn edit(
         &self,
         group: GroupId,
         names: &[MemberName],
         ask_first: bool,
+        lead: Option<SessionId>,
+        sessions: &[SessionInfo],
+        facts: &dyn Fn(&SessionInfo) -> MemberFacts,
+        now: i64,
     ) -> Result<(), LinkServiceError> {
         {
             let mut state = lock(&self.inner.state);
@@ -331,7 +375,17 @@ impl LinkService {
                 .map(|entry| (entry.session, entry.name.clone()))
                 .collect();
             // Editing resets the group's budget (`Links::edit`).
-            state.links.edit(group, &names, ask_first)?;
+            let lead_changed = state.links.edit(group, &names, ask_first, lead)?;
+            if lead_changed {
+                let current = state
+                    .links
+                    .group(group)
+                    .cloned()
+                    .ok_or(LinkError::UnknownGroup)?;
+                for refused in introduce(&mut state.queue, &current, sessions, facts, now, true) {
+                    eprintln!("hangar: a link group's new roles were not introduced: {refused}");
+                }
+            }
             if ask_first {
                 let held: Vec<u64> = state
                     .queue
@@ -357,15 +411,16 @@ impl LinkService {
         if !state.sendable.contains(&from) {
             return LinkRoute::NotLinked;
         }
-        let (group, sender, targets) = match state.links.resolve(from, &request.partner) {
+        let (group, sender, role, targets) = match state.links.resolve(from, &request.partner) {
             Resolve::NotLinked => return LinkRoute::NotLinked,
             Resolve::NoMember { members } => return LinkRoute::NoMember { members },
             Resolve::Own => return LinkRoute::Taken(Err(LinkError::OwnName)),
             Resolve::To {
                 group,
                 sender,
+                role,
                 targets,
-            } => (group, sender, targets),
+            } => (group, sender, role, targets),
         };
         let text = match clean_message(&request.text) {
             Ok(text) => text,
@@ -392,6 +447,7 @@ impl LinkService {
                 group,
                 from: Some(from),
                 from_name: &sender,
+                from_role: role,
                 to: target.session,
                 to_name: &target.name,
                 text: &text,
@@ -450,8 +506,10 @@ impl LinkService {
         state.queue.claim(id)?;
         drop(state);
         self.signal();
-        let from_name = message.from.map(|_| message.from_name.as_str());
-        Ok(compose(from_name, &message.text))
+        let from = message
+            .from
+            .map(|_| (message.from_name.as_str(), message.from_role));
+        Ok(compose(from, &message.text))
     }
 
     /// The person typed into `session`: if it is a member, its group's budget starts again.
@@ -476,15 +534,106 @@ impl LinkService {
         Ok(())
     }
 
-    /// Message `id` was pasted or discarded: it goes, with its text.
-    pub fn close(&self, id: u64) -> Result<LinkMessage, LinkServiceError> {
-        let message = lock(&self.inner.state)
-            .queue
-            .remove(id)
-            .ok_or(LinkError::MessageGone)?;
+    /// Message `id` was pasted (`delivered`) or discarded at `now`: it goes, with its text, and
+    /// its group's history keeps it while the group lives.
+    pub fn close(
+        &self,
+        id: u64,
+        delivered: bool,
+        now: i64,
+    ) -> Result<LinkMessage, LinkServiceError> {
+        let message = {
+            let mut state = lock(&self.inner.state);
+            let message = state.queue.remove(id).ok_or(LinkError::MessageGone)?;
+            if state.links.group(message.group).is_some() {
+                let outcome = if delivered {
+                    Outcome::Delivered
+                } else {
+                    Outcome::Discarded
+                };
+                let entry = HistoryEntry::of(&message, outcome, now);
+                state.history.record(message.group, entry);
+            }
+            message
+        };
         self.signal();
         Ok(message)
     }
+
+    /// The history of group `group`, newest first: what was delivered or discarded since it
+    /// formed, within the bounds of [`History`].
+    pub fn history(&self, group: GroupId) -> Result<Vec<HistoryView>, LinkServiceError> {
+        let state = lock(&self.inner.state);
+        if state.links.group(group).is_none() {
+            return Err(LinkError::UnknownGroup.into());
+        }
+        Ok(state
+            .history
+            .of(group)
+            .into_iter()
+            .map(|entry| HistoryView {
+                at: entry.at,
+                from_name: entry.from_name.clone(),
+                from_role: entry.from_role,
+                to_name: entry.to_name.clone(),
+                outcome: entry.outcome,
+                text: entry.text.clone(),
+            })
+            .collect())
+    }
+}
+
+/// Queues Hangar's introduction for every member of `group`, each for its role (`changed`: the
+/// lead changed after the first one). Answers the refusals of members without room.
+fn introduce(
+    queue: &mut LinkQueue,
+    group: &LinkGroup,
+    sessions: &[SessionInfo],
+    facts: &dyn Fn(&SessionInfo) -> MemberFacts,
+    now: i64,
+    changed: bool,
+) -> Vec<LinkError> {
+    let mut refused = Vec::new();
+    for member in &group.members {
+        let peers: Vec<(String, Role, String, String)> = group
+            .members
+            .iter()
+            .filter(|other| other.session != member.session)
+            .filter_map(|other| {
+                let info = sessions.iter().find(|info| info.id == other.session)?;
+                Some((
+                    other.name.clone(),
+                    other.role,
+                    facts(info).program,
+                    info.cwd.to_string_lossy().into_owned(),
+                ))
+            })
+            .collect();
+        let peers: Vec<Peer<'_>> = peers
+            .iter()
+            .map(|(name, role, program, folder)| Peer {
+                name,
+                role: *role,
+                program,
+                folder,
+            })
+            .collect();
+        let text = introduction(&member.name, member.role, &peers, changed);
+        if let Err(error) = queue.push(Outgoing {
+            group: group.id,
+            from: None,
+            from_name: "",
+            from_role: Role::Member,
+            to: member.session,
+            to_name: &member.name,
+            text: &text,
+            at: now,
+            auto: !group.ask_first,
+        }) {
+            refused.push(error);
+        }
+    }
+    refused
 }
 
 fn group_view(group: &LinkGroup, now: i64) -> GroupView {
@@ -499,6 +648,7 @@ fn group_view(group: &LinkGroup, now: i64) -> GroupView {
             .map(|member| MemberView {
                 session: member.session,
                 name: member.name.clone(),
+                role: member.role,
             })
             .collect(),
     }
@@ -699,6 +849,23 @@ mod tests {
         }
     }
 
+    /// Edits group `group` without changing its lead.
+    fn edit(
+        links: &LinkService,
+        group: GroupId,
+        names: &[MemberName],
+        ask_first: bool,
+    ) -> Result<(), LinkServiceError> {
+        let lead = links
+            .snapshot(0, &attended)
+            .groups
+            .iter()
+            .find(|g| g.id == group)
+            .and_then(|g| g.members.iter().find(|m| m.role == Role::Lead))
+            .map(|m| m.session);
+        links.edit(group, names, ask_first, lead, &sessions(), &facts, 0)
+    }
+
     fn attended(_: SessionId) -> bool {
         false
     }
@@ -725,7 +892,7 @@ mod tests {
 
     fn take_all(links: &LinkService) {
         for message in links.snapshot(0, &attended).messages {
-            links.close(message.id).unwrap();
+            links.close(message.id, true, 0).unwrap();
         }
     }
 
@@ -746,13 +913,15 @@ mod tests {
         for ids in [[1, 5], [1, 6], [1, 7], [1, 9]] {
             assert!(
                 matches!(
-                    links.link(&ids, &list, &facts, 0),
+                    links.link(&ids, &list, &facts, 0, &LinkRequest::default()),
                     Err(LinkServiceError::Link(LinkError::NotLinkable))
                 ),
                 "{ids:?}"
             );
         }
-        let group = links.link(&[1, 2], &list, &facts, 0).unwrap();
+        let group = links
+            .link(&[1, 2], &list, &facts, 0, &LinkRequest::default())
+            .unwrap();
         assert_eq!(
             group
                 .members
@@ -768,7 +937,9 @@ mod tests {
     fn linking_introduces_every_member_to_the_others() {
         let (links, signals) = service();
         let before = signals.load(Ordering::SeqCst);
-        let group = links.link(&[1, 2, 3], &sessions(), &facts, 5).unwrap();
+        let group = links
+            .link(&[1, 2, 3], &sessions(), &facts, 5, &LinkRequest::default())
+            .unwrap();
         assert_eq!(signals.load(Ordering::SeqCst), before + 1);
         let snapshot = links.snapshot(5, &attended);
         assert_eq!(snapshot.messages.len(), 3);
@@ -796,7 +967,9 @@ mod tests {
     #[test]
     fn members_send_by_name_or_to_all_and_go_on_their_own() {
         let (links, _) = service();
-        links.link(&[1, 2, 3], &sessions(), &facts, 0).unwrap();
+        links
+            .link(&[1, 2, 3], &sessions(), &facts, 0, &LinkRequest::default())
+            .unwrap();
         take_all(&links);
         let sent = links.receive(1, &request("Web", "show\u{1b}[201~ it\r\n"), 1);
         assert_eq!(
@@ -851,7 +1024,9 @@ mod tests {
     #[test]
     fn refusals_inside_a_group() {
         let (links, _) = service();
-        links.link(&[1, 2], &sessions(), &facts, 0).unwrap();
+        links
+            .link(&[1, 2], &sessions(), &facts, 0, &LinkRequest::default())
+            .unwrap();
         assert_eq!(
             links.receive(1, &request("app", "x"), 1),
             LinkRoute::Taken(Err(LinkError::OwnName))
@@ -907,7 +1082,9 @@ mod tests {
     #[test]
     fn the_brake_holds_messages_and_the_group_shows_it() {
         let (links, _) = service();
-        links.link(&[1, 2], &sessions(), &facts, 0).unwrap();
+        links
+            .link(&[1, 2], &sessions(), &facts, 0, &LinkRequest::default())
+            .unwrap();
         take_all(&links);
         for at in 0..BRAKE_LIMIT as i64 {
             assert_eq!(
@@ -958,17 +1135,19 @@ mod tests {
     #[test]
     fn ask_first_holds_new_and_queued_messages() {
         let (links, _) = service();
-        let group = links.link(&[1, 2], &sessions(), &facts, 0).unwrap();
-        links
-            .edit(
-                group.id,
-                &[MemberName {
-                    session: 2,
-                    name: "site".into(),
-                }],
-                true,
-            )
+        let group = links
+            .link(&[1, 2], &sessions(), &facts, 0, &LinkRequest::default())
             .unwrap();
+        edit(
+            &links,
+            group.id,
+            &[MemberName {
+                session: 2,
+                name: "site".into(),
+            }],
+            true,
+        )
+        .unwrap();
         let snapshot = links.snapshot(0, &attended);
         assert!(snapshot.groups[0].ask_first);
         assert_eq!(snapshot.groups[0].members[1].name, "site");
@@ -987,7 +1166,8 @@ mod tests {
         };
         assert!(link_answer(&result).1.message.contains("person decides"));
         assert!(matches!(
-            links.edit(
+            edit(
+                &links,
                 group.id,
                 &[MemberName {
                     session: 2,
@@ -1002,7 +1182,9 @@ mod tests {
     #[test]
     fn a_member_that_leaves_ends_a_pair_and_its_waiting_messages() {
         let (links, _) = service();
-        links.link(&[1, 2, 3], &sessions(), &facts, 0).unwrap();
+        links
+            .link(&[1, 2, 3], &sessions(), &facts, 0, &LinkRequest::default())
+            .unwrap();
         take_all(&links);
         links.receive(1, &request("web", "to web"), 1);
         links.receive(2, &request("relay", "from web"), 1);
@@ -1037,8 +1219,12 @@ mod tests {
     #[test]
     fn unlinking_drops_what_waits_in_the_group() {
         let (links, _) = service();
-        let group = links.link(&[1, 2], &sessions(), &facts, 0).unwrap();
-        let other = links.link(&[3, 4], &sessions(), &facts, 0).unwrap();
+        let group = links
+            .link(&[1, 2], &sessions(), &facts, 0, &LinkRequest::default())
+            .unwrap();
+        let other = links
+            .link(&[3, 4], &sessions(), &facts, 0, &LinkRequest::default())
+            .unwrap();
         links.unlink(group.id).unwrap();
         let snapshot = links.snapshot(0, &attended);
         assert_eq!(snapshot.groups.len(), 1);
@@ -1048,19 +1234,23 @@ mod tests {
             Err(LinkServiceError::Link(LinkError::UnknownGroup))
         ));
         // Once ended, the sessions can be linked again.
-        assert!(links.link(&[1, 2], &sessions(), &facts, 0).is_ok());
+        assert!(links
+            .link(&[1, 2], &sessions(), &facts, 0, &LinkRequest::default())
+            .is_ok());
     }
 
     #[test]
     fn held_and_closed_messages() {
         let (links, _) = service();
-        links.link(&[1, 2], &sessions(), &facts, 0).unwrap();
+        links
+            .link(&[1, 2], &sessions(), &facts, 0, &LinkRequest::default())
+            .unwrap();
         let id = links.snapshot(0, &attended).messages[0].id;
         links.hold(id).unwrap();
         assert!(!links.snapshot(0, &attended).messages[0].auto);
-        assert_eq!(links.close(id).unwrap().to, 1);
+        assert_eq!(links.close(id, true, 0).unwrap().to, 1);
         assert!(matches!(
-            links.close(id),
+            links.close(id, true, 0),
             Err(LinkServiceError::Link(LinkError::MessageGone))
         ));
         assert!(matches!(
@@ -1151,7 +1341,9 @@ mod tests {
             placed(3, "Site", "web"),
             placed(4, "Lone", "other"),
         ];
-        links.link(&[1, 4], &list, &facts, 0).unwrap();
+        links
+            .link(&[1, 4], &list, &facts, 0, &LinkRequest::default())
+            .unwrap();
         take_all(&links);
         // A member's name goes to the group.
         let (status, answer) = route(&links, &inbox, &list, 1, "lone");
@@ -1200,7 +1392,9 @@ mod tests {
     #[test]
     fn the_snapshot_serializes_for_the_window() {
         let (links, _) = service();
-        links.link(&[1, 2], &sessions(), &facts, 0).unwrap();
+        links
+            .link(&[1, 2], &sessions(), &facts, 0, &LinkRequest::default())
+            .unwrap();
         let json = serde_json::to_value(links.snapshot(0, &attended)).unwrap();
         assert_eq!(json["groups"][0]["askFirst"], false);
         assert_eq!(json["groups"][0]["braked"], false);
@@ -1219,7 +1413,9 @@ mod tests {
     #[test]
     fn an_automatic_paste_checks_the_toggle_and_the_brake_again() {
         let (links, _) = service();
-        let group = links.link(&[1, 2], &sessions(), &facts, 0).unwrap();
+        let group = links
+            .link(&[1, 2], &sessions(), &facts, 0, &LinkRequest::default())
+            .unwrap();
         take_all(&links);
         links.receive(1, &request("web", "first"), 1);
         links.receive(1, &request("web", "second"), 1);
@@ -1230,14 +1426,14 @@ mod tests {
             .map(|m| m.id)
             .collect();
         // Turned on after the messages were queued: the next automatic fetch is refused at once.
-        links.edit(group.id, &[], true).unwrap();
+        edit(&links, group.id, &[], true).unwrap();
         assert!(matches!(
             links.text_for(ids[0], 2, &sessions(), true, 2),
             Err(LinkServiceError::Link(LinkError::Held))
         ));
         // A click still pastes it.
         assert!(links.text_for(ids[0], 2, &sessions(), false, 2).is_ok());
-        links.edit(group.id, &[], false).unwrap();
+        edit(&links, group.id, &[], false).unwrap();
         // Held by the toggle, so no longer automatic either.
         assert!(matches!(
             links.text_for(ids[1], 2, &sessions(), true, 2),
@@ -1248,7 +1444,9 @@ mod tests {
     #[test]
     fn a_message_is_pasted_at_most_once() {
         let (links, _) = service();
-        links.link(&[1, 2], &sessions(), &facts, 0).unwrap();
+        links
+            .link(&[1, 2], &sessions(), &facts, 0, &LinkRequest::default())
+            .unwrap();
         let intro = links.snapshot(0, &attended).messages[0].clone();
         assert!(links.text_for(intro.id, 1, &sessions(), true, 0).is_ok());
         assert!(links.snapshot(0, &attended).messages[0].claimed);
@@ -1266,7 +1464,7 @@ mod tests {
             Err(LinkServiceError::Link(LinkError::Held))
         ));
         assert!(links.text_for(intro.id, 1, &sessions(), false, 0).is_ok());
-        links.close(intro.id).unwrap();
+        links.close(intro.id, true, 0).unwrap();
     }
 
     #[test]
@@ -1274,7 +1472,9 @@ mod tests {
         let (links, _) = service();
         let mut list = sessions();
         list[1].profile_id = "yolo".into();
-        let group = links.link(&[1, 2], &list, &facts, 0).unwrap();
+        let group = links
+            .link(&[1, 2], &list, &facts, 0, &LinkRequest::default())
+            .unwrap();
         assert!(group.ask_first);
         let unattended = |id: SessionId| id == 2;
         let snapshot = links.snapshot(0, &unattended);
@@ -1282,11 +1482,11 @@ mod tests {
         // The introductions wait for a click as well.
         assert!(snapshot.messages.iter().all(|m| !m.auto));
         // The person may turn it off again.
-        links.edit(group.id, &[], false).unwrap();
+        edit(&links, group.id, &[], false).unwrap();
         assert!(!links.snapshot(0, &attended).groups[0].ask_first);
         assert!(
             !links
-                .link(&[3, 4], &sessions(), &facts, 0)
+                .link(&[3, 4], &sessions(), &facts, 0, &LinkRequest::default())
                 .unwrap()
                 .ask_first
         );
@@ -1295,7 +1495,9 @@ mod tests {
     #[test]
     fn the_budget_spends_and_the_person_restores_it() {
         let (links, _) = service();
-        links.link(&[1, 2], &sessions(), &facts, 0).unwrap();
+        links
+            .link(&[1, 2], &sessions(), &facts, 0, &LinkRequest::default())
+            .unwrap();
         take_all(&links);
         // One delivery every 20 seconds keeps under the rate; the budget still ends it.
         for step in 0..crate::links::AUTO_BUDGET as i64 {
@@ -1330,5 +1532,243 @@ mod tests {
             links.receive(1, &request("web", "x"), late + 1),
             LinkRoute::Taken(Ok(Sent { held: None, .. }))
         ));
+    }
+
+    fn names(entries: &[(SessionId, &str)]) -> Vec<MemberName> {
+        entries
+            .iter()
+            .map(|(session, name)| MemberName {
+                session: *session,
+                name: (*name).to_owned(),
+            })
+            .collect()
+    }
+
+    #[test]
+    fn a_group_can_start_with_names_a_lead_and_ask_first() {
+        let (links, _) = service();
+        let request = LinkRequest {
+            names: names(&[(1, "boss"), (3, "relay-x")]),
+            lead: Some(1),
+            ask_first: true,
+        };
+        let group = links
+            .link(&[1, 2, 3], &sessions(), &facts, 0, &request)
+            .unwrap();
+        assert!(group.ask_first);
+        assert_eq!(
+            group
+                .members
+                .iter()
+                .map(|m| (m.name.as_str(), m.role))
+                .collect::<Vec<_>>(),
+            [
+                ("boss", Role::Lead),
+                ("web", Role::Member),
+                ("relay-x", Role::Member)
+            ]
+        );
+        let messages = links.snapshot(0, &attended).messages;
+        let to_boss = messages.iter().find(|m| m.to == 1).unwrap();
+        assert!(
+            to_boss.text.contains("You lead this group"),
+            "{}",
+            to_boss.text
+        );
+        let to_web = messages.iter().find(|m| m.to == 2).unwrap();
+        assert!(
+            to_web.text.contains("- \"boss\" (lead):"),
+            "{}",
+            to_web.text
+        );
+        assert!(to_web.text.contains("hangar-send boss"), "{}", to_web.text);
+        // Names and the lead must belong to the chosen sessions.
+        for request in [
+            LinkRequest {
+                lead: Some(1),
+                ..LinkRequest::default()
+            },
+            LinkRequest {
+                names: names(&[(1, "x")]),
+                ..LinkRequest::default()
+            },
+        ] {
+            assert!(matches!(
+                links.link(&[4, 2], &sessions(), &facts, 0, &request),
+                Err(LinkServiceError::Link(LinkError::NotMember))
+            ));
+        }
+        assert_eq!(links.snapshot(0, &attended).groups.len(), 1);
+    }
+
+    #[test]
+    fn the_lead_writes_with_its_role_and_members_reach_it_as_lead() {
+        let (links, _) = service();
+        let request = LinkRequest {
+            lead: Some(2),
+            ..LinkRequest::default()
+        };
+        links
+            .link(&[1, 2, 3], &sessions(), &facts, 0, &request)
+            .unwrap();
+        take_all(&links);
+        assert_eq!(
+            links.receive(1, &request_to("lead", "done"), 1),
+            LinkRoute::Taken(Ok(Sent {
+                to: vec!["web".into()],
+                held: None
+            }))
+        );
+        links.receive(2, &request_to("app", "next task"), 1);
+        let messages = links.snapshot(1, &attended).messages;
+        let to_lead = links
+            .text_for(messages[0].id, 2, &sessions(), false, 1)
+            .unwrap();
+        assert!(to_lead.starts_with("[Message from agent \"app\" (link group), not from"));
+        let from_lead = links
+            .text_for(messages[1].id, 1, &sessions(), false, 1)
+            .unwrap();
+        assert_eq!(
+            from_lead,
+            "[Message from agent \"web\", lead of the link group, not from the person]\n| next task"
+        );
+        // Without a lead, "lead" names nobody and falls to the partner projects.
+        let (other, _) = service();
+        other
+            .link(&[1, 2], &sessions(), &facts, 0, &LinkRequest::default())
+            .unwrap();
+        assert!(matches!(
+            other.receive(1, &request_to("lead", "x"), 1),
+            LinkRoute::NoMember { .. }
+        ));
+    }
+
+    fn request_to(partner: &str, text: &str) -> SendRequest {
+        request(partner, text)
+    }
+
+    #[test]
+    fn a_new_lead_introduces_the_group_again() {
+        let (links, _) = service();
+        let group = links
+            .link(&[1, 2], &sessions(), &facts, 0, &LinkRequest::default())
+            .unwrap();
+        take_all(&links);
+        links
+            .edit(group.id, &[], false, Some(2), &sessions(), &facts, 3)
+            .unwrap();
+        let messages = links.snapshot(3, &attended).messages;
+        assert_eq!(messages.len(), 2);
+        assert!(messages
+            .iter()
+            .all(|m| m.from_name.is_none() && m.text.starts_with("The roles in your link group")));
+        assert_eq!(
+            links.snapshot(3, &attended).groups[0].members[1].role,
+            Role::Lead
+        );
+        take_all(&links);
+        // The same lead again, or a rename only: no new introduction.
+        links
+            .edit(
+                group.id,
+                &names(&[(1, "front")]),
+                false,
+                Some(2),
+                &sessions(),
+                &facts,
+                4,
+            )
+            .unwrap();
+        assert!(links.snapshot(4, &attended).messages.is_empty());
+        // The lead's session leaves a group of three: it has no lead any more.
+        let (three, _) = service();
+        let request = LinkRequest {
+            lead: Some(1),
+            ..LinkRequest::default()
+        };
+        three
+            .link(&[1, 2, 3], &sessions(), &facts, 0, &request)
+            .unwrap();
+        three.ended(1);
+        assert!(three.snapshot(0, &attended).groups[0]
+            .members
+            .iter()
+            .all(|m| m.role == Role::Member));
+    }
+
+    #[test]
+    fn the_history_keeps_what_was_delivered_or_discarded_until_the_group_ends() {
+        let (links, _) = service();
+        let group = links
+            .link(&[1, 2, 3], &sessions(), &facts, 0, &LinkRequest::default())
+            .unwrap();
+        // Introductions: one pasted, one discarded, one still waiting.
+        let intros = links.snapshot(0, &attended).messages;
+        links.close(intros[0].id, true, 10).unwrap();
+        links.close(intros[1].id, false, 11).unwrap();
+        links.receive(1, &request("web", "one"), 12);
+        let sent = links.snapshot(12, &attended).messages;
+        let one = sent.iter().find(|m| m.text == "one").unwrap();
+        links.close(one.id, true, 13).unwrap();
+        let history = links.history(group.id).unwrap();
+        assert_eq!(
+            history
+                .iter()
+                .map(|h| (h.at, h.from_name.as_deref(), h.to_name.as_str(), h.outcome))
+                .collect::<Vec<_>>(),
+            [
+                (13, Some("app"), "web", Outcome::Delivered),
+                (11, None, "web", Outcome::Discarded),
+                (10, None, "app", Outcome::Delivered),
+            ]
+        );
+        assert_eq!(history[0].text, "one");
+        // A member that leaves: what waited for it shows as discarded.
+        links.receive(1, &request("relay", "two"), 14);
+        links.ended(3);
+        let history = links.history(group.id).unwrap();
+        assert_eq!(history.len(), 5, "{history:?}");
+        assert!(history[..2]
+            .iter()
+            .all(|h| h.to_name == "relay" && h.outcome == Outcome::Discarded));
+        let json = serde_json::to_value(&history[0]).unwrap();
+        assert_eq!(json["outcome"], "discarded");
+        assert_eq!(json["fromRole"], "member");
+        assert_eq!(json["toName"], "relay");
+        // Unlinking ends the history; a later group starts empty.
+        links.unlink(group.id).unwrap();
+        assert!(matches!(
+            links.history(group.id),
+            Err(LinkServiceError::Link(LinkError::UnknownGroup))
+        ));
+        let next = links
+            .link(&[1, 2], &sessions(), &facts, 0, &LinkRequest::default())
+            .unwrap();
+        assert!(links.history(next.id).unwrap().is_empty());
+        // A group that ends because a member left takes its history with it.
+        let messages = links.snapshot(0, &attended).messages;
+        links.close(messages[0].id, true, 1).unwrap();
+        assert_eq!(links.history(next.id).unwrap().len(), 1);
+        links.ended(2);
+        assert!(links.history(next.id).is_err());
+        // What is left closes without a group and leaves no history behind.
+        for message in links.snapshot(0, &attended).messages {
+            links.close(message.id, true, 2).unwrap();
+        }
+    }
+
+    #[test]
+    fn roles_serialize_for_the_window() {
+        let (links, _) = service();
+        let request = LinkRequest {
+            lead: Some(2),
+            ..LinkRequest::default()
+        };
+        links
+            .link(&[1, 2], &sessions(), &facts, 0, &request)
+            .unwrap();
+        let json = serde_json::to_value(links.snapshot(0, &attended)).unwrap();
+        assert_eq!(json["groups"][0]["members"][0]["role"], "member");
+        assert_eq!(json["groups"][0]["members"][1]["role"], "lead");
     }
 }

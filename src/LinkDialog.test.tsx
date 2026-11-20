@@ -34,8 +34,8 @@ const group: LinkGroup = {
   askFirst: false,
   braked: false,
   members: [
-    { session: 1, name: "app" },
-    { session: 2, name: "web" },
+    { session: 1, name: "app", role: "member" },
+    { session: 2, name: "web", role: "member" },
   ],
 };
 
@@ -43,27 +43,31 @@ const none = () => Promise.resolve(null);
 
 describe("LinkMarkSign", () => {
   it("is a chain in the group's color that names the member", () => {
-    const html = render(<LinkMarkSign mark={{ group: 1, color: 3, name: "web", braked: false }} />);
+    const html = render(
+      <LinkMarkSign mark={{ group: 1, color: 3, name: "web", braked: false, lead: false }} />,
+    );
     expect(html).toContain('class="session-link"');
     expect(html).toContain("color:var(--link-3)");
     expect(html).toContain("Linked as “web”");
     expect(html).toContain("<svg");
     const german = render(
-      <LinkMarkSign mark={{ group: 1, color: 3, name: "web", braked: false }} />,
+      <LinkMarkSign mark={{ group: 1, color: 3, name: "web", braked: false, lead: false }} />,
       "de",
     );
     expect(german).toContain("Verknüpft als „web“");
   });
 
   it("shows the brake by shape and says why messages wait", () => {
-    const html = render(<LinkMarkSign mark={{ group: 1, color: 0, name: "app", braked: true }} />);
+    const html = render(
+      <LinkMarkSign mark={{ group: 1, color: 0, name: "app", braked: true, lead: false }} />,
+    );
     expect(html).toContain('class="session-link braked"');
     expect(html).toContain("messages wait for your click");
   });
 
   it("is only a picture in the rail, whose button names it", () => {
     const html = render(
-      <LinkMarkSign mark={{ group: 1, color: 1, name: "app", braked: false }} rail />,
+      <LinkMarkSign mark={{ group: 1, color: 1, name: "app", braked: false, lead: false }} rail />,
     );
     expect(html).toContain('class="rail-link"');
     expect(html).toContain('aria-hidden="true"');

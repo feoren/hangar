@@ -270,7 +270,17 @@ pub enum TemplateMode {
     Team,
 }
 
-/// One session of a template (`templates.ts`, `TemplateSession`).
+/// A template session's part in the link group the template forms (ADR 0014).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum TemplateRole {
+    Lead,
+    Member,
+}
+
+/// One session of a template (`templates.ts`, `TemplateSession`). `member_name` and `role` say
+/// how it joins the link group of a template that links its sessions; older templates have
+/// neither.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct TemplateSession {
@@ -279,15 +289,25 @@ pub struct TemplateSession {
     pub mode: TemplateMode,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub title: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub member_name: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub role: Option<TemplateRole>,
 }
 
-/// A named set of sessions that starts again with one click (`templates.ts`).
+/// A named set of sessions that starts again with one click (`templates.ts`). `link`: its agent
+/// sessions form a link group once they run, with "Ask before pasting" as `ask_first` says;
+/// older templates have neither and link nothing.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct WorkspaceTemplate {
     pub id: String,
     pub name: String,
     pub sessions: Vec<TemplateSession>,
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub link: bool,
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub ask_first: bool,
 }
 
 /// A name or title as the window cleans it: not blank, no control characters, not too long.
@@ -296,8 +316,10 @@ fn valid_label(text: &str, max_chars: usize) -> bool {
 }
 
 /// The bounds the window keeps (`parseTemplates`): not too many templates and sessions, IDs
-/// valid and unique, every session with a program and a folder. Names are not compared: the
-/// window ignores case by the user's locale, which no check here could match exactly.
+/// valid and unique, every session with a program and a folder, member names valid and unique
+/// within a template (`links.ts` `validMemberName`), at most one lead. Template names are not
+/// compared: the window ignores case by the user's locale, which no check here could match
+/// exactly.
 pub fn validate_templates(templates: &[WorkspaceTemplate]) -> Result<(), MainStoreError> {
     if templates.len() > MAX_TEMPLATES {
         return Err(MainStoreError::InvalidTemplate("too many templates"));
@@ -331,6 +353,28 @@ pub fn validate_templates(templates: &[WorkspaceTemplate]) -> Result<(), MainSto
             {
                 return Err(MainStoreError::InvalidTemplate("title"));
             }
+        }
+        let names: Vec<&str> = template
+            .sessions
+            .iter()
+            .filter_map(|session| session.member_name.as_deref())
+            .collect();
+        for (index, name) in names.iter().enumerate() {
+            if !crate::partners::valid_name(name)
+                || *name == crate::links::ALL
+                || *name == crate::links::LEAD
+                || names[..index].contains(name)
+            {
+                return Err(MainStoreError::InvalidTemplate("member name"));
+            }
+        }
+        let leads = template
+            .sessions
+            .iter()
+            .filter(|session| session.role == Some(TemplateRole::Lead))
+            .count();
+        if leads > 1 {
+            return Err(MainStoreError::InvalidTemplate("more than one lead"));
         }
     }
     Ok(())
@@ -952,6 +996,8 @@ mod tests {
             folder: folder.to_owned(),
             mode: TemplateMode::Private,
             title: None,
+            member_name: None,
+            role: None,
         }
     }
 
@@ -960,7 +1006,80 @@ mod tests {
             id: id.to_owned(),
             name: name.to_owned(),
             sessions,
+            link: false,
+            ask_first: false,
         }
+    }
+
+    fn member(folder: &str, name: &str, role: TemplateRole) -> TemplateSession {
+        TemplateSession {
+            member_name: Some(name.to_owned()),
+            role: Some(role),
+            ..session(folder)
+        }
+    }
+
+    #[test]
+    fn templates_without_a_link_group_still_load_and_new_ones_keep_theirs() {
+        // An older template: no link fields at all.
+        let old: Vec<WorkspaceTemplate> = serde_json::from_str(
+            r#"[{"id":"t-1","name":"Old","sessions":[{"profileId":"claude","folder":"/a","mode":"private"}]}]"#,
+        )
+        .unwrap();
+        assert!(validate_templates(&old).is_ok());
+        assert!(!old[0].link && !old[0].ask_first);
+        assert_eq!(old[0].sessions[0].member_name, None);
+        // Saved again, it stays as it was.
+        assert_eq!(
+            serde_json::to_value(&old).unwrap(),
+            serde_json::json!([{ "id": "t-1", "name": "Old", "sessions": [
+                { "profileId": "claude", "folder": "/a", "mode": "private" }] }])
+        );
+        let mut linked = template(
+            "t-2",
+            "Crew",
+            vec![
+                member("/a", "boss", TemplateRole::Lead),
+                member("/b", "web", TemplateRole::Member),
+            ],
+        );
+        linked.link = true;
+        linked.ask_first = true;
+        let json = serde_json::to_value(&linked).unwrap();
+        assert_eq!(json["link"], true);
+        assert_eq!(json["askFirst"], true);
+        assert_eq!(json["sessions"][0]["memberName"], "boss");
+        assert_eq!(json["sessions"][0]["role"], "lead");
+        let back: WorkspaceTemplate = serde_json::from_value(json).unwrap();
+        assert_eq!(back, linked);
+        assert!(validate_templates(std::slice::from_ref(&linked)).is_ok());
+        let tmp = TempDir::new("main-store-linked-templates");
+        let store = MainStore::new(tmp.path().to_owned());
+        store.save_templates(vec![linked.clone()]).unwrap();
+        assert_eq!(store.load_templates(), Some(vec![linked.clone()]));
+        // Two leads, a reserved, invalid or repeated name: refused.
+        for sessions in [
+            vec![
+                member("/a", "a", TemplateRole::Lead),
+                member("/b", "b", TemplateRole::Lead),
+            ],
+            vec![member("/a", "lead", TemplateRole::Member)],
+            vec![member("/a", "all", TemplateRole::Member)],
+            vec![member("/a", "Web Site", TemplateRole::Member)],
+            vec![
+                member("/a", "web", TemplateRole::Member),
+                member("/b", "web", TemplateRole::Member),
+            ],
+        ] {
+            let bad = template("t-3", "Bad", sessions);
+            assert!(
+                validate_templates(std::slice::from_ref(&bad)).is_err(),
+                "{bad:?}"
+            );
+        }
+        let mut wrong_role = serde_json::to_value(&linked).unwrap();
+        wrong_role["sessions"][0]["role"] = serde_json::json!("boss");
+        assert!(serde_json::from_value::<WorkspaceTemplate>(wrong_role).is_err());
     }
 
     #[test]

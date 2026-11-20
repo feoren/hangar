@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-link-history"
+description = "Enables the link_history command without any pre-configured scope."
+commands.allow = ["link_history"]
+
+[[permission]]
+identifier = "deny-link-history"
+description = "Denies the link_history command without any pre-configured scope."
+commands.deny = ["link_history"]

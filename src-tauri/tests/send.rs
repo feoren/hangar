@@ -355,6 +355,7 @@ fn linked_agents_message_each_other_by_member_name() {
                 unattended: false,
             },
             1,
+            &link_service::LinkRequest::default(),
         )
         .unwrap();
     let names: Vec<&str> = group.members.iter().map(|m| m.name.as_str()).collect();

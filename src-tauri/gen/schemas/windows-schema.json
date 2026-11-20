@@ -645,6 +645,12 @@
           "markdownDescription": "Enables the last_exit_was_clean command without any pre-configured scope."
         },
         {
+          "description": "Enables the link_history command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-link-history",
+          "markdownDescription": "Enables the link_history command without any pre-configured scope."
+        },
+        {
           "description": "Enables the link_message_text command without any pre-configured scope.",
           "type": "string",
           "const": "allow-link-message-text",
@@ -1819,6 +1825,12 @@
           "type": "string",
           "const": "deny-last-exit-was-clean",
           "markdownDescription": "Denies the last_exit_was_clean command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the link_history command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-link-history",
+          "markdownDescription": "Denies the link_history command without any pre-configured scope."
         },
         {
           "description": "Denies the link_message_text command without any pre-configured scope.",

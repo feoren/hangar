@@ -47,7 +47,8 @@ use crate::icon::{self, IconCache};
 use crate::install_source::{self, SystemProbe};
 use crate::instructions::{self, StartPrompt};
 use crate::link_service::{
-    GroupView, LinkService, LinkServiceError, LinkSnapshot, MemberFacts, MemberName,
+    GroupView, HistoryView, LinkRequest, LinkService, LinkServiceError, LinkSnapshot, MemberFacts,
+    MemberName,
 };
 use crate::links::{self, GroupId};
 use crate::main_store::{
@@ -3917,19 +3918,12 @@ pub fn link_state(
     Ok(links.snapshot(work_log::now_ms(), &unattended))
 }
 
-/// Links the sessions `ids` into a new group; each must be a running agent session that got the
-/// send client at its start. Every member gets Hangar's introduction.
-#[tauri::command]
-pub fn link_sessions(
-    window: tauri::Window,
-    manager: Manager<'_>,
-    links: State<'_, LinkService>,
-    ids: Vec<SessionId>,
-) -> Result<GroupView, LinkServiceError> {
-    main_store::check_main(window.label())?;
+/// What an introduction says about a member's program, and whether its agent runs without
+/// asking before tools.
+fn member_facts(manager: &SessionManager) -> impl Fn(&SessionInfo) -> MemberFacts {
     let names = manager.profile_names();
     let args = manager.session_args();
-    let facts = |info: &SessionInfo| MemberFacts {
+    move |info: &SessionInfo| MemberFacts {
         program: names
             .get(&info.profile_id)
             .cloned()
@@ -3937,8 +3931,31 @@ pub fn link_sessions(
         unattended: args
             .get(&info.id)
             .is_some_and(|args| links::runs_without_prompts(args)),
+    }
+}
+
+/// Links the sessions `ids` into a new group; each must be a running agent session that got the
+/// send client at its start. `names` (member names chosen beforehand, a workspace template),
+/// `lead` (the member that leads) and `ask_first` are optional. Every member gets Hangar's
+/// introduction for its role.
+#[tauri::command]
+pub fn link_sessions(
+    window: tauri::Window,
+    manager: Manager<'_>,
+    links: State<'_, LinkService>,
+    ids: Vec<SessionId>,
+    names: Option<Vec<MemberName>>,
+    lead: Option<SessionId>,
+    ask_first: Option<bool>,
+) -> Result<GroupView, LinkServiceError> {
+    main_store::check_main(window.label())?;
+    let facts = member_facts(&manager);
+    let request = LinkRequest {
+        names: names.unwrap_or_default(),
+        lead,
+        ask_first: ask_first.unwrap_or(false),
     };
-    links.link(&ids, &manager.list(), &facts, work_log::now_ms())
+    links.link(&ids, &manager.list(), &facts, work_log::now_ms(), &request)
 }
 
 /// Ends link group `group`; what still waits in it goes.
@@ -3952,17 +3969,41 @@ pub fn unlink_group(
     links.unlink(group)
 }
 
-/// New member names and the "Ask before pasting" toggle of link group `group`.
+/// New member names, the "Ask before pasting" toggle and the lead (`null`: none) of link group
+/// `group`. A changed lead introduces the group's roles to every member again.
 #[tauri::command]
 pub fn edit_link_group(
     window: tauri::Window,
+    manager: Manager<'_>,
     links: State<'_, LinkService>,
     group: GroupId,
     names: Vec<MemberName>,
     ask_first: bool,
+    lead: Option<SessionId>,
 ) -> Result<(), LinkServiceError> {
     main_store::check_main(window.label())?;
-    links.edit(group, &names, ask_first)
+    let facts = member_facts(&manager);
+    links.edit(
+        group,
+        &names,
+        ask_first,
+        lead,
+        &manager.list(),
+        &facts,
+        work_log::now_ms(),
+    )
+}
+
+/// The history of link group `group`, newest first: the last messages delivered or discarded
+/// since it formed. In memory only; it ends with the group.
+#[tauri::command]
+pub fn link_history(
+    window: tauri::Window,
+    links: State<'_, LinkService>,
+    group: GroupId,
+) -> Result<Vec<HistoryView>, LinkServiceError> {
+    main_store::check_main(window.label())?;
+    links.history(group)
 }
 
 /// The text to paste for link message `id` into session `to`, checked again and headed with the
@@ -4023,9 +4064,9 @@ pub async fn close_link_message(
     let log = work_log.inner().clone();
     // On a blocking thread: the work log appends to its day file.
     tauri::async_runtime::spawn_blocking(move || {
-        let message = links.close(id)?;
+        let now = work_log::now_ms();
+        let message = links.close(id, pasted_into.is_some(), now)?;
         if let (Some(from), Some(to)) = (message.from, pasted_into) {
-            let now = work_log::now_ms();
             if let Err(error) = log.link_message(from, to, &message.from_name, now, now) {
                 eprintln!("hangar: message not logged: {error}");
             }

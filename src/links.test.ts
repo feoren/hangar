@@ -33,8 +33,8 @@ const group: LinkGroup = {
   askFirst: false,
   braked: false,
   members: [
-    { session: 1, name: "app" },
-    { session: 2, name: "web" },
+    { session: 1, name: "app", role: "member" },
+    { session: 2, name: "web", role: "member" },
   ],
 };
 
@@ -174,7 +174,7 @@ describe("linking", () => {
 describe("marks", () => {
   it("marks every member with its group's color and name", () => {
     const marks = linkMarks(state({ groups: [{ ...group, braked: true }] }));
-    expect(marks.get(2)).toEqual({ group: 1, color: 2, name: "web", braked: true });
+    expect(marks.get(2)).toEqual({ group: 1, color: 2, name: "web", braked: true, lead: false });
     expect(marks.has(3)).toBe(false);
     expect(linkColor(2)).toBe("var(--link-2)");
     expect(linkColor(8)).toBe("var(--link-2)");

@@ -754,6 +754,7 @@ pub fn run() -> tauri::Result<()> {
             commands::hold_link_message,
             commands::link_person_typed,
             commands::close_link_message,
+            commands::link_history,
             commands::set_panel_session,
             commands::take_update_results,
             commands::dictation_status,

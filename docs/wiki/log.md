@@ -1200,3 +1200,10 @@ logoff on Linux leaves no exit marker. Known limits added: several debug builds 
 a manual install over a running Hangar ends it through the Restart Manager (read from the NSIS
 template of tauri-cli 2.12.4), a marker that cannot be removed shows the notice on every start.
 Pages changed: [[session-restore]].
+
+## [2026-11-20] query | Link groups: roles, history and templates
+ADR 0014 extended: an optional lead per group with role-specific introductions, the alias
+`hangar-send lead` and a header that names the lead; a history of the last 200 messages per
+group in memory, read with `link_history`; workspace templates that link their agent sessions
+with member names, the lead and "Ask before pasting". Pages changed: [[0014-session-links]],
+index.

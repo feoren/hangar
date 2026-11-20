@@ -1,12 +1,16 @@
 //! Link groups (ADR 0014), the pure part: running agent sessions the person linked so that their
 //! agents message each other, the member names inside a group, how `hangar-send <name>` resolves,
-//! the loop brake and the queue of messages between members. No process, file or window access:
-//! `link_service.rs` holds the state, checks the sessions and answers the send route.
+//! the loop brake, the queue of messages between members, the optional lead of a group and the
+//! group's history of messages. No process, file or window access: `link_service.rs` holds the
+//! state, checks the sessions and answers the send route.
 //!
 //! A group lives in memory only. It ends when the person unlinks it or when fewer than two
-//! members remain ([`Leave::Ended`]); nothing of it survives a restart of Hangar.
+//! members remain ([`Leave::Ended`]); nothing of it survives a restart of Hangar, its history
+//! included.
 
-use std::collections::VecDeque;
+use std::collections::{BTreeMap, VecDeque};
+
+use serde::Serialize;
 
 use crate::partners::{valid_name, PartnerError, MAX_NAME_LEN, MAX_WAITING_PER_PROJECT};
 use crate::session::SessionId;
@@ -34,6 +38,13 @@ pub const MAX_WAITING_PER_TARGET: usize = MAX_WAITING_PER_PROJECT;
 pub const MAX_QUEUED: usize = MAX_GROUPS * MAX_MEMBERS * MAX_WAITING_PER_TARGET;
 /// `hangar-send all <text>` writes to every other member; no member may carry this name.
 pub const ALL: &str = "all";
+/// `hangar-send lead <text>` writes to the group's lead; no member may carry this name either.
+pub const LEAD: &str = "lead";
+/// Messages a group's history keeps ([`History`]).
+pub const HISTORY_LIMIT: usize = 200;
+/// Bytes of message text a group's history keeps: 200 messages at the length cap would hold
+/// several megabytes per group, so the oldest go first once this is reached.
+pub const HISTORY_BYTES: usize = 256 * 1024;
 /// A derived name leaves room for a suffix such as `-8` within [`MAX_NAME_LEN`].
 const MAX_BASE_LEN: usize = MAX_NAME_LEN - 4;
 /// The name a title without a usable letter or digit gets.
@@ -63,8 +74,10 @@ pub enum LinkError {
     NotMember,
     #[error("[link_name] A member name takes 1 to 32 characters: a to z, 0 to 9 and -")]
     InvalidName,
-    #[error("[link_name_reserved] \"all\" names every member and cannot name one")]
+    #[error("[link_name_reserved] \"all\" and \"lead\" stand for members and cannot name one")]
     ReservedName,
+    #[error("[link_two_leads] A link group has at most one lead")]
+    TwoLeads,
     #[error("[link_name_taken] Two members of a group cannot share a name")]
     NameTaken,
     #[error("[link_own_name] That is the sending session's own member name")]
@@ -87,11 +100,34 @@ pub enum LinkError {
     Message(#[from] PartnerError),
 }
 
-/// One member: the session and its name inside the group.
+/// A member's part in its group. At most one member leads: it hands out tasks and collects the
+/// results, the others report back to it. Routing does not depend on it; every member may still
+/// write to every other one.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub enum Role {
+    Lead,
+    #[default]
+    Member,
+}
+
+/// One member: the session, its name inside the group and its role.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Member {
     pub session: SessionId,
     pub name: String,
+    pub role: Role,
+}
+
+/// A session to link, as the person or a workspace template chose it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct NewMember<'a> {
+    pub session: SessionId,
+    /// The session title, from which a name is derived when `name` is `None`.
+    pub title: &'a str,
+    /// A member name chosen beforehand (a workspace template).
+    pub name: Option<&'a str>,
+    pub lead: bool,
 }
 
 /// Whether a message is pasted on its own or waits for the person's click.
@@ -220,6 +256,11 @@ impl LinkGroup {
     pub fn names(&self) -> Vec<String> {
         self.members.iter().map(|m| m.name.clone()).collect()
     }
+
+    /// The member that leads the group, if one does.
+    pub fn lead(&self) -> Option<&Member> {
+        self.members.iter().find(|member| member.role == Role::Lead)
+    }
 }
 
 /// What happened to a session's group when the session left ([`Links::leave`]).
@@ -245,10 +286,11 @@ pub enum Resolve {
     NoMember { members: Vec<String> },
     /// The sender named itself.
     Own,
-    /// Members to deliver to, with the sender's own name for the header.
+    /// Members to deliver to, with the sender's own name and role for the header.
     To {
         group: GroupId,
         sender: String,
+        role: Role,
         targets: Vec<Member>,
     },
 }
@@ -282,34 +324,67 @@ impl Links {
             .find(|group| group.member(session).is_some())
     }
 
-    /// Links the `chosen` sessions, each with its session title, into a new group: two to
-    /// [`MAX_MEMBERS`], each in no group yet. Names come from the titles ([`member_names`]),
-    /// the color is the first one no other group shows.
+    /// Links the `chosen` sessions, each with its session title, into a new group without a lead
+    /// ([`Self::link_members`]).
     pub fn link(&mut self, chosen: &[(SessionId, &str)]) -> Result<&LinkGroup, LinkError> {
+        let chosen: Vec<NewMember<'_>> = chosen
+            .iter()
+            .map(|(session, title)| NewMember {
+                session: *session,
+                title,
+                name: None,
+                lead: false,
+            })
+            .collect();
+        self.link_members(&chosen)
+    }
+
+    /// Links the `chosen` sessions into a new group: two to [`MAX_MEMBERS`], each in no group
+    /// yet, at most one of them the lead. A name chosen beforehand must be a valid member name
+    /// and unique; the others come from the titles around them ([`member_names_around`]). The
+    /// color is the first one no other group shows.
+    pub fn link_members(&mut self, chosen: &[NewMember<'_>]) -> Result<&LinkGroup, LinkError> {
         if chosen.len() < 2 {
             return Err(LinkError::TooFew);
         }
         if chosen.len() > MAX_MEMBERS {
             return Err(LinkError::TooMany);
         }
-        for (index, (session, _)) in chosen.iter().enumerate() {
-            if chosen[..index].iter().any(|(other, _)| other == session) {
+        for (index, entry) in chosen.iter().enumerate() {
+            if chosen[..index]
+                .iter()
+                .any(|other| other.session == entry.session)
+            {
                 return Err(LinkError::Twice);
             }
-            if self.group_of(*session).is_some() {
+            if self.group_of(entry.session).is_some() {
                 return Err(LinkError::AlreadyLinked);
+            }
+        }
+        if chosen.iter().filter(|entry| entry.lead).count() > 1 {
+            return Err(LinkError::TwoLeads);
+        }
+        let fixed = chosen
+            .iter()
+            .map(|entry| entry.name.map(checked_name).transpose())
+            .collect::<Result<Vec<Option<String>>, LinkError>>()?;
+        let given: Vec<&String> = fixed.iter().flatten().collect();
+        for (index, name) in given.iter().enumerate() {
+            if given[..index].contains(name) {
+                return Err(LinkError::NameTaken);
             }
         }
         if self.groups.len() >= MAX_GROUPS {
             return Err(LinkError::GroupsFull);
         }
-        let titles: Vec<&str> = chosen.iter().map(|(_, title)| *title).collect();
+        let titles: Vec<&str> = chosen.iter().map(|entry| entry.title).collect();
         let members = chosen
             .iter()
-            .zip(member_names(&titles))
-            .map(|((session, _), name)| Member {
-                session: *session,
+            .zip(member_names_around(&titles, &fixed))
+            .map(|(entry, name)| Member {
+                session: entry.session,
                 name,
+                role: if entry.lead { Role::Lead } else { Role::Member },
             })
             .collect();
         self.next_id = self.next_id.saturating_add(1);
@@ -367,15 +442,17 @@ impl Links {
         Leave::Ended { group: id, rest }
     }
 
-    /// New names for members (sessions not named keep theirs) and the "Ask before pasting"
-    /// toggle. Every name must be a valid short name, not [`ALL`] and unique in the group; on any
-    /// problem nothing changes.
+    /// New names for members (sessions not named keep theirs), the "Ask before pasting" toggle
+    /// and the lead (`None`: no member leads). Every name must be a valid short name, neither
+    /// [`ALL`] nor [`LEAD`] and unique in the group, the lead a member; on any problem nothing
+    /// changes. `Ok(true)` when the lead changed, so the members learn their new roles.
     pub fn edit(
         &mut self,
         id: GroupId,
         names: &[(SessionId, String)],
         ask_first: bool,
-    ) -> Result<(), LinkError> {
+        lead: Option<SessionId>,
+    ) -> Result<bool, LinkError> {
         let group = self.group_mut(id)?;
         let mut next = group.members.clone();
         for (session, name) in names {
@@ -383,29 +460,33 @@ impl Links {
                 .iter_mut()
                 .find(|member| member.session == *session)
                 .ok_or(LinkError::NotMember)?;
-            let name = name.trim();
-            if name == ALL {
-                return Err(LinkError::ReservedName);
-            }
-            if !valid_name(name) {
-                return Err(LinkError::InvalidName);
-            }
-            name.clone_into(&mut member.name);
+            member.name = checked_name(name)?;
         }
         for (index, member) in next.iter().enumerate() {
             if next[..index].iter().any(|other| other.name == member.name) {
                 return Err(LinkError::NameTaken);
             }
         }
+        if lead.is_some_and(|lead| !next.iter().any(|member| member.session == lead)) {
+            return Err(LinkError::NotMember);
+        }
+        let before = group.lead().map(|member| member.session);
+        for member in &mut next {
+            member.role = if Some(member.session) == lead {
+                Role::Lead
+            } else {
+                Role::Member
+            };
+        }
         group.members = next;
         group.ask_first = ask_first;
         // Editing is the person stepping in.
         group.brake.person_acted();
-        Ok(())
+        Ok(before != lead)
     }
 
     /// Where a message from `from` to `target` goes: a member by name (ASCII case ignored, since
-    /// an agent may capitalize it), or with [`ALL`] every other member.
+    /// an agent may capitalize it), with [`ALL`] every other member, with [`LEAD`] the lead.
     pub fn resolve(&self, from: SessionId, target: &str) -> Resolve {
         let Some(group) = self.group_of(from) else {
             return Resolve::NotLinked;
@@ -421,6 +502,12 @@ impl Links {
                 .filter(|member| member.session != from)
                 .cloned()
                 .collect()
+        } else if target.eq_ignore_ascii_case(LEAD) {
+            match group.lead() {
+                Some(lead) if lead.session == from => return Resolve::Own,
+                Some(lead) => vec![lead.clone()],
+                None => Vec::new(),
+            }
         } else if sender.name.eq_ignore_ascii_case(target) {
             return Resolve::Own;
         } else {
@@ -444,6 +531,7 @@ impl Links {
         Resolve::To {
             group: group.id,
             sender: sender.name.clone(),
+            role: sender.role,
             targets,
         }
     }
@@ -510,13 +598,40 @@ pub fn base_name(title: &str) -> String {
     }
 }
 
+/// `name` trimmed, if it can name a member: a valid short name, neither [`ALL`] nor [`LEAD`].
+fn checked_name(name: &str) -> Result<String, LinkError> {
+    let name = name.trim();
+    if name == ALL || name == LEAD {
+        return Err(LinkError::ReservedName);
+    }
+    if !valid_name(name) {
+        return Err(LinkError::InvalidName);
+    }
+    Ok(name.to_owned())
+}
+
 /// Member names for sessions with these titles, in order: [`base_name`], made unique by a
-/// numeric suffix (`claude`, `claude-2`), never [`ALL`].
+/// numeric suffix (`claude`, `claude-2`), never [`ALL`] or [`LEAD`].
 pub fn member_names(titles: &[&str]) -> Vec<String> {
+    member_names_around(titles, &vec![None; titles.len()])
+}
+
+/// Like [`member_names`], but where `fixed` holds a name (checked by the caller) that one is
+/// kept, and no derived name takes it.
+pub fn member_names_around(titles: &[&str], fixed: &[Option<String>]) -> Vec<String> {
     let mut names: Vec<String> = Vec::with_capacity(titles.len());
-    for title in titles {
+    for (index, title) in titles.iter().enumerate() {
+        if let Some(Some(name)) = fixed.get(index) {
+            names.push(name.clone());
+            continue;
+        }
         let base = base_name(title);
-        let taken = |name: &str| name == ALL || names.iter().any(|known| known == name);
+        let taken = |name: &str| {
+            name == ALL
+                || name == LEAD
+                || names.iter().any(|known| known == name)
+                || fixed.iter().flatten().any(|known| known == name)
+        };
         let name = if taken(&base) {
             (2..)
                 .map(|n| format!("{base}-{n}"))
@@ -540,7 +655,11 @@ pub struct LinkMessage {
     pub from: Option<SessionId>,
     /// The sender's member name at the time it sent, for the header.
     pub from_name: String,
+    /// The sender's role at the time it sent, for the header.
+    pub from_role: Role,
     pub to: SessionId,
+    /// The target's member name at the time it was sent, for the history.
+    pub to_name: String,
     /// Already cleaned, without the header.
     pub text: String,
     /// Unix time in milliseconds when it arrived.
@@ -557,8 +676,9 @@ pub struct Outgoing<'a> {
     pub group: GroupId,
     pub from: Option<SessionId>,
     pub from_name: &'a str,
+    pub from_role: Role,
     pub to: SessionId,
-    /// The target's member name, for the refusal.
+    /// The target's member name, for the refusal and the history.
     pub to_name: &'a str,
     pub text: &'a str,
     pub at: i64,
@@ -613,7 +733,9 @@ impl LinkQueue {
             group: message.group,
             from: message.from,
             from_name: message.from_name.to_owned(),
+            from_role: message.from_role,
             to: message.to,
+            to_name: message.to_name.to_owned(),
             text: message.text.to_owned(),
             at: message.at,
             auto: message.auto,
@@ -669,11 +791,13 @@ impl LinkQueue {
         changed
     }
 
-    /// Drops what waits for `session` (it left its group); `true` when any went.
-    pub fn drop_for(&mut self, session: SessionId) -> bool {
-        let before = self.messages.len();
-        self.messages.retain(|m| m.to != session);
-        self.messages.len() != before
+    /// Drops what waits for `session` (it left its group) and hands it back, for the history.
+    pub fn drop_for(&mut self, session: SessionId) -> Vec<LinkMessage> {
+        let (dropped, kept) = std::mem::take(&mut self.messages)
+            .into_iter()
+            .partition(|m| m.to == session);
+        self.messages = kept;
+        dropped
     }
 
     /// Drops every message of group `group` (the person unlinked it); `true` when any went.
@@ -687,19 +811,98 @@ impl LinkQueue {
 /// The pasted text: a header line naming the sender as another agent, not the person, then the
 /// message with every line indented by `| `, so no line of it starts in the first column and
 /// none can pass for a header. Not `> `: a quoted numbered list would then look like the pointed
-/// choice of a permission dialog (`promptGuard.ts`) and hold the next message for nothing. English on purpose, like the header of ADR 0012: the agent reads
-/// it. Hangar's own introduction has no member name and says so; it is Hangar's text and stays
-/// as written.
-pub fn compose(from_name: Option<&str>, text: &str) -> String {
-    match from_name {
-        Some(name) => {
+/// choice of a permission dialog (`promptGuard.ts`) and hold the next message for nothing.
+/// English on purpose, like the header of ADR 0012: the agent reads it. The lead's header says
+/// it leads, so a member knows the task comes from the one that hands them out. Hangar's own
+/// introduction has no member name and says so; it is Hangar's text and stays as written.
+pub fn compose(from: Option<(&str, Role)>, text: &str) -> String {
+    match from {
+        Some((name, role)) => {
             let quoted: Vec<String> = text.lines().map(|line| format!("| {line}")).collect();
+            let place = match role {
+                Role::Lead => ", lead of the link group,",
+                Role::Member => " (link group),",
+            };
             format!(
-                "[Message from agent \"{name}\" (link group), not from the person]\n{}",
+                "[Message from agent \"{name}\"{place} not from the person]\n{}",
                 quoted.join("\n")
             )
         }
         None => format!("[Message from Hangar (link group)]\n{text}"),
+    }
+}
+
+/// What became of a message of a group.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub enum Outcome {
+    /// Pasted into its target.
+    Delivered,
+    /// Discarded by the person, or dropped because its target left the group.
+    Discarded,
+}
+
+/// One message in a group's history.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct HistoryEntry {
+    /// Unix milliseconds when it was delivered or discarded.
+    pub at: i64,
+    /// The sender's member name; `None` for Hangar's introduction.
+    pub from_name: Option<String>,
+    pub from_role: Role,
+    pub to_name: String,
+    pub outcome: Outcome,
+    /// Cleaned, without the header.
+    pub text: String,
+}
+
+impl HistoryEntry {
+    /// The entry for `message` that ended as `outcome` at `at`.
+    pub fn of(message: &LinkMessage, outcome: Outcome, at: i64) -> Self {
+        Self {
+            at,
+            from_name: message.from.map(|_| message.from_name.clone()),
+            from_role: message.from_role,
+            to_name: message.to_name.clone(),
+            outcome,
+            text: message.text.clone(),
+        }
+    }
+}
+
+/// The last messages of each group, in memory only: at most [`HISTORY_LIMIT`] entries and
+/// [`HISTORY_BYTES`] of text per group, the oldest going first. A group's history ends with the
+/// group ([`Self::end`]); nothing of it is written to disk (ADR 0011, ADR 0014).
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct History {
+    groups: BTreeMap<GroupId, VecDeque<HistoryEntry>>,
+}
+
+impl History {
+    /// Adds `entry` to the history of group `group`, dropping the oldest beyond the bounds. The
+    /// newest always stays: one message is at most the length cap, below [`HISTORY_BYTES`].
+    pub fn record(&mut self, group: GroupId, entry: HistoryEntry) {
+        let ring = self.groups.entry(group).or_default();
+        ring.push_back(entry);
+        let mut bytes: usize = ring.iter().map(|entry| entry.text.len()).sum();
+        while ring.len() > 1 && (ring.len() > HISTORY_LIMIT || bytes > HISTORY_BYTES) {
+            if let Some(old) = ring.pop_front() {
+                bytes = bytes.saturating_sub(old.text.len());
+            }
+        }
+    }
+
+    /// The history of group `group`, newest first.
+    pub fn of(&self, group: GroupId) -> Vec<&HistoryEntry> {
+        self.groups
+            .get(&group)
+            .map(|ring| ring.iter().rev().collect())
+            .unwrap_or_default()
+    }
+
+    /// The group ended: its history goes with it.
+    pub fn end(&mut self, group: GroupId) {
+        self.groups.remove(&group);
     }
 }
 
@@ -751,6 +954,7 @@ pub fn runs_without_prompts(args: &[String]) -> bool {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Peer<'a> {
     pub name: &'a str,
+    pub role: Role,
     pub program: &'a str,
     pub folder: &'a str,
 }
@@ -776,21 +980,48 @@ fn one_line(text: &str, max: usize) -> String {
     }
 }
 
-/// Hangar's introduction for the member named `me` (ADR 0014, decision point 5): the other
-/// members with program and working folder, and how to use `hangar-send`. English on purpose:
-/// the agent reads it.
-pub fn introduction(me: &str, peers: &[Peer<'_>]) -> String {
-    let mut text = format!(
-        "You are linked with other agents in Hangar. They work in parallel in their own sessions. \
-         Your member name is \"{me}\". The other members:\n"
-    );
+/// Hangar's introduction for the member named `me` with role `role` (ADR 0014, decision point
+/// 5): the other members with role, program and working folder, how to use `hangar-send` and,
+/// when the group has a lead, what each role does. `changed`: the group was introduced already
+/// and its lead changed. English on purpose: the agent reads it.
+pub fn introduction(me: &str, role: Role, peers: &[Peer<'_>], changed: bool) -> String {
+    let opening = if changed {
+        "The roles in your link group in Hangar changed. The other agents work in parallel in \
+         their own sessions."
+    } else {
+        "You are linked with other agents in Hangar. They work in parallel in their own sessions."
+    };
+    let mut text = format!("{opening} Your member name is \"{me}\". The other members:\n");
     for peer in peers {
         text.push_str(&format!(
-            "- \"{}\": {} in {}\n",
+            "- \"{}\"{}: {} in {}\n",
             peer.name,
+            if peer.role == Role::Lead {
+                " (lead)"
+            } else {
+                ""
+            },
             one_line(peer.program, PEER_PROGRAM_CHARS),
             one_line(peer.folder, PEER_FOLDER_CHARS),
         ));
+    }
+    let lead = peers.iter().find(|peer| peer.role == Role::Lead);
+    match (role, lead) {
+        (Role::Lead, _) => text.push_str(
+            "You lead this group: split the work into tasks, hand them to the members with \
+             `hangar-send <name>`, collect their results and keep the overall picture. ",
+        ),
+        (Role::Member, Some(lead)) => text.push_str(&format!(
+            "\"{name}\" leads this group: it hands out tasks and collects the results. Report \
+             your results and questions to it with `hangar-send {name} \"<message>\"` (or \
+             `hangar-send lead`). ",
+            name = lead.name
+        )),
+        // The lead was taken away: say so, or a member keeps reporting to the former one.
+        (Role::Member, None) if changed => {
+            text.push_str("No member leads this group any more. ");
+        }
+        (Role::Member, None) => {}
     }
     text.push_str(
         "To write to one of them, run `hangar-send <name> \"<message>\"` (or pipe the message to \
@@ -832,13 +1063,21 @@ mod tests {
         // A cut never leaves a trailing dash.
         assert!(!base_name(&format!("{}-y", "x".repeat(MAX_NAME_LEN - 5))).ends_with('-'));
         assert_eq!(
-            member_names(&["Claude Code", "Claude Code", "Codex", "claude-code", "all"]),
+            member_names(&[
+                "Claude Code",
+                "Claude Code",
+                "Codex",
+                "claude-code",
+                "all",
+                "Lead"
+            ]),
             [
                 "claude-code",
                 "claude-code-2",
                 "codex",
                 "claude-code-3",
-                "all-2"
+                "all-2",
+                "lead-2"
             ]
         );
         for name in member_names(&["\u{1b}[31mred", "a\"b", "x".repeat(99).as_str()]) {
@@ -934,6 +1173,7 @@ mod tests {
                 group,
                 sender,
                 targets,
+                ..
             } => {
                 assert_eq!((group, sender.as_str()), (id, "app"));
                 targets.iter().map(|m| m.session).collect::<Vec<_>>()
@@ -958,27 +1198,34 @@ mod tests {
     fn members_can_be_renamed_within_the_rules() {
         let mut links = Links::default();
         let id = linked(&mut links, &[(1, "a"), (2, "b")]);
-        links.edit(id, &[(1, " frontend ".into())], true).unwrap();
+        assert_eq!(
+            links.edit(id, &[(1, " frontend ".into())], true, None),
+            Ok(false)
+        );
         assert_eq!(names(&links, id), ["frontend", "b"]);
         assert!(links.group(id).unwrap().ask_first);
         for (names, error) in [
             (vec![(1, "B".to_owned())], LinkError::InvalidName),
             (vec![(1, String::new())], LinkError::InvalidName),
             (vec![(1, "all".to_owned())], LinkError::ReservedName),
+            (vec![(1, "lead".to_owned())], LinkError::ReservedName),
             (vec![(1, "b".to_owned())], LinkError::NameTaken),
             (vec![(9, "x".to_owned())], LinkError::NotMember),
         ] {
-            assert_eq!(links.edit(id, &names, false), Err(error));
+            assert_eq!(links.edit(id, &names, false, None), Err(error));
         }
         // A failed edit changes nothing, the toggle included.
         assert_eq!(names(&links, id), ["frontend", "b"]);
         assert!(links.group(id).unwrap().ask_first);
         // Two members may swap names in one go.
         links
-            .edit(id, &[(1, "b".into()), (2, "frontend".into())], true)
+            .edit(id, &[(1, "b".into()), (2, "frontend".into())], true, None)
             .unwrap();
         assert_eq!(names(&links, id), ["b", "frontend"]);
-        assert_eq!(links.edit(99, &[], false), Err(LinkError::UnknownGroup));
+        assert_eq!(
+            links.edit(99, &[], false, None),
+            Err(LinkError::UnknownGroup)
+        );
     }
 
     #[test]
@@ -1018,11 +1265,11 @@ mod tests {
     fn ask_first_holds_every_message_without_counting() {
         let mut links = Links::default();
         let id = linked(&mut links, &[(1, "a"), (2, "b")]);
-        links.edit(id, &[], true).unwrap();
+        links.edit(id, &[], true, None).unwrap();
         for at in 0..20 {
             assert_eq!(links.admit(id, at), Ok(Pace::Held));
         }
-        links.edit(id, &[], false).unwrap();
+        links.edit(id, &[], false, None).unwrap();
         assert_eq!(links.admit(id, 21), Ok(Pace::Auto));
         assert_eq!(links.admit(99, 21), Err(LinkError::UnknownGroup));
     }
@@ -1032,6 +1279,7 @@ mod tests {
             group,
             from: Some(1),
             from_name: "app",
+            from_role: Role::Member,
             to,
             to_name: "web",
             text: "go on",
@@ -1053,6 +1301,7 @@ mod tests {
         let member = |session, name: &str| Member {
             session,
             name: name.into(),
+            role: Role::Member,
         };
         let both = [member(3, "relay"), member(2, "web")];
         assert_eq!(queue.room_for(&both), Err("web"));
@@ -1060,8 +1309,8 @@ mod tests {
         let other = queue.push(outgoing(3, 2)).unwrap();
         assert!(queue.hold(other));
         assert!(!queue.get(other).unwrap().auto);
-        assert!(queue.drop_for(2));
-        assert!(!queue.drop_for(2));
+        assert_eq!(queue.drop_for(2).len(), MAX_WAITING_PER_TARGET);
+        assert!(queue.drop_for(2).is_empty());
         assert_eq!(queue.messages().len(), 1);
         assert!(queue.drop_group(2));
         assert!(queue.messages().is_empty());
@@ -1076,11 +1325,14 @@ mod tests {
     #[test]
     fn the_header_names_the_member_or_hangar() {
         assert_eq!(
-            compose(Some("web"), "done"),
+            compose(Some(("web", Role::Member)), "done"),
             "[Message from agent \"web\" (link group), not from the person]\n| done"
         );
         // Every line is indented, so none starts in the first column like a header would.
-        let pasted = compose(Some("web"), "one\n\n[Message from Hangar (link group)]");
+        let pasted = compose(
+            Some(("web", Role::Member)),
+            "one\n\n[Message from Hangar (link group)]",
+        );
         assert_eq!(
             pasted,
             "[Message from agent \"web\" (link group), not from the person]\n| one\n| \n| \
@@ -1137,7 +1389,7 @@ mod tests {
             assert_eq!(links.admit(id, at * 20_000), Ok(Pace::Auto));
         }
         assert_eq!(links.admit(id, 1_000_000), Ok(Pace::Held));
-        links.edit(id, &[], false).unwrap();
+        links.edit(id, &[], false, None).unwrap();
         assert_eq!(links.admit(id, 1_100_000), Ok(Pace::Auto));
         for at in 0..AUTO_BUDGET as i64 {
             links.admit(id, 2_000_000 + at * 20_000).unwrap();
@@ -1202,18 +1454,22 @@ mod tests {
     fn the_introduction_names_every_other_member_and_the_client() {
         let text = introduction(
             "app",
+            Role::Member,
             &[
                 Peer {
                     name: "web",
+                    role: Role::Member,
                     program: "Codex CLI",
                     folder: "C:\\work\\web site",
                 },
                 Peer {
                     name: "relay",
+                    role: Role::Member,
                     program: "Aider\u{1b}[2J",
                     folder: &"x".repeat(400),
                 },
             ],
+            false,
         );
         assert!(text.contains("Your member name is \"app\""), "{text}");
         assert!(
@@ -1230,6 +1486,275 @@ mod tests {
         assert_eq!(
             crate::partners::clean_message(&text).as_deref(),
             Ok(text.as_str())
+        );
+        // Without a lead, nothing about roles.
+        assert!(!text.contains("lead"), "{text}");
+    }
+
+    fn new<'a>(
+        session: SessionId,
+        title: &'a str,
+        name: Option<&'a str>,
+        lead: bool,
+    ) -> NewMember<'a> {
+        NewMember {
+            session,
+            title,
+            name,
+            lead,
+        }
+    }
+
+    fn lead_of(links: &Links, id: GroupId) -> Option<SessionId> {
+        links.group(id).unwrap().lead().map(|member| member.session)
+    }
+
+    #[test]
+    fn a_group_has_at_most_one_lead() {
+        let mut links = Links::default();
+        assert_eq!(
+            links
+                .link_members(&[new(1, "a", None, true), new(2, "b", None, true)])
+                .unwrap_err(),
+            LinkError::TwoLeads
+        );
+        let id = links
+            .link_members(&[
+                new(1, "App", None, false),
+                new(2, "Web", None, true),
+                new(3, "Relay", None, false),
+            ])
+            .unwrap()
+            .id;
+        assert_eq!(lead_of(&links, id), Some(2));
+        assert_eq!(links.group(id).unwrap().members[0].role, Role::Member);
+        // Moving the lead leaves exactly one; the change is reported.
+        assert_eq!(links.edit(id, &[], false, Some(3)), Ok(true));
+        assert_eq!(lead_of(&links, id), Some(3));
+        let leads = |links: &Links| {
+            links
+                .group(id)
+                .unwrap()
+                .members
+                .iter()
+                .filter(|m| m.role == Role::Lead)
+                .count()
+        };
+        assert_eq!(leads(&links), 1);
+        assert_eq!(links.edit(id, &[], true, Some(3)), Ok(false));
+        // A lead that is no member changes nothing.
+        assert_eq!(
+            links.edit(id, &[], false, Some(9)),
+            Err(LinkError::NotMember)
+        );
+        assert_eq!(lead_of(&links, id), Some(3));
+        assert!(links.group(id).unwrap().ask_first);
+        // No lead at all.
+        assert_eq!(links.edit(id, &[], false, None), Ok(true));
+        assert_eq!(leads(&links), 0);
+    }
+
+    #[test]
+    fn a_lead_that_leaves_leaves_the_group_without_one() {
+        let mut links = Links::default();
+        let id = links
+            .link_members(&[
+                new(1, "a", None, true),
+                new(2, "b", None, false),
+                new(3, "c", None, false),
+            ])
+            .unwrap()
+            .id;
+        assert_eq!(links.leave(1), Leave::Left { group: id });
+        assert_eq!(lead_of(&links, id), None);
+        // "lead" then names no member, so the partner projects may still decide.
+        assert_eq!(
+            links.resolve(2, "lead"),
+            Resolve::NoMember {
+                members: vec!["c".into()]
+            }
+        );
+    }
+
+    #[test]
+    fn lead_is_an_alias_for_the_lead() {
+        let mut links = Links::default();
+        let id = links
+            .link_members(&[
+                new(1, "App", None, true),
+                new(2, "Web", None, false),
+                new(3, "Relay", None, false),
+            ])
+            .unwrap()
+            .id;
+        assert_eq!(
+            links.resolve(2, "Lead"),
+            Resolve::To {
+                group: id,
+                sender: "web".into(),
+                role: Role::Member,
+                targets: vec![Member {
+                    session: 1,
+                    name: "app".into(),
+                    role: Role::Lead,
+                }],
+            }
+        );
+        // The lead naming itself is its own name.
+        assert_eq!(links.resolve(1, "lead"), Resolve::Own);
+        // The lead's messages carry its role.
+        let Resolve::To { role, .. } = links.resolve(1, "web") else {
+            panic!("no route")
+        };
+        assert_eq!(role, Role::Lead);
+        // Every member still writes to every other one.
+        assert!(matches!(links.resolve(2, "relay"), Resolve::To { .. }));
+    }
+
+    #[test]
+    fn names_chosen_beforehand_are_kept_and_checked() {
+        let mut links = Links::default();
+        // A derived name steps aside for a chosen one.
+        let id = links
+            .link_members(&[
+                new(1, "Claude Code", None, false),
+                new(2, "Codex", Some("claude-code"), false),
+            ])
+            .unwrap()
+            .id;
+        assert_eq!(names(&links, id), ["claude-code-2", "claude-code"]);
+        for (chosen, error) in [
+            (
+                [new(5, "a", Some("x"), false), new(6, "b", Some("x"), false)],
+                LinkError::NameTaken,
+            ),
+            (
+                [new(5, "a", Some("lead"), false), new(6, "b", None, false)],
+                LinkError::ReservedName,
+            ),
+            (
+                [
+                    new(5, "a", Some("No Name"), false),
+                    new(6, "b", None, false),
+                ],
+                LinkError::InvalidName,
+            ),
+        ] {
+            assert_eq!(links.link_members(&chosen).unwrap_err(), error);
+        }
+        assert!(links.group_of(5).is_none());
+    }
+
+    #[test]
+    fn the_header_names_the_lead() {
+        assert_eq!(
+            compose(Some(("web", Role::Lead)), "split it\nthen report"),
+            "[Message from agent \"web\", lead of the link group, not from the person]\n| split \
+             it\n| then report"
+        );
+        // Neither header passes the cleaning, so no member can forge the lead's.
+        for header in [
+            compose(Some(("web", Role::Lead)), "x"),
+            compose(Some(("web", Role::Member)), "x"),
+        ] {
+            let first = header.lines().next().unwrap_or_default();
+            assert_eq!(
+                crate::partners::clean_message(first),
+                Err(PartnerError::ForgedHeader)
+            );
+        }
+    }
+
+    #[test]
+    fn the_introduction_says_what_each_role_does() {
+        let peers = |lead: bool| {
+            vec![Peer {
+                name: "web",
+                role: if lead { Role::Lead } else { Role::Member },
+                program: "Codex CLI",
+                folder: "/work/web",
+            }]
+        };
+        let member = introduction("app", Role::Member, &peers(true), false);
+        assert!(member.contains("- \"web\" (lead): Codex CLI"), "{member}");
+        assert!(member.contains("hangar-send web"), "{member}");
+        assert!(member.contains("hangar-send lead"), "{member}");
+        let lead = introduction("app", Role::Lead, &peers(false), false);
+        assert!(lead.contains("You lead this group"), "{lead}");
+        let changed = introduction("app", Role::Member, &peers(true), true);
+        assert!(
+            changed.starts_with("The roles in your link group"),
+            "{changed}"
+        );
+        assert!(!changed.contains("any more"), "{changed}");
+        // The lead taken away: the members learn that nobody leads now.
+        let unled = introduction("app", Role::Member, &peers(false), true);
+        assert!(
+            unled.contains("No member leads this group any more."),
+            "{unled}"
+        );
+        assert!(!introduction("app", Role::Member, &peers(false), false).contains("any more"));
+        for text in [member, lead, changed, unled] {
+            assert_eq!(
+                crate::partners::clean_message(&text).as_deref(),
+                Ok(text.as_str())
+            );
+        }
+    }
+
+    fn entry(text: &str) -> HistoryEntry {
+        HistoryEntry {
+            at: 1,
+            from_name: Some("app".into()),
+            from_role: Role::Member,
+            to_name: "web".into(),
+            outcome: Outcome::Delivered,
+            text: text.into(),
+        }
+    }
+
+    #[test]
+    fn the_history_keeps_the_newest_two_hundred_and_ends_with_the_group() {
+        let mut history = History::default();
+        for n in 0..HISTORY_LIMIT + 25 {
+            history.record(1, entry(&n.to_string()));
+        }
+        history.record(2, entry("other"));
+        let kept = history.of(1);
+        assert_eq!(kept.len(), HISTORY_LIMIT);
+        // Newest first; the oldest went.
+        assert_eq!(kept[0].text, (HISTORY_LIMIT + 24).to_string());
+        assert_eq!(kept[HISTORY_LIMIT - 1].text, "25");
+        history.end(1);
+        assert!(history.of(1).is_empty());
+        assert_eq!(history.of(2).len(), 1);
+        // The text is bounded too, but the newest always stays.
+        let long = "y".repeat(HISTORY_BYTES / 4 + 1);
+        for _ in 0..4 {
+            history.record(3, entry(&long));
+        }
+        assert_eq!(history.of(3).len(), 3);
+        let huge = "z".repeat(HISTORY_BYTES + 1);
+        history.record(3, entry(&huge));
+        assert_eq!(history.of(3).len(), 1);
+    }
+
+    #[test]
+    fn a_history_entry_comes_from_its_message() {
+        let mut queue = LinkQueue::default();
+        let id = queue.push(outgoing(2, 1)).unwrap();
+        let message = queue.remove(id).unwrap();
+        let entry = HistoryEntry::of(&message, Outcome::Discarded, 42);
+        assert_eq!(
+            entry,
+            HistoryEntry {
+                at: 42,
+                from_name: Some("app".into()),
+                from_role: Role::Member,
+                to_name: "web".into(),
+                outcome: Outcome::Discarded,
+                text: "go on".into(),
+            }
         );
     }
 }

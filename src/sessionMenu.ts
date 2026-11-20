@@ -15,6 +15,7 @@ export type SessionAction =
   | "partner"
   | "link"
   | "linkEdit"
+  | "linkHistory"
   | "unlink"
   | "commands"
   | "report"
@@ -161,6 +162,7 @@ export function sessionMenuEntries(
     ...(extras.link === "member"
       ? [
           { type: "action", key: "linkEdit", label: t("links.edit") } as const,
+          { type: "action", key: "linkHistory", label: t("links.history") } as const,
           { type: "action", key: "unlink", label: t("links.unlink") } as const,
         ]
       : []),

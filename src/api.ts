@@ -514,16 +514,35 @@ export const api = {
     invoke<null>("close_waiting_message", { id, pastedInto }),
   /** Link groups, linkable sessions and their messages (ADR 0014); check with `parseLinkState`. */
   linkState: () => invoke<unknown>("link_state"),
-  /** Links the running agent sessions `ids` into a new group; rejects with the reason. */
-  linkSessions: (ids: readonly number[]) => invoke<unknown>("link_sessions", { ids }),
+  /**
+   * Links the running agent sessions `ids` into a new group; rejects with the reason. `names`
+   * (chosen beforehand, a workspace template), `lead` and `askFirst` are optional.
+   */
+  linkSessions: (
+    ids: readonly number[],
+    options: {
+      names?: readonly { session: number; name: string }[];
+      lead?: number | null;
+      askFirst?: boolean;
+    } = {},
+  ) =>
+    invoke<unknown>("link_sessions", {
+      ids,
+      names: options.names ?? null,
+      lead: options.lead ?? null,
+      askFirst: options.askFirst ?? null,
+    }),
   /** Ends link group `group`; what still waits in it goes. */
   unlinkGroup: (group: number) => invoke<null>("unlink_group", { group }),
-  /** New member names and the "Ask before pasting" toggle of link group `group`. */
+  /** New member names, the "Ask before pasting" toggle and the lead (`null`: none). */
   editLinkGroup: (
     group: number,
     names: readonly { session: number; name: string }[],
     askFirst: boolean,
-  ) => invoke<null>("edit_link_group", { group, names, askFirst }),
+    lead: number | null,
+  ) => invoke<null>("edit_link_group", { group, names, askFirst, lead }),
+  /** The last messages of link group `group`, newest first; check with `parseLinkHistory`. */
+  linkHistory: (group: number) => invoke<unknown>("link_history", { group }),
   /**
    * The checked text of link message `id` for session `to` (header line first), claimed for
    * this one paste until `closeLinkMessage` or `holdLinkMessage`. `automatic`: pasted without a

@@ -137,6 +137,7 @@ import {
 import { HandoverDialog } from "./HandoverDialog";
 import { PartnerMessageDialog, type PartnerSend, type TargetView } from "./PartnerMessageDialog";
 import { LinkDialog, LinkGroupDialog } from "./LinkDialog";
+import { LinkHistoryDialog } from "./LinkHistoryDialog";
 import {
   BRAKE_WINDOW_MS,
   deliverAutomatically,
@@ -151,9 +152,15 @@ import {
   linkOffer,
   newlyBraked,
   nextDeliveries,
+  parseLinkHistory,
   parseLinkState,
+  templateGroup,
+  templateLinkRequest,
+  templateMembers,
+  type LinkHistoryEntry,
   type LinkMessage,
   type LinkState,
+  type StartedMember,
 } from "./links";
 import { currentPlatform } from "./platform";
 import { deliverMessage, deliveryPlan, parsePartnerTargets } from "./partnerMessage";
@@ -482,6 +489,7 @@ import {
   templateFolders,
   templateReport,
   templateSession,
+  type TemplateLink,
   type TemplateSession,
   type WorkspaceTemplate,
 } from "./templates";
@@ -920,9 +928,12 @@ export function App() {
   const seenWaiting = useRef<Set<number> | null>(null);
   /** Link groups, linkable sessions and their messages (ADR 0014), as the backend keeps them. */
   const [linkState, setLinkState] = useState<LinkState>(EMPTY_LINKS);
-  /** The open link dialog: link a session with others, or edit a group. */
+  /** The open link dialog: link a session with others, edit a group, or read its history. */
   const [linkDialog, setLinkDialog] = useState<
-    { kind: "link"; id: number } | { kind: "edit"; group: number } | null
+    | { kind: "link"; id: number }
+    | { kind: "edit"; group: number }
+    | { kind: "history"; group: number }
+    | null
   >(null);
   /** Held link messages whose paste after a click runs right now. */
   const [linkBusy, setLinkBusy] = useState<ReadonlySet<number>>(() => new Set());
@@ -4667,11 +4678,36 @@ export function App() {
     for (const c of others(current, winnerId, existing)) void close(c.sessionId, true);
   };
   /**
+   * Links the sessions a template started (ADR 0014): the agent sessions among them that got the
+   * send client, with the member names and the lead the template keeps. Answers `null` once they
+   * are linked, else why not.
+   */
+  const linkTemplateSessions = async (
+    template: WorkspaceTemplate,
+    started: readonly StartedMember[],
+  ): Promise<string | null> => {
+    const current = parseLinkState(await api.linkState().catch(() => null));
+    const request = templateLinkRequest(started, current.sendable);
+    if (request === null) return t("links.templateTooFew", { name: template.name });
+    try {
+      await api.linkSessions(request.ids, {
+        names: request.names,
+        lead: request.lead,
+        askFirst: template.askFirst === true,
+      });
+      loadLinksRef.current();
+      return null;
+    } catch (e) {
+      return errorText(e);
+    }
+  };
+  /**
    * Starts every session of a workspace template, one after another so titles number in order.
    * Team sessions stay team sessions only where the folder is still a git repository and the
    * program can be one; programs that are gone are skipped. One message once all were tried:
    * a short hint when everything runs, otherwise one error with the count, the last failure and
-   * the skipped programs. A second click while a template starts does nothing.
+   * the skipped programs. A template that links its sessions links them once all were tried.
+   * A second click while a template starts does nothing.
    */
   const startTemplate = async (id: string) => {
     const template = templates.find((entry) => entry.id === id);
@@ -4686,15 +4722,24 @@ export function App() {
       const plan = planTemplate(template, startable, inRepo);
       let started = 0;
       let lastError: string | null = null;
+      const members: StartedMember[] = [];
       for (const entry of plan.starts) {
         const ok = await start(entry.profile, entry.folder, entry.mode, entry.title, (text) => {
           lastError = text;
         });
-        if (ok !== null) started += 1;
+        if (ok !== null) {
+          started += 1;
+          members.push({ id: ok, memberName: entry.memberName, role: entry.role });
+        }
       }
+      const linkProblem =
+        template.link === true ? await linkTemplateSessions(template, members) : null;
       const report = templateReport(template.sessions.length, started, plan.skipped, lastError);
       if (report.kind === "started") {
-        setStartHint(t("templates.started", { name: template.name }));
+        if (linkProblem !== null) setError(linkProblem);
+        else if (template.link === true) {
+          setStartHint(t("links.templateLinked", { name: template.name }));
+        } else setStartHint(t("templates.started", { name: template.name }));
         return;
       }
       setError(
@@ -4708,6 +4753,7 @@ export function App() {
           report.skipped.length > 0
             ? t("templates.skipped", { names: report.skipped.join(", ") })
             : null,
+          linkProblem,
         ]
           .filter((part): part is string => part !== null)
           .join(" "),
@@ -4716,8 +4762,8 @@ export function App() {
       templateStarting.current = false;
     }
   };
-  const saveTemplate = (name: string, sessions: TemplateSession[]) => {
-    setTemplates((current) => storeTemplate(current, name, sessions));
+  const saveTemplate = (name: string, sessions: TemplateSession[], link: TemplateLink) => {
+    setTemplates((current) => storeTemplate(current, name, sessions, link));
     setTemplateDialog(null);
     setStartHint(t("templates.saved", { name: name.trim() }));
     focusTerminal();
@@ -5538,6 +5584,11 @@ export function App() {
         if (group !== undefined) setLinkDialog({ kind: "edit", group: group.id });
         break;
       }
+      case "linkHistory": {
+        const group = groupOf(linkState, id);
+        if (group !== undefined) setLinkDialog({ kind: "history", group: group.id });
+        break;
+      }
       case "unlink": {
         const group = groupOf(linkState, id);
         if (group !== undefined) api.unlinkGroup(group.id).catch(showError);
@@ -6076,26 +6127,44 @@ export function App() {
   const saveLinkGroup = async (
     names: { session: number; name: string }[],
     askFirst: boolean,
+    lead: number | null,
   ): Promise<string | null> => {
     if (editedGroup === undefined) return null;
     try {
-      await api.editLinkGroup(editedGroup.id, names, askFirst);
+      await api.editLinkGroup(editedGroup.id, names, askFirst, lead);
       closeLinkDialog();
       return null;
     } catch (e) {
       return errorText(e);
     }
   };
-  const linkFromDialog = async (ids: number[]): Promise<string | null> => {
-    const problem = await linkSessions(ids);
+  const linkFromDialog = async (ids: number[], lead: number | null): Promise<string | null> => {
+    const problem = await linkSessions(ids, lead);
     if (problem === null) closeLinkDialog();
     return problem;
   };
-
-  /** Links sessions `ids`; answers why not, or `null` once linked. */
-  const linkSessions = async (ids: readonly number[]): Promise<string | null> => {
+  /** The group the "Group history" dialog shows; gone once the group ended. */
+  const historyGroup =
+    linkDialog?.kind === "history"
+      ? linkState.groups.find((entry) => entry.id === linkDialog.group)
+      : undefined;
+  const historyGroupId = historyGroup?.id;
+  const loadLinkHistory = useCallback(async (): Promise<LinkHistoryEntry[] | string> => {
+    if (historyGroupId === undefined) return [];
     try {
-      await api.linkSessions(ids);
+      return parseLinkHistory(await api.linkHistory(historyGroupId));
+    } catch (e) {
+      return errorText(e);
+    }
+  }, [historyGroupId]);
+
+  /** Links sessions `ids`, with `lead` leading; answers why not, or `null` once linked. */
+  const linkSessions = async (
+    ids: readonly number[],
+    lead: number | null = null,
+  ): Promise<string | null> => {
+    try {
+      await api.linkSessions(ids, { lead });
       loadLinksRef.current();
       return null;
     } catch (e) {
@@ -7454,6 +7523,16 @@ export function App() {
             onClose={closeLinkDialog}
           />
         )}
+        {historyGroup !== undefined && (
+          <LinkHistoryDialog
+            color={historyGroup.color}
+            load={loadLinkHistory}
+            version={linkState.messages}
+            language={settings.language}
+            copy={writeClipboard}
+            onClose={closeLinkDialog}
+          />
+        )}
         {partnerSession !== undefined && (
           <PartnerMessageDialog
             title={partnerSession.title}
@@ -7607,6 +7686,17 @@ export function App() {
             })}
             templates={templates}
             badgeFor={badgeFor}
+            linkable={linkState.sendable}
+            members={templateMembers(
+              linkState,
+              state.sessions.map((session) => session.id),
+            )}
+            askFirst={
+              templateGroup(
+                linkState,
+                state.sessions.map((session) => session.id),
+              )?.askFirst ?? false
+            }
             onSave={saveTemplate}
             onClose={closeTemplateDialog}
           />

@@ -59,6 +59,8 @@ UI texts in `src/i18n.ts` are translated per language and are not bound by this 
 | Mitgliedsname                                   | member name                       | `[a-z0-9-]{1,32}` name of a session in its link group, `hangar-send <name>`          |
 | Schleifenbremse                                 | loop brake                        | at most 6 automatic deliveries per link group and minute, then a click; `Brake`      |
 | Zustellbudget                                   | budget (link group)               | at most 20 automatic deliveries per link group until the person acts; `AUTO_BUDGET`  |
+| Leitung (Link-Gruppe)                           | lead                              | member that hands out tasks and collects results; `hangar-send lead`                 |
+| Verlauf (Link-Gruppe)                           | link history                      | last 200 messages of a link group, in memory until it ends; `History`                |
 | Agenten-Befehl                                  | agent command                     | text the session menu types into a running session, `agent_commands`                 |
 | Kontext komprimieren                            | compact (context)                 | the agent summarizes its conversation (`/compact`), label key `compact`              |
 | Notiz                                           | note                              |                                                                                      |

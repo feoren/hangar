@@ -179,6 +179,7 @@ const COMMANDS: &[&str] = &[
     "hold_link_message",
     "link_person_typed",
     "close_link_message",
+    "link_history",
     "set_panel_session",
     "take_update_results",
     "dictation_status",

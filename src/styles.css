@@ -13944,3 +13944,156 @@ body.session-dragging .session-actions {
   margin-top: 8px;
   color: var(--error);
 }
+
+/* Link groups: the lead, the history and templates that link (ADR 0014, roles, history and
+   templates). The lead's chain carries a small dot in the group's color, apart from the brake's
+   ring. */
+/* The rail's mark is placed absolute already, so the dot finds its place there too. */
+.session-link.lead {
+  position: relative;
+}
+
+.session-link.lead::after,
+.rail-link.lead::after {
+  content: "";
+  position: absolute;
+  top: -1px;
+  right: -2px;
+  width: 5px;
+  height: 5px;
+  border: 1px solid var(--panel);
+  border-radius: 50%;
+  background: currentcolor;
+}
+
+.link-lead {
+  margin-top: 12px;
+}
+
+.link-lead-field {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 12.5px;
+}
+
+.link-lead-field select {
+  flex: 1;
+  min-width: 0;
+}
+
+.link-lead-help {
+  margin: 4px 0 0;
+  font-size: 12px;
+}
+
+.dialog.link-history-dialog {
+  width: min(560px, calc(100vw - 32px));
+}
+
+.link-history-dialog h2 {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.link-history {
+  max-height: min(420px, 60vh);
+  margin: 0;
+  padding: 0;
+  overflow-y: auto;
+  list-style: none;
+}
+
+.link-history-entry + .link-history-entry {
+  border-top: 1px solid var(--border);
+}
+
+.link-history-entry summary {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 6px 4px;
+  border-radius: 5px;
+  cursor: pointer;
+  list-style: none;
+}
+
+.link-history-entry summary::-webkit-details-marker {
+  display: none;
+}
+
+.link-history-entry summary:hover {
+  background: var(--hover);
+}
+
+.link-history-entry summary:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
+}
+
+.link-history-head {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  min-width: 0;
+  font-size: 12px;
+}
+
+.link-history-head time {
+  flex: none;
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}
+
+/* Wraps instead of cutting: sender and target are what a row is for, and names reach 32 chars. */
+.link-history-route {
+  flex: 1;
+  min-width: 0;
+  font-family: var(--mono);
+  overflow-wrap: anywhere;
+}
+
+.link-history-outcome {
+  flex: none;
+  color: var(--muted);
+}
+
+.link-history-entry.discarded .link-history-outcome {
+  color: var(--warn);
+}
+
+.link-history-preview {
+  min-width: 0;
+  overflow: hidden;
+  font-size: 12.5px;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.link-history-entry details[open] .link-history-preview {
+  display: none;
+}
+
+.link-history-text {
+  max-height: 240px;
+  margin: 0 4px 6px;
+  padding: 8px;
+  overflow: auto;
+  border-radius: 5px;
+  background: var(--panel-raised);
+  font-family: var(--mono);
+  font-size: 12px;
+  line-height: 1.45;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.link-history-copy {
+  margin: 0 4px 8px;
+  padding: 3px 12px;
+}
+
+.template-link {
+  margin-top: 12px;
+}

@@ -43,6 +43,7 @@ const MESSAGES: ReadonlyMap<string, MessageKey> = new Map<string, MessageKey>([
   ["link_name", "links.nameInvalid"],
   ["link_name_reserved", "links.nameReserved"],
   ["link_name_taken", "links.nameTwice"],
+  ["link_two_leads", "links.twoLeads"],
   ["link_message_gone", "partnerError.messageGone"],
   ["link_wrong_target", "linkError.wrongTarget"],
   ["link_claimed", "linkError.claimed"],

@@ -18,6 +18,20 @@
         "zh": "关联会话：选择两个或更多正在运行的代理，它们会通过 hangar-send 互相发送消息。彩色链条标出所在的组。"
       },
       {
+        "de": "Link-Gruppen mit Leitung, die Aufgaben verteilt und Ergebnisse sammelt. Dazu ein Verlauf je Gruppe, und Vorlagen verknüpfen ihre Sessions beim Start.",
+        "en": "Link groups with a lead that hands out tasks and collects results, a history per group, and templates that link their sessions on start.",
+        "el": "Ομάδες με επικεφαλής που μοιράζει εργασίες και συγκεντρώνει αποτελέσματα, ιστορικό ανά ομάδα και πρότυπα που συνδέουν τα sessions στην έναρξη.",
+        "es": "Grupos con un líder que reparte tareas y recoge resultados, un historial por grupo y plantillas que vinculan sus sesiones al iniciar.",
+        "fr": "Groupes avec un responsable qui répartit les tâches et rassemble les résultats, un historique par groupe, et des modèles qui relient leurs sessions.",
+        "it": "Gruppi con un capogruppo che assegna i compiti e raccoglie i risultati, una cronologia per gruppo e modelli che collegano le sessioni all’avvio.",
+        "ja": "リーダー付きのグループ：タスクを割り振り結果をまとめます。グループごとの履歴と、起動時にセッションを連携するテンプレートも追加。",
+        "pl": "Grupy z liderem, który rozdziela zadania i zbiera wyniki, historia każdej grupy i szablony, które łączą swoje sesje przy starcie.",
+        "pt": "Grupos com um líder que distribui tarefas e reúne resultados, um histórico por grupo e modelos que vinculam suas sessões ao iniciar.",
+        "ru": "Группы с ведущим, который раздаёт задачи и собирает результаты, история каждой группы и шаблоны, связывающие свои сессии при запуске.",
+        "tr": "Görev dağıtan ve sonuçları toplayan liderli gruplar, grup başına geçmiş ve oturumlarını başlarken bağlayan şablonlar.",
+        "zh": "带负责人的组：负责人分配任务并汇总结果。另有每个组的历史，以及启动时关联会话的模板。"
+      },
+      {
         "de": "Datenfluss: Auf Wunsch fließt Licht die Linien der Sidebar entlang zu arbeitenden Sessions, im Tempo ihrer Ausgabe. Unter Einstellungen > Darstellung.",
         "en": "Data flow: if you like, light flows along the sidebar's lines to working sessions, at the pace of their output. Under Settings > Appearance.",
         "el": "Ροή δεδομένων: αν θέλεις, φως κυλά στις γραμμές της πλαϊνής στήλης προς τις ενεργές συνεδρίες, στον ρυθμό της εξόδου τους. Ρυθμίσεις > Εμφάνιση.",
