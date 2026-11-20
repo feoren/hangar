@@ -208,6 +208,56 @@ jobs:
             cat "$hook"
           done
 
+      # The window, not just the bundle, as on macOS: the AppImage (unpacked by the step above, so
+      # FUSE is not needed) must start on a virtual X display with its own session bus and stay up
+      # for 30 s. The screenshot shows how WebKitGTK draws the first start. Its artifact has its own
+      # name; tools/release.py downloads "linux-bundles" by exact name.
+      - name: Start test
+        run: |
+          set -euo pipefail
+          sudo apt-get install -y xvfb imagemagick dbus
+          shots="$RUNNER_TEMP/linux-start"
+          mkdir -p "$shots"
+          cat > "$RUNNER_TEMP/start-test.sh" <<'EOF'
+          set -u
+          "$RUNNER_TEMP/squashfs-root/AppRun" >"$SHOTS/hangar.log" 2>&1 &
+          pid=$!
+          sleep 30
+          alive=yes
+          kill -0 "$pid" 2>/dev/null || alive=no
+          import -window root "$SHOTS/start-x64.png" || echo "::warning::no screenshot"
+          if [ "$alive" = yes ]; then
+            kill "$pid"
+            wait "$pid" 2>/dev/null || true
+          fi
+          echo "$alive" >"$SHOTS/alive"
+          EOF
+          # Xvfb has no GPU: WebKitGTK's DMA-BUF renderer would fail there, so it draws in shared
+          # memory instead.
+          export WEBKIT_DISABLE_DMABUF_RENDERER=1
+          SHOTS="$shots" dbus-run-session -- \
+            xvfb-run --auto-servernum --server-args="-screen 0 1280x800x24" \
+            bash "$RUNNER_TEMP/start-test.sh"
+          alive=$(cat "$shots/alive")
+          {
+            echo "### Linux start (x64)"
+            echo "- Still running after 30 s: \`$alive\`"
+          } >> "$GITHUB_STEP_SUMMARY"
+          cat "$shots/hangar.log"
+          if [ "$alive" != yes ]; then
+            echo "::error::Hangar ended within 30 s of starting"
+            exit 1
+          fi
+
+      - name: Upload start test
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: linux-start-x64
+          path: ${{ runner.temp }}/linux-start/
+          if-no-files-found: ignore
+          retention-days: 14
+
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: linux-bundles
