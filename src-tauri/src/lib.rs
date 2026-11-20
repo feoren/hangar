@@ -9,6 +9,7 @@ pub mod agent_defs;
 pub mod agent_figures;
 pub mod agent_models;
 pub mod agent_provision;
+pub mod app_menu;
 pub mod arena;
 pub mod avatar;
 pub mod batch;
@@ -129,6 +130,13 @@ pub fn run() -> tauri::Result<()> {
     // exempt (see `single_instance::ENFORCED`).
     if single_instance::ENFORCED {
         builder = builder.plugin(single_instance::plugin());
+    }
+    // Cmd+Q quits through the window, like closing it (app_menu.rs).
+    #[cfg(target_os = "macos")]
+    {
+        builder = builder
+            .menu(app_menu::build)
+            .on_menu_event(app_menu::on_menu_event);
     }
     let app = builder
         // Places the hidden main window where it was and shows it (main_window.rs).
@@ -789,6 +797,16 @@ pub fn run() -> tauri::Result<()> {
         .build(tauri::generate_context!())?;
 
     app.run(|handle, event| {
+        // A click on the Dock icon while the window is hidden (notification area icon on)
+        // brings it back, as a click on that icon does.
+        #[cfg(target_os = "macos")]
+        if let RunEvent::Reopen {
+            has_visible_windows: false,
+            ..
+        } = event
+        {
+            tray::show_main_window(handle);
+        }
         if let RunEvent::Exit = event {
             // First: reaching `Exit` is a clean quit. The steps below may take seconds (team
             // close frames, process trees); Windows ends the process during a shutdown or logoff
