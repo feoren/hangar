@@ -217,6 +217,196 @@ jobs:
           if-no-files-found: error
           retention-days: 14
 
+  # The macOS bundles (ADR 0017): per architecture the .app, signed ad hoc unless an Apple
+  # Developer ID is set up, as the updater archive (.app.tar.gz) plus a .dmg for the download.
+  # Each builds natively: Apple silicon on macos-latest, Intel on the last Intel image. As for
+  # Linux, the updater key never reaches CI: updater artifacts are off and tools/release.py signs
+  # the archive on the owner's machine.
+  macos-bundle:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: macos-latest
+            target: aarch64-apple-darwin
+            arch: aarch64
+            lipo: arm64
+          - runner: macos-26-intel
+            target: x86_64-apple-darwin
+            arch: x64
+            lipo: x86_64
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 60
+    env:
+      # The oldest macOS the bundles run on, for rustc and for whisper.cpp's CMake alike; the same
+      # value as bundle.macOS.minimumSystemVersion.
+      MACOSX_DEPLOYMENT_TARGET: "13.0"
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
+
+      - uses: pnpm/action-setup@b906affcce14559ad1aafd4ab0e942779e9f58b1 # v4.3.0
+
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: 24
+          cache: pnpm
+
+      - uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec # stable
+        with:
+          toolchain: stable
+          targets: ${{ matrix.target }}
+
+      - name: macOS whisper.cpp tools
+        run: |
+          command -v cmake >/dev/null || brew install cmake
+          cmake --version
+
+      - run: pnpm install --frozen-lockfile
+
+      # With an Apple Developer ID, the bundler signs with it and notarizes (Tauri's macOS signing
+      # guide). Only variables with a value are passed on: an empty APPLE_SIGNING_IDENTITY would
+      # replace the ad hoc identity "-" of tauri.conf.json, an empty APPLE_CERTIFICATE would fail
+      # the import. Without the secrets (no account yet, pull requests from forks) nothing is set
+      # and the bundle is signed ad hoc.
+      - name: Apple signing (only with an Apple Developer ID)
+        env:
+          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+          APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          APPLE_API_ISSUER: ${{ secrets.APPLE_API_ISSUER }}
+          APPLE_API_KEY: ${{ secrets.APPLE_API_KEY }}
+          APPLE_API_PRIVATE_KEY: ${{ secrets.APPLE_API_PRIVATE_KEY }}
+        run: |
+          set -euo pipefail
+          if [ -z "$APPLE_SIGNING_IDENTITY" ]; then
+            echo "No Apple Developer ID: the bundle is signed ad hoc and not notarized."
+            exit 0
+          fi
+          for name in APPLE_CERTIFICATE APPLE_CERTIFICATE_PASSWORD APPLE_SIGNING_IDENTITY \
+            APPLE_ID APPLE_PASSWORD APPLE_TEAM_ID APPLE_API_ISSUER APPLE_API_KEY; do
+            value="${!name}"
+            [ -n "$value" ] || continue
+            delimiter="EOF_$(openssl rand -hex 16)"
+            printf '%s<<%s\n%s\n%s\n' "$name" "$delimiter" "$value" "$delimiter" >> "$GITHUB_ENV"
+          done
+          # The App Store Connect key goes in as a file; the bundler takes its path.
+          if [ -n "$APPLE_API_PRIVATE_KEY" ]; then
+            key="$RUNNER_TEMP/AuthKey_${APPLE_API_KEY}.p8"
+            printf '%s\n' "$APPLE_API_PRIVATE_KEY" > "$key"
+            chmod 600 "$key"
+            echo "APPLE_API_KEY_PATH=$key" >> "$GITHUB_ENV"
+          fi
+          echo "Apple Developer ID set: the bundle is signed with it and notarized."
+
+      - name: Build
+        run: >-
+          pnpm tauri build --target ${{ matrix.target }} --bundles app,dmg
+          --config '{"bundle":{"createUpdaterArtifacts":false}}'
+          -- --locked
+
+      # The updater archive is what tauri-bundler writes with updater artifacts on: a gzip tar
+      # with Hangar.app as its only top folder (tauri-plugin-updater 2.14.1 drops the first path
+      # part while extracting). Without macOS metadata: bsdtar would add AppleDouble "._" entries.
+      # The name carries version and arch, so tools/release.py can tell a stale archive.
+      - name: Updater archive
+        run: |
+          set -euo pipefail
+          bundle="$PWD/src-tauri/target/${{ matrix.target }}/release/bundle"
+          version=$(node -p "require('./src-tauri/tauri.conf.json').version")
+          out="$RUNNER_TEMP/macos-bundles"
+          mkdir -p "$out"
+          COPYFILE_DISABLE=1 tar --no-mac-metadata -C "$bundle/macos" \
+            -czf "$out/Hangar_${version}_${{ matrix.arch }}.app.tar.gz" Hangar.app
+          cp "$bundle"/dmg/*.dmg "$out/"
+          ls -la "$out"
+
+      # The checks name what a user's Mac would refuse: hangar-send (ADR 0012) next to the app, the
+      # minimum macOS in the binary and in Info.plist, the architecture, a valid signature with the
+      # microphone entitlement, and an archive that unpacks into the same valid app.
+      - name: Check bundles
+        run: |
+          set -euo pipefail
+          bundle="$PWD/src-tauri/target/${{ matrix.target }}/release/bundle"
+          app="$bundle/macos/Hangar.app"
+          out="$RUNNER_TEMP/macos-bundles"
+          for bin in hangar hangar-send; do
+            if [ ! -x "$app/Contents/MacOS/$bin" ]; then
+              echo "::error::$bin is missing from Hangar.app"
+              exit 1
+            fi
+            archs=$(lipo -archs "$app/Contents/MacOS/$bin")
+            if [ "$archs" != "${{ matrix.lipo }}" ]; then
+              echo "::error::$bin is built for '$archs', not ${{ matrix.lipo }}"
+              exit 1
+            fi
+            minos=$(otool -l "$app/Contents/MacOS/$bin" | awk '/LC_BUILD_VERSION/ {found=1} found && $1 == "minos" {print $2; exit}')
+            if [ "$minos" != "13.0" ]; then
+              echo "::error::$bin needs macOS '$minos', not 13.0"
+              exit 1
+            fi
+          done
+          plist="$app/Contents/Info.plist"
+          [ "$(/usr/libexec/PlistBuddy -c 'Print :LSMinimumSystemVersion' "$plist")" = "13.0" ]
+          /usr/libexec/PlistBuddy -c 'Print :NSMicrophoneUsageDescription' "$plist" >/dev/null
+          codesign --verify --deep --strict --verbose=2 "$app"
+          signature=$(codesign -dv --verbose=4 "$app" 2>&1)
+          echo "$signature"
+          # Under the hardened runtime the microphone needs the entitlement; without the runtime
+          # flag (ad hoc signing may leave it off) macOS asks for the usage text only.
+          entitlements=$(codesign -d --entitlements - --xml "$app" 2>/dev/null || true)
+          if grep -Eq '^CodeDirectory.*flags=.*runtime' <<<"$signature" \
+            && ! grep -q 'com.apple.security.device.audio-input' <<<"$entitlements"; then
+            echo "::error::the hardened signature lacks the audio-input entitlement"
+            exit 1
+          fi
+          # The signed client must start; without arguments it prints its usage.
+          usage=$("$app/Contents/MacOS/hangar-send" </dev/null 2>&1 || true)
+          if ! grep -q 'Usage: hangar-send' <<<"$usage"; then
+            echo "::error::hangar-send does not start: $usage"
+            exit 1
+          fi
+          archive=$(ls "$out"/*.app.tar.gz)
+          listing=$(tar -tzf "$archive")
+          if grep -Eq '(^|/)\._' <<<"$listing" || grep -vq '^Hangar\.app/' <<<"$listing"; then
+            echo "::error::the updater archive holds more than Hangar.app"
+            exit 1
+          fi
+          unpacked="$RUNNER_TEMP/unpacked"
+          mkdir -p "$unpacked"
+          tar -xzf "$archive" -C "$unpacked"
+          codesign --verify --deep --strict "$unpacked/Hangar.app"
+          {
+            echo "### macOS bundle (${{ matrix.arch }})"
+            echo "- Signature: \`$(grep -E '^(Authority|Signature)=' <<<"$signature" | head -n 1)\`"
+            echo "- Minimum macOS: \`13.0\`"
+            ls "$out" | sed 's/^/- /'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: macos-bundles-${{ matrix.arch }}
+          path: ${{ runner.temp }}/macos-bundles/
+          if-no-files-found: error
+          retention-days: 14
+
+  # One artifact "macos-bundles" with both architectures, the one tools/release.py --macos
+  # downloads. The per-arch artifacts stay (deleting them would need write access to Actions).
+  macos-bundles:
+    needs: macos-bundle
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/upload-artifact/merge@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: macos-bundles
+          pattern: macos-bundles-*
+          retention-days: 14
+
   # Known vulnerabilities in the locked dependencies. cargo-audit is installed at a fixed version
   # from its own lock file; it fails on vulnerabilities and only warns about unmaintained crates.
   audit:
