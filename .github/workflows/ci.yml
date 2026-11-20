@@ -235,8 +235,10 @@ jobs:
           # Xvfb has no GPU: WebKitGTK's DMA-BUF renderer would fail there, so it draws in shared
           # memory instead.
           export WEBKIT_DISABLE_DMABUF_RENDERER=1
+          # Without a window manager the 1280x800 window is placed with its corner at the screen's
+          # centre, so the screen is twice its size and the whole window lands on it.
           SHOTS="$shots" dbus-run-session -- \
-            xvfb-run --auto-servernum --server-args="-screen 0 1280x800x24" \
+            xvfb-run --auto-servernum --server-args="-screen 0 2560x1600x24" \
             bash "$RUNNER_TEMP/start-test.sh"
           alive=$(cat "$shots/alive")
           {
