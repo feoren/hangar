@@ -186,6 +186,8 @@ fn commands_are_registered_allowed_and_wired() {
         "dictation_take_text",
         "dictation_install_model",
         "dictation_remove_model",
+        // Only the main window restores sessions and tells about a crash before.
+        "last_exit_was_clean",
     ] {
         assert!(commands.iter().any(|c| c == command), "{command} missing");
         let permission = format!("allow-{}", command.replace('_', "-"));
@@ -398,6 +400,37 @@ fn panel_window_commands_act_on_the_caller_only() {
     }
     assert!(command_body(&commands, "close_panel_window").contains("window.close()"));
     assert!(command_body(&commands, "destroy_panel_window").contains("window.destroy()"));
+}
+
+/// How the previous run ended is the main window's: the command checks the caller, and both
+/// quit hooks remove the marker (the `Exit` event and the resource `cleanup_before_exit` drops).
+#[test]
+fn the_exit_marker_is_the_main_window_s_and_removed_on_quit() {
+    let commands = read("src/commands.rs");
+    assert!(
+        command_body(&commands, "last_exit_was_clean")
+            .contains("main_store::check_main(window.label())?;"),
+        "last_exit_was_clean does not check the caller"
+    );
+    let lib = read("src/lib.rs");
+    let exit = &lib[lib.find("if let RunEvent::Exit = event").unwrap()..];
+    assert!(
+        exit.contains("exit_marker::ExitMarker>>()"),
+        "Exit keeps the marker"
+    );
+    assert!(exit.contains(".disarm()"), "Exit keeps the marker");
+    assert!(
+        lib.contains(".add(exit_marker::DisarmOnCleanup("),
+        "no cleanup hook for quit paths without an Exit event"
+    );
+    // SIGTERM and SIGHUP quit through `Exit` on Unix instead of killing the process.
+    let signals = &lib[lib
+        .find("quit_signal::watch(")
+        .expect("no quit signal handler")..];
+    assert!(
+        signals[..200].contains(".exit(0)"),
+        "a quit signal does not exit"
+    );
 }
 
 /// A file viewer window reads the one file the backend bound to it and nothing else: no

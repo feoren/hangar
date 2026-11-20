@@ -380,6 +380,8 @@ export const api = {
   saveWorkspace: (state: unknown) => invoke<null>("save_workspace", { state }),
   /** Check with `parseWorkspace`. */
   loadWorkspace: () => invoke<unknown>("load_workspace"),
+  /** `false` when the previous run did not quit cleanly (crash, kill, power loss). */
+  lastExitWasClean: () => invoke<unknown>("last_exit_was_clean"),
   saveScrollback: (key: string, data: string) => invoke<null>("save_scrollback", { key, data }),
   loadScrollback: (key: string) => invoke<unknown>("load_scrollback", { key }),
   deleteScrollback: (key: string) => invoke<null>("delete_scrollback", { key }),

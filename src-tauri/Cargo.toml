@@ -189,6 +189,10 @@ arboard = { version = "3.6", default-features = false, features = ["image-data"]
 
 [target.'cfg(unix)'.dependencies]
 libc = "0.2"
+# SIGTERM and SIGHUP end Hangar the clean way (quit_signal.rs). The same tokio as above with its
+# `signal` feature on Unix only; it adds signal-hook-registry (MIT/Apache-2.0, already in the
+# lock file), no new license and nothing on Windows.
+tokio = { version = "1", default-features = false, features = ["signal"] }
 
 [target.'cfg(target_os = "linux")'.dependencies]
 # Desktop notifications (notify.rs) through org.freedesktop.Notifications. zbus (pure Rust D-Bus,

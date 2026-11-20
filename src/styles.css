@@ -9961,6 +9961,23 @@ body.session-dragging .session-actions {
   border-color: color-mix(in srgb, var(--warn) 60%, transparent);
 }
 
+/* After restoring a run that did not quit cleanly (CrashNotice.tsx): text left, close at its end;
+   the sessions that did not come back whole on muted lines below the headline. */
+.link-notice.crash-notice {
+  flex-direction: row;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 8px 6px 8px 14px;
+}
+
+.crash-notice-detail {
+  display: block;
+  margin-top: 4px;
+  color: var(--muted);
+  overflow-wrap: anywhere;
+}
+
 @media (prefers-reduced-motion: no-preference) {
   .link-notice.start-hint {
     animation: start-hint-in 160ms ease-out;

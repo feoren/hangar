@@ -29,6 +29,7 @@ pub mod desktop;
 pub mod dictation;
 pub mod exe_image;
 pub mod exec_alias;
+pub mod exit_marker;
 pub mod export;
 pub mod file_tree;
 pub mod file_viewer;
@@ -72,6 +73,8 @@ pub mod profile;
 pub mod profile_edit;
 pub mod project_notes;
 pub mod push;
+#[cfg(unix)]
+pub mod quit_signal;
 pub mod report;
 pub mod resolve;
 pub mod resources;
@@ -134,6 +137,26 @@ pub fn run() -> tauri::Result<()> {
         .plugin(tauri_plugin_clipboard_manager::init())
         .on_window_event(tray::on_window_event)
         .setup(|app| {
+            // First, before anything that could crash: the marker tells the next start whether
+            // this run quit cleanly (exit_marker.rs). A second release instance never gets here,
+            // the single instance plugin ends it before `setup`.
+            let marker_dir = app.path().app_local_data_dir();
+            if let Err(error) = &marker_dir {
+                eprintln!("hangar: exit marker not used: {error}");
+            }
+            let marker =
+                std::sync::Arc::new(exit_marker::ExitMarker::arm(marker_dir.ok().as_deref()));
+            // Quit paths without an `Exit` event still clear the resource table.
+            app.resources_table()
+                .add(exit_marker::DisarmOnCleanup(marker.clone()));
+            app.manage(marker);
+            // Shutdown, logoff and service managers send SIGTERM or SIGHUP: quit as after Quit, so
+            // the `Exit` handler removes the marker and ends the sessions in order.
+            #[cfg(unix)]
+            {
+                let quitting = app.handle().clone();
+                quit_signal::watch(move |_| quitting.exit(0));
+            }
             let home = app.path().home_dir()?;
             let config_dir = app.path().app_config_dir()?;
             let profile_path = config_dir.join(profile::FILE_NAME);
@@ -573,6 +596,7 @@ pub fn run() -> tauri::Result<()> {
             commands::open_hangar_md,
             commands::save_workspace,
             commands::load_workspace,
+            commands::last_exit_was_clean,
             commands::save_scrollback,
             commands::load_scrollback,
             commands::delete_scrollback,
@@ -754,6 +778,12 @@ pub fn run() -> tauri::Result<()> {
 
     app.run(|handle, event| {
         if let RunEvent::Exit = event {
+            // First: reaching `Exit` is a clean quit. The steps below may take seconds (team
+            // close frames, process trees); Windows ends the process during a shutdown or logoff
+            // after a few seconds, which must not leave the marker for a false crash notice.
+            handle
+                .state::<std::sync::Arc<exit_marker::ExitMarker>>()
+                .disarm();
             // The microphone closes with the app.
             handle.state::<dictation::DictationService>().stop();
             // Do not let any agent outlive the app.

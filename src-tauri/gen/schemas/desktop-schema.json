@@ -639,6 +639,12 @@
           "markdownDescription": "Enables the kill_session command without any pre-configured scope."
         },
         {
+          "description": "Enables the last_exit_was_clean command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-last-exit-was-clean",
+          "markdownDescription": "Enables the last_exit_was_clean command without any pre-configured scope."
+        },
+        {
           "description": "Enables the link_message_text command without any pre-configured scope.",
           "type": "string",
           "const": "allow-link-message-text",
@@ -1807,6 +1813,12 @@
           "type": "string",
           "const": "deny-kill-session",
           "markdownDescription": "Denies the kill_session command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the last_exit_was_clean command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-last-exit-was-clean",
+          "markdownDescription": "Denies the last_exit_was_clean command without any pre-configured scope."
         },
         {
           "description": "Denies the link_message_text command without any pre-configured scope.",
