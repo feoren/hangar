@@ -119,6 +119,48 @@ describe("LinkDialog", () => {
     );
     expect(html).toContain("Gerade kann keine andere Session verknüpft werden.");
     expect(html).not.toContain('type="checkbox"');
+    // Nothing to select: no tip about selecting.
+    expect(html).not.toContain("+Klick");
+  });
+
+  it("says what a lead does only once one is picked", () => {
+    const leadHelp = "The lead hands out tasks";
+    const html = render(
+      <LinkGroupDialog
+        group={{
+          id: 1,
+          color: 0,
+          askFirst: false,
+          braked: false,
+          members: [
+            { session: 1, name: "app", role: "member" },
+            { session: 2, name: "web", role: "member" },
+          ],
+        }}
+        titleOf={(id) => `s${String(id)}`}
+        onSave={none}
+        onClose={() => undefined}
+      />,
+    );
+    expect(html).not.toContain(leadHelp);
+    const led = render(
+      <LinkGroupDialog
+        group={{
+          id: 1,
+          color: 0,
+          askFirst: false,
+          braked: false,
+          members: [
+            { session: 1, name: "app", role: "lead" },
+            { session: 2, name: "web", role: "member" },
+          ],
+        }}
+        titleOf={(id) => `s${String(id)}`}
+        onSave={none}
+        onClose={() => undefined}
+      />,
+    );
+    expect(led).toContain(leadHelp);
   });
 });
 

@@ -15,6 +15,8 @@ export const LINK_COLORS = 6;
 export const MAX_LINK_MEMBERS = 8;
 /** The loop brake's window and the quiet time that releases it (backend `BRAKE_WINDOW_MS`). */
 export const BRAKE_WINDOW_MS = 60_000;
+/** A paste's claim nobody closed or freed runs out after this (backend `CLAIM_TIMEOUT_MS`). */
+export const CLAIM_TIMEOUT_MS = 120_000;
 /** Names every other member in `hangar-send all`; no member carries it (backend `ALL`). */
 export const ALL_MEMBERS = "all";
 /** Names the group's lead in `hangar-send lead`; no member carries it (backend `LEAD`). */
@@ -261,11 +263,16 @@ export function linkColor(color: number): string {
 }
 
 /** The messages that wait for a click, per target row, oldest first. */
-export function heldBySession(messages: readonly LinkMessage[]): Map<number, LinkMessage[]> {
+export function heldBySession(
+  messages: readonly LinkMessage[],
+  /** Messages whose automatic delivery runs in this window right now. */
+  delivering: ReadonlySet<number> = new Set(),
+): Map<number, LinkMessage[]> {
   const rows = new Map<number, LinkMessage[]>();
   for (const entry of messages) {
-    // A claimed one is being pasted; its card would offer a second paste.
-    if (entry.auto || entry.claimed) continue;
+    // A claimed one is being pasted; its card would offer a second paste. So would one whose
+    // slow automatic paste outlasted the backend's claim (`CLAIM_TIMEOUT_MS`).
+    if (entry.auto || entry.claimed || delivering.has(entry.id)) continue;
     const list = rows.get(entry.to);
     if (list === undefined) rows.set(entry.to, [entry]);
     else list.push(entry);

@@ -17,6 +17,7 @@ import { gateHint } from "./gate";
 import { LinkMarkSign, linkMarkText } from "./LinkMark";
 import { toggleSelection, type LinkMark } from "./links";
 import { queuedPreview, type QueuedMessage } from "./messageQueue";
+import type { CardSend } from "./messageCard";
 import type { WaitingMessage } from "./partnerInbox";
 import { WaitingMessages } from "./WaitingMessages";
 import { peekNotes } from "./peek";
@@ -292,11 +293,12 @@ interface Props {
   queued: ReadonlyMap<number, QueuedMessage>;
   /** Messages agents of partner projects sent, per row that shows them (partnerInbox.ts). */
   inbox: ReadonlyMap<number, readonly WaitingMessage[]>;
-  /** Waiting messages whose paste runs right now. */
-  inboxBusy: ReadonlySet<number>;
-  /** Counts the changes of the waiting messages; every card arms anew on each one. */
-  inboxGeneration: number;
+  /** Waiting messages whose send from their card runs right now (messageCard.ts). */
+  inboxSends: ReadonlyMap<number, CardSend>;
+  /** Changes whenever any card appears or goes; every card arms anew on each change. */
+  cardsKey: string;
   onInboxPaste: (sessionId: number, messageId: number, submit: boolean) => void;
+  onInboxCancel: (messageId: number) => void;
   onInboxDiscard: (messageId: number) => void;
   /** Members of link groups: the chain on each row (links.ts `linkMarks`). */
   links: ReadonlyMap<number, LinkMark>;
@@ -306,9 +308,10 @@ interface Props {
   onLinkSessions: (ids: number[]) => void;
   /** Link messages that wait for a click, per target row ("Ask before pasting", loop brake). */
   linkInbox: ReadonlyMap<number, readonly WaitingMessage[]>;
-  /** Link messages whose paste runs right now. */
-  linkBusy: ReadonlySet<number>;
+  /** Link messages whose send from their card runs right now (messageCard.ts). */
+  linkSends: ReadonlyMap<number, CardSend>;
   onLinkPaste: (sessionId: number, messageId: number, submit: boolean) => void;
+  onLinkCancel: (messageId: number) => void;
   onLinkDiscard: (messageId: number) => void;
   /** Working agent sessions that showed nothing new for a while: since when (stall.ts). */
   stalls: ReadonlyMap<number, number>;
@@ -1062,11 +1065,13 @@ export function Sidebar(props: Props) {
                   <li className="waiting-messages-row">
                     <WaitingMessages
                       messages={props.inbox.get(session.id) ?? []}
-                      busy={props.inboxBusy}
-                      generation={props.inboxGeneration}
-                      onPaste={(messageId, submit) => {
+                      sends={props.inboxSends}
+                      generation={props.cardsKey}
+                      language={props.language}
+                      onSend={(messageId, submit) => {
                         props.onInboxPaste(session.id, messageId, submit);
                       }}
+                      onCancel={props.onInboxCancel}
                       onDiscard={props.onInboxDiscard}
                     />
                   </li>
@@ -1076,11 +1081,13 @@ export function Sidebar(props: Props) {
                   <li className="waiting-messages-row">
                     <WaitingMessages
                       messages={props.linkInbox.get(session.id) ?? []}
-                      busy={props.linkBusy}
-                      generation={props.inboxGeneration}
-                      onPaste={(messageId, submit) => {
+                      sends={props.linkSends}
+                      generation={props.cardsKey}
+                      language={props.language}
+                      onSend={(messageId, submit) => {
                         props.onLinkPaste(session.id, messageId, submit);
                       }}
+                      onCancel={props.onLinkCancel}
                       onDiscard={props.onLinkDiscard}
                     />
                   </li>

@@ -249,8 +249,10 @@ impl LinkService {
     }
 
     /// `unattended`: whether a session's agent runs without asking before tools.
+    /// A claim that ran out shows as a card again ([`LinkQueue::release_stale`]).
     pub fn snapshot(&self, now: i64, unattended: &dyn Fn(SessionId) -> bool) -> LinkSnapshot {
-        let state = lock(&self.inner.state);
+        let mut state = lock(&self.inner.state);
+        state.queue.release_stale(now);
         LinkSnapshot {
             unattended: state
                 .sendable
@@ -497,6 +499,7 @@ impl LinkService {
             info.id == to && info.kind == SessionKind::Agent && info.status == Status::Running
         });
         let mut state = lock(&self.inner.state);
+        state.queue.release_stale(now);
         let message = state.queue.get(id).cloned().ok_or(LinkError::MessageGone)?;
         if message.to != to || !runs {
             return Err(LinkError::WrongTarget.into());
@@ -517,7 +520,7 @@ impl LinkService {
         } else if group.is_some() {
             state.links.person_acted(message.group)?;
         }
-        state.queue.claim(id)?;
+        state.queue.claim(id, now)?;
         drop(state);
         self.signal();
         let from = message
@@ -840,7 +843,7 @@ mod tests {
     use std::path::{Path, PathBuf};
     use std::sync::atomic::{AtomicUsize, Ordering};
 
-    use crate::links::{BRAKE_LIMIT, MAX_WAITING_PER_TARGET};
+    use crate::links::{BRAKE_LIMIT, CLAIM_TIMEOUT_MS, MAX_WAITING_PER_TARGET};
     use crate::main_store::MainStore;
     use crate::partners::ProjectEnd;
 
@@ -1552,6 +1555,38 @@ mod tests {
         ));
         assert!(links.text_for(intro.id, 1, &sessions(), false, 0).is_ok());
         links.close(intro.id, true, 0).unwrap();
+    }
+
+    #[test]
+    fn a_claim_nobody_closes_turns_into_a_card_again() {
+        // The window claims a message, then neither closes nor frees it (reloaded mid-paste, a
+        // lost answer): before, it stayed claimed for good, invisible and taking a place.
+        let (links, _) = service();
+        links
+            .link(&[1, 2], &sessions(), &facts, 0, &LinkRequest::default())
+            .unwrap();
+        let intro = links.snapshot(0, &attended).messages[0].clone();
+        assert!(links.text_for(intro.id, 1, &sessions(), true, 0).is_ok());
+        let early = CLAIM_TIMEOUT_MS - 1;
+        assert!(links.snapshot(early, &attended).messages[0].claimed);
+        assert!(matches!(
+            links.text_for(intro.id, 1, &sessions(), false, early),
+            Err(LinkServiceError::Link(LinkError::Claimed))
+        ));
+        let late = CLAIM_TIMEOUT_MS;
+        let shown = links.snapshot(late, &attended).messages[0].clone();
+        assert!(
+            !shown.claimed && !shown.auto,
+            "a card that waits for a click"
+        );
+        // Never again on its own; the person's click claims it anew.
+        assert!(matches!(
+            links.text_for(intro.id, 1, &sessions(), true, late),
+            Err(LinkServiceError::Link(LinkError::Held))
+        ));
+        assert!(links
+            .text_for(intro.id, 1, &sessions(), false, late)
+            .is_ok());
     }
 
     #[test]

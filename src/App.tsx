@@ -140,6 +140,7 @@ import { LinkDialog, LinkGroupDialog } from "./LinkDialog";
 import { LinkHistoryDialog } from "./LinkHistoryDialog";
 import {
   BRAKE_WINDOW_MS,
+  CLAIM_TIMEOUT_MS,
   deliverAutomatically,
   EMPTY_LINKS,
   groupOf,
@@ -162,6 +163,15 @@ import {
   type LinkState,
   type StartedMember,
 } from "./links";
+import {
+  CardSends,
+  cardNotice,
+  discardFromCard,
+  latestOnly,
+  pruneHidden,
+  sendFromCard,
+  type CardSend,
+} from "./messageCard";
 import { currentPlatform } from "./platform";
 import { deliverMessage, deliveryPlan, parsePartnerTargets } from "./partnerMessage";
 import {
@@ -921,12 +931,16 @@ export function App() {
   const [partnerBook, setPartnerBook] = useState<PartnerBook>(EMPTY_BOOK);
   /** Messages agents of partner projects sent that wait for the person (partnerInbox.ts). */
   const [waitingMessages, setWaitingMessages] = useState<WaitingMessage[]>([]);
-  /** Waiting messages whose paste runs right now. */
-  const [inboxBusy, setInboxBusy] = useState<ReadonlySet<number>>(() => new Set());
-  /** Counts the changes of the waiting messages: every card arms anew (WaitingMessages.tsx). */
-  const [inboxGeneration, setInboxGeneration] = useState(0);
-  /** The ids of the last list read, to tell a change from the same list read again. */
-  const lastWaitingIds = useRef("");
+  /** Waiting messages whose send from their card runs right now (messageCard.ts). */
+  const [inboxSends, setInboxSends] = useState<ReadonlyMap<number, CardSend>>(() => new Map());
+  const [inboxRuns] = useState(() => new CardSends(setInboxSends));
+  /** Waiting messages the person discarded; hidden until the backend no longer lists them. */
+  const [hiddenWaiting, setHiddenWaiting] = useState<ReadonlySet<number>>(() => new Set());
+  /** The waiting messages for the delivery loops, which outlive a render. */
+  const waitingRef = useRef(waitingMessages);
+  useEffect(() => {
+    waitingRef.current = waitingMessages;
+  });
   /** The waiting messages already seen, so an arrival is announced once. */
   const seenWaiting = useRef<Set<number> | null>(null);
   /** Link groups, linkable sessions and their messages (ADR 0014), as the backend keeps them. */
@@ -938,10 +952,20 @@ export function App() {
     | { kind: "history"; group: number }
     | null
   >(null);
-  /** Held link messages whose paste after a click runs right now. */
-  const [linkBusy, setLinkBusy] = useState<ReadonlySet<number>>(() => new Set());
+  /** Held link messages whose send from their card runs right now (messageCard.ts). */
+  const [linkSends, setLinkSends] = useState<ReadonlyMap<number, CardSend>>(() => new Map());
+  const [linkRuns] = useState(() => new CardSends(setLinkSends));
+  /** Held link messages the person discarded; hidden until the backend no longer lists them. */
+  const [hiddenLinks, setHiddenLinks] = useState<ReadonlySet<number>>(() => new Set());
   /** Targets whose automatic delivery runs right now: one message at a time per target. */
   const linkDelivering = useRef<Set<number>>(new Set());
+  /**
+   * Messages whose automatic delivery runs right now. A slow paste can outlast the backend's claim
+   * (links.rs `CLAIM_TIMEOUT_MS`); such a message gets no card and no click, or it went in twice.
+   */
+  const linkDeliveringIds = useRef<Set<number>>(new Set());
+  /** The same ids for the render, which must not read a ref. */
+  const [deliveringIds, setDeliveringIds] = useState<ReadonlySet<number>>(() => new Set());
   /** The link groups for listeners outside React (the terminals' key handlers). */
   const linkStateRef = useRef(linkState);
   useEffect(() => {
@@ -1295,35 +1319,62 @@ export function App() {
     setError(errorText(e));
   }, []);
 
-  /** Reads the waiting messages (on start and after each `partner-messages-changed`). */
-  const loadWaitingRef = useRef(() => {
-    api
-      .waitingMessages()
-      .then((value) => {
+  /**
+   * Reads the waiting messages (on start, after each `partner-messages-changed` and after every
+   * action on a card). Reads can overlap; an older answer never overwrites a newer one. A
+   * discarded card stays hidden only until the list no longer has its message.
+   */
+  const loadWaitingRef = useRef(
+    latestOnly(
+      () => api.waitingMessages(),
+      (value) => {
         const next = parseWaitingMessages(value);
-        const ids = next.map((message) => message.id).join(",");
-        if (ids !== lastWaitingIds.current) {
-          lastWaitingIds.current = ids;
-          setInboxGeneration((generation) => generation + 1);
-        }
         setWaitingMessages(next);
-      })
-      .catch((e: unknown) => {
+        setHiddenWaiting((hidden) =>
+          pruneHidden(
+            hidden,
+            next.map((message) => message.id),
+          ),
+        );
+      },
+      (e: unknown) => {
         setError(errorText(e));
-      });
-  });
+      },
+    ),
+  );
 
-  /** Reads the link groups (on start and after each `link-groups-changed`). */
-  const loadLinksRef = useRef(() => {
-    api
-      .linkState()
-      .then((value) => {
-        setLinkState(parseLinkState(value));
-      })
-      .catch((e: unknown) => {
+  /** Reads the link groups (on start, after each `link-groups-changed` and after card actions). */
+  const loadLinksRef = useRef(
+    latestOnly(
+      () => api.linkState(),
+      (value) => {
+        const next = parseLinkState(value);
+        setLinkState(next);
+        setHiddenLinks((hidden) =>
+          pruneHidden(
+            hidden,
+            next.messages.map((message) => message.id),
+          ),
+        );
+      },
+      (e: unknown) => {
         setError(errorText(e));
-      });
-  });
+      },
+    ),
+  );
+
+  // A claim the window never closed runs out in the backend (links.rs `CLAIM_TIMEOUT_MS`) without
+  // an event: read again then, so its card comes back.
+  const anyClaimed = linkState.messages.some((message) => message.claimed);
+  useEffect(() => {
+    if (!anyClaimed) return;
+    const timer = window.setTimeout(() => {
+      loadLinksRef.current();
+    }, CLAIM_TIMEOUT_MS + 1000);
+    return () => {
+      window.clearTimeout(timer);
+    };
+  }, [anyClaimed, linkState.messages]);
 
   // A new message no row can show (no agent session runs in its project) is named once; one a
   // row shows speaks for itself. After a restart that includes the messages that still wait.
@@ -5011,7 +5062,12 @@ export function App() {
   const profileById = new Map(profiles.map((profile) => [profile.id, profile]));
   /** Link messages that wait for a click, as cards below their target's row. */
   const linkInboxRows = new Map(
-    [...heldBySession(linkState.messages)].map(([to, list]) => [
+    [
+      ...heldBySession(
+        linkState.messages.filter((message) => !hiddenLinks.has(message.id)),
+        deliveringIds,
+      ),
+    ].map(([to, list]) => [
       to,
       list.map((message) => ({
         id: message.id,
@@ -5029,11 +5085,19 @@ export function App() {
   );
   /** Where messages from partner projects wait: on each running agent session of their project. */
   const inboxRows = inboxBySession(
-    waitingMessages,
+    waitingMessages.filter((message) => !hiddenWaiting.has(message.id)),
     partnerBook,
     state.sessions,
     (profileId) => profileById.get(profileId)?.command,
   );
+  /** Every card on screen, row by row: when one appears or goes, all arm anew. */
+  const cardsKey = [inboxRows, linkInboxRows]
+    .map((rows) =>
+      [...rows]
+        .map(([to, list]) => `${String(to)}:${list.map((m) => String(m.id)).join(".")}`)
+        .join(","),
+    )
+    .join("|");
   const badgeFor = (profileId: string) =>
     resolveBadge(
       profileId,
@@ -5898,6 +5962,8 @@ export function App() {
         showError(result.error);
         unsent(name);
         break;
+      // A message sent by hand has no "Cancel"; listed so every way the delivery ends is named.
+      case "cancelled":
       case "gone":
       case "pasteFailed":
         // A failed paste is reported by the terminal itself; no Enter follows.
@@ -5907,127 +5973,134 @@ export function App() {
   };
 
   /**
-   * Pastes waiting message `id` into session `to` after the person's click (ADR 0012, decision
-   * point 4), the same way as a message sent by hand: held while the target works, pasted once it
-   * can take a paste, Enter only for "Paste and send". The backend checks the target again and
-   * heads the text; the message goes only once it was pasted, so a failed try leaves it waiting.
+   * Delivers the message of a card below row `to` after the person's click (ADR 0012, decision
+   * point 4; ADR 0014), the way a message sent by hand goes: held while the target works, pasted
+   * once it can take a paste, Enter for "Send". Until the paste begins the card says that it
+   * waits, with "Cancel" (messageCard.ts). The backend checks the target again and heads the
+   * text; the message goes only once it was pasted, and the list is read again whatever
+   * happened, so the card never outlives its message. A message that left the list meanwhile
+   * (discarded, its group unlinked) ends the wait without a word.
    */
-  const pasteWaiting = async (to: number, id: number, submit: boolean) => {
-    if (inboxBusy.has(id)) return;
-    const terminal = terminals.get(to);
-    if (!terminal) return;
-    const name = titleOf(to);
-    const gone = () => terminals.get(to) !== terminal;
-    setInboxBusy((current) => new Set(current).add(id));
+  const sendCardMessage = async (card: {
+    runs: CardSends;
+    to: number;
+    id: number;
+    submit: boolean;
+    /** The backend still lists the message. */
+    listed: () => boolean;
+    prepare: () => Promise<string>;
+    close: () => Promise<void>;
+    release?: () => Promise<void>;
+    reload: () => void;
+  }) => {
+    const terminal = terminals.get(card.to);
+    const name = titleOf(card.to);
+    if (!terminal) {
+      setStartHint(t("partner.unsent", { session: name }));
+      return;
+    }
+    if (!card.runs.start(card.id, card.submit, name)) return;
+    const gone = () => terminals.get(card.to) !== terminal || !card.listed();
+    const cancelled = () => card.runs.cancelled(card.id);
     try {
-      const result = await deliverMessage(
-        {
-          working: () => terminal.attention.state === "working",
-          gone,
-          onHeld: () => {
-            setStartHint(t("partner.held", { session: name }));
-          },
-          ready: () =>
-            waitUntilReady(
-              {
-                bracketedPaste: () => terminal.bracketedPaste(),
-                quietFor: () => {
-                  const last = terminal.activity().lastOutput;
-                  return last === null ? null : Date.now() - last;
-                },
-                gone,
+      const result = await sendFromCard({
+        deliver: () =>
+          deliverMessage(
+            {
+              working: () => terminal.attention.state === "working",
+              gone,
+              cancelled,
+              // The card itself says that the message waits.
+              onHeld: () => undefined,
+              onSending: () => {
+                card.runs.sending(card.id);
               },
-              delay,
-            ),
-          bracketedPaste: () => terminal.bracketedPaste(),
-          prepare: () => api.waitingMessageText(id, to),
-          paste: (text) => terminal.pasteAndWait(text),
-          submit: () => {
-            terminal.submit();
-          },
-          wait: delay,
-        },
-        submit,
-        BROADCAST_ENTER_DELAY_MS,
-      );
-      switch (result.kind) {
-        case "pasted":
-          await api.closeWaitingMessage(id, to).catch(showError);
-          if (!submit) {
-            dispatch({ type: "activated", id: to });
-            focusTerminal();
-          }
-          break;
-        case "notReady":
-          setStartHint(t("partner.notReady", { session: name }));
-          break;
-        case "refused":
-          showError(result.error);
-          break;
-        case "gone":
-        case "pasteFailed":
-          setStartHint(t("partner.unsent", { session: name }));
-          break;
+              ready: () =>
+                waitUntilReady(
+                  {
+                    bracketedPaste: () => terminal.bracketedPaste(),
+                    quietFor: () => {
+                      const last = terminal.activity().lastOutput;
+                      return last === null ? null : Date.now() - last;
+                    },
+                    gone: () => gone() || cancelled(),
+                  },
+                  delay,
+                ),
+              bracketedPaste: () => terminal.bracketedPaste(),
+              prepare: card.prepare,
+              paste: (text) => terminal.pasteAndWait(text),
+              submit: () => {
+                terminal.submit();
+              },
+              wait: delay,
+            },
+            card.submit,
+            BROADCAST_ENTER_DELAY_MS,
+          ),
+        close: card.close,
+        ...(card.release === undefined ? {} : { release: card.release }),
+        reload: card.reload,
+        showError,
+      });
+      const notice = cardNotice(result, !card.listed());
+      if (notice.kind === "hint") setStartHint(t(notice.key, { session: name }));
+      else if (notice.kind === "error") showError(notice.error);
+      else if (result.kind === "pasted" && !card.submit) {
+        // Only pasted: the person goes on typing there.
+        dispatch({ type: "activated", id: card.to });
+        focusTerminal();
       }
     } finally {
-      setInboxBusy((current) => {
-        const next = new Set(current);
-        next.delete(id);
-        return next;
-      });
+      card.runs.finish(card.id);
     }
+  };
+
+  /** Sends waiting partner message `id` into session `to`; Enter only when `submit`. */
+  const pasteWaiting = (to: number, id: number, submit: boolean) =>
+    sendCardMessage({
+      runs: inboxRuns,
+      to,
+      id,
+      submit,
+      listed: () => waitingRef.current.some((message) => message.id === id),
+      prepare: () => api.waitingMessageText(id, to),
+      close: () => api.closeWaitingMessage(id, to).then(() => undefined),
+      reload: () => {
+        loadWaitingRef.current();
+      },
+    });
+
+  /** A card's discard: hidden at once, removed in the backend, the list read again. */
+  const discardCard = (
+    id: number,
+    setHidden: (update: (hidden: ReadonlySet<number>) => ReadonlySet<number>) => void,
+    close: () => Promise<unknown>,
+    reload: () => void,
+  ) => {
+    void discardFromCard({
+      hide: () => {
+        setHidden((hidden) => new Set(hidden).add(id));
+      },
+      unhide: () => {
+        setHidden((hidden) => new Set([...hidden].filter((entry) => entry !== id)));
+      },
+      close: () => close().then(() => undefined),
+      reload,
+      showError,
+    });
   };
 
   /** Discards waiting message `id`; nothing of it stays. */
   const discardWaiting = (id: number) => {
-    api.closeWaitingMessage(id, null).catch(showError);
-  };
-
-  /**
-   * Pastes link message `message` into its target after the person's click, the way a partner
-   * message is pasted (ADR 0014): held while the target works, pasted once it can take a paste,
-   * then Enter when `submit`. The backend checks the target again, heads the text and claims the
-   * message; it goes once it was pasted, and a paste that did not get through frees it again.
-   */
-  const pasteLinkMessage = async (message: LinkMessage, submit: boolean) => {
-    const terminal = terminals.get(message.to);
-    if (!terminal) return { kind: "gone" } as const;
-    const gone = () => terminals.get(message.to) !== terminal;
-    const result = await deliverMessage(
-      {
-        working: () => terminal.attention.state === "working",
-        gone,
-        onHeld: () => undefined,
-        ready: () =>
-          waitUntilReady(
-            {
-              bracketedPaste: () => terminal.bracketedPaste(),
-              quietFor: () => {
-                const last = terminal.activity().lastOutput;
-                return last === null ? null : Date.now() - last;
-              },
-              gone,
-            },
-            delay,
-          ),
-        bracketedPaste: () => terminal.bracketedPaste(),
-        prepare: () => api.linkMessageText(message.id, message.to, false),
-        paste: (text) => terminal.pasteAndWait(text),
-        submit: () => {
-          terminal.submit();
-        },
-        wait: delay,
+    discardCard(
+      id,
+      setHiddenWaiting,
+      () => api.closeWaitingMessage(id, null),
+      () => {
+        loadWaitingRef.current();
       },
-      submit,
-      BROADCAST_ENTER_DELAY_MS,
     );
-    if (result.kind === "pasted") {
-      await api.closeLinkMessage(message.id, message.to).catch(showError);
-    } else if (result.kind !== "refused") {
-      // Claimed by `prepare`, not pasted: free it for the next click.
-      await api.holdLinkMessage(message.id).catch(() => undefined);
-    }
-    return result;
   };
 
   /**
@@ -6041,6 +6114,8 @@ export function App() {
     const terminal = terminals.get(message.to);
     if (!terminal) return;
     linkDelivering.current.add(message.to);
+    linkDeliveringIds.current.add(message.id);
+    setDeliveringIds(new Set(linkDeliveringIds.current));
     const gone = () => terminals.get(message.to) !== terminal;
     try {
       const intro = message.fromName === null;
@@ -6086,6 +6161,9 @@ export function App() {
       }
     } finally {
       linkDelivering.current.delete(message.to);
+      linkDeliveringIds.current.delete(message.id);
+      setDeliveringIds(new Set(linkDeliveringIds.current));
+      // Also brings back the card of a message whose claim ran out meanwhile.
       loadLinksRef.current();
     }
   };
@@ -6105,44 +6183,39 @@ export function App() {
     }
   }, [linkState.messages]);
 
-  /** Pastes held link message `id` into session `to` after the person's click. */
+  /**
+   * Sends held link message `id` into session `to` after the person's click. The backend claims
+   * it for the paste; one that did not go in is freed for the next click. One whose automatic
+   * delivery still runs here is refused: it is being pasted already.
+   */
   const pasteHeldLink = async (to: number, id: number, submit: boolean) => {
-    const message = linkState.messages.find((entry) => entry.id === id && entry.to === to);
-    if (message === undefined || linkBusy.has(id)) return;
-    setLinkBusy((current) => new Set(current).add(id));
-    try {
-      const result = await pasteLinkMessage(message, submit);
-      const name = titleOf(to);
-      switch (result.kind) {
-        case "pasted":
-          if (!submit) {
-            dispatch({ type: "activated", id: to });
-            focusTerminal();
-          }
-          break;
-        case "notReady":
-          setStartHint(t("partner.notReady", { session: name }));
-          break;
-        case "refused":
-          showError(result.error);
-          break;
-        case "gone":
-        case "pasteFailed":
-          setStartHint(t("partner.unsent", { session: name }));
-          break;
-      }
-    } finally {
-      setLinkBusy((current) => {
-        const next = new Set(current);
-        next.delete(id);
-        return next;
-      });
-    }
+    if (linkDeliveringIds.current.has(id)) return;
+    await sendCardMessage({
+      runs: linkRuns,
+      to,
+      id,
+      submit,
+      listed: () =>
+        linkStateRef.current.messages.some((message) => message.id === id && message.to === to),
+      prepare: () => api.linkMessageText(id, to, false),
+      close: () => api.closeLinkMessage(id, to).then(() => undefined),
+      release: () => api.holdLinkMessage(id).then(() => undefined),
+      reload: () => {
+        loadLinksRef.current();
+      },
+    });
   };
 
-  /** Discards held link message `id`; nothing of it stays. */
+  /** Discards held link message `id`; nothing of it stays but its line in the group's history. */
   const discardLink = (id: number) => {
-    api.closeLinkMessage(id, null).catch(showError);
+    discardCard(
+      id,
+      setHiddenLinks,
+      () => api.closeLinkMessage(id, null),
+      () => {
+        loadLinksRef.current();
+      },
+    );
   };
 
   const closeLinkDialog = () => {
@@ -6583,11 +6656,12 @@ export function App() {
           onDismissSubAgents={dismissSubAgents}
           queued={queuedById}
           inbox={inboxRows}
-          inboxBusy={inboxBusy}
-          inboxGeneration={inboxGeneration}
+          inboxSends={inboxSends}
+          cardsKey={cardsKey}
           onInboxPaste={(sessionId, messageId, submit) => {
             void pasteWaiting(sessionId, messageId, submit);
           }}
+          onInboxCancel={(messageId) => inboxRuns.cancel(messageId)}
           onInboxDiscard={discardWaiting}
           links={linkMarks(linkState)}
           linkable={new Set(linkCandidates(linkState, state.sessions).map((s) => s.id))}
@@ -6597,10 +6671,11 @@ export function App() {
             });
           }}
           linkInbox={linkInboxRows}
-          linkBusy={linkBusy}
+          linkSends={linkSends}
           onLinkPaste={(sessionId, messageId, submit) => {
             void pasteHeldLink(sessionId, messageId, submit);
           }}
+          onLinkCancel={(messageId) => linkRuns.cancel(messageId)}
           onLinkDiscard={discardLink}
           stalls={stalls}
           longWaits={longWaits}

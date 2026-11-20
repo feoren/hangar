@@ -45,11 +45,13 @@ function show(messages: WaitingMessage[], generation: number) {
       <I18nContext.Provider value={t}>
         <WaitingMessages
           messages={messages}
-          busy={new Set()}
+          sends={new Map()}
           generation={generation}
-          onPaste={(id) => {
+          language="en"
+          onSend={(id) => {
             pasted.push(id);
           }}
+          onCancel={() => undefined}
           onDiscard={() => undefined}
         />
       </I18nContext.Provider>,
@@ -57,10 +59,10 @@ function show(messages: WaitingMessage[], generation: number) {
   });
 }
 
-/** Clicks "Paste" on the card of message `id`. */
+/** Clicks "Send" on the card of message `id`. */
 function paste(id: number) {
   const card = host.querySelectorAll(".waiting-message")[id - 1];
-  const button = card?.querySelector("button");
+  const button = card?.querySelector<HTMLButtonElement>(".waiting-message-send");
   act(() => {
     button?.click();
   });

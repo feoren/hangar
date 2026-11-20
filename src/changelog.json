@@ -4,6 +4,20 @@
     "date": null,
     "items": [
       {
+        "de": "Wartende Nachrichten sind einfacher: „Senden“, „Nur einfügen“ und × zum Verwerfen. Arbeitet das Ziel noch, zeigt die Karte das und du kannst abbrechen.",
+        "en": "Waiting messages are simpler: “Send”, “Paste only” and × to discard. While the target still works, the card says so and you can cancel.",
+        "el": "Τα μηνύματα σε αναμονή είναι πιο απλά: «Αποστολή», «Μόνο επικόλληση» και × για απόρριψη. Όσο ο στόχος δουλεύει, η κάρτα το δείχνει και μπορείς να ακυρώσεις.",
+        "es": "Los mensajes en espera son más sencillos: «Enviar», «Solo pegar» y × para descartar. Si el destino aún trabaja, la tarjeta lo indica y puedes cancelar.",
+        "fr": "Les messages en attente sont plus simples : « Envoyer », « Coller seulement » et × pour ignorer. Si la cible travaille, la carte l’indique et tu peux annuler.",
+        "it": "I messaggi in attesa sono più semplici: «Invia», «Solo incolla» e × per scartare. Se la destinazione lavora ancora, la scheda lo indica e puoi annullare.",
+        "ja": "待機中のメッセージがシンプルになりました。「送信」「貼り付けのみ」と破棄用の × があります。送信先が作業中ならカードにそう表示され、キャンセルできます。",
+        "pl": "Oczekujące wiadomości są prostsze: „Wyślij”, „Tylko wklej” i × do odrzucenia. Gdy cel jeszcze pracuje, karta to pokazuje i możesz anulować.",
+        "pt": "As mensagens em espera estão mais simples: “Enviar”, “Só colar” e × para descartar. Se o destino ainda trabalha, o cartão mostra isso e você pode cancelar.",
+        "ru": "Ожидающие сообщения стали проще: «Отправить», «Только вставить» и × чтобы отклонить. Пока цель работает, карточка показывает это, и можно отменить.",
+        "tr": "Bekleyen mesajlar daha sade: “Gönder”, “Yalnızca yapıştır” ve atmak için ×. Hedef hâlâ çalışıyorsa kart bunu gösterir ve iptal edebilirsin.",
+        "zh": "等待的消息更简单了：“发送”、“仅粘贴”和用于丢弃的 ×。目标仍在工作时，卡片会显示出来，你可以取消。"
+      },
+      {
         "de": "Linux: Hangar zeigt jetzt die Last der Grafikkarte, und das Programmsymbol in Dock oder Taskleiste zeigt, wie viele Sessions auf dich warten.",
         "en": "Linux: Hangar now shows the graphics card's load, and the app icon in the dock or taskbar shows how many sessions are waiting for you.",
         "el": "Linux: το Hangar δείχνει τώρα το φορτίο της κάρτας γραφικών, και το εικονίδιο στο dock ή στη γραμμή εργασιών δείχνει πόσες sessions σε περιμένουν.",

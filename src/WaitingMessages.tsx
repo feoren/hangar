@@ -1,25 +1,36 @@
+import { useId, useLayoutEffect, useRef, useState } from "react";
+
 import { useT } from "./i18n";
-import { messageLines, type WaitingMessage } from "./partnerInbox";
+import { CloseIcon } from "./icons";
+import { cardPreview, cardTime, type CardSend } from "./messageCard";
+import type { WaitingMessage } from "./partnerInbox";
 import { Revealed } from "./Revealed";
 import { secretLabels } from "./secretScan";
 import { useArmDelay } from "./useArmDelay";
 
 /**
- * The messages agents of partner projects sent to this session's project (ADR 0012): sender and
- * text, and "Paste", "Paste and send", "Discard". Nothing reaches the terminal before a click.
- * The text is plain text with invisible characters shown as marked placeholders, line by line,
- * so it reads exactly as the agent will get it. Whenever the waiting messages change, every card
- * takes no click for a moment (useArmDelay.ts): a new card above or below can move the one under
- * the mouse, and a click meant for it must not answer another. A message that seems to hold a
- * secret key says so above its text (ADR 0015); the person decides.
+ * The messages that wait below a session row for the person's click: from agents of partner
+ * projects (ADR 0012) and from members of its link group (ADR 0014). Sender and time in one line,
+ * the text cut to a few lines with "More", one clear "Send" (paste plus Enter), "Paste only" as a
+ * quiet text button and discard as a close mark. Nothing reaches the terminal before a click.
+ *
+ * While a send waits for its target to pause, the card says so with "Cancel" instead of its
+ * buttons, and goes once the message is in. The text is plain text with invisible characters
+ * shown as marked placeholders, line by line, so it reads exactly as the agent will get it.
+ * Whenever the cards change, every card takes no click for a moment (useArmDelay.ts): a new card
+ * above or below can move the one under the mouse, and a click meant for it must not answer
+ * another. A message that seems to hold a secret key says so above its text (ADR 0015).
  */
 export function WaitingMessages(props: {
   messages: readonly WaitingMessage[];
-  /** Messages whose paste runs right now; their buttons wait. */
-  busy: ReadonlySet<number>;
-  /** Counts the changes of all waiting messages; each change arms every card anew. */
-  generation: number;
-  onPaste: (id: number, submit: boolean) => void;
+  /** Sends that run from a card right now, by message id (messageCard.ts `CardSends`). */
+  sends: ReadonlyMap<number, CardSend>;
+  /** Changes whenever any card appears or goes; each change arms every card anew. */
+  generation: string | number;
+  /** UI language, for the time. */
+  language: string;
+  onSend: (id: number, submit: boolean) => void;
+  onCancel: (id: number) => void;
   onDiscard: (id: number) => void;
 }) {
   return (
@@ -28,9 +39,11 @@ export function WaitingMessages(props: {
         <WaitingMessageCard
           key={message.id}
           message={message}
-          busy={props.busy.has(message.id)}
+          send={props.sends.get(message.id)}
           generation={props.generation}
-          onPaste={props.onPaste}
+          language={props.language}
+          onSend={props.onSend}
+          onCancel={props.onCancel}
           onDiscard={props.onDiscard}
         />
       ))}
@@ -40,59 +53,155 @@ export function WaitingMessages(props: {
 
 function WaitingMessageCard({
   message,
-  busy,
+  send,
   generation,
-  onPaste,
+  language,
+  onSend,
+  onCancel,
   onDiscard,
 }: {
   message: WaitingMessage;
-  busy: boolean;
-  generation: number;
-  onPaste: (id: number, submit: boolean) => void;
+  send: CardSend | undefined;
+  generation: string | number;
+  language: string;
+  onSend: (id: number, submit: boolean) => void;
+  onCancel: (id: number) => void;
   onDiscard: (id: number) => void;
 }) {
   const t = useT();
+  const textId = useId();
+  const [open, setOpen] = useState(false);
+  // Today or not is told once, when the card appears: a card rarely waits past midnight.
+  const [shownAt] = useState(() => Date.now());
   const { armed, guard } = useArmDelay(`${String(message.id)}:${String(generation)}`);
   const title = message.title ?? t("inbox.from", { project: message.from });
-  const button = (label: string, action: () => void, primary = false) => (
-    <button
-      type="button"
-      className={primary ? "secondary-button waiting-message-send" : "secondary-button"}
-      disabled={busy}
-      aria-disabled={armed ? undefined : true}
-      onClick={guard(action)}
-    >
-      {label}
-    </button>
-  );
+  const preview = cardPreview(message.text);
+  const lines = open || !preview.cut ? message.text.split("\n") : preview.lines;
+  const waitArm = armed ? undefined : true;
+  const discard = t("inbox.discard");
+  const card = useRef<HTMLElement>(null);
+  const sendButton = useRef<HTMLButtonElement>(null);
+  const cancelButton = useRef<HTMLButtonElement>(null);
+  /** The keyboard focus was in this card last; a button that goes takes it to the page. */
+  const focusInside = useRef(false);
+  const mode = send === undefined ? "idle" : send.phase;
+  // The buttons swap when a send starts or ends. Focus that was in the card follows: to "Cancel"
+  // while the send waits, back to "Send" when it ended and the card stays (cancelled, failed).
+  // Focus the person moved elsewhere stays there.
+  useLayoutEffect(() => {
+    const active = document.activeElement;
+    const lost = active === null || active === document.body;
+    if (!focusInside.current || !(lost || card.current?.contains(active) === true)) return;
+    if (mode === "waiting") cancelButton.current?.focus();
+    else if (mode === "idle") sendButton.current?.focus();
+  }, [mode]);
   return (
-    <section className="waiting-message" aria-label={title}>
-      <div className="waiting-message-from">{title}</div>
+    // No aria-busy: it would keep screen readers from announcing the status line inside.
+    <section
+      ref={card}
+      className="waiting-message"
+      aria-label={title}
+      data-sending={send !== undefined}
+      onFocus={() => {
+        focusInside.current = true;
+      }}
+      onBlur={(event) => {
+        // A removed button blurs without a new target: the focus counts as still here.
+        const next = event.relatedTarget;
+        if (next !== null && !event.currentTarget.contains(next)) focusInside.current = false;
+      }}
+    >
+      <div className="waiting-message-head">
+        <span className="waiting-message-from">{title}</span>
+        <time className="waiting-message-time" dateTime={new Date(message.at).toISOString()}>
+          {cardTime(message.at, shownAt, language)}
+        </time>
+        {send === undefined && (
+          <button
+            type="button"
+            className="icon-button waiting-message-discard"
+            aria-label={discard}
+            title={discard}
+            aria-disabled={waitArm}
+            onClick={guard(() => {
+              onDiscard(message.id);
+            })}
+          >
+            <CloseIcon />
+          </button>
+        )}
+      </div>
       {message.secrets !== undefined && message.secrets.length > 0 && (
         <div className="waiting-message-secret" role="note">
           {t("message.secretHint", { kinds: secretLabels(message.secrets, t) })}
         </div>
       )}
-      <div className="waiting-message-text">
-        {messageLines(message.text).map((line, index) => (
+      <div className="waiting-message-text" id={textId}>
+        {lines.map((line, index) => (
           // Lines never move; the index is stable for this text.
-          <div key={index}>{line === "" ? " " : <Revealed text={line} />}</div>
+          <div key={index}>{line === "" ? " " : <Revealed text={line} />}</div>
         ))}
       </div>
+      {preview.cut && (
+        <button
+          type="button"
+          className="link-button waiting-message-more"
+          aria-expanded={open}
+          aria-controls={textId}
+          onClick={() => {
+            setOpen((current) => !current);
+          }}
+        >
+          {t(open ? "inbox.less" : "inbox.more")}
+        </button>
+      )}
       <div className="waiting-message-actions">
-        {button(t("partner.paste"), () => {
-          onPaste(message.id, false);
-        })}
-        {button(
-          t("partner.pasteSend"),
-          () => {
-            onPaste(message.id, true);
-          },
-          true,
+        {send === undefined && (
+          <button
+            ref={sendButton}
+            type="button"
+            className="primary-button waiting-message-send"
+            aria-disabled={waitArm}
+            onClick={guard(() => {
+              onSend(message.id, true);
+            })}
+          >
+            {t("inbox.send")}
+          </button>
         )}
-        {button(t("inbox.discard"), () => {
-          onDiscard(message.id);
-        })}
+        {send === undefined && (
+          <button
+            type="button"
+            className="link-button"
+            aria-disabled={waitArm}
+            onClick={guard(() => {
+              onSend(message.id, false);
+            })}
+          >
+            {t("inbox.pasteOnly")}
+          </button>
+        )}
+        {/* Always there, empty while nothing runs: a live region only announces changes to a
+            region that already existed. */}
+        <span className="waiting-message-status" role="status">
+          {send === undefined
+            ? ""
+            : send.phase === "waiting"
+              ? t(send.submit ? "inbox.waitSend" : "inbox.waitPaste", { session: send.target })
+              : t(send.submit ? "inbox.sending" : "inbox.pasting")}
+        </span>
+        {send?.phase === "waiting" && (
+          <button
+            ref={cancelButton}
+            type="button"
+            className="link-button"
+            onClick={() => {
+              onCancel(message.id);
+            }}
+          >
+            {t("common.cancel")}
+          </button>
+        )}
       </div>
     </section>
   );

@@ -1312,3 +1312,11 @@ A failed `dlopen` of `libnvidia-ml.so.1` crashed Hangar's process with SIGSEGV o
 without the NVIDIA driver (CI, and WSL with the library hidden); the machine figures now come from
 `nvidia-smi` in a process of its own, at most every 5 s. Pages changed: [[gpu-readings]],
 [[0013-linux-release]], [[session-resources-and-phone-push]], index.
+
+## [2026-11-20] lint | Simpler message cards and the causes of cards that stayed
+Card below a session row: one "Send", "Paste only", a close mark, sender and time in one line,
+long texts cut with "More". Causes of cards that stayed or hung without a word, each with a test:
+endless wait for a working target, no reload after an action, a message gone during the wait, a
+claim nobody closed (now runs out after 120 s, no card while its automatic paste runs),
+overlapping reads, arm delay per card list.
+Pages changed: [[0014-session-links]], [[0012-cross-project-messages]].
