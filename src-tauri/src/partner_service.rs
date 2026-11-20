@@ -773,7 +773,7 @@ mod tests {
                 &PROBE
             )
             .unwrap(),
-            "[Message from project \"app\"]\ngo[201~\non"
+            "[Message from project \"app\", not from the person]\n| go[201~\n| on"
         );
         for to in [1, 4, 7] {
             assert!(
@@ -1118,7 +1118,7 @@ mod tests {
         for to in [2, 3] {
             assert_eq!(
                 inbox.text_for(id, to, &book(), &sessions, &PROBE).unwrap(),
-                "[Message from project \"app\"]\ngo on"
+                "[Message from project \"app\", not from the person]\n| go on"
             );
         }
         for to in [1, 4, 5, 9] {

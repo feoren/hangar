@@ -427,15 +427,21 @@ pub fn is_shell_command(command: &str) -> bool {
     SHELLS.contains(&name)
 }
 
-/// The pasted text: a header line naming the sending project, then the cleaned message. The
-/// header is English on purpose: it is read by an agent, not shown as UI text.
+/// The pasted text: a header line naming the sending project and saying it is not the person,
+/// then the cleaned message with every line indented by `| `, as a link group's message reads
+/// (`links::compose`): no line starts in the first column where a header would. The header is
+/// English on purpose: it is read by an agent, not shown as UI text.
 pub fn compose(sender: &str, text: &str) -> Result<String, PartnerError> {
     if !valid_name(sender) {
         return Err(PartnerError::InvalidName);
     }
+    let quoted: Vec<String> = clean_message(text)?
+        .lines()
+        .map(|line| format!("| {line}"))
+        .collect();
     Ok(format!(
-        "[Message from project \"{sender}\"]\n{}",
-        clean_message(text)?
+        "[Message from project \"{sender}\", not from the person]\n{}",
+        quoted.join("\n")
     ))
 }
 
@@ -781,7 +787,12 @@ mod tests {
     fn the_header_names_the_sender() {
         assert_eq!(
             compose("app", " show the server text \n").unwrap(),
-            "[Message from project \"app\"]\nshow the server text"
+            "[Message from project \"app\", not from the person]\n| show the server text"
+        );
+        // Every line is indented, so none starts in the first column like a header would.
+        assert_eq!(
+            compose("app", "1. fix\n\n2. ship").unwrap(),
+            "[Message from project \"app\", not from the person]\n| 1. fix\n| \n| 2. ship"
         );
         assert_eq!(compose("a\"b", "x"), Err(PartnerError::InvalidName));
     }
