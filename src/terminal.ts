@@ -64,13 +64,16 @@ import { InputStalled, settleStalled } from "./sessionInput";
 import { setupUnicode } from "./terminalUnicode";
 import { TypedInput } from "./typedInput";
 import {
+  canvasMeasure,
   createFontLoader,
   DEFAULT_TERMINAL_LOOK,
+  defaultUsesBundledFont,
   fontStack,
   sameLook,
   schemeColors,
   searchColors,
   type TerminalLook,
+  waitingStack,
 } from "./terminalLook";
 import { addressParts, safeLinkUrl, sanitizePaste } from "./termSafety";
 import { MINIMUM_CONTRAST, type Theme } from "./theme";
@@ -84,8 +87,14 @@ import { newSessionKey, trimScrollback } from "./workspace";
  */
 const RESTORE_ERASE_GRACE_MS = 1500;
 
-/** Shared by all terminals, so each bundled font loads once. */
-const fontLoader = createFontLoader((query) => document.fonts.load(query));
+/**
+ * Shared by all terminals, so each bundled font loads once. The default waits for the bundled
+ * Cascadia only where no Windows font of the stack is installed (macOS, Linux).
+ */
+const fontLoader = createFontLoader(
+  (query) => document.fonts.load(query),
+  () => defaultUsesBundledFont(canvasMeasure()),
+);
 
 /** Shared by all terminals: a path printed in two sessions is looked up once. */
 const pathChecker = new PathChecker((paths) => api.statPaths(paths));
@@ -277,8 +286,8 @@ export class SessionTerminal {
       allowProposedApi: true, // for the Unicode grapheme addon (emoji widths)
       cursorBlink: look.cursorBlink,
       cursorStyle: look.cursorStyle,
-      // Until a bundled font has loaded, the previous stack; applyFont switches once it is ready.
-      fontFamily: fontStack(fontLoader.isReady(look.font) ? look.font : "default"),
+      // Until a bundled font has loaded, the stack without it; applyFont switches once it is ready.
+      fontFamily: fontLoader.isReady(look.font) ? fontStack(look.font) : waitingStack(),
       fontSize,
       lineHeight: 1.15,
       scrollback,

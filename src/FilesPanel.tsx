@@ -57,6 +57,7 @@ import {
   type TreeState,
 } from "./fileTree";
 import type { TreePath } from "./pathQuote";
+import { rangeFillStyle } from "./rangeFill";
 import { peersOf } from "./repoPeers";
 import { folderName } from "./folders";
 import { useT, type MessageKey, type Translate } from "./i18n";
@@ -1352,6 +1353,7 @@ function HeatBar(props: {
           max={PLAY_STEPS}
           step={1}
           value={props.step}
+          style={rangeFillStyle(props.step, 0, PLAY_STEPS)}
           aria-label={t("files.heatTime")}
           aria-valuetext={time}
           onChange={(event) => {

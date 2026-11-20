@@ -1,12 +1,13 @@
 /// <reference types="node" />
 import { readFileSync } from "node:fs";
 
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it } from "vitest";
 
 import {
   BUNDLED_FONTS,
   SYSTEM_FONTS,
   createFontLoader,
+  defaultUsesBundledFont,
   fontChoices,
   fontLoadQueries,
   fontStack,
@@ -15,7 +16,9 @@ import {
   isFontInstalled,
   isBundledFont,
   isTerminalFont,
+  setBundledMonoFont,
   type MeasureText,
+  waitingStack,
 } from "./terminalLook";
 
 /** Paths only: the lazy glob never loads the files. */
@@ -34,19 +37,57 @@ function fakeMeasure(installed: readonly string[]): MeasureText {
 }
 
 describe("font stack", () => {
-  it("keeps the previous stack for the default", () => {
+  afterEach(() => {
+    setBundledMonoFont(false);
+  });
+
+  it("keeps the previous stack byte for byte in Chromium (Windows)", () => {
     expect(fontStack("default")).toBe(
       '"Cascadia Mono", "Cascadia Code", Consolas, "DejaVu Sans Mono", monospace',
     );
-  });
-
-  it("puts the chosen font first without repeating it", () => {
     expect(fontStack("Fira Code")).toBe(
       '"Fira Code", "Cascadia Mono", "Cascadia Code", Consolas, "DejaVu Sans Mono", monospace',
     );
     expect(fontStack("Cascadia Code")).toBe(
       '"Cascadia Code", "Cascadia Mono", Consolas, "DejaVu Sans Mono", monospace',
     );
+  });
+
+  it("puts the bundled Cascadia after the Windows fonts in WebKit", () => {
+    setBundledMonoFont(true);
+    expect(fontStack("default")).toBe(
+      '"Cascadia Mono", "Cascadia Code", Consolas, "Hangar Cascadia Mono", "DejaVu Sans Mono", monospace',
+    );
+    expect(fontStack("Fira Code")).toBe(
+      '"Fira Code", "Cascadia Mono", "Cascadia Code", Consolas, "Hangar Cascadia Mono", "DejaVu Sans Mono", monospace',
+    );
+    expect(fontStack("Cascadia Code")).toBe(
+      '"Cascadia Code", "Cascadia Mono", Consolas, "Hangar Cascadia Mono", "DejaVu Sans Mono", monospace',
+    );
+  });
+
+  it("waits in the previous stack, which differs from every stack that has to load", () => {
+    for (const bundled of [false, true]) {
+      setBundledMonoFont(bundled);
+      expect(waitingStack()).toBe(
+        '"Cascadia Mono", "Cascadia Code", Consolas, "DejaVu Sans Mono", monospace',
+      );
+      for (const font of BUNDLED_FONTS) {
+        expect(fontStack(font)).not.toBe(waitingStack());
+      }
+    }
+    setBundledMonoFont(true);
+    expect(fontStack("default")).not.toBe(waitingStack());
+  });
+
+  it("matches --mono in styles.css and in webkit.css", () => {
+    const styles = readFileSync(new URL("./styles.css", import.meta.url), "utf8");
+    const webkit = readFileSync(new URL("./webkit.css", import.meta.url), "utf8");
+    const mono = (css: string): string =>
+      (/--mono:\s*([^;]+);/.exec(css)?.[1] ?? "").replace(/\s+/g, " ").trim();
+    expect(mono(styles)).toBe(fontStack("default"));
+    setBundledMonoFont(true);
+    expect(mono(webkit)).toBe(fontStack("default"));
   });
 });
 
@@ -147,6 +188,49 @@ describe("font loading", () => {
     expect(loader.isReady("JetBrains Mono")).toBe(true);
     await loader.load("JetBrains Mono");
     expect(queries).toEqual(['16px "JetBrains Mono"', 'bold 16px "JetBrains Mono"']);
+  });
+
+  it("needs the bundled Cascadia for the default only in WebKit without the Windows fonts", () => {
+    expect(defaultUsesBundledFont(fakeMeasure(["DejaVu Sans Mono"]))).toBe(false);
+    setBundledMonoFont(true);
+    expect(defaultUsesBundledFont(fakeMeasure(["Cascadia Mono", "Consolas"]))).toBe(false);
+    expect(defaultUsesBundledFont(fakeMeasure(["Consolas"]))).toBe(false);
+    expect(defaultUsesBundledFont(fakeMeasure(["DejaVu Sans Mono", "Menlo"]))).toBe(true);
+    expect(defaultUsesBundledFont(null)).toBe(false);
+    setBundledMonoFont(false);
+    expect(fontLoadQueries("default", true)).toEqual([
+      '16px "Hangar Cascadia Mono"',
+      'bold 16px "Hangar Cascadia Mono"',
+    ]);
+  });
+
+  it("keeps the default ready at once where a Windows font is installed", () => {
+    let asked = 0;
+    const loader = createFontLoader(
+      () => Promise.reject(new Error("not expected")),
+      () => {
+        asked += 1;
+        return false;
+      },
+    );
+    expect(loader.isReady("default")).toBe(true);
+    expect(loader.isReady("default")).toBe(true);
+    expect(asked).toBe(1);
+  });
+
+  it("waits for the bundled Cascadia before the default is ready on macOS and Linux", async () => {
+    const queries: string[] = [];
+    const loader = createFontLoader(
+      (query) => {
+        queries.push(query);
+        return Promise.resolve([]);
+      },
+      () => true,
+    );
+    expect(loader.isReady("default")).toBe(false);
+    await loader.load("default");
+    expect(loader.isReady("default")).toBe(true);
+    expect(queries).toEqual(['16px "Hangar Cascadia Mono"', 'bold 16px "Hangar Cascadia Mono"']);
   });
 
   it("counts a failed font as ready, so terminals fall back instead of waiting", async () => {

@@ -1263,3 +1263,24 @@ The `macos-bundle` job now starts the app from the unpacked updater archive on t
 desktop: it must still run after 30 s; screenshot and log go into the artifact
 `macos-start-<arch>`, Gatekeeper's verdict on a quarantined copy into the run summary. Pages
 changed: [[0017-macos-release]].
+
+## [2026-11-20] ingest | Same look on every platform
+Measured the coverage and metrics of Selawik 1.01 and Cascadia Mono 2407.24 against the 12 UI
+languages, and the form control and scrollbar boxes of Edge against Playwright WebKit. Decided to
+bundle both fonts for macOS and Linux, to redraw the controls for WebKit only, and to start the
+Linux AppImage on Xvfb in CI with a screenshot (artifact `linux-start-x64`). Pages changed:
+[[0018-same-look-on-every-platform]], [[app-fonts-and-controls-measurement]].
+
+## [2026-11-20] ingest | Terminal default and text fields on WebKit
+The terminal's default stack now ends at the bundled Cascadia Mono on macOS and Linux; the font
+loader waits for it only where no Windows font of the stack is installed. Text fields, text areas,
+date, time and color fields get Chromium's user agent look on WebKit, measured in Edge against
+Playwright WebKit. Pages changed: [[0018-same-look-on-every-platform]],
+[[app-fonts-and-controls-measurement]].
+
+## [2026-11-20] ingest | Bundled Cascadia in WebKit's stacks only
+Measured in Edge that Chromium draws the glyphs an installed Cascadia or Consolas lacks from the
+bundled Cascadia when it stands behind them (Arabic 69.14 to 121.88px). The bundled face now
+stands in WebKit's `--mono` and terminal stacks only; Chromium keeps the old stack byte for byte.
+Noted that Selawik lacks the weights 500 and 650, and the DMA-BUF switch of the Linux start test.
+Pages changed: [[0018-same-look-on-every-platform]], [[app-fonts-and-controls-measurement-2]].

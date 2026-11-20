@@ -1,3 +1,5 @@
+import { rangeFillStyle } from "./rangeFill";
+
 /** Slider with its label above and the current value at its end. */
 export function RangeField({
   id,
@@ -31,6 +33,7 @@ export function RangeField({
         step={step}
         value={value}
         disabled={disabled}
+        style={rangeFillStyle(value, min, max)}
         aria-valuetext={display}
         onChange={(event) => {
           onChange(Number(event.currentTarget.value));
