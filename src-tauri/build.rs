@@ -21,6 +21,7 @@ const COMMANDS: &[&str] = &[
     "open_hangar_md",
     "save_workspace",
     "load_workspace",
+    "last_exit_was_clean",
     "save_scrollback",
     "load_scrollback",
     "delete_scrollback",

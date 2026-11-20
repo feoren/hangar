@@ -113,6 +113,9 @@ import { MarkerDialog } from "./MarkerDialog";
 import { BudgetNotice } from "./BudgetNotice";
 import type { BudgetWarned } from "./costs";
 import { MorningNotice } from "./MorningNotice";
+
+import { CrashNotice } from "./CrashNotice";
+import { crashSummary, type RestoredSession } from "./crashRestore";
 import { CostDialog } from "./CostDialog";
 import {
   buildHandover,
@@ -580,8 +583,13 @@ type Filled = { ok: true; text: string } | { ok: false; details: string };
 
 /** Debounced workspace save: several changes in quick succession result in one write. */
 const WORKSPACE_SAVE_DELAY_MS = 400;
-/** Save the scrollback of changed sessions regularly so that a crash costs little. */
-const SCROLLBACK_SAVE_INTERVAL_MS = 30_000;
+/**
+ * Save the scrollback of changed sessions regularly so that a crash costs little: at most this
+ * much output is lost. Only sessions with new output that have been quiet for a moment are
+ * written (`saveScrollbacks`), so idle sessions cost nothing and a busy one at most one file per
+ * interval.
+ */
+const SCROLLBACK_SAVE_INTERVAL_MS = 10_000;
 /** Quitting waits no longer than this for the save. */
 const QUIT_SAVE_TIMEOUT_MS = 3000;
 /** Quit waits at most this long for the taskbar badge to be removed. */
@@ -790,6 +798,11 @@ export function App() {
   const [startupDone, setStartupDone] = useState(false);
   /** Sessions in the backend that the UI does not know about after a reload. */
   const [orphans, setOrphans] = useState<SessionInfo[]>([]);
+  /** What the restore brought back after a run that did not quit cleanly (crashRestore.ts). */
+  const [crashRestore, setCrashRestore] = useState<RestoredSession[] | null>(null);
+  const closeCrashNotice = useCallback(() => {
+    setCrashRestore(null);
+  }, []);
   /** Session whose closing is waiting for confirmation. */
   const [closingId, setClosingId] = useState<number | null>(null);
   /** Context menu of the terminal, open at this position in the window. */
@@ -2751,7 +2764,7 @@ export function App() {
    * stays with a hint instead of disappearing.
    */
   const restoreSession = useCallback(
-    async (saved: SavedSession, banner: string): Promise<number> => {
+    async (saved: SavedSession, banner: string): Promise<RestoredSession> => {
       const config = terminalConfig.current;
       const terminal = new SessionTerminal({
         fontSize: config.fontSize,
@@ -2781,7 +2794,7 @@ export function App() {
             ? tr("terminal.notInstalled", { name: profile.name })
             : tr("terminal.unknownProfile", { name: saved.profileId }),
         );
-        return addPlaceholder(terminal, saved);
+        return { id: addPlaceholder(terminal, saved), start: "placeholder" };
       }
       try {
         const info = await api.createSession(
@@ -2806,10 +2819,10 @@ export function App() {
           session: await withTitle(info, saved.title),
         });
         catchUp(terminal, info.id);
-        return info.id;
+        return { id: info.id, start: info.resumed === true ? "resumed" : "started" };
       } catch (e) {
         terminal.writeNotice(tr("terminal.startFailed", { error: errorText(e) }));
-        return addPlaceholder(terminal, saved);
+        return { id: addPlaceholder(terminal, saved), start: "placeholder" };
       }
     },
     [addPlaceholder, wire, withTitle, catchUp],
@@ -3203,6 +3216,11 @@ export function App() {
         return true;
       }
       if (!settingsRef.current.restoreSessions) return true;
+      // How the previous run ended, as the backend read it at this start; an error means no notice.
+      const cleanBefore = await api
+        .lastExitWasClean()
+        .then((clean) => clean !== false)
+        .catch(() => true);
       const workspace = parseWorkspace(await api.loadWorkspace());
       if (!workspace || workspace.sessions.length === 0) return true;
       // Claude Code sessions get the gate only if the backend knows the setting before they start.
@@ -3214,17 +3232,20 @@ export function App() {
       // The active session first so it is usable right away; the others afterwards in parallel and
       // slightly staggered, instead of each waiting for the previous one to start.
       const active = workspace.sessions.find((saved) => saved.key === workspace.activeKey);
+      const starts: RestoredSession[] = [];
       if (active) {
-        const id = await restoreSession(active, banner);
-        dispatch({ type: "activated", id });
+        const start = await restoreSession(active, banner);
+        starts.push(start);
+        dispatch({ type: "activated", id: start.id });
       }
       const rest = workspace.sessions.filter((saved) => saved !== active);
       await Promise.allSettled(
         rest.map(async (saved, index) => {
           await delay(index * RESTORE_STAGGER_MS);
-          await restoreSession(saved, banner);
+          starts.push(await restoreSession(saved, banner));
         }),
       );
+      if (!cleanBefore) setCrashRestore(starts);
       return true;
     };
     void run()
@@ -5267,6 +5288,7 @@ export function App() {
   const workspaceWidth = viewportWidth - sidebarColumn;
   const notesPlacement = placeNotes(layout.notesWidth, workspaceWidth, viewportWidth);
   const runningOrphans = orphans.filter((session) => session.status !== "exited").length;
+  const crashNotice = crashRestore === null ? null : crashSummary(crashRestore, state.sessions);
   const closingSession =
     closingId === null ? undefined : state.sessions.find((s) => s.id === closingId);
   const searchTerminal = search === null ? undefined : terminals.get(search.sessionId);
@@ -6950,6 +6972,13 @@ export function App() {
                   </button>
                 </div>
               </div>
+            )}
+            {crashNotice !== null && (
+              <CrashNotice
+                summary={crashNotice}
+                language={settings.language}
+                onClose={closeCrashNotice}
+              />
             )}
             <BudgetNotice
               language={settings.language}

@@ -17,6 +17,8 @@ UI texts in `src/i18n.ts` are translated per language and are not bound by this 
 | Verlauf, Terminalverlauf                        | scrollback                        |                                                                                      |
 | Fortsetzen                                      | resume                            | `resume_args`                                                                        |
 | Rückfall                                        | fallback                          | `resumeFallback`                                                                     |
+| Absturzmarke                                    | exit marker                       | `running.marker`; left behind, it means the last run did not quit cleanly            |
+| Absturzhinweis                                  | crash notice                      | notice after restoring the sessions of a run that did not quit cleanly               |
 | Unterhaltungs-ID                                | conversation id                   | the agent CLI's own session id, `cliSessionId`                                       |
 | Sub-Agent                                       | sub-agent                         | runs inside the agent's process, no terminal of its own                              |
 | Sub-Agent-Ansicht                               | sub-agent view                    | read-only, `subagents/`                                                              |

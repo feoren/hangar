@@ -25,6 +25,7 @@ use crate::desktop;
 use crate::dictation::model::ModelId;
 use crate::dictation::whisper::Language;
 use crate::dictation::{self, DictationError, DictationService, DictationStatus, DictationText};
+use crate::exit_marker::{ExitMarker, LastExit};
 use crate::export::{self, ExportError, Format};
 use crate::file_tree::{self, FileTree, FileTreeError, FolderListing, PathIndex};
 use crate::file_viewer::{
@@ -1150,6 +1151,17 @@ async fn blocking<T: Send + 'static>(
 #[tauri::command]
 pub async fn save_workspace(store: State<'_, Store>, state: Workspace) -> Result<(), PersistError> {
     blocking(store, move |s| s.save_workspace(&state)).await
+}
+
+/// Whether the run before this one ended cleanly (exit_marker.rs): `false` after a crash, a kill
+/// or a power loss, so the window can say why it restored the sessions. Main window only.
+#[tauri::command]
+pub fn last_exit_was_clean(
+    window: tauri::Window,
+    marker: State<'_, Arc<ExitMarker>>,
+) -> Result<bool, MainStoreError> {
+    main_store::check_main(window.label())?;
+    Ok(marker.last_exit() == LastExit::Clean)
 }
 
 /// `null` if nothing is stored or the file is unusable (reason in the log).

@@ -4,7 +4,7 @@ type: synthesis
 tags: [sessions, persistence, resume, contract]
 sources: ["[[resume-measurement]]", "[[resume-id-measurement]]"]
 created: 2026-11-07
-updated: 2026-11-08
+updated: 2026-11-20
 ---
 
 # Restoring sessions after a restart
@@ -72,7 +72,75 @@ background service, a non-goal). Backend: `src-tauri/src/persist.rs`, `src-tauri
   `output` and `exit` events follow. The failed attempt gets no `exit`. `resumed` is
   `false` afterwards.
 
+## After a crash
+Restoring runs the same way after a crash as after a clean quit; what differs is that the window
+says so. Backend: `src-tauri/src/exit_marker.rs`, frontend: `src/crashRestore.ts`,
+`src/CrashNotice.tsx`.
+
+- **Exit marker.** At the start, first thing in `setup`, the backend reads and then writes
+  (`persist::write_atomic`) a marker file in the local data folder: `running.marker`, in debug
+  builds `running-debug.marker`. Debug builds run next to the installed Hangar
+  ([[single-instance]]); one shared marker would report a crash on every dev start and lose the
+  installed one's marker when the dev build quits. Every clean quit removes it: first thing in
+  `RunEvent::Exit` (closing the window with quit, the tray's Quit, the process plugin's restart, and on Windows
+  a shutdown or logoff: tao turns `WM_ENDSESSION` into `Exit` before it ends the process; first,
+  because Windows ends a process that takes more than a few seconds there)
+  and through a resource in the app's resource table, which Tauri drops in `cleanup_before_exit`.
+  The latter covers the quit paths without an `Exit` event: the Windows updater before it starts
+  the installer, and a restart requested on the main thread (verified in tauri 2.12.5 `app.rs`,
+  `restart` and `cleanup_before_exit`, and tauri-plugin-updater 2.14.1, `on_before_exit`).
+- **SIGTERM and SIGHUP (Linux, macOS).** Without a handler the process dies at the signal (shutdown,
+  logoff, a service manager stopping it) and leaves the marker behind. `src-tauri/src/quit_signal.rs`
+  installs handlers for both in `setup`, on Tauri's async runtime (tokio's `signal` feature, Unix
+  only), and calls `AppHandle::exit(0)` at the first one, so `RunEvent::Exit` removes the marker and
+  ends the sessions as after Quit. If the handlers cannot be installed, that is logged and the
+  default action stays. SIGKILL cannot be caught and counts as a crash, as intended.
+- **Judging.** Only a missing marker means a clean end. A marker that is there, damaged, too large,
+  a folder or unreadable means the previous run did not quit cleanly (crash, kill, power loss): a
+  wrong notice costs less than a missing one. Without a data folder every start counts as clean.
+  The first start of a version that writes the marker finds none and counts as clean.
+- **Command** `last_exit_was_clean`: none, `bool`; main window only (`check_main`, error text
+  otherwise), granted in `capabilities/default.json` only. The value is the one read at this start;
+  it does not change during the run.
+- **Notice.** After the restore of a run that did not quit cleanly, and only when sessions were
+  saved, a notice in the notice column: "Hangar did not quit cleanly. 4 sessions restored, the
+  agents continue their conversations." Without a resumed conversation only the count; with nothing
+  restored "No session could be restored." Below it the titles of placeholders ("Not started") and
+  of sessions whose resume failed and that started fresh ("Started fresh, without the earlier
+  conversation"); the latter follow the `resumeFallback` event, which may arrive seconds after the
+  restore. A notice without such titles goes after 15 s; one with them stays until closed. Sessions
+  closed in the meantime drop out. No notice after a clean quit, after a reload of the window with
+  sessions still running, or with "Remember sessions" off.
+- **Scrollback interval: 10 s** (was 30 s), with the same rules: only sessions with new output,
+  only after 1.5 s without output, one session per idle callback, the whole file rewritten
+  atomically with `sync_all`. A crash now loses at most about 10 s of output. Write load: idle
+  sessions write nothing; a session printing without pause writes nothing until it pauses; a busy
+  agent with pauses writes its file at most once per 10 s. With a full 2 MiB scrollback that is at
+  most 0.2 MB/s per busy session; typical scrollbacks are a few hundred KiB. Four agents busy for
+  eight hours a day write a few gigabytes a day with typical scrollbacks and at most about 23 GB
+  with full ones, a small share of an SSD's rated endurance (an estimate from these limits, not
+  measured). Lower intervals were not chosen: below the 1.5 s
+  quiet time plus serializing (tens of milliseconds per session on the main thread) the gain shrinks
+  while the cost grows linearly.
+- **The last prompt is deliberately not saved.** The agent CLIs bring their conversation back
+  themselves when they resume (`--continue`, `resume`, conversation ids, [[resume]]), so a stored
+  prompt would add nothing there. And a prompt often holds pasted keys or tokens: Hangar would put
+  them on disk unencrypted, next to the scrollback, for every session and every crash. A shell
+  session has no conversation to resume; its scrollback shows what was typed up to the last save.
+
 ## Known limits
 - Two sessions of the same agent in the same folder resume the same most recent conversation
   ([[resume]]), except for agents with conversation ids (claude since 0.3.0).
 - The scrollback may contain secrets (printed tokens). It is stored unencrypted in the user profile.
+- Several debug builds running at once share `running-debug.marker`: one that quits removes the
+  marker of the others, and one that starts while another runs shows the crash notice. Release
+  builds are single instance and unaffected.
+- Installing a new version by hand while Hangar runs: the NSIS template of tauri-cli 2.12.4
+  (`CheckIfAppIsRunning`, read from the strings in the CLI binary) asks "is running! Click OK to
+  kill it" and then calls the Restart Manager with `RmShutdown(..., RmForceShutdown)`. Restart
+  Manager first asks a GUI app to end (`WM_QUERYENDSESSION`, `WM_ENDSESSION`) and forces the end
+  only if it does not; whether Hangar's `Exit` runs in time there is [UNVERIFIED]. If not, the next
+  start shows the crash notice. The in-app update quits cleanly before the installer starts.
+- A marker that cannot be removed (no permission, a folder in its place, a file held open by
+  another program) is logged on every quit, and every start then shows the crash notice. Deleting
+  the file in the local data folder by hand ends that.

@@ -844,6 +844,16 @@ const de = {
   "orphans.many": "{count} Sessions laufen noch im Hintergrund.",
   "orphans.help": "Hangar wurde neu geladen und kann sie hier nicht mehr anzeigen.",
   "orphans.end": "Beenden",
+  "crash.resumedOne":
+    "Hangar wurde nicht sauber beendet. Eine Session wiederhergestellt, ihr Agent setzt seine Unterhaltung fort.",
+  "crash.resumedMany":
+    "Hangar wurde nicht sauber beendet. {count} Sessions wiederhergestellt, die Agenten setzen ihre Unterhaltung fort.",
+  "crash.restoredOne": "Hangar wurde nicht sauber beendet. Eine Session wiederhergestellt.",
+  "crash.restoredMany": "Hangar wurde nicht sauber beendet. {count} Sessions wiederhergestellt.",
+  "crash.noneRestored":
+    "Hangar wurde nicht sauber beendet. Keine Session ließ sich wiederherstellen.",
+  "crash.notStarted": "Nicht gestartet: {names}",
+  "crash.fellBack": "Ohne frühere Unterhaltung neu gestartet: {names}",
   "link.notice": "Der Browser ließ sich nicht öffnen. Kopiere die Adresse und öffne sie selbst:",
   "link.copied": "Kopiert.",
   "link.openFailed": "Das ließ sich nicht öffnen: {error}",
@@ -3043,6 +3053,15 @@ const en: Record<MessageKey, string> = {
   "orphans.many": "{count} sessions are still running in the background.",
   "orphans.help": "Hangar was reloaded and can no longer show them here.",
   "orphans.end": "Stop",
+  "crash.resumedOne":
+    "Hangar did not quit cleanly. One session restored, its agent continues the conversation.",
+  "crash.resumedMany":
+    "Hangar did not quit cleanly. {count} sessions restored, the agents continue their conversations.",
+  "crash.restoredOne": "Hangar did not quit cleanly. One session restored.",
+  "crash.restoredMany": "Hangar did not quit cleanly. {count} sessions restored.",
+  "crash.noneRestored": "Hangar did not quit cleanly. No session could be restored.",
+  "crash.notStarted": "Not started: {names}",
+  "crash.fellBack": "Started fresh, without the earlier conversation: {names}",
   "link.notice": "The browser could not be opened. Copy the address and open it yourself:",
   "link.copied": "Copied.",
   "link.openFailed": "That could not be opened: {error}",
@@ -5234,6 +5253,16 @@ const el: Record<MessageKey, string> = {
   "orphans.many": "{count} συνεδρίες εκτελούνται ακόμη στο παρασκήνιο.",
   "orphans.help": "Το Hangar φορτώθηκε ξανά και δεν μπορεί πλέον να τις δείξει εδώ.",
   "orphans.end": "Τερματισμός",
+  "crash.resumedOne":
+    "Το Hangar δεν τερματίστηκε κανονικά. Επανήλθε μία συνεδρία και ο agent της συνεχίζει τη συζήτηση.",
+  "crash.resumedMany":
+    "Το Hangar δεν τερματίστηκε κανονικά. Επανήλθαν {count} συνεδρίες και οι agents συνεχίζουν τις συζητήσεις τους.",
+  "crash.restoredOne": "Το Hangar δεν τερματίστηκε κανονικά. Επανήλθε μία συνεδρία.",
+  "crash.restoredMany": "Το Hangar δεν τερματίστηκε κανονικά. Επανήλθαν {count} συνεδρίες.",
+  "crash.noneRestored":
+    "Το Hangar δεν τερματίστηκε κανονικά. Καμία συνεδρία δεν μπόρεσε να επανέλθει.",
+  "crash.notStarted": "Δεν ξεκίνησαν: {names}",
+  "crash.fellBack": "Ξεκίνησαν από την αρχή, χωρίς την προηγούμενη συζήτηση: {names}",
   "link.notice":
     "Δεν ήταν δυνατό να ανοίξει ο browser. Αντίγραψε τη διεύθυνση και άνοιξέ τη μόνος σου:",
   "link.copied": "Αντιγράφηκε.",
@@ -7459,6 +7488,15 @@ const es: Record<MessageKey, string> = {
   "orphans.many": "{count} sesiones siguen en ejecución en segundo plano.",
   "orphans.help": "Hangar se recargó y ya no puede mostrarlas aquí.",
   "orphans.end": "Detener",
+  "crash.resumedOne":
+    "Hangar no se cerró correctamente. Se restauró una sesión y su agente continúa la conversación.",
+  "crash.resumedMany":
+    "Hangar no se cerró correctamente. Se restauraron {count} sesiones y los agentes continúan sus conversaciones.",
+  "crash.restoredOne": "Hangar no se cerró correctamente. Se restauró una sesión.",
+  "crash.restoredMany": "Hangar no se cerró correctamente. Se restauraron {count} sesiones.",
+  "crash.noneRestored": "Hangar no se cerró correctamente. No se pudo restaurar ninguna sesión.",
+  "crash.notStarted": "Sin iniciar: {names}",
+  "crash.fellBack": "Iniciadas de nuevo, sin la conversación anterior: {names}",
   "link.notice": "No se pudo abrir el navegador. Copia la dirección y ábrela tú mismo:",
   "link.copied": "Copiado.",
   "link.openFailed": "No se pudo abrir: {error}",
@@ -9671,6 +9709,16 @@ const fr: Record<MessageKey, string> = {
   "orphans.many": "{count} sessions sont encore actives en arrière-plan.",
   "orphans.help": "Hangar a été rechargé et ne peut plus les afficher ici.",
   "orphans.end": "Arrêter",
+  "crash.resumedOne":
+    "Hangar ne s’est pas fermé correctement. Une session restaurée, son agent reprend la conversation.",
+  "crash.resumedMany":
+    "Hangar ne s’est pas fermé correctement. {count} sessions restaurées, les agents reprennent leurs conversations.",
+  "crash.restoredOne": "Hangar ne s’est pas fermé correctement. Une session restaurée.",
+  "crash.restoredMany": "Hangar ne s’est pas fermé correctement. {count} sessions restaurées.",
+  "crash.noneRestored":
+    "Hangar ne s’est pas fermé correctement. Aucune session n’a pu être restaurée.",
+  "crash.notStarted": "Non démarrées : {names}",
+  "crash.fellBack": "Redémarrées sans la conversation précédente : {names}",
   "link.notice": "Impossible d’ouvrir le navigateur. Copie l’adresse et ouvre-la toi-même :",
   "link.copied": "Copié.",
   "link.openFailed": "Impossible d’ouvrir cet élément : {error}",
@@ -11895,6 +11943,16 @@ const it: Record<MessageKey, string> = {
   "orphans.many": "{count} sessioni sono ancora attive in background.",
   "orphans.help": "Hangar è stato ricaricato e non può più mostrarle qui.",
   "orphans.end": "Termina",
+  "crash.resumedOne":
+    "Hangar non è stato chiuso correttamente. Una sessione ripristinata, il suo agente continua la conversazione.",
+  "crash.resumedMany":
+    "Hangar non è stato chiuso correttamente. {count} sessioni ripristinate, gli agenti continuano le loro conversazioni.",
+  "crash.restoredOne": "Hangar non è stato chiuso correttamente. Una sessione ripristinata.",
+  "crash.restoredMany": "Hangar non è stato chiuso correttamente. {count} sessioni ripristinate.",
+  "crash.noneRestored":
+    "Hangar non è stato chiuso correttamente. Non è stato possibile ripristinare nessuna sessione.",
+  "crash.notStarted": "Non avviate: {names}",
+  "crash.fellBack": "Riavviate da capo, senza la conversazione precedente: {names}",
   "link.notice": "Non è stato possibile aprire il browser. Copia l’indirizzo e aprilo tu:",
   "link.copied": "Copiato.",
   "link.openFailed": "Impossibile aprirlo: {error}",
@@ -14108,6 +14166,15 @@ const ja: Record<MessageKey, string> = {
   "orphans.many": "{count} 個のセッションがバックグラウンドで実行中です。",
   "orphans.help": "Hangar が再読み込みされたため、ここには表示できなくなりました。",
   "orphans.end": "終了",
+  "crash.resumedOne":
+    "Hangar は正常に終了しませんでした。セッションを 1 つ復元し、そのエージェントが会話を続けます。",
+  "crash.resumedMany":
+    "Hangar は正常に終了しませんでした。{count} 個のセッションを復元し、エージェントがそれぞれの会話を続けます。",
+  "crash.restoredOne": "Hangar は正常に終了しませんでした。セッションを 1 つ復元しました。",
+  "crash.restoredMany": "Hangar は正常に終了しませんでした。{count} 個のセッションを復元しました。",
+  "crash.noneRestored": "Hangar は正常に終了しませんでした。復元できたセッションはありません。",
+  "crash.notStarted": "起動できませんでした：{names}",
+  "crash.fellBack": "以前の会話なしで新しく起動しました：{names}",
   "link.notice": "ブラウザーを開けませんでした。アドレスをコピーしてご自身で開いてください:",
   "link.copied": "コピーしました。",
   "link.openFailed": "開けませんでした: {error}",
@@ -16307,6 +16374,16 @@ const pl: Record<MessageKey, string> = {
   "orphans.many": "Sesje nadal działające w tle: {count}.",
   "orphans.help": "Hangar został przeładowany i nie może ich już tu pokazać.",
   "orphans.end": "Zatrzymaj",
+  "crash.resumedOne":
+    "Hangar nie został poprawnie zamknięty. Przywrócono jedną sesję, jej agent kontynuuje rozmowę.",
+  "crash.resumedMany":
+    "Hangar nie został poprawnie zamknięty. Przywrócone sesje: {count}. Agenty kontynuują swoje rozmowy.",
+  "crash.restoredOne": "Hangar nie został poprawnie zamknięty. Przywrócono jedną sesję.",
+  "crash.restoredMany": "Hangar nie został poprawnie zamknięty. Przywrócone sesje: {count}.",
+  "crash.noneRestored":
+    "Hangar nie został poprawnie zamknięty. Nie udało się przywrócić żadnej sesji.",
+  "crash.notStarted": "Nie uruchomiono: {names}",
+  "crash.fellBack": "Uruchomiono od nowa, bez wcześniejszej rozmowy: {names}",
   "link.notice": "Nie udało się otworzyć przeglądarki. Skopiuj adres i otwórz go samodzielnie:",
   "link.copied": "Skopiowano.",
   "link.openFailed": "Nie udało się tego otworzyć: {error}",
@@ -18494,6 +18571,16 @@ const pt: Record<MessageKey, string> = {
   "orphans.many": "{count} sessões ainda estão em execução em segundo plano.",
   "orphans.help": "O Hangar foi recarregado e não consegue mais mostrá-las aqui.",
   "orphans.end": "Encerrar",
+  "crash.resumedOne":
+    "O Hangar não foi encerrado corretamente. Uma sessão restaurada, o agente dela continua a conversa.",
+  "crash.resumedMany":
+    "O Hangar não foi encerrado corretamente. {count} sessões restauradas, os agentes continuam suas conversas.",
+  "crash.restoredOne": "O Hangar não foi encerrado corretamente. Uma sessão restaurada.",
+  "crash.restoredMany": "O Hangar não foi encerrado corretamente. {count} sessões restauradas.",
+  "crash.noneRestored":
+    "O Hangar não foi encerrado corretamente. Nenhuma sessão pôde ser restaurada.",
+  "crash.notStarted": "Não iniciadas: {names}",
+  "crash.fellBack": "Iniciadas do zero, sem a conversa anterior: {names}",
   "link.notice": "Não foi possível abrir o navegador. Copie o endereço e abra você mesmo:",
   "link.copied": "Copiado.",
   "link.openFailed": "Não foi possível abrir: {error}",
@@ -20687,6 +20774,15 @@ const ru: Record<MessageKey, string> = {
   "orphans.many": "Сеансы, которые ещё работают в фоне: {count}.",
   "orphans.help": "Hangar был перезагружен и больше не может показать их здесь.",
   "orphans.end": "Остановить",
+  "crash.resumedOne":
+    "Hangar не был корректно закрыт. Восстановлен один сеанс, его агент продолжает разговор.",
+  "crash.resumedMany":
+    "Hangar не был корректно закрыт. Восстановленные сеансы: {count}. Агенты продолжают свои разговоры.",
+  "crash.restoredOne": "Hangar не был корректно закрыт. Восстановлен один сеанс.",
+  "crash.restoredMany": "Hangar не был корректно закрыт. Восстановленные сеансы: {count}.",
+  "crash.noneRestored": "Hangar не был корректно закрыт. Не удалось восстановить ни одного сеанса.",
+  "crash.notStarted": "Не запущены: {names}",
+  "crash.fellBack": "Запущены заново, без прежнего разговора: {names}",
   "link.notice": "Не удалось открыть браузер. Скопируй адрес и открой его сам:",
   "link.copied": "Скопировано.",
   "link.openFailed": "Не удалось открыть: {error}",
@@ -22864,6 +22960,15 @@ const tr: Record<MessageKey, string> = {
   "orphans.many": "{count} oturum arka planda hâlâ çalışıyor.",
   "orphans.help": "Hangar yeniden yüklendi ve onları artık burada gösteremiyor.",
   "orphans.end": "Durdur",
+  "crash.resumedOne":
+    "Hangar düzgün kapatılmadı. Bir oturum geri yüklendi, agent konuşmasına devam ediyor.",
+  "crash.resumedMany":
+    "Hangar düzgün kapatılmadı. {count} oturum geri yüklendi, agent'lar konuşmalarına devam ediyor.",
+  "crash.restoredOne": "Hangar düzgün kapatılmadı. Bir oturum geri yüklendi.",
+  "crash.restoredMany": "Hangar düzgün kapatılmadı. {count} oturum geri yüklendi.",
+  "crash.noneRestored": "Hangar düzgün kapatılmadı. Hiçbir oturum geri yüklenemedi.",
+  "crash.notStarted": "Başlatılamadı: {names}",
+  "crash.fellBack": "Önceki konuşma olmadan yeniden başlatıldı: {names}",
   "link.notice": "Tarayıcı açılamadı. Adresi kopyala ve kendin aç:",
   "link.copied": "Kopyalandı.",
   "link.openFailed": "Açılamadı: {error}",
@@ -25005,6 +25110,13 @@ const zh: Record<MessageKey, string> = {
   "orphans.many": "有 {count} 个会话仍在后台运行。",
   "orphans.help": "Hangar 已重新加载，无法再在这里显示它们。",
   "orphans.end": "结束",
+  "crash.resumedOne": "Hangar 未正常退出。已恢复 1 个会话，其代理会继续之前的对话。",
+  "crash.resumedMany": "Hangar 未正常退出。已恢复 {count} 个会话，代理会继续各自的对话。",
+  "crash.restoredOne": "Hangar 未正常退出。已恢复 1 个会话。",
+  "crash.restoredMany": "Hangar 未正常退出。已恢复 {count} 个会话。",
+  "crash.noneRestored": "Hangar 未正常退出。没有会话能够恢复。",
+  "crash.notStarted": "未启动：{names}",
+  "crash.fellBack": "已重新启动，没有之前的对话：{names}",
   "link.notice": "无法打开浏览器。请复制地址并自行打开：",
   "link.copied": "已复制。",
   "link.openFailed": "无法打开：{error}",

@@ -72,6 +72,20 @@
         "ru": "Утренний обзор: при первом запуске за день ненавязчивое уведомление подводит итоги вчера. «Открыть» показывает три строки на проект.",
         "tr": "Sabah özeti: günün ilk açılışında sade bir bildirim dünü özetler. “Göster” her proje için üç satır gösterir.",
         "zh": "早间概览：每天首次启动时，一条低调的提示汇总昨天。“查看”为每个项目显示三行。"
+      },
+      {
+        "de": "Nach einem Absturz sagt Hangar, wie viele Sessions zurück sind und welche ohne ihre Unterhaltung neu starten mussten. Der Verlauf wird alle 10 s gesichert.",
+        "en": "After a crash, Hangar tells you how many sessions are back and which had to start without their conversation. The scrollback is saved every 10 s.",
+        "el": "Μετά από κατάρρευση, το Hangar σου λέει πόσες συνεδρίες επανήλθαν και ποιες ξεκίνησαν χωρίς τη συζήτησή τους. Το ιστορικό αποθηκεύεται κάθε 10 s.",
+        "es": "Tras un fallo, Hangar te dice cuántas sesiones volvieron y cuáles empezaron sin su conversación. El historial se guarda cada 10 s.",
+        "fr": "Après un plantage, Hangar t’indique combien de sessions sont revenues et lesquelles ont redémarré sans leur conversation. Historique sauvé toutes les 10 s.",
+        "it": "Dopo un crash, Hangar ti dice quante sessioni sono tornate e quali sono ripartite senza la loro conversazione. La cronologia viene salvata ogni 10 s.",
+        "ja": "クラッシュの後、Hangar は復元したセッションの数と、会話なしで起動し直したセッションを知らせます。スクロールバックは 10 秒ごとに保存されます。",
+        "pl": "Po awarii Hangar mówi, ile sesji wróciło i które wystartowały bez swojej rozmowy. Historia terminala zapisuje się co 10 s.",
+        "pt": "Depois de uma falha, o Hangar diz quantas sessões voltaram e quais começaram sem a conversa. O histórico é salvo a cada 10 s.",
+        "ru": "После сбоя Hangar сообщает, сколько сеансов восстановлено и какие запустились без прежнего разговора. История терминала сохраняется каждые 10 с.",
+        "tr": "Bir çökmeden sonra Hangar kaç oturumun geri geldiğini ve hangilerinin konuşmaları olmadan başladığını söyler. Terminal geçmişi her 10 sn'de kaydedilir.",
+        "zh": "崩溃后，Hangar 会告诉你恢复了多少个会话，以及哪些会话在没有之前对话的情况下重新启动。终端历史每 10 秒保存一次。"
       }
     ]
   },

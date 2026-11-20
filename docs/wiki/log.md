@@ -1186,3 +1186,17 @@ budget warning (default 80 %, each level once a day; `budgetWarnedDay` becomes `
 with a level, old files read as `reached`), and a morning summary of yesterday on the first start
 or focus of a day with a short form of the review. Pages changed: [[costs-and-handover]],
 [[0011-work-log-and-daily-review]], index.
+
+## [2026-11-20] query | Restore after a crash
+An exit marker in the local data folder tells the start whether the previous run quit cleanly,
+removed on every quit path (`RunEvent::Exit` and `cleanup_before_exit`, checked in the Tauri and
+updater sources). After a crash the window says how many sessions came back and which did not
+come back whole. Scrollback every 10 s instead of 30 s; the last prompt is deliberately not saved.
+Pages changed: [[session-restore]], index.
+
+## [2026-11-20] query | Quit signals on Unix
+SIGTERM and SIGHUP now quit Hangar through `RunEvent::Exit` (`quit_signal.rs`), so a shutdown or
+logoff on Linux leaves no exit marker. Known limits added: several debug builds share one marker,
+a manual install over a running Hangar ends it through the Restart Manager (read from the NSIS
+template of tauri-cli 2.12.4), a marker that cannot be removed shows the notice on every start.
+Pages changed: [[session-restore]].
