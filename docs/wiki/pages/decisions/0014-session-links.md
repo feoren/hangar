@@ -4,7 +4,7 @@ type: decision
 status: accepted
 superseded_by:
 tags: [sessions, agents, hooks, security, pty, sidebar]
-sources: ["[[0012-cross-project-messages]]", "[[cross-project-paste-measurement]]"]
+sources: ["[[0012-cross-project-messages]]", "[[cross-project-paste-measurement]]", "[[unattended-settings-reading]]"]
 created: 2026-11-19
 updated: 2026-11-20
 ---
@@ -172,8 +172,19 @@ agent to run a command; Gemini CLI and OpenCode are not measured yet.
     `--full-auto`, `--yolo` or approval `never`, Gemini CLI `--yolo` or approval mode `yolo`,
     Aider `--yes-always`, Copilot CLI `--allow-all-tools`) turns "Ask before pasting" on when the
     group forms, the introductions included; the person can turn it off. The link dialog shows
-    each candidate with program, "without prompts" where it applies, and folder. Only the
-    profile's arguments are read, not settings files of the CLIs.
+    each candidate with program, "without prompts" where it applies, and folder. Since
+    2026-11-20 the settings files of the CLIs count too ([[unattended-settings-reading]],
+    `src-tauri/src/unattended.rs`): Claude Code's `permissions.defaultMode` in the user, project,
+    managed and `--settings` files, Codex CLI's `approval_policy = "never"` in its home, the chosen
+    profile and the project files of the folder and its parents, Aider's `yes-always` in its
+    config and `.env` files and `AIDER_YES_ALWAYS`. Every place is read and any one that says so
+    counts, without working out which file wins: a wrong "yes" only turns the toggle on. The
+    files are read once per process (the CLI takes its start mode from them when it starts), on
+    a blocking thread and outside the sessions lock, so a working folder on a slow drive does not
+    freeze the window; `link_state`, `link_sessions` and `edit_link_group` are async for that.
+    Gemini CLI and Copilot CLI have no such key; their arguments decide alone. The program is
+    told by the file name of the profile's command, so a wrapper (`wsl.exe`, `npx`, a shell with
+    `-c`) is judged by its arguments only, and Claude Code's `auto` mode is not counted.
   - **A sender that leaves.** What it sent still reaches its targets, but only as a card.
   - **Work log.** A delivered member message writes `linkMessage` with the sender's member name,
     the target and the time, no text ([[0011-work-log-and-daily-review]]).

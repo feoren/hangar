@@ -1251,3 +1251,9 @@ shell from the account or zsh, an own Cmd+Q item, and a platform check list. Pag
 A partner project's message now reads `[Message from project "<name>", not from the person]` with
 every line indented by `| `, as ADR 0014 does for link groups, so no line of it can stand where a
 header would. Pages changed: [[0012-cross-project-messages]], index.
+
+## [2026-11-20] ingest | Settings files that turn agent prompts off
+Read the settings docs of Claude Code, Codex CLI, Gemini CLI, Aider and Copilot CLI. ADR 0014's
+"Agents without prompts" now reads the settings files too (`src-tauri/src/unattended.rs`); any
+place that says so counts. Pages changed: [[unattended-settings-reading]] (new),
+[[0014-session-links]], index.
