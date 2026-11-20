@@ -50,9 +50,11 @@ describe("parseSettings", () => {
       },
       dotAnimation: "wave",
       rowLayout: presetLayout("ring"),
+      rowLayoutBefore: presetLayout("tiles"),
       treeFlow: { enabled: true, style: "pulse", showRate: false },
       quietSeconds: 10,
       stallMinutes: 12,
+      waitMinutes: 20,
       taskbarFlash: false,
       notifyDesktop: false,
       chime: false,
@@ -343,6 +345,17 @@ describe("parseSettings", () => {
     expect(parse(12)).toBe(12);
     expect(parse(999)).toBe(30);
     expect(parse("7")).toBe(5);
+  });
+
+  it("hints at a long wait after ten minutes by default, 0 turns it off", () => {
+    expect(defaultSettings("de").waitMinutes).toBe(10);
+    expect(parseSettings(JSON.stringify({ language: "en" }), "de").waitMinutes).toBe(10);
+    const parse = (waitMinutes: unknown) =>
+      parseSettings(JSON.stringify({ waitMinutes }), "de").waitMinutes;
+    expect(parse(0)).toBe(0);
+    expect(parse(25)).toBe(25);
+    expect(parse(999)).toBe(60);
+    expect(parse("7")).toBe(10);
   });
 
   it("flashes the taskbar by default, also for older settings", () => {

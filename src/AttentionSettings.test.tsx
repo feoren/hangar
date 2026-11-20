@@ -93,3 +93,17 @@ describe("AttentionSettings for the budget and the morning summary", () => {
     );
   });
 });
+
+describe("AttentionSettings wait hint", () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it("offers the wait threshold with ten minutes preset", () => {
+    const t = createTranslator("en");
+    const html = render(WINDOWS);
+    expect(html).toContain('id="wait-minutes"');
+    expect(html).toContain(t("settings.waitTime"));
+    expect(html).toContain(t("settings.minutes", { count: 10 }));
+  });
+});

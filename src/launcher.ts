@@ -1,11 +1,12 @@
 // Launcher (Ctrl+Shift+P): one field, one list. Pure ranking of the entries; the dialog builds the
-// entries (sessions, program in folder, files, notes, commits, snippets, settings, commands) and
-// runs the chosen one.
+// entries (sessions, projects, program in folder, files, notes, commits, snippets, settings,
+// commands) and runs the chosen one.
 
 import { fuzzyMatch } from "./fuzzy";
 
 export const LAUNCHER_SECTIONS = [
   "sessions",
+  "projects",
   "start",
   "files",
   "notes",
@@ -50,6 +51,11 @@ export interface LauncherEntry {
   keywords?: string;
   /** Shown without a query; the others (e.g. every program in every folder) only when searched. */
   primary?: boolean;
+  /**
+   * Found for this very query by a search of its own (the notes' full text): it matches even where
+   * its label does not, and ranks like a match of the whole query.
+   */
+  found?: boolean;
   disabled?: boolean;
 }
 
@@ -95,11 +101,17 @@ export function rankEntries<T extends LauncherEntry>(
       if (entry.primary === true) ranked.push({ entry, positions: [], score: 0, index });
     });
   } else {
+    // A full-text hit counts like the query matching itself, just below a label that matches it.
+    const whole = (fuzzyMatch(query, query)?.score ?? 1) - 1;
     entries.forEach((entry, index) => {
       const match = fuzzyMatch(query, searchText(entry));
-      if (match === null) return;
+      if (match === null) {
+        if (entry.found === true) ranked.push({ entry, positions: [], score: whole, index });
+        return;
+      }
       const positions = match.positions.filter((position) => position < entry.label.length);
-      ranked.push({ entry, positions, score: match.score, index });
+      const score = entry.found === true ? Math.max(match.score, whole) : match.score;
+      ranked.push({ entry, positions, score, index });
     });
     ranked.sort((a, b) => b.score - a.score || a.index - b.index);
   }

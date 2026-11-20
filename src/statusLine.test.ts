@@ -197,6 +197,47 @@ describe("stall hint in the status line", () => {
   });
 });
 
+describe("wait hint in the status line", () => {
+  const since = NOW - 12 * MINUTE;
+  const line = (
+    state: Parameters<typeof statusLine>[2],
+    waitingSince: number | null,
+    extra: Partial<SessionView> = {},
+    reason: Parameters<typeof statusLine>[7] = "quiet",
+    language: Parameters<typeof createTranslator>[0] = "en",
+  ) =>
+    statusLine(
+      "Claude Code",
+      session(extra),
+      state,
+      NO_ACTIVITY,
+      NOW,
+      createTranslator(language),
+      language,
+      reason,
+      null,
+      waitingSince,
+    );
+
+  it("says how long a session has waited for the person", () => {
+    const de = line("attention", since, {}, "quiet", "de");
+    expect(de.word).toBe("wartet seit 12 Min.");
+    expect(de.full).toBe("Claude Code wartet seit 12 Min. auf dich");
+    expect(de.waitedLong).toBe(true);
+    expect(line("attention", since, {}, "bell").word).toBe("waiting 12 min");
+    expect(line("attention", since, {}, "gate").waitedLong).toBe(true);
+  });
+
+  it("keeps the plain state without a long wait, while working or after the end", () => {
+    expect(line("attention", null).word).toBe(t("status.short.attention"));
+    expect(line("working", since, {}, null).waitedLong).toBeUndefined();
+    expect(line("idle", since, {}, null).waitedLong).toBeUndefined();
+    expect(line("attention", since, { status: "exited", exitCode: 0 }, "exit").waitedLong).toBe(
+      undefined,
+    );
+  });
+});
+
 describe("detailLine", () => {
   it("names the folder, the branch and the run time", () => {
     expect(detailLine(session(), "main", NOW, "en")).toEqual({

@@ -81,6 +81,27 @@ describe("parsePanelCommand", () => {
     });
   });
 
+  it("opens a note found by quick access", () => {
+    expect(
+      parsePanelCommand({
+        kind: "openNote",
+        id: "n1",
+        folder: { path: "/home/me/src", shared: true },
+      }),
+    ).toEqual({ kind: "openNote", id: "n1", folder: { path: "/home/me/src", shared: true } });
+    expect(parsePanelCommand({ kind: "openNote", id: "n1", folder: { path: null } })).toEqual({
+      kind: "openNote",
+      id: "n1",
+      folder: { path: null },
+    });
+    expect(parsePanelCommand({ kind: "openNote", id: "", folder: { path: null } })).toBeNull();
+    expect(parsePanelCommand({ kind: "openNote", id: "n1", folder: { path: 3 } })).toBeNull();
+    expect(parsePanelCommand({ kind: "openNote", id: "n1", folder: null })).toBeNull();
+    expect(
+      parsePanelCommand({ kind: "openNote", id: "n1", folder: { path: null, shared: "yes" } }),
+    ).toBeNull();
+  });
+
   it("rejects broken ones", () => {
     expect(parsePanelCommand({ kind: "capture", text: "", source: "" })).toBeNull();
     expect(parsePanelCommand({ kind: "show", tab: "settings" })).toBeNull();

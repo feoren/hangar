@@ -40,6 +40,7 @@ import {
   type PulseStrength,
 } from "./stateLook";
 import { clampStallMinutes, STALL_MINUTES } from "./stall";
+import { clampWaitMinutes, WAIT_MINUTES } from "./waitHint";
 import { StatusChip } from "./StatusChip";
 import type { BadgeLook } from "./programPrefs";
 import type { Theme } from "./theme";
@@ -170,6 +171,22 @@ export function AttentionSettings({ settings, theme, onChange }: Props) {
           }}
         />
         <p className="muted settings-help">{t("settings.stallHelp")}</p>
+        <RangeField
+          id="wait-minutes"
+          label={t("settings.waitTime")}
+          value={settings.waitMinutes}
+          min={WAIT_MINUTES.min}
+          max={WAIT_MINUTES.max}
+          display={
+            settings.waitMinutes === 0
+              ? t("settings.stallOff")
+              : t("settings.minutes", { count: settings.waitMinutes })
+          }
+          onChange={(value) => {
+            onChange({ waitMinutes: clampWaitMinutes(value) });
+          }}
+        />
+        <p className="muted settings-help">{t("settings.waitHelp")}</p>
 
         <CheckField
           id="taskbar-flash"

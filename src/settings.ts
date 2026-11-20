@@ -28,6 +28,7 @@ import {
 import { DEFAULT_QUIET_HOURS, parseQuietHours, type QuietHours } from "./quietHours";
 import { isSessionGrouping, type SessionGrouping } from "./sessionGroups";
 import { clampStallMinutes, STALL_MINUTES } from "./stall";
+import { clampWaitMinutes, WAIT_MINUTES } from "./waitHint";
 import { DEFAULT_LOOKS, parseStateLooks, type StateLooks } from "./stateLook";
 import { isThemeSetting, type ThemeSetting } from "./theme";
 import { DEFAULT_VIEWER_THEME, parseViewerTheme, type ViewerTheme } from "./viewerThemes";
@@ -117,6 +118,11 @@ export interface Settings {
   dotAnimation: DotAnimation;
   /** How a session row in the sidebar lays out its facts: the row builder (rowLayout.ts). */
   rowLayout: RowLayout;
+  /**
+   * The layout before "One line" was turned on (oneLineRows.ts), brought back when it is turned
+   * off; `null` while it is off.
+   */
+  rowLayoutBefore: RowLayout | null;
   /** The animated flow on the sidebar's tree guides and the rate on the rows (treeFlow.ts). */
   treeFlow: TreeFlowPrefs;
   quietSeconds: number;
@@ -125,6 +131,11 @@ export interface Settings {
    * stuck (stall.ts); 0 turns the hint off.
    */
   stallMinutes: number;
+  /**
+   * Minutes a session waits for the person before its row says for how long and its dot pulses
+   * (waitHint.ts); 0 turns the hint off.
+   */
+  waitMinutes: number;
   /** The taskbar icon flashes when a session starts waiting in the background (taskbarFlash.ts). */
   taskbarFlash: boolean;
   /** Desktop notification when a session starts waiting in the background (desktopNotify.ts). */
@@ -267,9 +278,11 @@ export function defaultSettings(language: Language): Settings {
     looks: DEFAULT_LOOKS,
     dotAnimation: DEFAULT_DOT_ANIMATION,
     rowLayout: DEFAULT_ROW_LAYOUT,
+    rowLayoutBefore: null,
     treeFlow: DEFAULT_TREE_FLOW,
     quietSeconds: QUIET_SECONDS.default,
     stallMinutes: STALL_MINUTES.default,
+    waitMinutes: WAIT_MINUTES.default,
     taskbarFlash: true,
     notifyDesktop: true,
     chime: true,
@@ -344,6 +357,8 @@ export function parseSettings(text: string | null, fallbackLanguage: Language): 
   const theme = get("theme");
   const quiet = get("quietSeconds");
   const stall = get("stallMinutes");
+  const wait = get("waitMinutes");
+  const before = get("rowLayoutBefore");
   const lines = get("scrollbackLines");
   const volume = get("chimeVolume");
   const scheme = get("terminalScheme");
@@ -363,6 +378,7 @@ export function parseSettings(text: string | null, fallbackLanguage: Language): 
     // Versions before the row builder stored one of fourteen row styles; it becomes its preset
     // once, and the next save stores the layout instead.
     rowLayout: parseRowLayout(get("rowLayout"), Reflect.get(raw, "rowStyle")),
+    rowLayoutBefore: typeof before === "object" && before !== null ? parseRowLayout(before) : null,
     treeFlow: parseTreeFlow(get("treeFlow")),
     quietSeconds:
       typeof quiet === "number" && Number.isFinite(quiet)
@@ -372,6 +388,10 @@ export function parseSettings(text: string | null, fallbackLanguage: Language): 
       typeof stall === "number" && Number.isFinite(stall)
         ? clampStallMinutes(stall)
         : defaults.stallMinutes,
+    waitMinutes:
+      typeof wait === "number" && Number.isFinite(wait)
+        ? clampWaitMinutes(wait)
+        : defaults.waitMinutes,
     taskbarFlash: defaults.taskbarFlash,
     notifyDesktop: defaults.notifyDesktop,
     chime: defaults.chime,

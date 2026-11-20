@@ -71,6 +71,7 @@ UI texts in `src/i18n.ts` are translated per language and are not bound by this 
 | Status-Chip                                     | status chip                       | state pill at the end of a session row's title line                                  |
 | Session-Zeile (Anordnung)                       | row layout                        | which elements a session row shows, where and in which form, `rowLayout.ts`          |
 | Vorlage (Session-Zeile)                         | row preset                        | a ready-made row layout to start from, `ROW_PRESETS`                                 |
+| Einzeilig (Session-Zeilen)                      | one line                          | `oneLineRows.ts`; every row on one compact line, the layout before is kept           |
 | fragt (Glocke, BEL)                             | asks (bell)                       | waiting reason after BEL, `AttentionReason`                                          |
 | Hinweiston                                      | chime                             | synthesized two-tone sound, `chime.ts`                                               |
 | Taskleiste blinken                              | taskbar flash                     |                                                                                      |
@@ -180,6 +181,7 @@ UI texts in `src/i18n.ts` are translated per language and are not bound by this 
 | Vorgemerkte Nachricht                           | queued message                    | `messageQueue.ts`; sent once the session is done, kept while it asks                 |
 | Rückfragen-Schutz                               | question guard                    | `promptGuard.ts`; a question on screen holds the queued message back                 |
 | Hänger-Hinweis                                  | stall hint                        | `stall.ts`; a working agent shows nothing new for a while, quiet text on its row     |
+| Warte-Hinweis                                   | wait hint                         | `waitHint.ts`; a session waits for you past a threshold, its row says how long       |
 | Ruhezeiten (Hinweise)                           | quiet hours                       | `quietHours.ts`; daily window without taskbar flash, chime and desktop notification  |
 | Textbaustein                                    | snippet                           | `snippets.ts`                                                                        |
 | Variable (Textbaustein)                         | snippet variable                  | `snippetVariables.ts`; `{{file}}` and others, filled per session when sending        |

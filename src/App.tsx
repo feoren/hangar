@@ -104,7 +104,14 @@ import {
   type MessageKey,
 } from "./i18n";
 import { formatShortTime, statusText } from "./format";
-import { CloseIcon, FileIcon, NotesIcon, SourceControlIcon, TemplateIcon } from "./icons";
+import {
+  CloseIcon,
+  FileIcon,
+  FolderIcon,
+  NotesIcon,
+  SourceControlIcon,
+  TemplateIcon,
+} from "./icons";
 import { LauncherDialog } from "./LauncherDialog";
 import { buildLauncherItems, commitItems, fileItems } from "./launcherItems";
 import { LinkAddress } from "./LinkAddress";
@@ -263,6 +270,10 @@ import {
 import { looksLikeQuestion } from "./promptGuard";
 import { QueueDialog } from "./QueueDialog";
 import { StallMonitor, stallThresholdMs, wallClock } from "./stall";
+import { WaitMonitor, waitingIds, waitThresholdMs } from "./waitHint";
+import { loadProjectItems, searchNoteItems } from "./launcherSearch";
+import { isOneLine, toggleOneLine } from "./oneLineRows";
+import type { SearchHit } from "./notes";
 import { setSystemUsageEnabled } from "./useSystemUsage";
 import { sessionLabels } from "./sessionLabel";
 import {
@@ -966,6 +977,10 @@ export function App() {
   const [peekRequest, setPeekRequest] = useState<{ id: number; token: number } | null>(null);
   /** Working agent sessions that have shown nothing new for a while, and since when (stall.ts). */
   const [stalls, setStalls] = useState<ReadonlyMap<number, number>>(() => new Map());
+  /** Sessions that have waited for the person past the threshold, and since when (waitHint.ts). */
+  const [longWaits, setLongWaits] = useState<ReadonlyMap<number, number>>(() => new Map());
+  /** Quick access chose a project: its card in the overview scrolls into view; a new token again. */
+  const [projectFocus, setProjectFocus] = useState<{ key: string; token: number } | null>(null);
   /**
    * Session whose sub-agents the body shows (sub-agent view), or `null`. Only while that session
    * is the active one; switching sessions or arranging the panes ends the view.
@@ -1190,6 +1205,32 @@ export function App() {
       stallMonitor.dispose();
     };
   }, [stallMonitor]);
+  /**
+   * The wait hint (waitHint.ts): learns each change of state from the attention listener and
+   * reports when a session has waited past the threshold. Crossing it in the background flashes
+   * the taskbar once, under the same settings as a session that starts waiting.
+   */
+  const [waitMonitor] = useState(() => new WaitMonitor(wallClock, setLongWaits));
+  useEffect(() => {
+    waitMonitor.setOnCross(() => {
+      const notices = noticesAt(settingsRef.current, new Date());
+      flasher.attentionChanged("attention", {
+        enabled: notices.taskbarFlash && notices.attentionEnabled,
+        windowFocused: document.hasFocus(),
+      });
+    });
+  }, [waitMonitor, flasher]);
+  useEffect(() => {
+    waitMonitor.setThreshold(
+      settings.attentionEnabled ? waitThresholdMs(settings.waitMinutes) : null,
+    );
+  }, [waitMonitor, settings.attentionEnabled, settings.waitMinutes]);
+  useEffect(
+    () => () => {
+      waitMonitor.dispose();
+    },
+    [waitMonitor],
+  );
   /** Values for new terminals, also from asynchronous flows (restore). */
   const terminalConfig = useRef({
     fontSize: layout.fontSize,
@@ -1933,6 +1974,17 @@ export function App() {
     });
   };
 
+  /** A project from quick access: the home view shows and its card scrolls into view. */
+  const showProject = (key: string) => {
+    if (state.sessions.length > 0) setPutAside(true);
+    setProjectFocus((current) => ({ key, token: (current?.token ?? 0) + 1 }));
+  };
+
+  /** "One line" (oneLineRows.ts): every row on one close line, and back to the layout before. */
+  const toggleRowsOneLine = () => {
+    setSettings((current) => ({ ...current, ...toggleOneLine(current) }));
+  };
+
   /** Shows the warning for the session `name` and resolves with the user's answer. */
   const confirmPaste = useCallback(
     (name: string) =>
@@ -2091,6 +2143,15 @@ export function App() {
       shownKey === "" ? [] : shownKey.split(",").map((part) => Number(part)),
     );
   }, [shownKey]);
+  // The wait hint hears what the rows show, so waiting at the gate counts as well; a session on
+  // screen never waits unseen (its gate keeps the "decision" chip). The monitor keeps the start of
+  // a session that goes on waiting and ignores calls that change nothing.
+  useEffect(() => {
+    const ids = state.sessions.map((session) => session.id).filter((id) => !isPlaceholder(id));
+    const onScreen = new Set(shownKey === "" ? [] : shownKey.split(",").map(Number));
+    const waiting = waitingIds(ids, attention, reasons, onScreen);
+    for (const id of ids) waitMonitor.changed(id, waiting.has(id));
+  }, [waitMonitor, state.sessions, attention, reasons, shownKey]);
 
   /** The one decision on a card; the others are counted on it. */
   const shownDecision = decisionToShow(pendingGate, state.activeId, shown);
@@ -2483,6 +2544,7 @@ export function App() {
   const forgetAttention = useCallback(
     (id: number) => {
       pushes.forget(id);
+      waitMonitor.remove(id);
       void reportPhase(
         phases.end(id, Date.now(), terminals.get(id)?.activity().lastOutput ?? null),
       );
@@ -2499,7 +2561,7 @@ export function App() {
         return map;
       });
     },
-    [pushes],
+    [pushes, waitMonitor],
   );
 
   /** Desired title (restored or numbered); if the rename fails, the program name stays. */
@@ -3877,6 +3939,16 @@ export function App() {
     askNotes((token) => ({ token, kind: "openFolder", folder }));
   };
 
+  /** A note quick access found by its text: it opens in the notes, here or in their window. */
+  const openNoteAt = (hit: SearchHit) => {
+    if (panelWindow.detached) {
+      toPanelWindow({ kind: "openNote", folder: hit.folder, id: hit.id });
+      return;
+    }
+    openSide("notes");
+    askNotes((token) => ({ token, kind: "openNote", folder: hit.folder, id: hit.id }));
+  };
+
   /**
    * "Open in own window": the whole right panel moves into a window of its own, on the same tab;
    * the terminal gets the space. Pending note input is saved first, the window reads it again.
@@ -5157,6 +5229,11 @@ export function App() {
           label: t("projects.menu"),
           run: showProjects,
         },
+        {
+          type: "action",
+          label: isOneLine(settings.rowLayout) ? t("sidebar.oneLineOff") : t("sidebar.oneLineOn"),
+          run: toggleRowsOneLine,
+        },
         { type: "separator" },
         ...LAYOUT_IDS.map((id): MenuItem => ({
           type: "action",
@@ -6182,11 +6259,14 @@ export function App() {
    * same bounded index as the file tree's filter) and its recent commits.
    */
   const launcherLoaders = () => {
+    const projects = () =>
+      loadProjectItems(state.sessions, api.gitRepoPlaces, showProject, <FolderIcon size={14} />);
     const session = activeSession;
-    if (session === undefined) return [];
+    if (session === undefined) return [projects];
     const fileIcon = <FileIcon size={14} />;
     const commitIcon = <SourceControlIcon size={14} />;
     return [
+      projects,
       async () => {
         const index = parsePathIndex(await api.listSessionPaths(session.id));
         return index === null
@@ -6424,8 +6504,11 @@ export function App() {
           }}
           onLinkDiscard={discardLink}
           stalls={stalls}
+          longWaits={longWaits}
+          waitThresholdMs={waitThresholdMs(settings.waitMinutes)}
           peekRequest={peekRequest}
           rowLayout={settings.rowLayout}
+          onToggleOneLine={toggleRowsOneLine}
           peekLines={(id) => {
             // A session on screen needs no peek; its own terminal shows more.
             if (shownRef.current.has(id)) return null;
@@ -6747,6 +6830,7 @@ export function App() {
                     }}
                     partners={partnerBook}
                     partnerActions={partnerActions}
+                    focus={projectFocus}
                     onNewSession={
                       nextProgram
                         ? () => {
@@ -7402,6 +7486,10 @@ export function App() {
           <LauncherDialog
             buildItems={launcherItems}
             loaders={launcherLoaders()}
+            searchers={[
+              (query) =>
+                searchNoteItems(query, api.searchNotes, openNoteAt, t, <NotesIcon size={14} />),
+            ]}
             onClose={closeDialog}
             onRun={(item) => {
               closeDialog();

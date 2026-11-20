@@ -97,7 +97,9 @@ export type NotesRequest =
   | { token: number; kind: "quick" }
   | { token: number; kind: "focus" }
   | { token: number; kind: "capture"; text: string; source: string }
-  | { token: number; kind: "openFolder"; folder: NoteFolder };
+  | { token: number; kind: "openFolder"; folder: NoteFolder }
+  /** A note quick access found by its text: it opens, with the editor focused. */
+  | { token: number; kind: "openNote"; folder: NoteFolder; id: string };
 
 /** What the window needs from the panel for F6. */
 export interface NotesHandle {
@@ -746,6 +748,10 @@ export function NotesPanel(props: Props) {
           if (view === "note") focusEditor();
           else focusList();
           return;
+        case "openNote":
+          setQuery("");
+          void openNote({ folder: request.folder, id: request.id }, true);
+          return;
         case "openFolder": {
           const next = scopeForFolder(request.folder, session);
           setScope(next);
@@ -782,7 +788,19 @@ export function NotesPanel(props: Props) {
         }
       }
     });
-  }, [request, view, language, t, startDraft, leave, show, ensureCreated, focusEditor, focusList]);
+  }, [
+    request,
+    view,
+    language,
+    t,
+    startDraft,
+    openNote,
+    leave,
+    show,
+    ensureCreated,
+    focusEditor,
+    focusList,
+  ]);
 
   // Preview: rendered from the text, again after each pause while typing.
   useEffect(() => {

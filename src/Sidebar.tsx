@@ -106,6 +106,7 @@ import type { UpdateState } from "./useUpdater";
 import { useWaitingEdges } from "./useWaitingEdges";
 import { resourceParts } from "./resources";
 import { contextHint } from "./contextUsage";
+import { isOneLine } from "./oneLineRows";
 import {
   isPlaced,
   loadSummary,
@@ -311,6 +312,13 @@ interface Props {
   onLinkDiscard: (messageId: number) => void;
   /** Working agent sessions that showed nothing new for a while: since when (stall.ts). */
   stalls: ReadonlyMap<number, number>;
+  /** Sessions that have waited for the person past the wait hint's threshold: since when (waitHint.ts). */
+  longWaits: ReadonlyMap<number, number>;
+  /**
+   * The wait hint's threshold; a reported session has waited at least this long, also while the
+   * sidebar's clock has not ticked since (it ticks every half minute).
+   */
+  waitThresholdMs: number | null;
   /**
    * "Show last lines" from the session menu: the peek of that row opens at once; a new `token`
    * opens it again. If the row is not in the list (a folded group), the session is shown instead.
@@ -318,6 +326,8 @@ interface Props {
   peekRequest: { id: number; token: number } | null;
   /** How a session row lays out its facts (rowLayout.ts). */
   rowLayout: RowLayout;
+  /** "One line" in the group menu (oneLineRows.ts): every row on one close line, and back. */
+  onToggleOneLine: () => void;
 }
 
 /** The peek's line about a queued message: when it goes out, then the text. */
@@ -476,17 +486,21 @@ export function Sidebar(props: Props) {
   const lines = (session: SessionView) => {
     const state = attention.get(session.id) ?? "idle";
     const label = folderLabels.get(session.id) ?? null;
+    const waitingSince = props.longWaits.get(session.id) ?? null;
+    const statusNow =
+      waitingSince === null ? now : Math.max(now, waitingSince + (props.waitThresholdMs ?? 0));
     return {
       status: statusLine(
         statusSubject(label, profileById.get(session.profileId)?.name, session.title),
         session,
         state,
         props.activityOf(session.id, now),
-        now,
+        statusNow,
         t,
         props.language,
         props.reasons.get(session.id) ?? null,
         props.stalls.get(session.id) ?? null,
+        waitingSince,
       ),
       // A worktree's folder name repeats its branch; the repository's name says more.
       detail: detailLine(
@@ -1123,7 +1137,11 @@ export function Sidebar(props: Props) {
 
       {/* One group per program or project folder, top to bottom; together they take the free
           height and scroll. */}
-      <div className="session-groups" {...rowAttributes(plan)}>
+      <div
+        className="session-groups"
+        {...rowAttributes(plan)}
+        data-one-line={isOneLine(props.rowLayout) ? "" : undefined}
+      >
         <WaitingEdge edge="above" hint={edgeHints.above} onReveal={revealRow} />
         <ul
           className="session-list"
@@ -1177,6 +1195,15 @@ export function Sidebar(props: Props) {
                 props.onGrouping(by);
               },
             })),
+            { type: "separator", key: "one-line-separator" },
+            {
+              type: "action",
+              key: "one-line",
+              label: t("rowLayout.oneLine"),
+              current: isOneLine(props.rowLayout),
+              toggle: true,
+              run: props.onToggleOneLine,
+            },
           ]}
           label={t("sidebar.groupBy")}
           position={groupingMenu}
@@ -1854,6 +1881,8 @@ function SessionItem({
     selected ? "selected" : "",
     exited ? "exited" : "",
     waiting ? "attention" : "",
+    // Waited past the wait hint's threshold: the dot pulses softly (styles.css "Wait hint").
+    waiting && line.waitedLong === true ? "waited-long" : "",
     lookClass(rowLook(session, state, chip)),
     edgeClass(rowEdge(session, state, chip)),
     last ? "tree-last" : "",

@@ -12656,6 +12656,70 @@ body.session-dragging .session-actions {
 
 /* --- End of row layout --- */
 
+/* One line (oneLineRows.ts): rows and group headers set close, so a long list of sessions fits
+   without scrolling. Outside the row layout's section: it tightens the group headers as well. */
+[data-one-line] .session-main {
+  padding-top: 3px;
+  padding-bottom: 3px;
+}
+
+[data-one-line] .agent-group {
+  margin-bottom: 0;
+}
+
+[data-one-line] .section-title.group-title.agent-group-title {
+  padding-top: 2px;
+  padding-bottom: 0;
+}
+
+[data-one-line] .agent-group-toggle {
+  min-height: 22px;
+  padding-top: 2px;
+  padding-bottom: 2px;
+}
+
+/* Wait hint (waitHint.ts): a session that has waited for the person past the threshold. A thin
+   ring breathes out of its dot, slower than the dot's own blink, and nothing around it moves.
+   Still under reduced motion and while saving energy: then the words in the status line carry
+   the hint alone. */
+.session.waited-long .state-dot {
+  position: relative;
+}
+
+.session.waited-long .state-dot::after {
+  position: absolute;
+  inset: -3px;
+  border: 1px solid var(--row-strong, var(--muted));
+  border-radius: 50%;
+  content: "";
+  opacity: 0;
+  pointer-events: none;
+  animation: wait-ring 3.2s ease-out infinite;
+}
+
+@keyframes wait-ring {
+  0% {
+    opacity: 0.6;
+    transform: scale(0.7);
+  }
+
+  70%,
+  100% {
+    opacity: 0;
+    transform: scale(1.6);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .session.waited-long .state-dot::after {
+    animation: none;
+  }
+}
+
+:root.power-saving .session.waited-long .state-dot::after {
+  animation: none;
+}
+
 /* Costs (CostDialog.tsx): today per session, then seven days as thin bars; numbers right-aligned
    with tabular figures so the columns line up. */
 .cost-dialog {
