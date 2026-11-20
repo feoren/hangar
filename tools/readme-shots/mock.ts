@@ -2,10 +2,11 @@
 // IPC calls the frontend makes and plays a scripted, fictional day in the project "acme-shop":
 // Claude Code working with a crew of sub-agents next to Codex CLI in its own worktree, a second
 // Claude Code session started as the "security" sub-agent, Gemini CLI done with the API docs in
-// the partner project "acme-docs", a PowerShell running the docs site's dev server, a signed-in
-// account with two teammates online, and, per scene, what that scene shows: a message to the
-// partner project, a message waiting from it, the sub-agent definitions and their figures, a
-// dictation or the connection test of a self-hosted server.
+// the project "acme-docs", a PowerShell running the docs site's dev server and a signed-in account
+// with two teammates online. Three of the agents form a link group with a lead. Per scene it adds
+// what that scene shows: the group's history, the light flowing to working sessions, the notes
+// quick access finds, the day's costs, yesterday's summary, a commit held by the secret guard or a
+// long list of sessions on one line each.
 // The driver (run.mjs) picks what each screenshot shows by clicking through the real frontend.
 // Nothing here talks to a real process, file or network, and every name in it is made up.
 
@@ -43,26 +44,28 @@ const SCENE = ((): string => {
     return "overview";
   }
 })();
-/** Claude Code still works in every scene but the dictation, where it waits at its prompt. */
-const CLAUDE_BUSY = SCENE !== "dictation";
-/** The messages scene: an agent of acme-shop sent the docs project a message with hangar-send. */
-const MESSAGE_WAITING = SCENE === "messages";
-/** The partner scenes look at the docs project: its Gemini CLI session is the active one. */
-const DOCS_ACTIVE = SCENE === "partners" || SCENE === "messages";
-/** The crew scene: the command guard holds a command of the security sub-agent. */
-const GATE_PENDING = SCENE === "crew";
-/** The server check scene: the account runs on the team's own server, not the official one. */
-const SELF_HOSTED = SCENE === "server-check";
+/** The one-line scene: a long day with many sessions in four projects. */
+const MANY = SCENE === "one-line";
+/** The scenes whose sidebar rows send output fast enough for the flow to run busy. */
+const FAST_OUTPUT = SCENE === "overview" || SCENE === "data-flow";
+
+const MINUTE = 60_000;
+const HOUR = 60 * MINUTE;
 
 // A fixed clock, so every time the app shows (run times, "since 09:12") is the same in each run:
-// it starts at FIXED_START and stands at SHOT_TIME once the driver freezes the scene.
+// it starts at FIXED_START and stands at SHOT_TIME once the driver freezes the scene. In the
+// overview it jumps WAIT_JUMP ahead a few seconds after the start, so the session that asked
+// something has waited for 12 minutes by the time of the screenshot (waitHint.ts).
+const WAIT_JUMP = SCENE === "overview" ? 12 * MINUTE : 0;
+const JUMP_AFTER_MS = 4_000;
 const FIXED_START = Date.UTC(2026, 10, 10, 9, 30, 0);
-const SHOT_TIME = FIXED_START + 30_000;
+const SHOT_TIME = FIXED_START + 30_000 + WAIT_JUMP;
 const realNow = Date.now.bind(Date);
 const clockOffset = FIXED_START - realNow();
+let jumped = false;
 Date.now = () => {
   if (control.freeze) return SHOT_TIME;
-  return Math.min(realNow() + clockOffset, SHOT_TIME);
+  return Math.min(realNow() + clockOffset + (jumped ? WAIT_JUMP : 0), SHOT_TIME);
 };
 // `new Date()` without arguments reads the same clock (clock times and "today" in the app come
 // from it); every other form of the constructor and every static method stay real.
@@ -71,22 +74,20 @@ window.Date = new Proxy(Date, {
     return Reflect.construct(target, args.length === 0 ? [Date.now()] : args, newTarget);
   },
 });
+if (WAIT_JUMP > 0) {
+  window.setTimeout(() => {
+    jumped = true;
+  }, JUMP_AFTER_MS);
+}
 /** A moment `ms` before the screenshot. */
 const ago = (ms: number) => SHOT_TIME - ms;
-const MINUTE = 60_000;
-const HOUR = 60 * MINUTE;
 
 const ROOT = "C:\\src\\acme-shop";
 const WORKTREE = "C:\\src\\acme-shop-cart-rounding";
 const WORKTREE_BRANCH = "hangar/cart-rounding";
 const DOCS = "C:\\src\\acme-docs";
-/**
- * The crew scene: the command guard only watches team sessions, so there the Claude Code session
- * runs as one, in its own worktree.
- */
-const TEAM_CLAUDE = GATE_PENDING;
-const TEAM_WORKTREE = "C:\\src\\acme-shop-webhook-retries";
-const TEAM_BRANCH = "hangar/webhook-retries";
+const BILLING = "C:\\src\\acme-billing";
+const WEB = "C:\\src\\acme-web";
 
 function catalogProfile(id: string, name: string, resumeArgs: string[] | null) {
   return {
@@ -161,10 +162,9 @@ const plainSession = (n: number, profileId: string, cwd: string, title: string) 
   worktree: null,
 });
 /** The sidebar of every scene: five sessions, two of them Claude Code. */
-const mainSessions = [
+const baseSessions = [
   {
-    ...plainSession(1, "claude", TEAM_CLAUDE ? TEAM_WORKTREE : ROOT, "Webhook retries"),
-    worktree: TEAM_CLAUDE ? { path: TEAM_WORKTREE, branch: TEAM_BRANCH, repoRoot: ROOT } : null,
+    ...plainSession(1, "claude", ROOT, "Webhook retries"),
     cliSessionId: "cccccccc-0000-4000-8000-000000000001",
   },
   {
@@ -181,13 +181,23 @@ const mainSessions = [
   plainSession(4, "gemini", DOCS, "Refund docs"),
   plainSession(5, "pwsh", DOCS, "Docs server"),
 ];
-const workspace = {
-  version: 1,
-  activeKey: uuid(DOCS_ACTIVE ? 4 : 1),
-  sessions: mainSessions,
-};
+/** The one-line scene's busy day: ten more sessions in two more projects. */
+const moreSessions = [
+  plainSession(6, "claude", ROOT, "Search ranking"),
+  plainSession(7, "codex", BILLING, "Invoice PDFs"),
+  plainSession(8, "aider", DOCS, "Typo sweep"),
+  plainSession(9, "claude", WEB, "Mobile layout"),
+  plainSession(10, "gemini", BILLING, "Tax rules"),
+  plainSession(11, "codex", WEB, "Flaky e2e tests"),
+  plainSession(12, "pwsh", WEB, "Web dev server"),
+  plainSession(13, "aider", BILLING, "CSV export"),
+  plainSession(14, "claude", WEB, "Dark mode"),
+  plainSession(15, "gemini", WEB, "Lighthouse audit"),
+];
+const mainSessions = MANY ? [...baseSessions, ...moreSessions] : baseSessions;
+const workspace = { version: 1, activeKey: uuid(1), sessions: mainSessions };
 /** Minutes each session has been running, in creation order. */
-const AGE_MINUTES = [52, 47, 38, 31, 64];
+const AGE_MINUTES = [52, 47, 38, 31, 64, 26, 73, 12, 44, 19, 35, 88, 9, 57, 22];
 
 // ANSI helpers
 const E = "\x1b[";
@@ -197,7 +207,6 @@ const fg = (n: number, s: string) => `${E}${String(n)}m${s}${E}39m`;
 const green = (s: string) => fg(32, s);
 const red = (s: string) => fg(31, s);
 const cyan = (s: string) => fg(36, s);
-const yellow = (s: string) => fg(33, s);
 const magenta = (s: string) => fg(35, s);
 const lines = (l: string[]) => l.join("\r\n");
 
@@ -215,17 +224,15 @@ function claudeSpinner(seconds: number, frame: number): string {
   const time = `${String(Math.floor(seconds / 60))}m ${String(seconds % 60)}s`;
   return magenta(`${glyph} Working…`) + dim(` (${time} · esc to interrupt)`);
 }
-const claudePrompt = (text: string[] = [], width = 46) => [
+const claudePrompt = (width = 46) => [
   rule(width),
-  ...(text.length === 0
-    ? [`> ${E}7m ${E}27m`]
-    : text.map((line, index) => (index === 0 ? `> ${line}` : `  ${line}`))),
+  `> ${E}7m ${E}27m`,
   rule(width),
   dim("  ? for shortcuts"),
 ];
 const task = (agent: string, what: string) => `${green("●")} ${bold(agent)}(${what})`;
 
-/** The overview: two sub-agents at work while Claude Code waits for them. */
+/** The lead of the link group at work: two sub-agents run while it waits for them. */
 const claudeCrewOut = lines([
   dim("> ") + "Add retries with backoff to the payment",
   dim("  ") + "webhook and cover them with tests",
@@ -251,67 +258,6 @@ const claudeCrewOut = lines([
   SAVE_CURSOR + claudeSpinner(CLAUDE_START_SECONDS, 0),
   "",
   ...claudePrompt(),
-]);
-
-/** The crew scene: three agents, the last one held at the command guard. */
-const GUARD_CARD_LINES = 11;
-const GUARDED_COMMAND = "git clean -fdx";
-const claudeGuardOut = lines([
-  // Room for the guard's card at the top of the pane, so it covers no output.
-  ...Array<string>(GUARD_CARD_LINES).fill(""),
-  dim("> ") + "Add retries with backoff to the payment webhook, cover them with tests and",
-  dim("  ") + "check the new code for security problems",
-  "",
-  "● I'll run three agents side by side: backend changes the handler, tester covers",
-  "  it with tests and security checks the result.",
-  "",
-  task("backend", "Retries with backoff"),
-  dim("  ⎿  ") + "Update(src/payments/webhook.ts)",
-  dim("     Updated with 14 additions and 3 removals"),
-  "",
-  task("tester", "Write retry tests"),
-  dim("  ⎿  ") + "Bash(pnpm test payments)",
-  dim("     +9 more tool uses"),
-  "",
-  `${yellow("●")} ${bold("security")}(Check the new code)`,
-  dim("  ⎿  ") + `Bash(${GUARDED_COMMAND})`,
-  dim("     Running PreToolUse hook…"),
-  "",
-  ...claudePrompt([], 82),
-]);
-
-/** The dictation scene: a sentence spoken a moment ago stands in the prompt. */
-const DICTATED = [
-  "Now log every failed delivery attempt together with the order",
-  "number and add a test for it.",
-];
-const claudeDictationOut = lines([
-  dim("> ") + "Make the retry delays configurable and add a test for it",
-  "",
-  "● I'll read the delays from the settings and keep the old ones as the default.",
-  "",
-  green("●") + " " + bold("Read") + "(src/payments/retry.ts)",
-  dim("  ⎿  Read 48 lines"),
-  "",
-  green("●") + " " + bold("Update") + "(src/payments/retry.ts)",
-  dim("  ⎿  Updated with 9 additions and 2 removals"),
-  dim("      12 ") + red("-  const DELAYS = [250, 500, 1000];"),
-  dim("      12 ") + green("+  const DELAYS = settings.delays ?? [250, 500, 1000];"),
-  "",
-  green("●") + " " + bold("Update") + "(src/payments/retry.test.ts)",
-  dim("  ⎿  Updated with 14 additions"),
-  "",
-  green("●") + " " + bold("Bash") + "(pnpm test payments)",
-  dim("  ⎿  Test Files  2 passed (2)"),
-  dim("          Tests  21 passed (21)"),
-  "",
-  "● Done. The delays now come from the settings and keep their old default. The tests",
-  "  cover the default and a custom list.",
-  "",
-  ...claudePrompt(
-    DICTATED.map((line, i) => (i === DICTATED.length - 1 ? `${line}${E}7m ${E}27m` : line)),
-    82,
-  ),
 ]);
 
 /** The second Claude Code session, started as the security agent, asks before it runs a command. */
@@ -361,15 +307,6 @@ const codexOut = lines([
   dim("    21 ") + green("+   sum += line.net;"),
   dim("    22 ") + green("+ }"),
   dim("    23 ") + green("+ return round(sum);"),
-  "",
-  "• " + bold("Ran") + " pnpm test cart",
-  dim("  └ ") + green("✓") + " 23 passed " + dim("(1.4 s)"),
-  "",
-  "• " + bold("Edited") + " src/cart/total.test.ts " + dim("(") + green("+9") + dim(")"),
-  dim("    48 ") + green('+ it("sums discounts", () => {'),
-  dim("    49 ") + green("+   const c = lines(3, 9.99);"),
-  dim("    50 ") + green("+   expect(total(c)).toBe(19.98);"),
-  dim("    51 ") + green("+ });"),
   "",
   "• " + bold("Running") + " pnpm test cart",
   "",
@@ -424,20 +361,19 @@ const geminiOut = [
 ];
 
 // The docs site's dev server: its address puts a globe on the row and on the project's card.
-const pwshOut = lines([
-  "PowerShell 7.6.9",
-  "",
-  green(`PS ${DOCS}> `) + "pnpm docs:dev",
-  "",
-  dim("> acme-docs@1.4.0 docs:dev C:\\src\\acme-docs"),
-  dim("> vitepress dev"),
-  "",
-  `  ${green("vitepress")} ${green("v1.6.3")}`,
-  "",
-  `  ${green("➜")}  ${bold("Local")}:   ${cyan("http://localhost:5173/")}`,
-  `  ${green("➜")}  ${dim("Network: use --host to expose")}`,
-  "",
-]);
+const pwshOut = (folder: string, project: string, port: number) =>
+  lines([
+    "PowerShell 7.6.9",
+    "",
+    green(`PS ${folder}> `) + "pnpm dev",
+    "",
+    dim(`> ${project}@1.4.0 dev ${folder}`),
+    dim("> vite"),
+    "",
+    `  ${green("➜")}  ${bold("Local")}:   ${cyan(`http://localhost:${String(port)}/`)}`,
+    `  ${green("➜")}  ${dim("Network: use --host to expose")}`,
+    "",
+  ]);
 
 const CODEX_START_SECONDS = 41;
 function codexSpinner(seconds: number, frame: number): string {
@@ -445,20 +381,34 @@ function codexSpinner(seconds: number, frame: number): string {
   return `${glyph} ${bold("Working")}${dim(` (${String(seconds)}s • esc to interrupt)`)}`;
 }
 
-/** The first screen of each session of the main scenes, by session number. */
+/** A short screen for the extra sessions of the one-line scene, which no pane shows. */
+const promptOut = (text: string) => lines([dim("> ") + text, "", SAVE_CURSOR]);
+
+/** The first screen of each session, by session number. */
 const mainScripts: Record<number, string> = {
-  1: CLEAR + HIDE_CURSOR + sceneClaudeScreen(),
+  1: CLEAR + HIDE_CURSOR + claudeCrewOut,
   2: CLEAR + codexOut + codexSpinner(CODEX_START_SECONDS, 0) + codexFooter,
   3: CLEAR + HIDE_CURSOR + claudeAskOut,
   4: CLEAR + HIDE_CURSOR + (geminiOut[0] ?? ""),
-  5: CLEAR + pwshOut,
+  5: CLEAR + pwshOut(DOCS, "acme-docs", 5173),
+  6: CLEAR + promptOut("Rank exact title matches above partial ones"),
+  7: CLEAR + promptOut("Render the invoice PDFs with the new logo"),
+  8: CLEAR + promptOut("Fix the typos in docs/guides"),
+  9: CLEAR + promptOut("The checkout breaks below 360 px, fix it"),
+  10: CLEAR + promptOut("Which VAT rate applies to digital goods in the EU?"),
+  11: CLEAR + promptOut("Find out why checkout.spec.ts fails every third run"),
+  12: CLEAR + pwshOut(WEB, "acme-web", 5174),
+  13: CLEAR + promptOut("Export the refunds as CSV for the accountant"),
+  14: CLEAR + promptOut("Add a dark mode that follows the system"),
+  15: CLEAR + promptOut("Run a Lighthouse audit on the landing page"),
 };
 
-function sceneClaudeScreen(): string {
-  if (SCENE === "crew") return claudeGuardOut;
-  if (SCENE === "dictation") return claudeDictationOut;
-  return claudeCrewOut;
-}
+/** Sessions that keep working with a spinner: Claude Code, Codex CLI and, in the long list, more. */
+const WORKING = new Set(MANY ? [1, 2, 7, 9, 11, 14] : [1, 2]);
+/** Sessions that ring the bell, so the sidebar shows them asking. */
+const ASKING = new Set(MANY ? [3, 10] : [3]);
+/** Sessions that work a little, then answer and rest: the sidebar shows them done. */
+const FINISHING = new Set(MANY ? [4, 6, 15] : [4]);
 
 // IPC plumbing: Tauri delivers channel messages and events through registered callbacks.
 const callbacks = new Map<number, (value: unknown) => void>();
@@ -477,8 +427,9 @@ function emit(sessionId: number, event: unknown): void {
   if (channel !== undefined) send(channel, event);
 }
 
-function output(sessionId: number, data: string): void {
-  emit(sessionId, { type: "output", data, bytes: data.length });
+/** Output for the terminal; `bytes` is what the tree flow counts (the PTY's chunk size). */
+function output(sessionId: number, data: string, bytes = data.length): void {
+  emit(sessionId, { type: "output", data, bytes });
 }
 
 /** Channel id from the `onEvent` argument: a Channel object (with `id`) or its serialized form. */
@@ -490,6 +441,13 @@ function channelId(value: unknown): number | undefined {
   }
   return undefined;
 }
+
+/**
+ * Bytes per spinner tick in the scenes that show the flow: a busy agent redraws much more than
+ * its spinner line, so the rows show a rate in kilobytes per second.
+ */
+const TICK_BYTES: Record<number, number> = { 1: 13_300, 2: 4_100 };
+const TICK_MS = 700;
 
 /** A spinner that ticks until the driver freezes the scene, so the session reads as working. */
 function keepTicking(
@@ -504,12 +462,13 @@ function keepTicking(
     if (control.freeze) return;
     seconds += 1;
     frame += 1;
-    if (frame * 700 >= until) {
+    if (frame * TICK_MS >= until) {
       window.clearInterval(timer);
       return;
     }
-    output(sessionId, frameOf(seconds, frame));
-  }, 700);
+    const data = frameOf(seconds, frame);
+    output(sessionId, data, FAST_OUTPUT ? (TICK_BYTES[sessionId] ?? data.length) : data.length);
+  }, TICK_MS);
 }
 
 const sessions = new Map<number, Record<string, unknown>>();
@@ -517,9 +476,9 @@ let nextSessionId = 0;
 const takenIds = new Set<number>();
 
 /**
- * The backend id of a new session: its number in the workspace (1 to 5), so
- * the script, the crew and the meters stay with their session whichever the app starts first
- * (it starts the active one first); otherwise the next free number.
+ * The backend id of a new session: its number in the workspace, so the script, the crew and the
+ * meters stay with their session whichever the app starts first (it starts the active one
+ * first); otherwise the next free number.
  */
 function sessionId(profileId: string, cwd: string, subAgent: string | null): number {
   const index = mainSessions.findIndex(
@@ -542,6 +501,13 @@ function sessionId(profileId: string, cwd: string, subAgent: string | null): num
 /** CPU share and resident memory (MB) per program, for the session rows. */
 const RESOURCE_CPU: Record<string, number> = { claude: 12, codex: 9, gemini: 4, aider: 2 };
 const RESOURCE_MB: Record<string, number> = { claude: 412, codex: 286, gemini: 238, aider: 164 };
+
+function spinnerOf(id: number): ((s: number, f: number) => string) | null {
+  const info = sessions.get(id);
+  if (info?.profileId === "claude") return claudeSpinner;
+  if (info?.profileId === "codex") return codexSpinner;
+  return null;
+}
 
 function createSession(args: Args): unknown {
   const profileId = typeof args.profileId === "string" ? args.profileId : "";
@@ -570,36 +536,21 @@ function createSession(args: Args): unknown {
   sessions.set(id, info);
   setTimeout(() => {
     output(id, mainScripts[id] ?? "");
-    if (id === 2) {
-      keepTicking(
-        id,
-        CODEX_START_SECONDS,
-        (s, f) => `${RESTORE_CURSOR}${E}2K${codexSpinner(s, f)}`,
-      );
+    const spinner = spinnerOf(id);
+    if (WORKING.has(id) && spinner !== null) {
+      const start = id === 2 ? CODEX_START_SECONDS : id === 1 ? CLAUDE_START_SECONDS : 23 + id;
+      keepTicking(id, start, (s, f) => `${RESTORE_CURSOR}${E}2K${spinner(s, f)}`);
     }
-    if (id === 1 && CLAUDE_BUSY && !GATE_PENDING) {
-      keepTicking(
-        id,
-        CLAUDE_START_SECONDS,
-        (s, f) => `${RESTORE_CURSOR}${E}2K${claudeSpinner(s, f)}`,
-      );
-    }
-    // The held command: the guard's decision reaches the window once the session is there.
-    if (id === 1 && GATE_PENDING) {
-      setTimeout(() => {
-        emitEvent("gate-changed", null);
-      }, 300);
-    }
-    // Gemini works long enough for its quiet end to count as done, answers, then waits.
-    if (id === 4) {
+    // Works long enough for its quiet end to count as done, answers, then waits.
+    if (FINISHING.has(id)) {
       keepTicking(id, 0, (s, f) => `${RESTORE_CURSOR}${E}2K${geminiSpinner(s, f)}`, GEMINI_WORK_MS);
       setTimeout(() => {
-        output(id, `${RESTORE_CURSOR}${E}2K${geminiOut[1] ?? ""}`);
-        control.geminiAnswered = true;
+        output(id, `${RESTORE_CURSOR}${E}2K${id === 4 ? (geminiOut[1] ?? "") : "Done."}`);
+        if (id === 4) control.geminiAnswered = true;
       }, GEMINI_WORK_MS + 300);
     }
     // A bell makes the session show up as "asks you something" in the sidebar.
-    if (id === 3) {
+    if (ASKING.has(id)) {
       setTimeout(() => output(id, "\x07"), 300);
     }
   }, 600);
@@ -607,8 +558,7 @@ function createSession(args: Args): unknown {
 }
 
 // The sub-agents of the first Claude Code session, named by their definition (the crew column
-// gives each its figure), with what they do right now and their tokens. The security agent of the
-// crew scene stopped before the guard's decision came up, so the decision is its.
+// gives each its figure), with what they do right now and their tokens.
 const subAgent = (
   id: string,
   description: string,
@@ -632,42 +582,28 @@ const subAgent = (
   tokens,
   excerpt: null,
 });
-const BACKEND_AGENT = subAgent(
-  "backend",
-  "Retries with backoff",
-  "backend",
-  MINUTE + 38_000,
-  2_000,
-  "Edit",
-  "src/payments/webhook.ts",
-  52_310,
-);
-const TESTER_AGENT = subAgent(
-  "tester",
-  "Write retry tests",
-  "tester",
-  MINUTE + 12_000,
-  3_000,
-  "Bash",
-  "pnpm test payments",
-  61_870,
-);
-const SECURITY_AGENT = subAgent(
-  "security",
-  "Check the new code",
-  "security",
-  MINUTE + 4_000,
-  40_000,
-  "Bash",
-  GUARDED_COMMAND,
-  24_150,
-);
-const subAgents =
-  SCENE === "crew"
-    ? [BACKEND_AGENT, TESTER_AGENT, SECURITY_AGENT]
-    : CLAUDE_BUSY
-      ? [BACKEND_AGENT, TESTER_AGENT]
-      : [];
+const subAgents = [
+  subAgent(
+    "backend",
+    "Retries with backoff",
+    "backend",
+    MINUTE + 38_000,
+    2_000,
+    "Edit",
+    "src/payments/webhook.ts",
+    52_310,
+  ),
+  subAgent(
+    "tester",
+    "Write retry tests",
+    "tester",
+    MINUTE + 12_000,
+    3_000,
+    "Bash",
+    "pnpm test payments",
+    61_870,
+  ),
+];
 
 /** The watch's channel per session, and the sub-agent whose log it streams. */
 const subAgentWatch = new Map<number, number>();
@@ -701,12 +637,10 @@ function focusSubAgent(args: Args): boolean {
 
 // The account and the team: Sam, signed in, shares acme-shop with Mika and Jonas.
 const PROJECT = "proj-acme-shop";
-const ACCOUNT_BASE = SELF_HOSTED
-  ? "https://team.example.com/api/v1"
-  : "https://account.example.com";
+const ACCOUNT_BASE = "https://account.example.com";
 const accountView = {
   baseUrl: ACCOUNT_BASE,
-  official: !SELF_HOSTED,
+  official: true,
   devicesUrl: `${ACCOUNT_BASE}/devices`,
   state: {
     kind: "signedIn",
@@ -719,19 +653,6 @@ const accountView = {
     },
   },
   otherSignIns: [],
-};
-/**
- * "Test connection" on the team's own server: the account API answers, but the web server has no
- * rule that forwards the relay's paths to the container, so its health check gets the proxy's
- * 404 and the live connection waits for the relay.
- */
-const serverCheck = {
-  baseUrl: ACCOUNT_BASE,
-  api: { kind: "ok" },
-  relay: { kind: "noProxy", status: 404 },
-  live: { kind: "skipped" },
-  relayHost: "team.example.com",
-  relaySource: "derived",
 };
 const projects = [
   {
@@ -748,6 +669,27 @@ const projects = [
 const teamStatus = { state: "connected", epoch: 4, members: 3, devices: 4 };
 const ACME_ROOT_COMMIT = "4e1f0c2a9b7d35e8c6a1f0b2d4c6e8a0b1c3d5e7";
 const hash = (pair: string) => pair.repeat(32);
+const teamTask = (
+  pair: string,
+  title: string,
+  area: string,
+  member: string,
+  name: string,
+  sinceMinutes: number,
+) => ({
+  task: hash(pair),
+  title,
+  area,
+  member,
+  device: `dev-${name.split(" ")[0]?.toLowerCase() ?? "x"}-1`,
+  name,
+  mine: member === "user-sam",
+  own: false,
+  since: ago(sinceMinutes * MINUTE),
+  expiresAt: null,
+  expiring: false,
+  request: null,
+});
 const teamSnapshot = {
   teams: [
     {
@@ -796,48 +738,9 @@ const teamSnapshot = {
         overlaps: [],
         divergent: [],
         tasks: [
-          {
-            task: hash("a1"),
-            title: "Webhook retries",
-            area: "src/payments",
-            member: "user-sam",
-            device: "dev-sam-1",
-            name: "Sam Carter",
-            mine: true,
-            own: false,
-            since: ago(24 * MINUTE),
-            expiresAt: null,
-            expiring: false,
-            request: null,
-          },
-          {
-            task: hash("b2"),
-            title: "Checkout emails",
-            area: "src/emails",
-            member: "7c41d9e2b08a4f15",
-            device: "dev-mika-1",
-            name: "Mika Rossi",
-            mine: false,
-            own: false,
-            since: ago(41 * MINUTE),
-            expiresAt: null,
-            expiring: false,
-            request: null,
-          },
-          {
-            task: hash("c3"),
-            title: "Search ranking",
-            area: "src/search",
-            member: "b2e86f0a13c947d5",
-            device: "dev-jonas-1",
-            name: "Jonas Berg",
-            mine: false,
-            own: false,
-            since: ago(78 * MINUTE),
-            expiresAt: null,
-            expiring: false,
-            request: null,
-          },
+          teamTask("a1", "Webhook retries", "src/payments", "user-sam", "Sam Carter", 24),
+          teamTask("b2", "Checkout emails", "src/emails", "7c41d9e2b08a4f15", "Mika Rossi", 41),
+          teamTask("c3", "Search ranking", "src/search", "b2e86f0a13c947d5", "Jonas Berg", 78),
         ],
         attempts: [],
         notices: [],
@@ -890,20 +793,26 @@ const claimsSnapshot = {
   overlaps: [],
 };
 
-// How full the agent's context window is (the meter in its sidebar row); the backend reads it
-// from Claude Code's transcript only.
+// How full each agent's context window is (the meter in its sidebar row); the backend reads it
+// from the agents' transcripts.
 const contextUsage = {
-  sessions: [{ sessionId: 1, used: 123_000, window: 1_000_000 }],
+  sessions: [
+    { sessionId: 1, used: 123_000, window: 1_000_000 },
+    { sessionId: 3, used: 41_000, window: 200_000 },
+    { sessionId: 6, used: 88_000, window: 200_000 },
+    { sessionId: 9, used: 152_000, window: 200_000 },
+  ],
 };
 
 // Git: where each folder's repository is and how many files are changed per checkout.
-const repoOf = (cwd: string) => (cwd === DOCS ? DOCS : ROOT);
+const repoOf = (cwd: string) => ([DOCS, BILLING, WEB].includes(cwd) ? cwd : ROOT);
 /** Changed files per checkout, as `git status` would count them. */
 const changedFiles: Record<string, number> = {
   [ROOT]: 4,
   [WORKTREE]: 2,
-  [TEAM_WORKTREE]: 4,
   [DOCS]: 1,
+  [BILLING]: 3,
+  [WEB]: 2,
 };
 
 function sessionCwd(args: Args): string {
@@ -911,8 +820,8 @@ function sessionCwd(args: Args): string {
   return typeof info?.cwd === "string" ? info.cwd : ROOT;
 }
 
-// Sub-agent definitions: Claude Code's own (the ones that start as an agent and wear a figure),
-// and Hangar's copies of them for Codex CLI. Figures not chosen here come from the agent's name.
+// Sub-agent definitions: Claude Code's own (the ones that start as an agent and wear a figure).
+// Figures not chosen here come from the agent's name.
 const definition = (name: string, description: string, model: string | null, color: string) => ({
   name,
   description,
@@ -924,99 +833,91 @@ const definition = (name: string, description: string, model: string | null, col
   folder: null,
   file: `${name}.md`,
 });
-const definitions = [
-  definition(
-    "backend",
-    "Changes server code, APIs and database queries. Use it for handlers, services and migrations.",
-    "sonnet",
-    "blue",
-  ),
-  definition(
-    "developer",
-    "Senior developer for work that touches several layers or belongs to no single role.",
-    "opus",
-    "purple",
-  ),
-  definition(
-    "frontend",
-    "Builds and polishes what people see: components, styles, texts and accessibility.",
-    "sonnet",
-    "pink",
-  ),
-  definition(
-    "manager",
-    "Reviews finished work against the task and the project rules before anything is committed.",
-    "opus",
-    "orange",
-  ),
-  definition(
-    "researcher",
-    "Finds answers in the code and the docs before anything is built. Reads only.",
-    "haiku",
-    "cyan",
-  ),
-  definition(
-    "security",
-    "Checks code, configuration and commands for vulnerabilities and unsafe changes.",
-    null,
-    "red",
-  ),
-  definition(
-    "tester",
-    "Runs the checks, writes missing tests and reproduces reported bugs.",
-    "haiku",
-    "green",
-  ),
-];
-const CODEX_CHOICES: Record<string, [string, string]> = {
-  backend: ["gpt-example", "medium"],
-  developer: ["gpt-example", "high"],
-  frontend: ["gpt-example", "medium"],
-  manager: ["gpt-example", "high"],
-  researcher: ["gpt-example-mini", "low"],
-  security: ["gpt-example", "high"],
-  tester: ["gpt-example-mini", "medium"],
-};
-const codexCopies = definitions.map((entry) => ({
-  name: entry.name,
-  description: entry.description,
-  model: CODEX_CHOICES[entry.name]?.[0] ?? null,
-  effort: CODEX_CHOICES[entry.name]?.[1] ?? null,
-  scope: "global",
-  folder: null,
-  file: `${entry.name}.toml`,
-  managed: true,
-  backup: null,
-  backups: [],
-}));
 const subAgentLibrary = {
-  defs: definitions,
-  codexDefs: codexCopies,
+  defs: [
+    definition("backend", "Changes server code, APIs and database queries.", "sonnet", "blue"),
+    definition("security", "Checks code and commands for vulnerabilities.", null, "red"),
+    definition("tester", "Runs the checks and writes missing tests.", "haiku", "green"),
+  ],
+  codexDefs: [],
   problems: [],
   installed: ["claude", "codex"],
-  targets: [{ program: "codex", enabled: true }],
-  codexModels: ["gpt-example", "gpt-example-mini"],
+  targets: [],
+  codexModels: [],
   syncIssues: [],
-};
-const subAgentSettings = {
-  models: {
-    claude: { model: "sonnet", effort: null },
-    codex: { model: "gpt-example", effort: "medium" },
-  },
-  provideOff: [],
 };
 /** The figures the user picked: one of the newest of each role. */
 const subAgentFigures = {
   backend: { kind: "builtin", id: "backend-03" },
-  developer: { kind: "builtin", id: "developer-03" },
-  frontend: { kind: "builtin", id: "frontend-04" },
-  manager: { kind: "builtin", id: "manager-04" },
-  researcher: { kind: "builtin", id: "researcher-03" },
   security: { kind: "builtin", id: "security-03" },
   tester: { kind: "builtin", id: "tester-02" },
 };
 
-// The preferences the backend keeps; the dictation scene has its key on.
+// The day so far in tokens and estimated dollars (cost_service.rs): Claude Code's two sessions
+// and Codex CLI. The costs scene has a daily budget of $20, so the early warning at 80 % shows.
+const COST_DAY = "2026-11-10";
+const tokens = (input: number, output: number, cacheRead: number) => ({
+  input,
+  output,
+  cacheWrite5m: Math.round(input / 4),
+  cacheWrite1h: 0,
+  cacheRead,
+});
+const costAmount = (input: number, output: number, cacheRead: number, costUsd: number) => {
+  const counts = tokens(input, output, cacheRead);
+  return {
+    tokens: counts,
+    total: counts.input + counts.output + counts.cacheWrite5m + counts.cacheRead,
+    costUsd,
+    partial: false,
+  };
+};
+const sessionCosts = [
+  // Only the sessions the scene has: the day in the five-session scenes is 82 % of the budget.
+  { sessionId: 1, ...costAmount(48_200, 21_400, 1_240_000, 9.06) },
+  { sessionId: 2, ...costAmount(61_300, 18_900, 820_000, 6.12) },
+  { sessionId: 3, ...costAmount(12_800, 3_100, 210_000, 1.37) },
+  { sessionId: 6, ...costAmount(22_100, 7_400, 380_000, 2.86) },
+  { sessionId: 9, ...costAmount(30_700, 9_900, 450_000, 3.48) },
+].filter((entry) => entry.sessionId <= mainSessions.length);
+const costTitles: Record<number, [string, string]> = {
+  1: ["Webhook retries", "Claude Code"],
+  2: ["Cart rounding", "Codex CLI"],
+  3: ["security", "Claude Code"],
+  6: ["Search ranking", "Claude Code"],
+  9: ["Mobile layout", "Claude Code"],
+};
+const sum = (pick: (entry: (typeof sessionCosts)[number]) => number) =>
+  sessionCosts.reduce((total, entry) => total + pick(entry), 0);
+const costReport = {
+  today: COST_DAY,
+  sessions: sessionCosts,
+  days: [
+    {
+      day: COST_DAY,
+      tokens: {
+        input: sum((entry) => entry.tokens.input),
+        output: sum((entry) => entry.tokens.output),
+        cacheWrite5m: sum((entry) => entry.tokens.cacheWrite5m),
+        cacheWrite1h: 0,
+        cacheRead: sum((entry) => entry.tokens.cacheRead),
+      },
+      total: sum((entry) => entry.total),
+      costUsd: Math.round(sum((entry) => entry.costUsd) * 100) / 100,
+      partial: false,
+      sessions: sessionCosts.map((entry) => ({
+        ...entry,
+        title: costTitles[entry.sessionId]?.[0] ?? "",
+        program: costTitles[entry.sessionId]?.[1] ?? "",
+      })),
+    },
+  ],
+  priceSource: "Published list prices",
+  priceDate: "2026-11-01",
+};
+
+// The preferences the backend keeps. The costs scene has a daily budget, so the early warning
+// shows; the morning scene has not offered yesterday's summary yet, every other scene has.
 const mainPrefs = {
   startMode: "private",
   lastProgram: null,
@@ -1028,113 +929,275 @@ const mainPrefs = {
   notifyDesktop: true,
   chime: true,
   quietHours: { enabled: false, from: 22 * 60, to: 7 * 60 },
-  dailyBudget: null,
-  budgetWarnedDay: null,
-  dictationEnabled: SCENE === "dictation",
+  dailyBudget: SCENE === "costs" ? 20 : null,
+  budgetEarlyPercent: 80,
+  budgetWarned: null,
+  morningReview: true,
+  morningOfferedDay: SCENE === "morning" ? null : "2026-11-09",
+  dictationEnabled: false,
 };
 
-// Dictation: the model is installed; holding Ctrl+Shift+Space opens the microphone for the active
-// session. The input level stays at a fixed value, so the meter reads the same in every run.
-let dictationState: Record<string, unknown> = { kind: "ready" };
-const dictationStatus = () => ({
-  state: dictationState,
-  models: [
-    { id: "base", bytes: 148_000_000, installed: true },
-    { id: "small", bytes: 488_000_000, installed: false },
+// Link groups (ADR 0014): the lead in acme-shop hands out tasks to Codex CLI in its worktree and
+// to Gemini CLI in the docs project, and collects their results.
+const linkGroup = {
+  id: 1,
+  color: 1,
+  askFirst: false,
+  braked: false,
+  members: [
+    { session: 1, name: "shop", role: "lead" },
+    { session: 2, name: "cart", role: "member" },
+    { session: 4, name: "docs", role: "member" },
   ],
-  source: "huggingface.co",
-  microphone: true,
+};
+const linkState = {
+  groups: [linkGroup],
+  sendable: [...mainSessions.keys()].map((index) => index + 1).filter((id) => id !== 5),
+  unattended: [],
+  messages: [],
+};
+const historyEntry = (
+  minutesAgo: number,
+  fromName: string | null,
+  toName: string,
+  text: string,
+) => ({
+  at: ago(minutesAgo * MINUTE),
+  fromName,
+  fromRole: fromName === "shop" ? "lead" : "member",
+  toName,
+  outcome: "delivered",
+  text,
 });
-function startDictation(args: Args): null {
-  const session = typeof args.id === "number" ? args.id : 1;
-  dictationState = { kind: "recording", session };
-  emitEvent("dictation-status", null);
-  const level = () => {
-    emitEvent("dictation-level", 0.58);
-  };
-  level();
-  window.setTimeout(level, 150);
-  return null;
-}
+/** The group's messages, newest first. */
+const linkHistory = [
+  historyEntry(
+    2,
+    "docs",
+    "shop",
+    "Refund page done: docs/api/refunds.md covers create, list and cancel, each with a curl " +
+      "example and the error codes from the spec.",
+  ),
+  historyEntry(
+    6,
+    "cart",
+    "shop",
+    [
+      "Found it: each cart line was rounded before summing, so three lines at 33.33 % off " +
+        "lost a cent. src/cart/total.ts now sums the exact amounts and rounds once at the end.",
+      "",
+      "- Added a test with three discounted lines (src/cart/total.test.ts)",
+      "- pnpm test cart: 24 passed",
+      "",
+      "Branch hangar/cart-rounding is ready for review.",
+    ].join("\n"),
+  ),
+  historyEntry(
+    9,
+    "shop",
+    "docs",
+    "Please document the refund endpoints in docs/api/refunds.md: create, list and cancel, " +
+      "with the error codes from openapi/refunds.yaml. Tell me when it is done.",
+  ),
+  historyEntry(
+    11,
+    "shop",
+    "cart",
+    "Please find out why the cart total is one cent off for discounted items, fix it with a " +
+      "test and report back with the branch.",
+  ),
+  historyEntry(
+    12,
+    null,
+    "shop",
+    "You lead the link group with cart and docs. Hand out tasks with hangar-send and collect " +
+      "their results.",
+  ),
+];
 
-// Partner projects (ADR 0012): the shop and its docs site may send each other messages, under
-// the short names "shop" and "docs". acme-shop's worktrees belong to it too.
-const partnerBook = {
+// Quick access: the notes whose text matches the query, as the backend's search finds them.
+const noteHits = [
+  {
+    folderKey: "acme-shop",
+    path: ROOT,
+    id: "note-refunds",
+    title: "Refund flow",
+    excerpt: "Refunds above 500 EUR need a second approval before the payment provider is called.",
+    updatedAt: ago(2 * HOUR),
+  },
+  {
+    folderKey: "acme-docs",
+    path: DOCS,
+    id: "note-api-style",
+    title: "API docs style",
+    excerpt: "Every refund endpoint gets a curl example and its error codes in a table.",
+    updatedAt: ago(26 * HOUR),
+  },
+  {
+    folderKey: "general",
+    path: null,
+    id: "note-release",
+    title: "Release checklist",
+    excerpt: "Check the refund e-mails in all languages before the release.",
+    updatedAt: ago(3 * 24 * HOUR),
+  },
+];
+
+// Yesterday as the work log saw it: three projects, the morning scene's summary.
+const YESTERDAY_START = Date.UTC(2026, 10, 9, 0, 0, 0);
+const at = (hour: number, minute = 0) => YESTERDAY_START + hour * HOUR + minute * MINUTE;
+const reviewSession = (
+  key: string,
+  title: string,
+  program: string,
+  cwd: string,
+  from: number,
+  to: number,
+) => ({
+  key,
+  title,
+  program,
+  cwd,
+  worktree: false,
+  first: from,
+  last: to,
+  activeMs: Math.round((to - from) * 0.7),
+  runMs: to - from,
+  running: false,
+});
+const reviewCommit = (sha: string, subject: string, time: number) => ({
+  hash: sha.repeat(8).slice(0, 40),
+  subject,
+  time,
+  files: [],
+  fileCount: 2,
+});
+const reviewProject = (
+  path: string,
+  activeMs: number,
+  sessionList: ReturnType<typeof reviewSession>[],
+  commitList: ReturnType<typeof reviewCommit>[],
+  open: number,
+) => ({
+  path,
+  isRepo: true,
+  activeMs,
+  runMs: activeMs + 40 * MINUTE,
+  sessions: sessionList,
+  commits: commitList,
+  files: [],
+  fileCount: 0,
+  uncommitted: open === 0 ? [] : [{ path, worktree: false, files: [], count: open }],
+});
+const dailyReview = {
+  start: YESTERDAY_START,
+  end: YESTERDAY_START + 24 * HOUR,
+  activeMs: 5 * HOUR + 20 * MINUTE,
+  runMs: 7 * HOUR,
+  sessionCount: 6,
+  commitCount: 12,
+  truncated: false,
   projects: [
-    { name: "shop", folder: ROOT },
-    { name: "docs", folder: DOCS },
+    reviewProject(
+      ROOT,
+      3 * HOUR + 5 * MINUTE,
+      [
+        reviewSession("y1", "Checkout tests", "Claude Code", ROOT, at(8, 40), at(12, 10)),
+        reviewSession("y2", "Price rounding", "Codex CLI", ROOT, at(13, 0), at(15, 30)),
+        reviewSession("y3", "Webhook retries", "Claude Code", ROOT, at(15, 45), at(17, 20)),
+      ],
+      [
+        reviewCommit("a7", "fix: round the cart total once", at(17, 5)),
+        ...["b1", "b2", "b3", "b4", "b5", "b6"].map((sha, i) =>
+          reviewCommit(sha, "test: cover the checkout", at(10, i * 5)),
+        ),
+      ],
+      3,
+    ),
+    reviewProject(
+      DOCS,
+      HOUR + 35 * MINUTE,
+      [
+        reviewSession("y4", "Refund docs", "Gemini CLI", DOCS, at(9, 0), at(10, 30)),
+        reviewSession("y5", "Docs server", "PowerShell", DOCS, at(9, 0), at(11, 0)),
+      ],
+      [
+        reviewCommit("c4", "docs: add the refund endpoints", at(10, 25)),
+        ...["c1", "c2", "c3"].map((sha, i) =>
+          reviewCommit(sha, "docs: fix links", at(9, 30 + i * 5)),
+        ),
+      ],
+      0,
+    ),
+    reviewProject(
+      BILLING,
+      40 * MINUTE,
+      [reviewSession("y6", "Invoice PDFs", "Codex CLI", BILLING, at(16, 0), at(16, 50))],
+      [reviewCommit("d1", "feat: put the new logo on invoices", at(16, 45))],
+      1,
+    ),
   ],
-  pairs: [["shop", "docs"]],
 };
 
-/** The partner project of a session and its sessions there, oldest first. */
-function partnerTargets(args: Args): unknown {
-  const partner = partnerBook.projects.find((project) => project.name === args.partner);
-  const sender = partnerBook.projects.find((project) => project.name !== args.partner);
-  if (partner === undefined || sender === undefined) return null;
-  return {
-    sender: sender.name,
-    partner,
-    sessions: [...sessions.entries()]
-      .filter(
-        ([, info]) => repoOf(typeof info.cwd === "string" ? info.cwd : ROOT) === partner.folder,
-      )
-      .map(([id, info]) => ({ id, profileId: info.profileId, running: info.status === "running" })),
-  };
-}
-
-/**
- * The messages scene: the shop's Claude Code told the docs project about the new retries with
- * hangar-send. It waits on the docs project's agent session until the person pastes it.
- */
-const waitingMessages = MESSAGE_WAITING
-  ? [
-      {
-        id: 1,
-        from: "shop",
-        to: "docs",
-        text:
-          "The payment webhook now retries a failed delivery three times, after 250, 500 " +
-          "and 1000 ms. Please add a Retries section to docs/api/webhooks.md.",
-        at: ago(2 * MINUTE),
-      },
-    ]
-  : [];
-
-// The crew scene: the command guard holds the security agent's command until the person answers.
-const gateSnapshot = GATE_PENDING
-  ? {
-      enabled: true,
-      pending: [
-        {
-          id: 1,
-          sessionId: 1,
-          tool: "Bash",
-          path: "",
-          otherSessions: [],
-          teammates: [],
-          reserved: [],
-          level: "sameFile",
-          lines: [],
-          createdAt: ago(9_000),
-          command: {
-            rules: [
-              {
-                id: "git-clean-force",
-                description: "git clean -fdx deletes every untracked and ignored file",
-                builtin: true,
-              },
-            ],
-            call: GUARDED_COMMAND,
-            text: GUARDED_COMMAND,
-            hidden: 0,
-            rememberable: true,
-          },
-        },
-      ],
-      log: [],
-    }
-  : { enabled: true, pending: [], log: [] };
+// The secret guard: three files are staged in acme-shop; two of them seem to hold a key. The
+// mock names only the path and the kind, as the backend does; no key appears anywhere.
+const STAGED_DIFF = [
+  "diff --git a/src/payments/webhook.ts b/src/payments/webhook.ts",
+  "index 3f2a1c4..8b7e2d1 100644",
+  "--- a/src/payments/webhook.ts",
+  "+++ b/src/payments/webhook.ts",
+  "@@ -35,9 +35,15 @@ export async function deliver(event: WebhookEvent) {",
+  "   const url = endpointFor(event);",
+  "   log.debug(`delivering ${event.id}`);",
+  "-  const res = await send(event);",
+  "-  if (!res.ok) throw new DeliveryError(res.status);",
+  "-  return res;",
+  "+  const delays = [250, 500, 1000];",
+  "+  for (const delay of delays) {",
+  "+    const res = await send(event);",
+  "+    if (res.ok) return res;",
+  "+    await sleep(delay);",
+  "+  }",
+  '+  throw new DeliveryError("gave up after three retries");',
+  " }",
+  "diff --git a/src/payments/client.ts b/src/payments/client.ts",
+  "index 9c4d2e7..1a5b6f3 100644",
+  "--- a/src/payments/client.ts",
+  "+++ b/src/payments/client.ts",
+  '@@ -8,4 +8,5 @@ import { config } from "../config";',
+  " export const payments = createClient({",
+  "   baseUrl: config.paymentsUrl,",
+  "+  timeoutMs: 5000,",
+  " });",
+  "diff --git a/.env.production b/.env.production",
+  "new file mode 100644",
+  "index 0000000..4d3c2b1",
+  "--- /dev/null",
+  "+++ b/.env.production",
+  "@@ -0,0 +1,2 @@",
+  "+PAYMENTS_URL=https://payments.example.com",
+  "+LOG_LEVEL=info",
+].join("\n");
+const stagedChanges = {
+  isRepo: true,
+  files: [
+    { path: "src/payments/webhook.ts", status: "M ", additions: 7, deletions: 3 },
+    { path: "src/payments/client.ts", status: "M ", additions: 1, deletions: 0 },
+    { path: ".env.production", status: "A ", additions: 2, deletions: 0 },
+  ],
+  diff: STAGED_DIFF,
+  truncated: false,
+};
+const secretOutcome = {
+  kind: "secrets",
+  findings: [
+    { path: "src/payments/client.ts", kinds: ["stripeKey"] },
+    { path: ".env.production", kinds: ["secretFile"] },
+  ],
+  more: 0,
+  complete: true,
+  tree: "5d41402abc4b2a76b9719d911017c592ae1f7e2b",
+};
 
 // Events: the frontend listens through the event plugin; the mock answers some right away.
 const listeners = new Map<string, number[]>();
@@ -1153,19 +1216,13 @@ function listen(args: Args): number {
   return id;
 }
 
-/** Sends a backend event to every listener of `event`. */
-function emitEvent(event: string, payload: unknown): void {
-  for (const handler of listeners.get(event) ?? []) {
-    callbacks.get(handler)?.({ event, id: 0, payload });
-  }
-}
-
 const handlers: Record<string, (args: Args) => unknown> = {
   list_profiles: () => profiles,
   default_cwd: () => ROOT,
   list_sessions: () => [],
   load_workspace: () => workspace,
   save_workspace: () => null,
+  last_exit_was_clean: () => true,
   load_scrollback: () => null,
   save_scrollback: () => null,
   detect_versions: () => versions,
@@ -1174,14 +1231,19 @@ const handlers: Record<string, (args: Args) => unknown> = {
   git_branches: (args) => {
     const paths = Array.isArray(args.paths) ? args.paths : [];
     return Object.fromEntries(
-      paths.map((p: unknown) => [
-        p,
-        p === WORKTREE ? WORKTREE_BRANCH : p === TEAM_WORKTREE ? TEAM_BRANCH : "main",
-      ]),
+      paths.map((p: unknown) => [p, p === WORKTREE ? WORKTREE_BRANCH : "main"]),
     );
   },
-  git_diff: () => ({ files: [] }),
-  // No scene opens the file tree or the notes.
+  git_diff: (args) =>
+    SCENE === "secret-guard" && sessionCwd(args) === ROOT
+      ? stagedChanges
+      : { isRepo: true, files: [], diff: "", truncated: false },
+  // "Commit" in the changes panel: the secret guard holds it and names what it found.
+  git_commit: () => secretOutcome,
+  // Quick access asks for the active folder's files and commits; no scene shows them.
+  list_session_paths: () => null,
+  git_log: () => null,
+  // No scene opens the file tree.
   list_session_folder: (args) => ({
     root: sessionCwd(args),
     repoRoot: repoOf(sessionCwd(args)),
@@ -1209,7 +1271,7 @@ const handlers: Record<string, (args: Args) => unknown> = {
   list_notes: () => [],
   read_note: () => null,
   write_note: () => null,
-  search_notes: () => [],
+  search_notes: () => noteHits,
   list_trash: () => [],
   shared_notes_status: () => ({
     state: "unlocked",
@@ -1220,13 +1282,6 @@ const handlers: Record<string, (args: Args) => unknown> = {
   }),
   account_status: () => accountView,
   account_projects: () => projects,
-  // The test takes a moment, as it does against a real server.
-  account_check_server: () =>
-    new Promise((resolve) => {
-      setTimeout(() => {
-        resolve(serverCheck);
-      }, 400);
-    }),
   team_status: () => teamStatus,
   team_pending_confirmations: () => [],
   team_session_states: () => undefined,
@@ -1273,7 +1328,7 @@ const handlers: Record<string, (args: Args) => unknown> = {
       paths.map((p: unknown) => {
         const path = typeof p === "string" ? p : "";
         const root = repoOf(path);
-        return [path, { root, workTree: path === DOCS ? DOCS : root }];
+        return [path, { root, workTree: path === WORKTREE ? WORKTREE : root }];
       }),
     );
   },
@@ -1290,31 +1345,33 @@ const handlers: Record<string, (args: Args) => unknown> = {
     defaultCount: 0,
   }),
   gate_rules: () => [],
-  gate_snapshot: () => gateSnapshot,
-  // Sub-agent definitions, their figures and models.
+  gate_snapshot: () => ({ enabled: true, pending: [], log: [] }),
+  permission_waiting: () => [],
+  // Sub-agent definitions and their figures.
   sub_agent_library: () => subAgentLibrary,
   sub_agent_figures: () => subAgentFigures,
-  sub_agent_settings: () => subAgentSettings,
+  sub_agent_settings: () => ({ models: {}, provideOff: [] }),
   sync_sub_agents: () => null,
-  // Every session binds its work tree snapshots; no scene shows them, nor the cost report.
+  // Every session binds its work tree snapshots; no scene shows them.
   snapshot_bind: () => null,
   snapshot_take: () => null,
-  cost_report: () => null,
-  // Partner projects and the messages waiting from them.
-  partner_projects: () => partnerBook,
-  link_partner: () => partnerBook,
-  unlink_partner: () => partnerBook,
-  partner_targets: partnerTargets,
-  deliver_partner_message: (args) => (typeof args.text === "string" ? args.text : ""),
-  waiting_messages: () => waitingMessages,
-  waiting_message_text: (args) =>
-    waitingMessages.find((message) => message.id === args.id)?.text ?? "",
-  close_waiting_message: () => null,
-  // Dictation.
-  dictation_status: dictationStatus,
-  dictation_start: startDictation,
+  cost_report: () => costReport,
+  daily_review: () => (SCENE === "morning" ? dailyReview : null),
+  // Partner projects: none in these scenes.
+  partner_projects: () => ({ projects: [], pairs: [] }),
+  waiting_messages: () => [],
+  // Link groups and the group's history.
+  link_state: () => linkState,
+  link_history: () => linkHistory,
+  // Dictation stays off; the window still asks for its state and stops it on a blur.
   dictation_stop: () => null,
   dictation_take_text: () => [],
+  dictation_status: () => ({
+    state: { kind: "ready" },
+    models: [{ id: "base", bytes: 148_000_000, installed: true }],
+    source: "huggingface.co",
+    microphone: true,
+  }),
 };
 function asArgs(value: unknown): Args {
   return typeof value === "object" && value !== null ? { ...value } : {};

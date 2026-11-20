@@ -34,7 +34,7 @@ your own accounts, on your own machine. The desktop app is open source under the
 
 <picture>
   <source media="(prefers-color-scheme: light)" srcset="docs/images/hangar-light.png">
-  <img alt="Hangar with a Claude Code session whose backend and tester sub-agents stand as figures in the crew column beside its terminal, a second Claude Code session started as the security sub-agent wearing its figure and asking a question, Codex CLI working in its own worktree, Gemini CLI done and a PowerShell session; each sidebar row shows state, folder, branch, CPU and memory, the active one also its context use" src="docs/images/hangar-dark.png">
+  <img alt="Hangar with two sessions side by side: a Claude Code session leading a link group, with its backend and tester sub-agents as figures in the crew column, and Codex CLI working beside it; in the sidebar a teal chain marks the three linked sessions, light flows along the tree lines to the working sessions, and a session that has waited for 12 minutes says so in its row" src="docs/images/hangar-dark.png">
 </picture>
 
 ## Features
@@ -78,10 +78,17 @@ your own accounts, on your own machine. The desktop app is open source under the
 - **Agents message each other.** Agents in linked projects can send with `hangar-send <partner>
 <text>`. Nothing is pasted on its own: the message waits under the partner's session row until you
   choose Paste, Paste and send or Discard.
+- **Link sessions.** Pick two or more running agents and link them; a colored chain marks the group
+  in the sidebar, and they message each other with `hangar-send` until you unlink them. A lead
+  hands out tasks and collects the results, the group history shows every message, and a template
+  can link its sessions as soon as they start. Messages are only sent with Enter when the target
+  agent is idle, never into a question or a permission dialog.
+- **One line per session.** From the View menu or a right-click on a group, every session sits on
+  one close line, so fifteen sessions fit at a glance. Turning it off brings back your layout.
 - **Side by side.** Show two, three or four sessions at once, arrange them by dragging and resize
   them by dragging the lines between them.
-- **Quick access.** Ctrl+Shift+P finds sessions, programs, files, recent commits, settings and every
-  menu command; Ctrl+Shift+S searches the output of all sessions and Ctrl+Shift+M shows them all as
+- **Quick access.** Ctrl+Shift+P finds sessions, programs, projects, files, the text of your notes,
+  recent commits, settings and every menu command; Ctrl+Shift+S searches the output of all sessions and Ctrl+Shift+M shows them all as
   live tiles. No shortcut collides with the shells and agents themselves.
 - **Workspace templates.** Save the running sessions as a template and start the whole set again
   with one click.
@@ -105,12 +112,27 @@ your own accounts, on your own machine. The desktop app is open source under the
 - **Context at a glance.** Claude Code sessions show how full their context window is right in
   their row, for example `12 % · 123k / 1M`. From 80 % a compact button on the row sends the
   agent's compact command.
+- **Data flow on the tree lines.** If you like, light flows along the sidebar's lines to every
+  working session, at the pace of its output, with its rate beside it. Choose the style and how
+  much it shows under _Settings > Appearance_.
+- **How long it waits.** When a session has waited for you longer than the time you set (10 minutes
+  by default), its row says for how long and its dot pulses softly.
 - **A hint when nothing moves.** When a working agent has shown nothing new for a while, its row
   says so quietly, and the session menu offers its last lines and Ctrl+C. No sound, no alarm.
 - **Your colors for every state.** Working, done, waiting and paused each get their own color, pulse
   strength and pulse duration, previewed live in the settings.
 - **Costs at a glance.** Tokens and estimated costs per session and per day for Claude Code, in the
-  peek and under _View > Costs_, with an optional daily budget that tells you once when it is reached.
+  peek, as a "Cost" element in the row, per link group and under _View > Costs_, with an optional
+  daily budget that warns you early (at 80 % unless you choose otherwise) and once when it is reached.
+- **Yesterday at a glance.** On the first start of a day a quiet notice sums up yesterday: projects,
+  time and commits, with three lines per project on request.
+- **Keys stay out of messages and commits.** Messages between agents, commits and pastes that seem to
+  hold an API key, a token or a private key stop and ask you first; Hangar names only the place and
+  the kind, never the value.
+- **Back after a crash.** After a crash Hangar tells you how many sessions are back and which had to
+  start without their conversation; the scrollback is saved every 10 seconds.
+- **Approvals Hangar can see.** Claude Code's hooks tell Hangar when a session waits for your
+  approval, also in private sessions, so the row shows it and nothing presses Enter for you.
 - **Watch sub-agents work.** The sub-agents of a Claude Code session appear as a tree below it, each
   with what it does right now, its run time and its tokens. One click shows a sub-agent beside the
   terminal the way Claude Code itself does, with recognizable keys and passwords masked; drag the
@@ -231,49 +253,65 @@ your own accounts, on your own machine. The desktop app is open source under the
   <tr>
     <td width="50%" valign="top">
       <picture>
-        <source media="(prefers-color-scheme: light)" srcset="docs/images/hangar-crew-light.png">
-        <img alt="The crew column beside a Claude Code team session: backend and tester working on blue plinths, security waiting for an OK on an amber plinth, each with a speech bubble, while the command guard asks about git clean -fdx above the terminal" src="docs/images/hangar-crew-dark.png">
+        <source media="(prefers-color-scheme: light)" srcset="docs/images/hangar-link-groups-light.png">
+        <img alt="The Edit group dialog of a link group with three members, shop, cart and docs, the lead set to the Webhook retries session and the group's cost today of 2.2M tokens, about $15.18, while a teal chain marks the linked sessions in the sidebar" src="docs/images/hangar-link-groups-dark.png">
       </picture>
-      <br><sub>Your crew beside the terminal: who works, who waits, and what each one does right now.</sub>
+      <br><sub>Link agents into a group with a lead that hands out tasks and collects the results.</sub>
     </td>
     <td width="50%" valign="top">
       <picture>
-        <source media="(prefers-color-scheme: light)" srcset="docs/images/hangar-sub-agents-light.png">
-        <img alt="Settings, Sub-agents: the figure picker of the backend sub-agent open with all 31 bundled figures and the chosen one marked, below it the developer sub-agent with its figure" src="docs/images/hangar-sub-agents-dark.png">
+        <source media="(prefers-color-scheme: light)" srcset="docs/images/hangar-link-history-light.png">
+        <img alt="The group history of a link group with five messages: Hangar introducing the group, the lead handing out two tasks, and the cart and docs sessions reporting back, the cart report expanded with a Copy button" src="docs/images/hangar-link-history-dark.png">
       </picture>
-      <br><sub>31 figures to choose from, a model per agent and per program, provided to Codex CLI as well.</sub>
-    </td>
-  </tr>
-  <tr>
-    <td width="50%" valign="top">
-      <picture>
-        <source media="(prefers-color-scheme: light)" srcset="docs/images/hangar-partners-light.png">
-        <img alt="The Send to partner dialog of a Gemini CLI session in the acme-docs project: a question about a refund status code written to the partner project shop, and Webhook retries chosen among its three agent sessions, with Paste and Paste and send" src="docs/images/hangar-partners-dark.png">
-      </picture>
-      <br><sub>Partner projects: send a message to the agent of a linked project.</sub>
-    </td>
-    <td width="50%" valign="top">
-      <picture>
-        <source media="(prefers-color-scheme: light)" srcset="docs/images/hangar-server-check-light.png">
-        <img alt="Settings, Account with a self-hosted server address: the link to the self-hosting guide, the note on where the data lives, and Test connection with the account API answering, the relay failing with a hint about the missing proxy rule, and the live connection not yet tested" src="docs/images/hangar-server-check-dark.png">
-      </picture>
-      <br><sub>Run your own server and test the connection step by step, with a fix for every failure.</sub>
+      <br><sub>Every message of a group in one history, from the first task to the last report.</sub>
     </td>
   </tr>
   <tr>
     <td width="50%" valign="top">
       <picture>
-        <source media="(prefers-color-scheme: light)" srcset="docs/images/hangar-messages-light.png">
-        <img alt="A message from the partner project shop waiting under the Refund docs session row: the request to document the webhook retries, with Paste, Paste and send and Discard" src="docs/images/hangar-messages-dark.png">
+        <source media="(prefers-color-scheme: light)" srcset="docs/images/hangar-data-flow-light.png">
+        <img alt="The sidebar with light flowing along the group's tree line and a sub-agent branch to two working sessions, each with its rate, such as 11 KB/s down, beside it" src="docs/images/hangar-data-flow-dark.png">
       </picture>
-      <br><sub>A message an agent sent with hangar-send waits until you paste or discard it.</sub>
+      <br><sub>Data flow: light runs along the tree lines at the pace of each agent's output.</sub>
     </td>
     <td width="50%" valign="top">
       <picture>
-        <source media="(prefers-color-scheme: light)" srcset="docs/images/hangar-dictation-light.png">
-        <img alt="A Claude Code session while the dictation key is held: the Listening pill with its level on the terminal and the dictated sentence in the prompt" src="docs/images/hangar-dictation-dark.png">
+        <source media="(prefers-color-scheme: light)" srcset="docs/images/hangar-quick-access-light.png">
+        <img alt="Quick access opened with Ctrl+Shift+P and the search refund: one matching session, three notes with their place and an excerpt, and the project acme-docs" src="docs/images/hangar-quick-access-dark.png">
       </picture>
-      <br><sub>Hold Ctrl+Shift+Space and speak; the text lands in the prompt, recognized on your own computer.</sub>
+      <br><sub>Quick access finds sessions, projects and the text of your notes.</sub>
+    </td>
+  </tr>
+  <tr>
+    <td width="50%" valign="top">
+      <picture>
+        <source media="(prefers-color-scheme: light)" srcset="docs/images/hangar-costs-light.png">
+        <img alt="Session rows with a Cost element showing about $9.06, $1.37 and $6.12, and a notice that 82 % of the daily budget is used, about $16.55 of $20.00, with Show costs" src="docs/images/hangar-costs-dark.png">
+      </picture>
+      <br><sub>Costs in every row and an early warning before the daily budget runs out.</sub>
+    </td>
+    <td width="50%" valign="top">
+      <picture>
+        <source media="(prefers-color-scheme: light)" srcset="docs/images/hangar-morning-light.png">
+        <img alt="The Yesterday at a glance notice: 3 projects, 5 hours 20 minutes and 12 commits, with three lines each for acme-shop, acme-docs and acme-billing" src="docs/images/hangar-morning-dark.png">
+      </picture>
+      <br><sub>On the first start of a day, a quiet summary of yesterday.</sub>
+    </td>
+  </tr>
+  <tr>
+    <td width="50%" valign="top">
+      <picture>
+        <source media="(prefers-color-scheme: light)" srcset="docs/images/hangar-secret-guard-light.png">
+        <img alt="The changes panel stopping a commit: it names src/payments/client.ts with a Stripe secret key and .env.production as a file that usually holds secrets, never the value, with Cancel and Commit anyway above the three staged files" src="docs/images/hangar-secret-guard-dark.png">
+      </picture>
+      <br><sub>The secret guard stops commits and messages that seem to hold a key, and asks first.</sub>
+    </td>
+    <td width="50%" valign="top">
+      <picture>
+        <source media="(prefers-color-scheme: light)" srcset="docs/images/hangar-one-line-light.png">
+        <img alt="The sidebar in one-line mode grouped by project: 15 sessions of five programs in four projects, working, asking, done and paused, each on one close line with the link chain visible" src="docs/images/hangar-one-line-dark.png">
+      </picture>
+      <br><sub>One line per session: fifteen agents at a glance.</sub>
     </td>
   </tr>
 </table>

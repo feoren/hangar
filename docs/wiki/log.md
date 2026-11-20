@@ -1232,3 +1232,9 @@ hardened after review: linear shapes with a body bound, a deadline for the commi
 checked tree bound to "Commit anyway", the check's extent in the answer, `--text` and staged file
 names. Pages changed: [[claude-permission-hooks-measurement]], [[0016-permission-notices]],
 [[0015-secret-guard]], index.
+
+## [2026-11-20] update | README scenes for 0.12.0
+
+The README screenshots now show the overview plus eight scenes for 0.12.0 instead of seven in
+total: link groups, group history, data flow, quick access, costs, morning summary, secret guard
+and one line. The scenes of 0.11.0 are gone. Pages changed: [[release-rollout]].

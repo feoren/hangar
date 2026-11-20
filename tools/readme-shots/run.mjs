@@ -1,6 +1,6 @@
 // Renders the README screenshots into docs/images from the real frontend with a mocked backend
 // (mock.ts) in a headless Chromium based browser: one image per scene and color scheme, e.g.
-// hangar-dark.png (the overview) and hangar-crew-light.png.
+// hangar-dark.png (the overview) and hangar-costs-light.png.
 //
 // Usage: pnpm readme:shots [--scene <name>]...   (default: every scene)
 //
@@ -55,17 +55,16 @@ const working = (count) => `(() => {
 
 /**
  * Every scene waits for the same sidebar first: Claude Code and Codex CLI working, and Gemini CLI
- * done (it went quiet after its answer). Aider asks from the start, PowerShell rests. A scene can
+ * done (it went quiet after its answer). The security session asks, PowerShell rests. A scene can
  * wait for something else instead (`settled`).
  */
 const SETTLED = `(${working(2)} && ${shows(".session", "done")})`;
 
-/**
- * The partner scenes: the docs project's Gemini CLI session is active, so it rests once it has
- * answered instead of turning done. The sidebar groups the sessions by project.
- */
-const DOCS_SETTLED = `(${working(2)} && window.__readmeShots.geminiAnswered && ${shows(".session", "Refund docs")} && ![...document.querySelectorAll(".session")].some((row) => row.textContent.includes("Refund docs") && row.textContent.includes("working")))`;
+/** The long list of the one-line scene, grouped by project. */
 const BY_PROJECT = { sessionGrouping: "project" };
+
+/** The tree flow in its default style; `showRate` puts each working row's rate at its end. */
+const flow = (showRate) => ({ treeFlow: { enabled: true, style: "stream", showRate } });
 
 /** Takes the focus away from where a click left it, so no focus ring shows. */
 const BLUR = `(() => {
@@ -101,173 +100,200 @@ const contextMenu = (selector, text) => `(() => {
   return true;
 })()`;
 
-/** What the docs project's agent writes to the shop in the partners scene. */
-const PARTNER_MESSAGE =
-  "The refund docs say that cancelling a refund that already went out answers 409, " +
-  "but src/payments/refunds.ts returns 422. Which one is right? If it is the code, " +
-  "please change it to 409; otherwise tell me and I correct docs/api/refunds.md.";
-
-/** Presses Ctrl+Shift+Space and keeps it down: the dictation records until it is let go. */
-const holdDictation = `(() => {
+/** Presses Ctrl+Shift+P, which opens quick access. */
+const QUICK_ACCESS = `(() => {
   window.dispatchEvent(
-    new KeyboardEvent("keydown", { key: " ", code: "Space", ctrlKey: true, shiftKey: true, bubbles: true }),
+    new KeyboardEvent("keydown", { key: "P", code: "KeyP", ctrlKey: true, shiftKey: true, bubbles: true }),
   );
   return true;
 })()`;
 
 /**
- * What the app shows once it is up, unless a scene says otherwise: five sessions, an agent
- * working, one asking a question and the version in the sidebar header.
+ * What the app shows once it is up, unless a scene says otherwise: `count` sessions, an agent
+ * working and the version in the sidebar header.
  */
-const BOOT = (version) => `(() => {
+const BOOT = (version, count = 5) => `(() => {
   const sessions = document.querySelectorAll(".session");
   const text = document.body.innerText;
   const version = document.querySelector(".brand-version");
   return (
-    sessions.length === 5 &&
-    text.includes("question") &&
+    sessions.length === ${count} &&
     text.includes("working") &&
     version !== null &&
     version.textContent.includes(${JSON.stringify(version)})
   );
 })()`;
 
+/** The sidebar layout most scenes use: one terminal, the "New session" group folded. */
+const SINGLE = { snapLayout: "single", closedGroups: ["newSession"] };
+
+/** A row in the standard layout with the program as an avatar and the cost after the tokens. */
+const COST_ROW = {
+  lines: [
+    { left: ["program", "signs", "title"], right: ["state"] },
+    { left: ["folder"], right: ["branch"] },
+    { left: ["load"], right: [] },
+    { left: ["runtime", "context"], right: ["tokens", "cost"] },
+  ],
+  forms: {
+    state: "word",
+    program: "avatar",
+    folder: "text",
+    branch: "text",
+    load: "text",
+    context: "bar",
+  },
+  frame: "flat",
+  density: "normal",
+};
+
+/** The one-line row (oneLineRows.ts `ONE_LINE_LAYOUT`), with the standard row to go back to. */
+const ONE_LINE_ROW = {
+  lines: [
+    { left: ["program", "signs", "title"], right: ["context", "state"] },
+    { left: [], right: [] },
+    { left: [], right: [] },
+    { left: [], right: [] },
+  ],
+  forms: { ...COST_ROW.forms, program: "icon", context: "mini" },
+  frame: "flat",
+  density: "compact",
+};
+
 /**
- * The scenes, in README order. `file`: the image name without scheme; `layout`: changes to the
- * stored layout; `settled`: what the sidebar must show before the steps start (default: SETTLED);
- * `boot`: what must show for the app to count as started (default: BOOT); `steps`: what to run once
- * the app is up, each followed by what must show before the next. The mock reads the scene's name
- * too (mock.ts `SCENE`).
+ * The scenes, in README order. `file`: the image name without scheme; `maxBytes`: the size limit
+ * of one image; `layout` and `settings`: changes to the stored layout and settings; `settled`: what
+ * the sidebar must show before the steps start (default: SETTLED); `boot`: what must show for the
+ * app to count as started, given the version shown (default: BOOT); `steps`: what to run once the
+ * app is up, each followed by what must show before the next. The mock reads the scene's name too
+ * (mock.ts `SCENE`).
  */
 const SCENES = [
   {
-    // The hero: every kind of row in the sidebar, a session started as a sub-agent wearing its
-    // figure, and the crew of the active session beside its terminal.
+    // The hero: the link group's chain on three rows, light flowing to the working sessions, the
+    // asking session that has waited for 12 minutes, and the lead at work with its crew.
     name: "overview",
     file: "hangar",
     maxBytes: 400 * KB,
-    layout: {
-      snapLayout: "pair",
-      paneRatios: { pair: [0.61] },
-      closedGroups: ["newSession"],
-    },
-    settled: `(${working(2)} && ${shows(".session", "done")} && ${shows(".session", "question")})`,
+    layout: { snapLayout: "pair", paneRatios: { pair: [0.61] }, closedGroups: ["newSession"] },
+    settings: flow(false),
+    settled: `(${working(2)} && ${shows(".session", "done")} && ${shows(".session", "waiting 12")})`,
     steps: [{ ready: `document.querySelectorAll(".crew-item").length === 2` }],
   },
   {
-    // Send to partner: the docs project's Gemini CLI session writes to the partner project
-    // "shop", where three agent sessions run; the person picks the one that gets the message.
-    name: "partners",
-    file: "hangar-partners",
+    // "Edit group": the members' names, the lead and the group's cost today; the chain on the
+    // members' rows in the sidebar.
+    name: "link-groups",
+    file: "hangar-link-groups",
     maxBytes: 300 * KB,
-    layout: { snapLayout: "single", closedGroups: ["newSession"] },
-    settings: BY_PROJECT,
-    settled: DOCS_SETTLED,
+    layout: SINGLE,
     steps: [
       {
-        run: contextMenu(".session-main", "Refund docs"),
-        ready: shows("[role=menuitem]", "Send to partner"),
+        run: contextMenu(".session-main", "Webhook retries"),
+        ready: shows("[role=menuitem]", "Edit group"),
       },
-      { run: click("[role=menuitem]", "Send to partner"), ready: shows(".partner-choice label") },
+      { run: click("[role=menuitem]", "Edit group"), ready: shows(".link-names input") },
+      { run: BLUR, ready: "true" },
+    ],
+  },
+  {
+    // "Group history": the lead hands out tasks, the members report back; one report is open.
+    name: "link-history",
+    file: "hangar-link-history",
+    maxBytes: 300 * KB,
+    layout: SINGLE,
+    steps: [
       {
-        run: typeInto(".partner-text", PARTNER_MESSAGE),
-        ready: `document.querySelector(".partner-text").value.length > 20`,
+        run: contextMenu(".session-main", "Webhook retries"),
+        ready: shows("[role=menuitem]", "Group history"),
       },
       {
-        run: click(".partner-choice label", "Webhook retries"),
-        ready: `!document.querySelector(".partner-dialog .primary-button").disabled`,
+        run: click("[role=menuitem]", "Group history"),
+        ready: `document.querySelectorAll(".link-history-entry").length === 5`,
+      },
+      {
+        run: click(".link-history-entry summary", "cart to shop"),
+        ready: shows(".link-history-entry details[open]"),
       },
       { run: BLUR, ready: "true" },
     ],
   },
   {
-    // A message the shop's agent sent with hangar-send waits on the docs project's agent session
-    // until the person pastes or discards it.
-    name: "messages",
-    file: "hangar-messages",
+    // Data flow: light runs down the group's trunk to the working sessions and along the
+    // sub-agent branch; each working row shows its rate.
+    name: "data-flow",
+    file: "hangar-data-flow",
     maxBytes: 300 * KB,
-    layout: { snapLayout: "single", closedGroups: ["newSession"] },
-    settings: BY_PROJECT,
-    settled: DOCS_SETTLED,
+    layout: SINGLE,
+    settings: flow(true),
     steps: [
       {
-        // The buttons take clicks only a moment after the card appears; until then they look dimmed.
-        ready: `(${shows(".waiting-message")} && !document.querySelector(".waiting-message [aria-disabled=true]"))`,
+        ready: `document.querySelectorAll(".tree-flow-rate.live .tree-flow-rate-down").length >= 2`,
       },
     ],
   },
   {
-    // Settings > Sub-agents: the definitions with their figures and models, and the figure
-    // picker of the first one open with every bundled figure, its own one marked.
-    name: "sub-agents",
-    file: "hangar-sub-agents",
+    // Quick access finds projects and the text of notes.
+    name: "quick-access",
+    file: "hangar-quick-access",
     maxBytes: 300 * KB,
-    layout: { snapLayout: "single", closedGroups: ["newSession"] },
-    // A tall settings dialog, so the picker and the agents around it show together.
-    storage: { "hangar.settingsDialogSize": { width: 1100, height: 740 } },
+    layout: SINGLE,
     steps: [
-      { run: click(".footer-settings"), ready: shows("[role=tab]", "Sub-agents") },
-      { run: click("[role=tab]", "Sub-agents"), ready: shows(".sub-agent-row") },
+      { run: QUICK_ACCESS, ready: shows(".launcher-input") },
       {
-        ready: `(document.querySelectorAll(".sub-agent-row").length >= 5 && ${shows(".sub-agent-copy", "provided")})`,
+        run: typeInto(".launcher-input", "refund"),
+        ready: `(${shows(".launcher-section", "Notes")} && ${shows(".launcher-section", "Projects")})`,
       },
-      {
-        run: click(".sub-agent-figure-button"),
-        ready: shows(".figure-picker .figure-choice.selected"),
-      },
-      {
-        run: `document.querySelector(".sub-agent-row").scrollIntoView({ block: "start" }) || true`,
-        ready: `[...document.querySelectorAll(".figure-choice img")].every((img) => img.complete)`,
-      },
+    ],
+  },
+  {
+    // The cost on every row with known usage, and the early warning at 80 % of the budget.
+    name: "costs",
+    file: "hangar-costs",
+    maxBytes: 300 * KB,
+    layout: SINGLE,
+    settings: { rowLayout: COST_ROW },
+    steps: [{ ready: shows(".budget-notice") }],
+  },
+  {
+    // The morning summary: yesterday in one line, opened to three lines per project.
+    name: "morning",
+    file: "hangar-morning",
+    maxBytes: 300 * KB,
+    layout: SINGLE,
+    steps: [
+      { ready: shows(".morning-notice") },
+      { run: click(".morning-notice button", "View"), ready: shows(".morning-project") },
       { run: BLUR, ready: "true" },
     ],
   },
   {
-    // The crew column: three sub-agents as whole figures on their plinths, one of them waiting
-    // for the person's OK.
-    name: "crew",
-    file: "hangar-crew",
+    // The secret guard holds a commit whose staged files seem to hold a key.
+    name: "secret-guard",
+    file: "hangar-secret-guard",
     maxBytes: 300 * KB,
-    layout: { snapLayout: "single", closedGroups: ["newSession"] },
-    settled: `(${working(1)} && ${shows(".session", "done")})`,
+    layout: { ...SINGLE, sideOpen: true, sideTab: "changes", notesWidth: 460 },
     steps: [
+      { ready: shows(".commit-message") },
       {
-        ready: `(document.querySelectorAll(".crew-item").length === 3 && ${shows(".crew-item.state-waiting")} && ${shows(".gate-card")})`,
+        run: typeInto(".commit-message", "feat: retry failed webhook deliveries"),
+        ready: `document.querySelector(".commit-message").value.length > 10`,
       },
-    ],
-  },
-  {
-    // Dictation: Ctrl+Shift+Space held on the Claude Code pane; a sentence dictated a moment ago
-    // stands in the prompt.
-    name: "dictation",
-    file: "hangar-dictation",
-    maxBytes: 300 * KB,
-    layout: { snapLayout: "single", closedGroups: ["newSession"], fontSize: 16 },
-    settled: `(${working(1)} && ${shows(".session", "done")})`,
-    steps: [
-      { run: holdDictation, ready: shows(".dictation-indicator.recording") },
+      { run: click(".commit-box .primary-button"), ready: shows(".commit-secrets") },
       { run: BLUR, ready: "true" },
     ],
   },
   {
-    // Settings > Account on the team's own server: "Test connection" finds the account API
-    // answering, the relay missing its proxy rule, and the live connection not tested yet.
-    name: "server-check",
-    file: "hangar-server-check",
+    // "One line": fifteen sessions in four projects, each on one close line. A little wider, so
+    // the titles beside the context bar and the link chain show whole.
+    name: "one-line",
+    file: "hangar-one-line",
     maxBytes: 300 * KB,
-    layout: { snapLayout: "single", closedGroups: ["newSession"] },
-    // Just tall enough for the signed-in person, the server and the result, so the app stays in
-    // view around the dialog.
-    storage: { "hangar.settingsDialogSize": { width: 1000, height: 640 } },
-    steps: [
-      { run: click(".footer-settings"), ready: shows("[role=tab]", "Account") },
-      { run: click("[role=tab]", "Account"), ready: shows(".account-server-row") },
-      {
-        run: click(".account-server .secondary-button", "Test connection"),
-        ready: `document.querySelectorAll(".server-check-line").length === 3`,
-      },
-      { run: BLUR, ready: "true" },
-    ],
+    layout: { ...SINGLE, sidebarWidth: 392 },
+    settings: { ...BY_PROJECT, rowLayout: ONE_LINE_ROW, rowLayoutBefore: COST_ROW },
+    boot: (version) => BOOT(version, 15),
+    settled: `(${working(4)} && ${shows(".session", "done")})`,
+    steps: [],
   },
 ];
 
@@ -384,7 +410,6 @@ async function render(page, url, scene, scheme, version) {
       ...scene.layout,
     },
     "readmeShots.scene": scene.name,
-    ...scene.storage,
     "hangar.settings": {
       language: "en",
       theme: "system",
@@ -406,7 +431,7 @@ async function render(page, url, scene, scheme, version) {
 
   const shown =
     version.build === null ? version.version.replace("+", "-") : `${version.base}-${version.build}`;
-  await waitFor(() => page.evaluate(scene.boot ?? BOOT(shown)), {
+  await waitFor(() => page.evaluate(scene.boot ? scene.boot(shown) : BOOT(shown)), {
     what: `the started app (version ${shown})`,
   });
   await page.evaluate("document.fonts.ready.then(() => true)");
