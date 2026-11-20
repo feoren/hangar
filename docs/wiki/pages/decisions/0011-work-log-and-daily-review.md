@@ -90,13 +90,31 @@ created for the user only (0700 and 0600 on Unix, like the notes; on Windows the
   spans several projects, and a note per project would scatter one review over many lists.
   "Copy" puts the same Markdown on the clipboard.
 
+## Morning summary
+- On the first start of a local day, or on the first focus of the window once Hangar ran past
+  midnight, the window asks for yesterday's review (`daily_review` with `openChanges`, which
+  lists what is uncommitted right now also for a past day). With sessions, a quiet notice like
+  the budget notice says "Yesterday: 3 projects, 5 h, 12 commits"; "View" opens a short form with
+  three lines per project (active time and sessions; commits with the newest subject; files
+  uncommitted now) and a link to the full review of that day.
+- Offered once per day: `morningOfferedDay` in the protected `main-prefs.json` holds the day last
+  offered, also when it had nothing to show; a failed load is tried again on the next focus. A
+  stored day after yesterday (clock set back) counts as offered. The decision is pure
+  (`morningDue` in `morningReview.ts`, with an injected clock).
+- Settings, Attention, Resources: "Offer a look back at yesterday in the morning", on by default
+  (`morningReview`, kept with the notice settings in `MainPrefs`).
+- The budget notice's early level (`budgetWarned: { day, level }`, [[costs-and-handover]]) uses
+  the same once-a-day rule per level; an older file's `budgetWarnedDay` becomes the level
+  `reached` of that day.
+
 ## Consequences
 - Active time exists only where the attention state exists: with the attention setting off, no
   phases are recorded and only run times show.
 - A process that exits before its start returned its id, or an app that crashes, leaves an open
   run; it ends at its last record.
-- Not built: offering the review automatically in the evening. It needs a schedule, a setting and
-  a notice that must not compete with the attention notices; left out until asked for.
+- Not built: offering the review automatically in the evening. It needs a schedule and a notice
+  that must not compete with the attention notices; the morning summary covers the day after
+  instead, at a moment without attention notices.
 
 ## Evidence
 - Tests with synthetic records under `tests/.tmp/`: writing, size cap, pruning, broken lines,
@@ -108,3 +126,8 @@ created for the user only (0700 and 0600 on Unix, like the notes; on Windows the
   uncommitted ones (`commits_of_the_day_with_their_files_and_uncommitted_changes`).
 - Vitest: local day windows in Europe/Berlin (23, 24, 25 hours), the Markdown, the dialog
   (`src/dailyReview.test.ts`, `src/DailyReviewDialog.test.tsx`).
+- Morning summary: when it is due across midnight, month, year and daylight saving days, the
+  short form, the notice on start and on focus, once per day and after a failed load
+  (`src/morningReview.test.ts`, `src/MorningNotice.test.tsx`); a past day's uncommitted changes
+  only when asked for, and the old `budgetWarnedDay` read as level `reached`
+  (`daily_review.rs`, `main_store.rs`).

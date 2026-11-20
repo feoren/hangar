@@ -49,6 +49,8 @@ export interface RowBodyProps {
   gpuColumn: boolean;
   runtime: string | null;
   context: SessionContext | undefined;
+  /** The estimated cost so far ("~$0.42", costs.ts `costText`); missing or `null`: none. */
+  cost?: string | null;
   language: string;
   /**
    * What decides a sub-agent session's figure (SessionLook.tsx): with `subAgent` the figure
@@ -110,6 +112,8 @@ function present(element: RowElement, props: RowBodyProps): boolean {
       return plan.layout.forms.context === "ring" || props.context !== undefined;
     case "tokens":
       return props.context !== undefined;
+    case "cost":
+      return props.cost !== undefined && props.cost !== null;
   }
 }
 
@@ -262,7 +266,20 @@ function RowElementView({ element, ...props }: { element: RowElement } & RowBody
       return <ContextFact context={props.context} language={props.language} form={forms.context} />;
     case "tokens":
       return <ContextTokens context={props.context} />;
+    case "cost":
+      return props.cost === undefined || props.cost === null ? null : <RowCost cost={props.cost} />;
   }
+}
+
+/** The estimated cost, with its name for screen readers ("Cost ~$0.42"). */
+function RowCost({ cost }: { cost: string }) {
+  const t = useT();
+  return (
+    <span className="session-cost row-fact">
+      <span className="sr-only">{t("rowElement.cost")} </span>
+      {cost}
+    </span>
+  );
 }
 
 /**

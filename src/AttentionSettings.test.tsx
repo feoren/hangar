@@ -48,3 +48,48 @@ describe("AttentionSettings per platform", () => {
     expect(render(MAC)).not.toContain('id="notify-desktop-help"');
   });
 });
+
+describe("AttentionSettings for the budget and the morning summary", () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  function renderWith(changes: Partial<ReturnType<typeof defaultSettings>>): string {
+    vi.stubGlobal("navigator", { userAgent: WINDOWS });
+    const t = createTranslator("en");
+    return renderToStaticMarkup(
+      <I18nContext.Provider value={t}>
+        <AttentionSettings
+          settings={{ ...defaultSettings("en"), ...changes }}
+          theme="dark"
+          onChange={() => undefined}
+        />
+      </I18nContext.Provider>,
+    );
+  }
+
+  it("offers the early warning only with a budget, at 80 % unless chosen otherwise", () => {
+    expect(renderWith({ dailyBudget: null })).not.toContain('id="budget-early"');
+    const html = renderWith({ dailyBudget: 10 });
+    expect(html).toContain('id="budget-early"');
+    expect(html).toMatch(/<option value="80" selected="">/);
+    expect(renderWith({ dailyBudget: 10, budgetEarlyPercent: null })).toMatch(
+      /<option value="off" selected="">/,
+    );
+  });
+
+  it("lists a stored share that is not one of the choices, so it never reads as off", () => {
+    const html = renderWith({ dailyBudget: 10, budgetEarlyPercent: 65 });
+    expect(html).toMatch(/<option value="65" selected="">/);
+  });
+
+  it("offers the morning summary in a group of its own, on by default", () => {
+    const t = createTranslator("en");
+    const html = renderWith({});
+    expect(html).toContain(`<legend class="settings-subhead">${t("review.title")}</legend>`);
+    expect(html).toMatch(/aria-describedby="morning-review-help" checked=""/);
+    expect(renderWith({ morningReview: false })).not.toMatch(
+      /aria-describedby="morning-review-help" checked=""/,
+    );
+  });
+});

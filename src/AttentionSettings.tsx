@@ -2,7 +2,7 @@ import { useState } from "react";
 
 import { Badge } from "./Badge";
 import { playChime } from "./chimeAudio";
-import { budgetFromInput } from "./costs";
+import { budgetFromInput, EARLY_PERCENTS, parseEarlyPercent } from "./costs";
 import { DOT_ANIMATIONS, dotAnimationClass, type DotAnimation } from "./dotAnimation";
 import { badgeColor } from "./format";
 import { useT, type MessageKey } from "./i18n";
@@ -267,6 +267,30 @@ export function AttentionSettings({ settings, theme, onChange }: Props) {
             onChange({ dailyBudget });
           }}
         />
+        {/* Only with a budget: without one there is nothing to warn early about. */}
+        {settings.dailyBudget !== null && (
+          <EarlyWarningField
+            value={settings.budgetEarlyPercent}
+            onChange={(budgetEarlyPercent) => {
+              onChange({ budgetEarlyPercent });
+            }}
+          />
+        )}
+      </fieldset>
+
+      {/* Its own group: the morning summary is about the work log, not about resources, and it
+          does not depend on the attention switch above. */}
+      <fieldset className="settings-group">
+        <legend className="settings-subhead">{t("review.title")}</legend>
+        <CheckField
+          id="morning-review"
+          checked={settings.morningReview}
+          label={t("morning.setting")}
+          help={t("morning.settingHelp")}
+          onChange={(morningReview) => {
+            onChange({ morningReview });
+          }}
+        />
       </fieldset>
     </>
   );
@@ -317,6 +341,49 @@ function BudgetField({
       />
       <p id="daily-budget-help" className="muted settings-help">
         {t("costs.budgetHelp")}
+      </p>
+    </div>
+  );
+}
+
+/**
+ * The early budget warning: off, or a share of the budget. A stored share that is not one of the
+ * choices (the backend takes any from 1 to 99) is listed as well, so it never reads as off.
+ */
+function EarlyWarningField({
+  value,
+  onChange,
+}: {
+  value: number | null;
+  onChange: (value: number | null) => void;
+}) {
+  const t = useT();
+  const choices: readonly number[] =
+    value === null || EARLY_PERCENTS.some((choice) => choice === value)
+      ? EARLY_PERCENTS
+      : [...EARLY_PERCENTS, value].sort((a, b) => a - b);
+  return (
+    <div className="field budget-early-field">
+      <label htmlFor="budget-early">{t("costs.earlyWarning")}</label>
+      <select
+        id="budget-early"
+        className="select"
+        value={value === null ? "off" : String(value)}
+        aria-describedby="budget-early-help"
+        onChange={(event) => {
+          const picked = event.currentTarget.value;
+          onChange(parseEarlyPercent(Number(picked)));
+        }}
+      >
+        <option value="off">{t("costs.earlyOff")}</option>
+        {choices.map((choice) => (
+          <option key={choice} value={String(choice)}>
+            {t("settings.percent", { count: choice })}
+          </option>
+        ))}
+      </select>
+      <p id="budget-early-help" className="muted settings-help">
+        {t("costs.earlyHelp")}
       </p>
     </div>
   );

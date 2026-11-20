@@ -51,7 +51,8 @@ describe("the standard row", () => {
     });
     expect(DEFAULT_ROW_LAYOUT.frame).toBe("flat");
     expect(DEFAULT_ROW_LAYOUT.density).toBe("normal");
-    expect(hiddenElements(DEFAULT_ROW_LAYOUT)).toEqual([]);
+    // Only the cost waits for the user to place it (added in 0.12.0, in no template).
+    expect(hiddenElements(DEFAULT_ROW_LAYOUT)).toEqual(["cost"]);
     expect(presetLayout("standard")).toBe(DEFAULT_ROW_LAYOUT);
   });
 });
@@ -269,7 +270,7 @@ describe("moving elements", () => {
   it("hides an element but never the title", () => {
     const hidden = hideElement(DEFAULT_ROW_LAYOUT, "branch");
     expect(lines(hidden)[1]).toBe("folder |");
-    expect(hiddenElements(hidden)).toEqual(["branch"]);
+    expect(hiddenElements(hidden)).toEqual(["branch", "cost"]);
     expect(hideElement(DEFAULT_ROW_LAYOUT, "title")).toBe(DEFAULT_ROW_LAYOUT);
     expect(hideElement(hidden, "branch")).toBe(hidden);
   });
@@ -380,3 +381,28 @@ describe("load for the peek", () => {
     ).toBe("RAM 64 MB");
   });
 });
+
+describe("the cost element", () => {
+  it("is offered but shown by no template", () => {
+    expect(ROW_ELEMENTS).toContain("cost");
+    expect(hiddenElements(DEFAULT_ROW_LAYOUT)).toContain("cost");
+    for (const preset of ROW_PRESETS) {
+      expect(findElement(presetLayout(preset), "cost"), preset).toBeNull();
+    }
+  });
+
+  it("comes back at the end of the tokens' part and stays where it was put", () => {
+    const shown = showElement(DEFAULT_ROW_LAYOUT, "cost");
+    expect(lines(shown)[3]).toBe("runtime context | tokens cost");
+    const stored = parseRowLayout(JSON.parse(JSON.stringify(shown)));
+    expect(sameLayout(stored, shown)).toBe(true);
+    const moved = placeElement(shown, "cost", { line: 0, side: "right", index: 0 });
+    expect(lines(moved)[0]).toBe("program signs title | cost state");
+    expect(isPlacedOnce(moved, "cost")).toBe(true);
+    expect(findElement(hideElement(moved, "cost"), "cost")).toBeNull();
+  });
+});
+
+function isPlacedOnce(value: RowLayout, element: RowElement): boolean {
+  return placed(value).filter((entry) => entry === element).length === 1;
+}

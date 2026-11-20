@@ -37,6 +37,8 @@ interface Props {
   /** Creates a note with this title and text. */
   onToNotes: (title: string, markdown: string) => Promise<void>;
   onClose: () => void;
+  /** The day it opens on (the morning summary's "more detailed review"); today without. */
+  initialDay?: Date | undefined;
   /** The clock, for tests. */
   now?: () => Date;
 }
@@ -55,11 +57,12 @@ export function DailyReviewDialog({
   onCopy,
   onToNotes,
   onClose,
+  initialDay,
   now = () => new Date(),
 }: Props) {
   const t = useT();
   const titleId = useId();
-  const [day, setDay] = useState(() => clampDay(now(), now()));
+  const [day, setDay] = useState(() => clampDay(initialDay ?? now(), now()));
   // Results and notices belong to the day they were made for; another day shows "loading" and
   // no notice until its own result is there, without resetting state inside the effect.
   const [result, setResult] = useState<{ day: number; load: Load } | null>(null);

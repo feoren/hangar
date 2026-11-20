@@ -44,6 +44,34 @@
         "ru": "Hangar открывается с прежним размером и на прежнем месте и остаётся развёрнутым, если ты его развернул.",
         "tr": "Hangar son kullandığın boyut ve konumda yeniden açılır; pencereyi ekranı kaplayacak şekilde büyüttüysen öyle kalır.",
         "zh": "Hangar 会以上次的大小和位置打开；如果你上次将它最大化，它也会保持最大化。"
+      },
+      {
+        "de": "Kosten live: das Zeilenelement „Kosten“, die Kosten einer Link-Gruppe heute unter „Gruppe bearbeiten“ und eine Vorwarnung bei 80 % des Tagesbudgets.",
+        "en": "Costs live: a “Cost” row element, a link group's cost today under “Edit group”, and an early warning at 80% of the daily budget.",
+        "el": "Κόστος ζωντανά: στοιχείο γραμμής «Κόστος», σημερινό κόστος ομάδας στην «Επεξεργασία ομάδας» και προειδοποίηση στο 80% του προϋπολογισμού.",
+        "es": "Costes en vivo: el elemento de fila «Coste», el coste de hoy de un grupo en «Editar grupo» y un aviso previo al 80 % del presupuesto diario.",
+        "fr": "Coûts en direct : l’élément de ligne « Coût », le coût du jour d’un groupe dans « Modifier le groupe » et une alerte à 80 % du budget quotidien.",
+        "it": "Costi in tempo reale: l’elemento di riga «Costo», il costo di oggi di un gruppo in «Modifica gruppo» e un preavviso all’80 % del budget.",
+        "ja": "コストをリアルタイムに：行要素「コスト」、「グループを編集」での今日のグループのコスト、1 日の予算の 80% での事前警告。",
+        "pl": "Koszty na bieżąco: element wiersza „Koszt”, dzisiejszy koszt grupy w „Edytuj grupę” i wczesne ostrzeżenie przy 80% dziennego budżetu.",
+        "pt": "Custos ao vivo: o elemento de linha “Custo”, o custo de hoje de um grupo em “Editar grupo” e um aviso prévio em 80% do orçamento diário.",
+        "ru": "Расходы вживую: элемент строки «Стоимость», стоимость группы за сегодня в «Изменить группу» и предупреждение при 80% бюджета.",
+        "tr": "Canlı maliyet: “Maliyet” satır öğesi, “Grubu düzenle”de grubun bugünkü maliyeti ve günlük bütçenin %80'inde önceden uyarı.",
+        "zh": "实时费用：行元素“费用”、“编辑组”中关联组今天的费用，以及达到每日预算 80% 时的提前提醒。"
+      },
+      {
+        "de": "Morgenzusammenfassung: Beim ersten Start des Tages fasst ein dezenter Hinweis gestern zusammen. „Ansehen“ zeigt je Projekt drei Zeilen.",
+        "en": "Morning summary: on the first start of a day, a quiet notice sums up yesterday. “View” shows three lines per project.",
+        "el": "Πρωινή σύνοψη: στην πρώτη εκκίνηση της ημέρας, μια διακριτική ειδοποίηση συνοψίζει τη χθες. Η «Προβολή» δείχνει τρεις γραμμές ανά έργο.",
+        "es": "Resumen matinal: al primer inicio del día, un aviso discreto resume el día de ayer. «Ver» muestra tres líneas por proyecto.",
+        "fr": "Bilan du matin : au premier démarrage de la journée, un avis discret résume la veille. « Voir » affiche trois lignes par projet.",
+        "it": "Riepilogo del mattino: al primo avvio della giornata, un avviso discreto riassume ieri. «Vedi» mostra tre righe per progetto.",
+        "ja": "朝のまとめ：その日最初の起動時に、昨日を控えめにまとめてお知らせします。「表示」でプロジェクトごとに 3 行を示します。",
+        "pl": "Poranne podsumowanie: przy pierwszym uruchomieniu dnia dyskretne powiadomienie podsumowuje wczoraj. „Pokaż” daje trzy wiersze na projekt.",
+        "pt": "Resumo da manhã: no primeiro início do dia, um aviso discreto resume ontem. “Ver” mostra três linhas por projeto.",
+        "ru": "Утренний обзор: при первом запуске за день ненавязчивое уведомление подводит итоги вчера. «Открыть» показывает три строки на проект.",
+        "tr": "Sabah özeti: günün ilk açılışında sade bir bildirim dünü özetler. “Göster” her proje için üç satır gösterir.",
+        "zh": "早间概览：每天首次启动时，一条低调的提示汇总昨天。“查看”为每个项目显示三行。"
       }
     ]
   },

@@ -7,7 +7,7 @@
 // this localStorage, so the backend keeps them for the main window alone (mainStore.ts); they are
 // neither read from nor written to localStorage here.
 
-import { parseBudget } from "./costs";
+import { DEFAULT_EARLY_PERCENT, parseBudget } from "./costs";
 import { DEFAULT_DICTATION, parseDictationPrefs, type DictationPrefs } from "./dictation";
 import { DEFAULT_DOT_ANIMATION, parseDotAnimation, type DotAnimation } from "./dotAnimation";
 import { clamp } from "./layout";
@@ -72,6 +72,8 @@ export const NOTICE_KEYS = [
   "chime",
   "quietHours",
   "dailyBudget",
+  "budgetEarlyPercent",
+  "morningReview",
 ] as const;
 
 export type NoticeKey = (typeof NOTICE_KEYS)[number];
@@ -217,6 +219,10 @@ export interface Settings {
    * budget.
    */
   dailyBudget: number | null;
+  /** Warn once a day already at this share of the budget, in percent (costs.ts); `null`: off. */
+  budgetEarlyPercent: number | null;
+  /** Offer yesterday's summary on the first start or focus of a day (morningReview.ts). */
+  morningReview: boolean;
   /**
    * Hold a key to dictate into the session (dictation.ts); off by default. Kept by the backend
    * (`DICTATION_KEY`), never in localStorage.
@@ -295,6 +301,8 @@ export function defaultSettings(language: Language): Settings {
     sessionGrouping: "program",
     snippets: defaultSnippets(language),
     dailyBudget: null,
+    budgetEarlyPercent: DEFAULT_EARLY_PERCENT,
+    morningReview: true,
     dictationEnabled: false,
     dictation: DEFAULT_DICTATION,
   };
@@ -404,6 +412,8 @@ export function parseSettings(text: string | null, fallbackLanguage: Language): 
     snippets: defaultSnippets(chosenLanguage),
     // Never from localStorage either: the backend keeps it with the notices (mainStore.ts).
     dailyBudget: defaults.dailyBudget,
+    budgetEarlyPercent: defaults.budgetEarlyPercent,
+    morningReview: defaults.morningReview,
     // Never from localStorage, like the switches: the backend keeps it (mainStore.ts).
     dictationEnabled: defaults.dictationEnabled,
     dictation: parseDictationPrefs(get("dictation")),
@@ -497,6 +507,8 @@ export function noticesOf(settings: NoticeSettings): NoticeSettings {
     chime: settings.chime,
     quietHours: settings.quietHours,
     dailyBudget: settings.dailyBudget,
+    budgetEarlyPercent: settings.budgetEarlyPercent,
+    morningReview: settings.morningReview,
   };
 }
 
@@ -513,7 +525,9 @@ export function legacyNotices(text: string | null): NoticeSettings {
     return defaults;
   }
   if (typeof raw !== "object" || raw === null || Array.isArray(raw)) return defaults;
-  const flag = (key: Exclude<NoticeKey, "quietHours" | "dailyBudget">): boolean => {
+  const flag = (
+    key: Exclude<NoticeKey, "quietHours" | "dailyBudget" | "budgetEarlyPercent" | "morningReview">,
+  ): boolean => {
     const value: unknown = Reflect.get(raw, key);
     return typeof value === "boolean" ? value : defaults[key];
   };
@@ -525,6 +539,9 @@ export function legacyNotices(text: string | null): NoticeSettings {
     chime: flag("chime"),
     quietHours: parseQuietHours(Reflect.get(raw, "quietHours")),
     dailyBudget: parseBudget(Reflect.get(raw, "dailyBudget")),
+    // Both came after the move to the backend: no older version kept them here.
+    budgetEarlyPercent: defaults.budgetEarlyPercent,
+    morningReview: defaults.morningReview,
   };
 }
 

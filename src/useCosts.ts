@@ -7,7 +7,7 @@ import { listen } from "@tauri-apps/api/event";
 import { useSyncExternalStore } from "react";
 
 import { api, COST_USAGE_CHANGED } from "./api";
-import { parseCostReport, type CostReport, type SessionCost } from "./costs";
+import { costText, parseCostReport, type CostReport, type SessionCost } from "./costs";
 
 let report: CostReport | null = null;
 const listeners = new Set<() => void>();
@@ -54,10 +54,24 @@ function subscribe(listener: () => void): () => void {
 
 /** The newest report; `null` until the backend sent one. */
 export function useCostReport(): CostReport | null {
-  return useSyncExternalStore(subscribe, () => report);
+  // The same snapshot on the server: static renders (tests) see the report as it is.
+  const snapshot = () => report;
+  return useSyncExternalStore(subscribe, snapshot, snapshot);
 }
 
 /** One session's tokens and cost so far; `undefined` without readable usage. */
 export function useSessionCost(sessionId: number): SessionCost | undefined {
   return useSyncExternalStore(subscribe, () => report?.sessions.get(sessionId));
+}
+
+/**
+ * One session's cost so far as the row shows it ("~$0.42", "~$0.42+"); `null` without a price.
+ * A text, so the row re-renders only when what it shows changed, not on every report.
+ */
+export function useSessionCostText(sessionId: number, language: string): string | null {
+  const snapshot = () => {
+    const cost = report?.sessions.get(sessionId);
+    return cost === undefined ? null : costText(cost, language);
+  };
+  return useSyncExternalStore(subscribe, snapshot, snapshot);
 }

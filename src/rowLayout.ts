@@ -20,8 +20,17 @@ export const ROW_ELEMENTS = [
   "runtime",
   "context",
   "tokens",
+  "cost",
 ] as const;
 export type RowElement = (typeof ROW_ELEMENTS)[number];
+
+/**
+ * Where "+" puts an element the standard row does not show: the estimated cost at the end of
+ * the tokens' part. Every other element comes back where the standard row has it.
+ */
+const EXTRA_HOMES: Partial<Record<RowElement, { line: number; side: RowSide }>> = {
+  cost: { line: 3, side: "right" },
+};
 
 export function isRowElement(value: unknown): value is RowElement {
   return typeof value === "string" && ROW_ELEMENTS.some((element) => element === value);
@@ -382,7 +391,8 @@ export function hideElement(value: RowLayout, element: RowElement): RowLayout {
 /** Shows a hidden element where the standard row has it, at the end of that part. */
 export function showElement(value: RowLayout, element: RowElement): RowLayout {
   if (isPlaced(value, element)) return value;
-  const home = findElement(DEFAULT_ROW_LAYOUT, element) ?? { line: 0, side: "left", index: 0 };
+  const home = findElement(DEFAULT_ROW_LAYOUT, element) ??
+    EXTRA_HOMES[element] ?? { line: 0, side: "left" };
   const length = value.lines[home.line]?.[home.side].length ?? 0;
   return placeElement(value, element, { ...home, index: length });
 }

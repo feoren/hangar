@@ -9,10 +9,12 @@ import {
   DEFAULT_ROW_LAYOUT,
   hideElement,
   parseRowLayout,
+  placeElement,
   planRow,
   presetLayout,
   ROW_PRESETS,
   setFormByName,
+  showElement,
   type RowLayout,
 } from "./rowLayout";
 import { RowLayoutField, RowLayoutPreview } from "./RowLayoutSettings";
@@ -317,11 +319,20 @@ describe("the builder", () => {
   });
 
   it("gives every element a chip with its form and a way to hide it, the title none", () => {
-    expect(count(html, "row-chip")).toBe(10);
+    // Ten placed elements and the cost, which no template shows, among the hidden ones.
+    expect(count(html, "row-chip")).toBe(11);
     expect(html).toContain('aria-label="Form of Context"');
     expect(html).toContain('aria-label="Hide State"');
     expect(html).not.toContain('aria-label="Hide Title"');
-    expect(html).toContain("Everything is shown.");
+    expect(html).toContain('aria-label="Show Cost"');
+    const everything = render(
+      <RowLayoutField
+        value={showElement(DEFAULT_ROW_LAYOUT, "cost")}
+        language="en"
+        onChange={() => undefined}
+      />,
+    );
+    expect(everything).toContain("Everything is shown.");
   });
 
   it("offers hidden elements back and names the preset in use", () => {
@@ -363,5 +374,35 @@ describe("a session running as a sub-agent", () => {
     const html = row(presetLayout("avatar"), { session: { subAgent: null, cwd: "C:\\src" } });
     expect(count(html, "session-figure")).toBe(0);
     expect(html).toMatch(/class="session-avatar"[^>]*><span class="badge"/);
+  });
+});
+
+describe("the cost on the row", () => {
+  const withCost = showElement(DEFAULT_ROW_LAYOUT, "cost");
+
+  it("shows the estimated cost as the cost overview writes it, with its name for screen readers", () => {
+    const html = row(withCost, { cost: "~$0.42+" });
+    expect(count(html, "session-cost")).toBe(1);
+    expect(html).toContain("~$0.42+");
+    expect(html).toMatch(/class="sr-only">Cost <\/span>/);
+  });
+
+  it("shows nothing for a program without usage, and nothing while it is hidden", () => {
+    expect(count(row(withCost, { cost: null }), "session-cost")).toBe(0);
+    expect(count(row(withCost), "session-cost")).toBe(0);
+    expect(count(row(DEFAULT_ROW_LAYOUT, { cost: "~$0.42" }), "session-cost")).toBe(0);
+  });
+
+  it("alone does not keep a line that shows nothing else", () => {
+    const only = placeElement(DEFAULT_ROW_LAYOUT, "cost", { line: 2, side: "right", index: 0 });
+    const html = row(only, { usage: null, cost: null });
+    expect(lineClasses(html)).toHaveLength(3);
+    expect(lineClasses(row(only, { usage: null, cost: "~$1.00" }))).toHaveLength(4);
+  });
+
+  it("shows in the settings' preview once placed", () => {
+    const html = render(<RowLayoutPreview plan={planRow(withCost)} language="en" />);
+    expect(count(html, "session-cost")).toBe(2);
+    expect(html).toContain("~$3.42");
   });
 });

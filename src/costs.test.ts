@@ -7,13 +7,18 @@ import {
   costText,
   dayLabel,
   formatUsd,
+  groupCost,
   MAX_BUDGET_USD,
   parseBudget,
+  parseBudgetWarned,
   parseCostReport,
+  parseEarlyPercent,
   parseWarnedDay,
   todayCost,
+  type BudgetCheck,
   type CostReport,
 } from "./costs";
+import { isQuietTime } from "./quietHours";
 import { createTranslator } from "./i18n";
 
 const t = createTranslator("en");
@@ -155,14 +160,175 @@ describe("daily budget", () => {
   });
 
   it("warns once a day when the budget is reached, never in quiet hours", () => {
-    const base = { budget: 5, warnedDay: null, quiet: false };
-    expect(budgetWarning({ ...base, report: report(5) })).toBe(5);
+    const base: Omit<BudgetCheck, "report"> = {
+      budget: 5,
+      earlyPercent: null,
+      warned: null,
+      quiet: false,
+    };
+    const reached = (cost: number) => ({ level: "reached", cost });
+    expect(budgetWarning({ ...base, report: report(5) })).toEqual(reached(5));
     expect(budgetWarning({ ...base, report: report(4.99) })).toBeNull();
     expect(budgetWarning({ ...base, report: report(null) })).toBeNull();
     expect(budgetWarning({ ...base, report: report(9), quiet: true })).toBeNull();
-    expect(budgetWarning({ ...base, report: report(9), warnedDay: "2026-11-13" })).toBeNull();
-    expect(budgetWarning({ ...base, report: report(9), warnedDay: "2026-11-12" })).toBe(9);
+    const today = { day: "2026-11-13", level: "reached" } as const;
+    expect(budgetWarning({ ...base, report: report(9), warned: today })).toBeNull();
+    const before = { day: "2026-11-12", level: "reached" } as const;
+    expect(budgetWarning({ ...base, report: report(9), warned: before })).toEqual(reached(9));
     expect(budgetWarning({ ...base, report: report(9), budget: null })).toBeNull();
     expect(budgetWarning({ ...base, report: null })).toBeNull();
+  });
+
+  it("warns early once, then once more at the budget, each level once a day", () => {
+    const base: Omit<BudgetCheck, "report"> = {
+      budget: 10,
+      earlyPercent: 80,
+      warned: null,
+      quiet: false,
+    };
+    expect(budgetWarning({ ...base, report: report(7.99) })).toBeNull();
+    expect(budgetWarning({ ...base, report: report(8) })).toEqual({ level: "early", cost: 8 });
+    const early = { day: "2026-11-13", level: "early" } as const;
+    expect(budgetWarning({ ...base, report: report(9), warned: early })).toBeNull();
+    expect(budgetWarning({ ...base, report: report(10), warned: early })).toEqual({
+      level: "reached",
+      cost: 10,
+    });
+    const reached = { day: "2026-11-13", level: "reached" } as const;
+    expect(budgetWarning({ ...base, report: report(12), warned: reached })).toBeNull();
+    // Off: only the budget warns.
+    expect(budgetWarning({ ...base, earlyPercent: null, report: report(9) })).toBeNull();
+  });
+
+  it("starts both levels again on a new day", () => {
+    const base: Omit<BudgetCheck, "report"> = {
+      budget: 10,
+      earlyPercent: 80,
+      // Yesterday ended past the budget.
+      warned: { day: "2026-11-12", level: "reached" },
+      quiet: false,
+    };
+    expect(budgetWarning({ ...base, report: report(8.5) })).toEqual({ level: "early", cost: 8.5 });
+    expect(budgetWarning({ ...base, report: report(11) })).toEqual({ level: "reached", cost: 11 });
+  });
+
+  it("waits through quiet hours and then shows only the highest level reached", () => {
+    const hours = { enabled: true, from: 22 * 60, to: 7 * 60 };
+    const base: Omit<BudgetCheck, "report" | "quiet"> = {
+      budget: 10,
+      earlyPercent: 80,
+      warned: null,
+    };
+    const at = (hour: number) => isQuietTime(hours, new Date(2026, 10, 13, hour, 30));
+    // 23:30: past the budget, but quiet.
+    expect(budgetWarning({ ...base, report: report(12), quiet: at(23) })).toBeNull();
+    // 06:30, still quiet.
+    expect(budgetWarning({ ...base, report: report(12), quiet: at(6) })).toBeNull();
+    // 07:30: the early level was passed in silence; only "reached" shows, once.
+    expect(budgetWarning({ ...base, report: report(12), quiet: at(7) })).toEqual({
+      level: "reached",
+      cost: 12,
+    });
+  });
+
+  it("reads the warned day and level, an old day alone as reached", () => {
+    expect(parseBudgetWarned({ day: "2026-11-14", level: "early" })).toEqual({
+      day: "2026-11-14",
+      level: "early",
+    });
+    expect(parseBudgetWarned("2026-11-14")).toEqual({ day: "2026-11-14", level: "reached" });
+    for (const value of [
+      null,
+      "2026-13-01",
+      { day: "2026-11-14" },
+      { day: "2026-11-14", level: "over" },
+      { day: "x", level: "early" },
+      ["2026-11-14"],
+      7,
+    ]) {
+      expect(parseBudgetWarned(value), JSON.stringify(value)).toBeNull();
+    }
+  });
+
+  it("takes an early share from 1 to 99 percent", () => {
+    expect(parseEarlyPercent(80)).toBe(80);
+    expect(parseEarlyPercent(1)).toBe(1);
+    expect(parseEarlyPercent(99)).toBe(99);
+    for (const value of [0, 100, 80.5, "80", null, Number.NaN]) {
+      expect(parseEarlyPercent(value), String(value)).toBeNull();
+    }
+  });
+});
+
+describe("groupCost", () => {
+  function shares(
+    list: { id: number | null; total: number; cost: number | null; partial?: boolean }[],
+  ) {
+    const parsed = parseCostReport({
+      today: "2026-11-13",
+      sessions: [],
+      days: [
+        {
+          day: "2026-11-13",
+          tokens,
+          total: 0,
+          costUsd: null,
+          partial: false,
+          sessions: list.map((entry) => ({
+            sessionId: entry.id,
+            title: "t",
+            program: "Claude Code",
+            tokens,
+            total: entry.total,
+            costUsd: entry.cost,
+            partial: entry.partial === true,
+          })),
+        },
+        // Yesterday's share of member 1 does not count.
+        {
+          day: "2026-11-12",
+          tokens,
+          total: 5000,
+          costUsd: 9,
+          partial: false,
+          sessions: [{ sessionId: 1, title: "t", program: "p", tokens, total: 5000, costUsd: 9 }],
+        },
+      ],
+    });
+    if (parsed === null) throw new Error("report did not parse");
+    return parsed;
+  }
+
+  it("sums today's shares of the members only", () => {
+    const value = shares([
+      { id: 1, total: 1000, cost: 0.5 },
+      { id: 2, total: 3000, cost: 0.25 },
+      { id: 3, total: 9000, cost: 4 },
+      { id: null, total: 9000, cost: 4 },
+    ]);
+    const sum = groupCost(value, [1, 2]);
+    expect(sum?.total).toBe(4000);
+    expect(sum?.costUsd).toBeCloseTo(0.75);
+    expect(sum?.partial).toBe(false);
+    expect(sum?.tokens.input).toBe(2);
+    expect(sum === null ? null : costText(sum, "en")).toBe("~$0.75");
+  });
+
+  it("marks the sum partial when a member has no price or a partial one", () => {
+    const mixed = shares([
+      { id: 1, total: 1000, cost: 0.5 },
+      { id: 2, total: 3000, cost: null },
+    ]);
+    expect(groupCost(mixed, [1, 2])?.partial).toBe(true);
+    const cut = shares([{ id: 1, total: 1000, cost: 0.5, partial: true }]);
+    expect(groupCost(cut, [1, 2])?.partial).toBe(true);
+    const unpriced = shares([{ id: 2, total: 3000, cost: null }]);
+    expect(groupCost(unpriced, [2])).toMatchObject({ costUsd: null, partial: false, total: 3000 });
+  });
+
+  it("has nothing without usage of a member today", () => {
+    expect(groupCost(null, [1])).toBeNull();
+    expect(groupCost(shares([{ id: 1, total: 0, cost: null }]), [1])).toBeNull();
+    expect(groupCost(shares([{ id: 3, total: 10, cost: 1 }]), [1, 2])).toBeNull();
   });
 });

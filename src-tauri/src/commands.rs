@@ -2145,17 +2145,20 @@ pub async fn log_work_phase(
 }
 
 /// The daily review of one local day, `[start, end)` in Unix ms as the window computed it
-/// (daily_review.rs, ADR 0011).
+/// (daily_review.rs, ADR 0011). `open_changes`: also what is uncommitted right now when the day
+/// is a past one (the morning summary of yesterday).
 #[tauri::command]
 pub async fn daily_review(
     work_log: State<'_, WorkLog>,
     start: i64,
     end: i64,
+    open_changes: Option<bool>,
 ) -> Result<DailyReview, ReviewError> {
     let log = work_log.inner().clone();
+    let open_now = open_changes.unwrap_or(false);
     tauri::async_runtime::spawn_blocking(move || {
         let git = Git::locate().ok();
-        daily_review::review(&log, git.as_ref(), start, end, work_log::now_ms())
+        daily_review::review(&log, git.as_ref(), start, end, work_log::now_ms(), open_now)
     })
     .await
     .map_err(|error| ReviewError::Task(error.to_string()))?

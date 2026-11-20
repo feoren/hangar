@@ -1179,3 +1179,10 @@ checked again when the text is fetched, claim before paste, a budget of 20 autom
 a header that names the sender as an agent with an indented text, groups with an agent without
 prompts ask first, and a `linkMessage` work log record. Pages changed: [[0014-session-links]],
 [[0011-work-log-and-daily-review]].
+
+## [2026-11-20] query | Costs live and morning summary
+A "cost" row element (in no template), the link group's cost today in "Edit group", an early
+budget warning (default 80 %, each level once a day; `budgetWarnedDay` becomes `budgetWarned`
+with a level, old files read as `reached`), and a morning summary of yesterday on the first start
+or focus of a day with a short form of the review. Pages changed: [[costs-and-handover]],
+[[0011-work-log-and-daily-review]], index.

@@ -4,8 +4,9 @@
 //! HANGAR.md for every agent, the snippets), the workspace templates (program and folder of
 //! each session they start) and the start and notice preferences ([`MainPrefs`]: private or team
 //! start, the last program, the favorite and recent folders, session restore, whether and when
-//! a waiting session shows itself, the daily budget with the day its notice last showed, and
-//! whether the dictation key is on) and the partner projects ([`crate::partners`]: which
+//! a waiting session shows itself, the daily budget with its early warning and the day and level
+//! its notice last showed, whether the morning summary is offered and for which day it last was,
+//! and whether the dictation key is on) and the partner projects ([`crate::partners`]: which
 //! projects may send each other messages).
 //!
 //! The panel and file viewer windows share the main window's origin and with it its
@@ -71,6 +72,8 @@ pub const MAX_BUDGET_USD: f64 = 100_000.0;
 /// Lowest daily budget: one cent. The window rounds to cents, so anything below would read
 /// there as zero and make it drop all preferences of the file.
 pub const MIN_BUDGET_USD: f64 = 0.01;
+/// The early budget warning's default share of the budget, in percent (`costs.ts`).
+pub const DEFAULT_EARLY_PERCENT: u8 = 80;
 /// Minutes in a day: quiet hours start and end before this (`quietHours.ts`).
 const MINUTES_PER_DAY: u16 = 24 * 60;
 /// IDs of snippets and templates: `^[a-z0-9-]{1,40}$`, as the window checks them.
@@ -363,6 +366,55 @@ impl Default for QuietHours {
     }
 }
 
+/// How far today's cost got when the budget notice showed (`costs.ts` `BudgetLevel`): the early
+/// warning at a share of the budget, or the budget itself.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum BudgetLevel {
+    Early,
+    Reached,
+}
+
+/// The local day (`YYYY-MM-DD`) and level the budget notice last showed: each level shows once a
+/// day.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct BudgetWarned {
+    pub day: String,
+    pub level: BudgetLevel,
+}
+
+/// `budgetWarned` as files store it: before the early warning existed, the day alone
+/// (`budgetWarnedDay`), which was always the day the budget was reached.
+#[derive(Deserialize)]
+#[serde(untagged)]
+enum StoredWarned {
+    Day(String),
+    Warned(BudgetWarned),
+}
+
+fn stored_warned<'de, D: serde::Deserializer<'de>>(
+    deserializer: D,
+) -> Result<Option<BudgetWarned>, D::Error> {
+    Ok(
+        Option::<StoredWarned>::deserialize(deserializer)?.map(|stored| match stored {
+            StoredWarned::Day(day) => BudgetWarned {
+                day,
+                level: BudgetLevel::Reached,
+            },
+            StoredWarned::Warned(warned) => warned,
+        }),
+    )
+}
+
+fn default_early_percent() -> Option<u8> {
+    Some(DEFAULT_EARLY_PERCENT)
+}
+
+fn enabled() -> bool {
+    true
+}
+
 /// Where and how the next session starts, and whether a waiting session shows itself. A damaged
 /// file gives the defaults: private start in the home folder, the first program, sessions
 /// restored, every notice on, no budget.
@@ -386,9 +438,20 @@ pub struct MainPrefs {
     /// existed.
     #[serde(default)]
     pub daily_budget: Option<f64>,
-    /// The local day (`YYYY-MM-DD`) the budget notice last showed; it shows once a day.
+    /// The early budget warning at this share of the budget in percent (1 to 99); `None`: off.
+    /// Missing in files written before it existed: the default.
+    #[serde(default = "default_early_percent")]
+    pub budget_early_percent: Option<u8>,
+    /// The day and level the budget notice last showed. Older files kept only the day, under
+    /// `budgetWarnedDay`; it becomes that day at the level "reached".
+    #[serde(default, alias = "budgetWarnedDay", deserialize_with = "stored_warned")]
+    pub budget_warned: Option<BudgetWarned>,
+    /// Offer yesterday's summary on the first start or focus of a day. On unless turned off.
+    #[serde(default = "enabled")]
+    pub morning_review: bool,
+    /// The local day (`YYYY-MM-DD`) whose summary was last offered, so it is offered once.
     #[serde(default)]
-    pub budget_warned_day: Option<String>,
+    pub morning_offered_day: Option<String>,
     /// Holding the dictation key opens the microphone. `None`: a file from before dictation; the
     /// window then takes over its old localStorage value once and stores it here.
     #[serde(default)]
@@ -409,7 +472,10 @@ impl Default for MainPrefs {
             chime: true,
             quiet_hours: QuietHours::default(),
             daily_budget: None,
-            budget_warned_day: None,
+            budget_early_percent: default_early_percent(),
+            budget_warned: None,
+            morning_review: true,
+            morning_offered_day: None,
             dictation_enabled: Some(false),
         }
     }
@@ -442,8 +508,8 @@ fn valid_folder(folder: &str) -> bool {
 }
 
 /// The bounds the window keeps: a program ID like a template's, folders like the menu's, quiet
-/// hours within a day, a budget from [`MIN_BUDGET_USD`] up to [`MAX_BUDGET_USD`], a warned day
-/// as a date.
+/// hours within a day, a budget from [`MIN_BUDGET_USD`] up to [`MAX_BUDGET_USD`], an early
+/// warning below the whole budget, the warned and the offered day as dates.
 pub fn validate_prefs(prefs: &MainPrefs) -> Result<(), MainStoreError> {
     if let Some(program) = &prefs.last_program {
         if program.trim().is_empty()
@@ -473,9 +539,19 @@ pub fn validate_prefs(prefs: &MainPrefs) -> Result<(), MainStoreError> {
             return Err(MainStoreError::InvalidPrefs("budget"));
         }
     }
-    if let Some(day) = &prefs.budget_warned_day {
-        if !valid_day(day) {
+    if let Some(percent) = prefs.budget_early_percent {
+        if !(1..=99).contains(&percent) {
+            return Err(MainStoreError::InvalidPrefs("early warning"));
+        }
+    }
+    if let Some(warned) = &prefs.budget_warned {
+        if !valid_day(&warned.day) {
             return Err(MainStoreError::InvalidPrefs("warned day"));
+        }
+    }
+    if let Some(day) = &prefs.morning_offered_day {
+        if !valid_day(day) {
+            return Err(MainStoreError::InvalidPrefs("offered day"));
         }
     }
     Ok(())
@@ -976,7 +1052,13 @@ mod tests {
                 to: 1439,
             },
             daily_budget: Some(12.5),
-            budget_warned_day: Some("2026-11-14".to_owned()),
+            budget_early_percent: Some(70),
+            budget_warned: Some(BudgetWarned {
+                day: "2026-11-14".to_owned(),
+                level: BudgetLevel::Early,
+            }),
+            morning_review: false,
+            morning_offered_day: Some("2026-11-13".to_owned()),
             dictation_enabled: Some(true),
         }
     }
@@ -995,7 +1077,10 @@ mod tests {
                 "restoreSessions": false, "attentionEnabled": false, "taskbarFlash": false,
                 "notifyDesktop": false, "chime": false,
                 "quietHours": { "enabled": true, "from": 0, "to": 1439 },
-                "dailyBudget": 12.5, "budgetWarnedDay": "2026-11-14", "dictationEnabled": true })
+                "dailyBudget": 12.5, "budgetEarlyPercent": 70,
+                "budgetWarned": { "day": "2026-11-14", "level": "early" },
+                "morningReview": false, "morningOfferedDay": "2026-11-13",
+                "dictationEnabled": true })
         );
         // A file from before dictation still loads, with the choice left open for the migration.
         let older = r#"{"startMode":"team","lastProgram":null,"favorites":[],"recent":[],"restoreSessions":false,"attentionEnabled":true,"taskbarFlash":true,"notifyDesktop":true,"chime":true,"quietHours":{"enabled":false,"from":0,"to":0}}"#;
@@ -1011,9 +1096,12 @@ mod tests {
         assert!(defaults.restore_sessions && defaults.attention_enabled && defaults.chime);
         assert!(defaults.taskbar_flash && defaults.notify_desktop);
         assert_eq!(
-            (defaults.daily_budget, defaults.budget_warned_day),
+            (defaults.daily_budget, defaults.budget_warned),
             (None, None)
         );
+        assert_eq!(defaults.budget_early_percent, Some(DEFAULT_EARLY_PERCENT));
+        assert!(defaults.morning_review);
+        assert_eq!(defaults.morning_offered_day, None);
         // A file written before the budget existed keeps its preferences.
         std::fs::write(
             tmp.path().join(PREFS_FILE),
@@ -1024,6 +1112,9 @@ mod tests {
         assert_eq!(older.start_mode, StartMode::Team);
         assert!(!older.restore_sessions);
         assert_eq!(older.daily_budget, None);
+        // It gets the early warning and the morning summary with their defaults.
+        assert_eq!(older.budget_early_percent, Some(DEFAULT_EARLY_PERCENT));
+        assert!(older.morning_review);
         assert_eq!(
             defaults.dictation_enabled,
             Some(false),
@@ -1048,7 +1139,12 @@ mod tests {
             favorites: vec!["f".repeat(MAX_FOLDER_UNITS); MAX_FAVORITE_FOLDERS],
             last_program: Some("p".repeat(MAX_PROFILE_ID_UNITS)),
             daily_budget: Some(MAX_BUDGET_USD),
-            budget_warned_day: Some("9999-12-31".to_owned()),
+            budget_early_percent: Some(99),
+            budget_warned: Some(BudgetWarned {
+                day: "9999-12-31".to_owned(),
+                level: BudgetLevel::Reached,
+            }),
+            morning_offered_day: Some("9999-12-31".to_owned()),
             ..prefs()
         };
         assert!(validate_prefs(&at_limit).is_ok());
@@ -1059,7 +1155,9 @@ mod tests {
         assert!(validate_prefs(&one_cent).is_ok());
         let unset = MainPrefs {
             daily_budget: None,
-            budget_warned_day: None,
+            budget_early_percent: None,
+            budget_warned: None,
+            morning_offered_day: None,
             ..prefs()
         };
         assert!(validate_prefs(&unset).is_ok());
@@ -1091,11 +1189,26 @@ mod tests {
             "2026-11-14\n",
             " 2026-11-14",
         ] {
-            let prefs = MainPrefs {
-                budget_warned_day: Some(day.to_owned()),
+            let warned = MainPrefs {
+                budget_warned: Some(BudgetWarned {
+                    day: day.to_owned(),
+                    level: BudgetLevel::Reached,
+                }),
                 ..prefs()
             };
-            assert!(validate_prefs(&prefs).is_err(), "{day:?}");
+            assert!(validate_prefs(&warned).is_err(), "{day:?}");
+            let offered = MainPrefs {
+                morning_offered_day: Some(day.to_owned()),
+                ..prefs()
+            };
+            assert!(validate_prefs(&offered).is_err(), "{day:?}");
+        }
+        for percent in [0, 100, 255] {
+            let prefs = MainPrefs {
+                budget_early_percent: Some(percent),
+                ..prefs()
+            };
+            assert!(validate_prefs(&prefs).is_err(), "{percent}");
         }
         let bad = [
             MainPrefs {
@@ -1153,6 +1266,63 @@ mod tests {
         let mut team = serde_json::to_value(MainPrefs::default()).unwrap();
         team["startMode"] = serde_json::json!("Team");
         assert!(serde_json::from_value::<MainPrefs>(team).is_err());
+    }
+
+    #[test]
+    fn an_old_warned_day_becomes_the_reached_level_of_that_day() {
+        let tmp = TempDir::new("main-store-warned");
+        let store = MainStore::new(tmp.path().to_owned());
+        let base = r#""startMode":"private","lastProgram":null,"favorites":[],"recent":[],"restoreSessions":true,"attentionEnabled":true,"taskbarFlash":true,"notifyDesktop":true,"chime":true,"quietHours":{"enabled":false,"from":0,"to":0},"dailyBudget":5"#;
+        let write = |field: &str| {
+            std::fs::write(tmp.path().join(PREFS_FILE), format!("{{{base},{field}}}")).unwrap();
+        };
+        write(r#""budgetWarnedDay":"2026-11-19""#);
+        let loaded = store.load_prefs().unwrap();
+        assert_eq!(
+            loaded.budget_warned,
+            Some(BudgetWarned {
+                day: "2026-11-19".to_owned(),
+                level: BudgetLevel::Reached,
+            })
+        );
+        assert_eq!(loaded.daily_budget, Some(5.0));
+        // Saved again, it is written in the new form only.
+        store.save_prefs(loaded.clone()).unwrap();
+        let text = std::fs::read_to_string(tmp.path().join(PREFS_FILE)).unwrap();
+        assert!(text.contains(r#""budgetWarned":{"day":"2026-11-19","level":"reached"}"#));
+        assert!(!text.contains("budgetWarnedDay"));
+        assert_eq!(store.load_prefs(), Some(loaded));
+        // The new form under the old name, and an explicit null, load too.
+        for (field, expected) in [
+            (
+                r#""budgetWarnedDay":{"day":"2026-11-20","level":"early"}"#,
+                Some(BudgetLevel::Early),
+            ),
+            (r#""budgetWarnedDay":null"#, None),
+            (r#""budgetWarned":null"#, None),
+        ] {
+            write(field);
+            let loaded = store.load_prefs().unwrap();
+            assert_eq!(loaded.budget_warned.map(|w| w.level), expected, "{field}");
+            assert_eq!(loaded.daily_budget, Some(5.0), "{field}");
+        }
+        // An explicit null turns the early warning off; missing gives the default.
+        write(r#""budgetEarlyPercent":null"#);
+        assert_eq!(store.load_prefs().unwrap().budget_early_percent, None);
+        // Broken or doubled values: the file counts as damaged and gives the defaults.
+        for damaged in [
+            r#""budgetWarnedDay":"2026-13-01""#,
+            r#""budgetWarned":{"day":"2026-11-20","level":"over"}"#,
+            r#""budgetWarned":{"day":"2026-11-20","level":"early","x":1}"#,
+            r#""budgetWarned":{"day":"2026-11-20"}"#,
+            r#""budgetWarned":7"#,
+            r#""budgetWarnedDay":"2026-11-19","budgetWarned":{"day":"2026-11-20","level":"early"}"#,
+            r#""morningOfferedDay":"yesterday""#,
+            r#""budgetEarlyPercent":100"#,
+        ] {
+            write(damaged);
+            assert_eq!(store.load_prefs(), Some(MainPrefs::default()), "{damaged}");
+        }
     }
 
     #[test]
