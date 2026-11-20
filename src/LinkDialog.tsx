@@ -6,6 +6,7 @@ import { useT, type MessageKey } from "./i18n";
 import { CloseIcon } from "./icons";
 import {
   MAX_LINK_MEMBERS,
+  leadOf,
   linkColor,
   nameProblem,
   type LinkGroup,
@@ -40,8 +41,43 @@ function DialogHead({ id, title, onClose }: { id: string; title: string; onClose
 }
 
 /**
+ * The optional lead of a group: "No lead" or one of `options`. Only offered from two members on.
+ */
+function LeadChoice(props: {
+  options: readonly { session: number; label: string }[];
+  lead: number | null;
+  onChange: (lead: number | null) => void;
+}) {
+  const t = useT();
+  return (
+    <div className="link-lead">
+      <label className="link-lead-field">
+        <span>{t("links.lead")}</span>
+        <select
+          className="text-input"
+          value={props.lead === null ? "" : String(props.lead)}
+          onChange={(event) => {
+            const value = event.currentTarget.value;
+            props.onChange(value === "" ? null : Number(value));
+          }}
+        >
+          <option value="">{t("links.noLead")}</option>
+          {props.options.map((option) => (
+            <option key={option.session} value={String(option.session)}>
+              {option.label}
+            </option>
+          ))}
+        </select>
+      </label>
+      <p className="muted link-lead-help">{t("links.leadHelp")}</p>
+    </div>
+  );
+}
+
+/**
  * "Link with …": a check box per session that can be linked, the session the menu was opened on
- * checked first, one button. The agents then message each other on their own (ADR 0014).
+ * checked first, optionally a lead, one button. The agents then message each other on their own
+ * (ADR 0014).
  */
 export function LinkDialog(props: {
   /** Sessions that can be linked (links.ts `linkCandidates`), in sidebar order. */
@@ -56,22 +92,26 @@ export function LinkDialog(props: {
   /** The key that adds a row to the sidebar's selection, for the tip ("Ctrl" or "⌘"). */
   selectKey: string;
   /** Links and closes, or answers why not; the dialog then stays open and shows it. */
-  onLink: (ids: number[]) => Promise<string | null>;
+  onLink: (ids: number[], lead: number | null) => Promise<string | null>;
   onClose: () => void;
 }) {
   const t = useT();
   const id = useId();
   const [chosen, setChosen] = useState<ReadonlySet<number>>(() => new Set(props.initial));
+  const [lead, setLead] = useState<number | null>(null);
   const [problem, setProblem] = useState<string | null>(null);
   const [linking, setLinking] = useState(false);
-  const ids = props.candidates.filter((session) => chosen.has(session.id)).map((s) => s.id);
+  const picked = props.candidates.filter((session) => chosen.has(session.id));
+  const ids = picked.map((s) => s.id);
+  // A lead that was unchecked again leads nothing.
+  const chosenLead = lead !== null && ids.includes(lead) ? lead : null;
   const ready = ids.length >= 2 && ids.length <= MAX_LINK_MEMBERS && !linking;
 
   const link = () => {
     if (!ready) return;
     setLinking(true);
     setProblem(null);
-    void props.onLink(ids).then((answer) => {
+    void props.onLink(ids, chosenLead).then((answer) => {
       setLinking(false);
       setProblem(answer);
     });
@@ -125,6 +165,13 @@ export function LinkDialog(props: {
           ))}
         </ul>
       )}
+      {ids.length >= 2 && (
+        <LeadChoice
+          options={picked.map((session) => ({ session: session.id, label: session.title }))}
+          lead={chosenLead}
+          onChange={setLead}
+        />
+      )}
       {ids.some((chosenId) => props.unattended.has(chosenId)) && (
         <p className="link-note">{t("links.unattendedNote")}</p>
       )}
@@ -147,14 +194,19 @@ export function LinkDialog(props: {
 }
 
 /**
- * "Edit group": each member's name inside the group, which its agent writes to, and the toggle
- * "Ask before pasting". Names are checked as the backend checks them before Save is offered.
+ * "Edit group": each member's name inside the group, which its agent writes to, the lead and the
+ * toggle "Ask before pasting". Names are checked as the backend checks them before Save is
+ * offered.
  */
 export function LinkGroupDialog(props: {
   group: LinkGroup;
   titleOf: (session: number) => string;
   /** Saves and closes, or answers why not; the dialog then stays open and shows it. */
-  onSave: (names: { session: number; name: string }[], askFirst: boolean) => Promise<string | null>;
+  onSave: (
+    names: { session: number; name: string }[],
+    askFirst: boolean,
+    lead: number | null,
+  ) => Promise<string | null>;
   onClose: () => void;
 }) {
   const t = useT();
@@ -163,6 +215,7 @@ export function LinkGroupDialog(props: {
     props.group.members.map((member) => member.name),
   );
   const [askFirst, setAskFirst] = useState(props.group.askFirst);
+  const [lead, setLead] = useState<number | null>(() => leadOf(props.group));
   const [problem, setProblem] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   const local = nameProblem(names);
@@ -176,7 +229,7 @@ export function LinkGroupDialog(props: {
       session: member.session,
       name: (names[index] ?? member.name).trim(),
     }));
-    void props.onSave(edited, askFirst).then((answer) => {
+    void props.onSave(edited, askFirst, lead).then((answer) => {
       setSaving(false);
       setProblem(answer);
     });
@@ -224,6 +277,17 @@ export function LinkGroupDialog(props: {
           );
         })}
       </ul>
+      <LeadChoice
+        options={props.group.members.map((member) => ({
+          session: member.session,
+          label: props.titleOf(member.session),
+        }))}
+        lead={lead}
+        onChange={(next) => {
+          setProblem(null);
+          setLead(next);
+        }}
+      />
       <label className="check link-ask">
         <input
           type="checkbox"

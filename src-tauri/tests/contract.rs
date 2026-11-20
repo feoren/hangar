@@ -176,6 +176,8 @@ fn commands_are_registered_allowed_and_wired() {
         "waiting_messages",
         "waiting_message_text",
         "close_waiting_message",
+        // A link group's history holds what agents wrote each other (ADR 0014).
+        "link_history",
         "set_panel_session",
         "take_update_results",
         "claims_snapshot",

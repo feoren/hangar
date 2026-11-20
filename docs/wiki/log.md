@@ -1179,3 +1179,10 @@ checked again when the text is fetched, claim before paste, a budget of 20 autom
 a header that names the sender as an agent with an indented text, groups with an agent without
 prompts ask first, and a `linkMessage` work log record. Pages changed: [[0014-session-links]],
 [[0011-work-log-and-daily-review]].
+
+## [2026-11-20] query | Link groups: roles, history and templates
+ADR 0014 extended: an optional lead per group with role-specific introductions, the alias
+`hangar-send lead` and a header that names the lead; a history of the last 200 messages per
+group in memory, read with `link_history`; workspace templates that link their agent sessions
+with member names, the lead and "Ask before pasting". Pages changed: [[0014-session-links]],
+index.

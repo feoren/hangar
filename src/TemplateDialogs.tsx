@@ -5,11 +5,13 @@ import { Dialog } from "./Dialog";
 import { folderName } from "./folders";
 import { useT } from "./i18n";
 import { CloseIcon, TeamIcon } from "./icons";
+import type { TemplateMember } from "./links";
 import type { BadgeLook } from "./programPrefs";
 import {
   renameProblem,
   TEMPLATE_NAME_LENGTH,
   templateNamed,
+  type TemplateLink,
   type TemplateSession,
   type WorkspaceTemplate,
 } from "./templates";
@@ -25,18 +27,29 @@ interface SaveProps {
   candidates: readonly TemplateCandidate[];
   templates: readonly WorkspaceTemplate[];
   badgeFor: (profileId: string) => BadgeLook;
-  onSave: (name: string, sessions: TemplateSession[]) => void;
+  /** Candidates that are agent sessions with the send client: only these can be linked. */
+  linkable: ReadonlySet<number>;
+  /** Name and role of the candidates that form a link group now (links.ts `templateMembers`). */
+  members: ReadonlyMap<number, TemplateMember>;
+  /** That group asks before pasting. */
+  askFirst: boolean;
+  onSave: (name: string, sessions: TemplateSession[], link: TemplateLink) => void;
   onClose: () => void;
 }
 
 /**
  * "Save sessions as template": a name, then one row per session with a check box and an optional
- * title. A name that exists already replaces that template, and the dialog says so.
+ * title, and "Link on start" where at least two chosen sessions can be linked (checked when they
+ * are linked now; their names and lead go into the template). A name that exists already
+ * replaces that template, and the dialog says so.
  */
 export function SaveTemplateDialog({
   candidates,
   templates,
   badgeFor,
+  linkable,
+  members,
+  askFirst,
   onSave,
   onClose,
 }: SaveProps) {
@@ -49,18 +62,32 @@ export function SaveTemplateDialog({
   const [titles, setTitles] = useState<ReadonlyMap<number, string>>(
     () => new Map(candidates.map((candidate) => [candidate.id, candidate.entry.title ?? ""])),
   );
-  const sessions = candidates
-    .filter((candidate) => chosen.has(candidate.id))
-    .map((candidate): TemplateSession => {
-      const title = (titles.get(candidate.id) ?? "").trim();
-      const { profileId, folder, mode } = candidate.entry;
-      return { profileId, folder, mode, ...(title === "" ? {} : { title }) };
-    });
+  const [link, setLink] = useState(
+    () => candidates.filter((candidate) => members.has(candidate.id)).length >= 2,
+  );
+  const picked = candidates.filter((candidate) => chosen.has(candidate.id));
+  // Only offer what works: linking needs two agent sessions that can be linked.
+  const canLink =
+    picked.filter((candidate) => linkable.has(candidate.id) || members.has(candidate.id)).length >=
+    2;
+  const linking = link && canLink;
+  const sessions = picked.map((candidate): TemplateSession => {
+    const title = (titles.get(candidate.id) ?? "").trim();
+    const { profileId, folder, mode } = candidate.entry;
+    const member = linking ? members.get(candidate.id) : undefined;
+    return {
+      profileId,
+      folder,
+      mode,
+      ...(title === "" ? {} : { title }),
+      ...(member === undefined ? {} : { memberName: member.memberName, role: member.role }),
+    };
+  });
   const ready = name.trim() !== "" && sessions.length > 0;
   const replaces = name.trim() !== "" && templateNamed(templates, name) !== undefined;
 
   const save = () => {
-    if (ready) onSave(name, sessions);
+    if (ready) onSave(name, sessions, { link: linking, askFirst: linking && askFirst });
   };
 
   return (
@@ -157,6 +184,21 @@ export function SaveTemplateDialog({
             })}
           </ul>
         </fieldset>
+        {canLink && (
+          <label className="check link-ask template-link">
+            <input
+              type="checkbox"
+              checked={link}
+              onChange={(event) => {
+                setLink(event.currentTarget.checked);
+              }}
+            />
+            <span>
+              {t("links.templateLink")}
+              <span className="muted link-ask-help">{t("links.templateLinkHelp")}</span>
+            </span>
+          </label>
+        )}
         <div className="dialog-actions">
           <button type="button" className="secondary-button" onClick={onClose}>
             {t("common.cancel")}

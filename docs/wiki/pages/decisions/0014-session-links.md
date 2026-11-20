@@ -185,6 +185,57 @@ agent to run a command; Gemini CLI and OpenCode are not measured yet.
     rate, the budget and the toggle bound what goes in on its own, and the token ends with the
     session's process.
 
+## Roles, history and templates
+Added on 2026-11-20. Each part is built with tests; without a lead and without a template that
+links, everything above holds unchanged.
+
+- **Lead.** At most one member of a group may lead (`Role::Lead` in `src-tauri/src/links.rs`,
+  `link_two_leads` for a second one). The person picks it in "Link with …" or "Edit group"
+  ("No lead" by default). The lead hands out tasks and collects results; the members report
+  results and questions back to it. Routing does not change: every member may still write to
+  every other one. When the lead leaves, the group goes on without one; nobody is promoted.
+- **Alias `lead`.** `hangar-send lead <text>` reaches the lead. Like `all`, `lead` is reserved:
+  no member may carry it, derived names step aside (`lead-2`). Without a lead the alias names no
+  member and the partner projects decide, as for any other unknown name. The lead naming itself
+  gets `refused` like any own name.
+- **Introduction per role.** The member list marks the lead with `(lead)`. The lead reads that it
+  splits the work, hands it out with `hangar-send <name>` and collects the results; a member reads
+  the lead's name and to report to it with `hangar-send <lead>` or `hangar-send lead`. A change of
+  the lead in "Edit group" queues a fresh introduction for every member, opened with "The roles in
+  your link group in Hangar changed." (without a lead any more, it adds "No member leads this
+  group any more."); a member whose queue is full misses it, since the edit
+  itself must not fail on that. A rename alone introduces nothing, as before.
+- **Header.** A message of the lead reads
+  `[Message from agent "<name>", lead of the link group, not from the person]`; a member's header
+  stays as before. The `| ` indentation and the "not from the person" stay; the header check of
+  0012 still refuses any line that starts like `[Message from `, so no member can pose as the lead.
+- **Mark.** The lead's chain carries a small dot in the group's color (`.session-link.lead`), apart
+  from the brake's ring; its tooltip says "lead".
+- **History.** Per group a ring of the last 200 messages that were delivered or discarded, with
+  time, sender (member name and role, or Hangar), target member name, outcome and the cleaned
+  text (`History` in `links.rs`). Besides the count it holds at most 256 KiB of text per group, so
+  32 groups at the length cap stay bounded; the newest entry always stays. A message dropped
+  because its target left counts as discarded. The history lives in memory only and ends with
+  the group (unlink, or fewer than two members), like everything of a group (ADR 0011 and this
+  ADR stay valid: nothing goes to disk). The work log line per delivered message stays as it was,
+  without text. Read with the main window command `link_history(group)` (`check_main`, in
+  `build.rs`, `capabilities/default.json` and the main-window-only list of `tests/contract.rs`).
+  Shown in the dialog "Group history" from the session menu of a member: newest first, each row
+  closed to time, sender, target, outcome and the first line, opened for the whole text with
+  "Copy". It reads again whenever the group's messages change.
+- **Templates that link.** A workspace template may carry `link` and `askFirst`, each session
+  `memberName` and `role` (`WorkspaceTemplate`/`TemplateSession` in `main_store.rs` and
+  `src/templates.ts`). All four are optional: an older template loads unchanged and links
+  nothing; the store checks member names like the link dialog and at most one lead. "Save
+  sessions as template" offers "Link on start" once two chosen sessions can be linked, checked
+  when they are linked now; then the template keeps the names and the lead of the group with most
+  of the chosen sessions, and that group's "Ask before pasting". On start, `startTemplate` starts
+  every session as before, then links the ones whose process got the send client
+  (`templateLinkRequest` in `src/links.ts`: shells and failed starts are left out, a name twice or
+  a second lead is dropped) with `link_sessions(ids, names, lead, askFirst)`. With fewer than two
+  it links nothing and says so. An agent without prompts still turns "Ask before pasting" on;
+  the template can only turn it on, never off.
+
 ## Evidence
 - [[cross-project-paste-measurement]]: a bracketed paste with a header line arrives as one prompt,
   Enter as a separate write submits it (Claude Code, Codex CLI, Pi, Aider on Windows).
