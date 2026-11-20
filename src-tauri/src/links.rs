@@ -35,6 +35,12 @@ pub const BRAKE_WINDOW_MS: i64 = 60_000;
 pub const AUTO_BUDGET: usize = 20;
 /// Messages that wait for one member, as for a partner project in ADR 0012.
 pub const MAX_WAITING_PER_TARGET: usize = MAX_WAITING_PER_PROJECT;
+/// A claim the window neither closed nor freed in this time is over: the message waits for a
+/// click again ([`LinkQueue::release_stale`]). A paste has no hard upper bound: the window waits
+/// up to 30 s for each stuck piece of input (`BUSY_LIMIT_MS` in `src/sessionInput.ts`, restarted
+/// after any progress), behind whatever input is queued before it. So this is long, and the
+/// window shows no card for a message whose automatic delivery still runs there.
+pub const CLAIM_TIMEOUT_MS: i64 = 120_000;
 /// Messages of all groups together.
 pub const MAX_QUEUED: usize = MAX_GROUPS * MAX_MEMBERS * MAX_WAITING_PER_TARGET;
 /// `hangar-send all <text>` writes to every other member; no member may carry this name.
@@ -669,6 +675,8 @@ pub struct LinkMessage {
     pub auto: bool,
     /// Taken for a paste right now ([`LinkQueue::claim`]): no second paste may start.
     pub claimed: bool,
+    /// Unix milliseconds of the claim, while `claimed`.
+    pub claimed_at: i64,
     /// The kinds of secret the text seems to hold (ADR 0015): such a message never goes on its
     /// own, and its card says why.
     pub secrets: Vec<SecretKind>,
@@ -746,6 +754,7 @@ impl LinkQueue {
             at: message.at,
             auto: message.auto && message.secrets.is_empty(),
             claimed: false,
+            claimed_at: 0,
             secrets: message.secrets.to_vec(),
         });
         Ok(self.next_id)
@@ -769,10 +778,10 @@ impl LinkQueue {
         }
     }
 
-    /// Takes message `id` for a paste, the first of two steps (then [`Self::remove`]): a second
-    /// paste of it is refused until [`Self::hold`] frees it again. A message whose removal
-    /// failed after the paste stays claimed and is never pasted on its own again.
-    pub fn claim(&mut self, id: u64) -> Result<&LinkMessage, LinkError> {
+    /// Takes message `id` at `now` for a paste, the first of two steps (then [`Self::remove`]): a
+    /// second paste of it is refused until [`Self::hold`] frees it again or the claim runs out
+    /// ([`Self::release_stale`]). Such a message is never pasted on its own again.
+    pub fn claim(&mut self, id: u64, now: i64) -> Result<&LinkMessage, LinkError> {
         let message = self
             .messages
             .iter_mut()
@@ -782,7 +791,22 @@ impl LinkQueue {
             return Err(LinkError::Claimed);
         }
         message.claimed = true;
+        message.claimed_at = now;
         Ok(message)
+    }
+
+    /// Claims older than [`CLAIM_TIMEOUT_MS`] at `now` end: those messages wait for a click, so
+    /// none stays invisible and takes a place for good. `true` when any changed.
+    pub fn release_stale(&mut self, now: i64) -> bool {
+        let mut changed = false;
+        for message in &mut self.messages {
+            if message.claimed && now.saturating_sub(message.claimed_at) >= CLAIM_TIMEOUT_MS {
+                message.claimed = false;
+                message.auto = false;
+                changed = true;
+            }
+        }
+        changed
     }
 
     /// What `session` sent waits for a click from now on (it left its group); `true` when any
@@ -1413,13 +1437,18 @@ mod tests {
     fn a_message_is_claimed_once_and_held_frees_it() {
         let mut queue = LinkQueue::default();
         let id = queue.push(outgoing(2, 1)).unwrap();
-        assert!(queue.claim(id).unwrap().claimed);
-        assert_eq!(queue.claim(id).unwrap_err(), LinkError::Claimed);
+        assert!(queue.claim(id, 0).unwrap().claimed);
+        assert_eq!(queue.claim(id, 0).unwrap_err(), LinkError::Claimed);
         assert!(queue.hold(id));
         let message = queue.get(id).unwrap();
         assert!(!message.claimed && !message.auto);
-        assert!(queue.claim(id).is_ok());
-        assert_eq!(queue.claim(99).unwrap_err(), LinkError::MessageGone);
+        assert!(queue.claim(id, 0).is_ok());
+        assert_eq!(queue.claim(99, 0).unwrap_err(), LinkError::MessageGone);
+        // A claim nobody closed or freed runs out and leaves a message that waits for a click.
+        assert!(!queue.release_stale(CLAIM_TIMEOUT_MS - 1));
+        assert!(queue.release_stale(CLAIM_TIMEOUT_MS));
+        assert!(!queue.get(id).unwrap().claimed);
+        assert!(!queue.release_stale(CLAIM_TIMEOUT_MS * 2));
         // What a leaver sent waits for a click.
         let other = queue.push(outgoing(3, 1)).unwrap();
         assert!(queue.hold_from(1));
