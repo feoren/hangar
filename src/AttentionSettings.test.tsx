@@ -48,3 +48,17 @@ describe("AttentionSettings per platform", () => {
     expect(render(MAC)).not.toContain('id="notify-desktop-help"');
   });
 });
+
+describe("AttentionSettings wait hint", () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it("offers the wait threshold with ten minutes preset", () => {
+    const t = createTranslator("en");
+    const html = render(WINDOWS);
+    expect(html).toContain('id="wait-minutes"');
+    expect(html).toContain(t("settings.waitTime"));
+    expect(html).toContain(t("settings.minutes", { count: 10 }));
+  });
+});

@@ -49,6 +49,11 @@ export type PopupItem =
       /** Marks the row (e.g. the current folder); read out as "checked". */
       current?: boolean;
       /**
+       * The row switches something on or off on its own (`current` says whether it is on), not
+       * one choice among its neighbors: read out as a checkbox, not as part of a radio group.
+       */
+      toggle?: boolean;
+      /**
        * Buttons at the row's end, reached with Right arrow; the first one also with Shift+Enter
        * and Shift+click on the row.
        */
@@ -432,7 +437,13 @@ export function PopupMenu({
           >
             <button
               type="button"
-              role={item.current === undefined ? "menuitem" : "menuitemradio"}
+              role={
+                item.current === undefined
+                  ? "menuitem"
+                  : item.toggle === true
+                    ? "menuitemcheckbox"
+                    : "menuitemradio"
+              }
               aria-checked={item.current}
               aria-describedby={notesFor.get(item.key)?.join(" ")}
               ref={(element) => {

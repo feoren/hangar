@@ -5,6 +5,7 @@
 // through the backend (`panel_to_main`, event `panel-message`). Everything read here arrives as
 // `unknown` and is checked before use.
 
+import type { NoteFolder } from "./api";
 import { EMPTY_CLAIMS, parseClaimsSnapshot, type ClaimsSnapshot } from "./claims";
 import type { SideTab } from "./layout";
 import { MAX_NOTE_BYTES } from "./notes";
@@ -41,7 +42,14 @@ export type PanelCommand =
   /** Save pending input now (the app is quitting). */
   | { kind: "flush" }
   /** A toggle in the main window asked for this tab. */
-  | { kind: "show"; tab: SideTab };
+  | { kind: "show"; tab: SideTab }
+  /** Quick access found this note by its text: open it. */
+  | { kind: "openNote"; folder: NoteFolder; id: string };
+
+/** Note IDs are short file names; anything longer is not one. */
+const MAX_NOTE_ID = 256;
+/** Folder paths as the OS allows them, with room for long Windows paths. */
+const MAX_NOTE_PATH = 32_768;
 
 function record(value: unknown): object | null {
   return typeof value === "object" && value !== null && !Array.isArray(value) ? value : null;
@@ -133,6 +141,21 @@ export function parsePanelCommand(payload: unknown): PanelCommand | null {
     case "show": {
       const tab = field(value, "tab");
       return isSideTab(tab) ? { kind, tab } : null;
+    }
+    case "openNote": {
+      const id = field(value, "id");
+      const folder = record(field(value, "folder"));
+      if (typeof id !== "string" || id === "" || id.length > MAX_NOTE_ID || !folder) return null;
+      const path = field(folder, "path");
+      const shared = field(folder, "shared");
+      if (
+        path !== null &&
+        (typeof path !== "string" || path === "" || path.length > MAX_NOTE_PATH)
+      ) {
+        return null;
+      }
+      if (shared !== undefined && typeof shared !== "boolean") return null;
+      return { kind, id, folder: shared === true ? { path, shared: true } : { path } };
     }
     default:
       return null;

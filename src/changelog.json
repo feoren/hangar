@@ -32,6 +32,48 @@
         "zh": "数据流：可选，光沿侧边栏的线条按输出速度流向正在工作的会话。在 设置 > 外观 中开启。"
       },
       {
+        "de": "Einzeilig: Im Menü Ansicht oder per Rechtsklick auf eine Gruppe steht jede Session auf einer engen Zeile. Ausschalten holt deine vorige Anordnung zurück.",
+        "en": "One line: from the View menu or a right-click on a group, every session sits on one close line. Turning it off brings back your previous layout.",
+        "el": "Μία γραμμή: από το μενού Προβολή ή με δεξί κλικ σε μια ομάδα, κάθε συνεδρία σε μία πυκνή γραμμή. Η απενεργοποίηση φέρνει πίσω την προηγούμενη διάταξη.",
+        "es": "Una línea: desde el menú Ver o con clic derecho en un grupo, cada sesión ocupa una línea compacta. Al desactivarlo vuelve tu disposición anterior.",
+        "fr": "Une ligne : depuis le menu Affichage ou d’un clic droit sur un groupe, chaque session tient sur une ligne serrée. Désactiver ramène ta disposition.",
+        "it": "Una riga: dal menu Visualizza o con un clic destro su un gruppo, ogni sessione sta su una riga compatta. Disattivandolo torna la disposizione precedente.",
+        "ja": "1 行表示：「表示」メニューかグループの右クリックで、各セッションを詰めた 1 行で表示します。オフにすると前の配置に戻ります。",
+        "pl": "Jeden wiersz: z menu Widok lub prawym kliknięciem grupy każda sesja mieści się w ciasnym wierszu. Wyłączenie przywraca poprzedni układ.",
+        "pt": "Uma linha: no menu Exibir ou com clique direito em um grupo, cada sessão fica em uma linha compacta. Desligar traz de volta o layout anterior.",
+        "ru": "В одну строку: в меню «Вид» или правым щелчком по группе каждый сеанс встаёт в плотную строку. Выключение вернёт прежнюю раскладку.",
+        "tr": "Tek satır: Görünüm menüsünden ya da bir gruba sağ tıklayarak her oturum sıkı tek satıra iner. Kapatınca önceki düzenin geri gelir.",
+        "zh": "单行：在“视图”菜单中或右键点击分组，每个会话都紧凑地显示为一行。关闭后恢复之前的布局。"
+      },
+      {
+        "de": "Der Schnellzugriff (Strg+Umschalt+P) findet jetzt auch Projekte und den Text deiner Notizen. Ein Klick öffnet die Notiz oder die Projektkarte.",
+        "en": "Quick access (Ctrl+Shift+P) now also finds projects and the text of your notes. One click opens the note or the project card.",
+        "el": "Η γρήγορη πρόσβαση (Ctrl+Shift+P) βρίσκει τώρα και έργα και το κείμενο των σημειώσεών σου. Ένα κλικ ανοίγει τη σημείωση ή την κάρτα του έργου.",
+        "es": "El acceso rápido (Ctrl+Shift+P) ahora también encuentra proyectos y el texto de tus notas. Un clic abre la nota o la tarjeta del proyecto.",
+        "fr": "L’accès rapide (Ctrl+Maj+P) trouve aussi les projets et le texte de tes notes. Un clic ouvre la note ou la carte du projet.",
+        "it": "L’accesso rapido (Ctrl+Maiusc+P) ora trova anche i progetti e il testo delle tue note. Un clic apre la nota o la scheda del progetto.",
+        "ja": "クイックアクセス（Ctrl+Shift+P）でプロジェクトとメモの本文も見つかるようになりました。クリックするとメモまたはプロジェクトカードが開きます。",
+        "pl": "Szybki dostęp (Ctrl+Shift+P) znajduje teraz także projekty i tekst twoich notatek. Kliknięcie otwiera notatkę lub kartę projektu.",
+        "pt": "O acesso rápido (Ctrl+Shift+P) agora também encontra projetos e o texto das suas notas. Um clique abre a nota ou o cartão do projeto.",
+        "ru": "Быстрый доступ (Ctrl+Shift+P) теперь находит и проекты, и текст твоих заметок. Щелчок открывает заметку или карточку проекта.",
+        "tr": "Hızlı erişim (Ctrl+Shift+P) artık projeleri ve notlarının metnini de bulur. Bir tık notu ya da proje kartını açar.",
+        "zh": "快速访问（Ctrl+Shift+P）现在也能找到项目和笔记中的文字。点一下即可打开该笔记或项目卡片。"
+      },
+      {
+        "de": "Wartet eine Session länger als 10 Minuten auf dich, sagt ihre Zeile seit wann und ihr Punkt pulsiert leise. Die Zeit stellst du unter Aufmerksamkeit ein.",
+        "en": "When a session has waited for you for over 10 minutes, its row says for how long and its dot pulses softly. Set the time under Attention.",
+        "el": "Όταν μια συνεδρία σε περιμένει πάνω από 10 λεπτά, η γραμμή της λέει πόση ώρα και η κουκκίδα της πάλλεται απαλά. Τον χρόνο τον ορίζεις στην Ειδοποίηση.",
+        "es": "Si una sesión te espera más de 10 minutos, su fila dice desde cuándo y su punto late suavemente. El tiempo se ajusta en Avisos.",
+        "fr": "Quand une session t’attend depuis plus de 10 minutes, sa ligne dit depuis quand et son point pulse doucement. Règle la durée sous Mise en évidence.",
+        "it": "Se una sessione ti aspetta da più di 10 minuti, la sua riga dice da quanto e il suo punto pulsa piano. Il tempo si imposta in Avvisi.",
+        "ja": "セッションが 10 分以上あなたを待つと、行に待ち時間が表示され、点が静かに脈打ちます。時間は「通知」で設定できます。",
+        "pl": "Gdy sesja czeka na ciebie ponad 10 minut, jej wiersz mówi od kiedy, a kropka delikatnie pulsuje. Czas ustawisz w sekcji Sygnalizacja.",
+        "pt": "Quando uma sessão espera você por mais de 10 minutos, a linha dela diz há quanto tempo e o ponto pulsa de leve. Ajuste o tempo em Avisos.",
+        "ru": "Если сеанс ждёт тебя дольше 10 минут, его строка покажет, сколько, а точка мягко запульсирует. Время задаётся в разделе «Оповещения».",
+        "tr": "Bir oturum seni 10 dakikadan uzun beklerse satırı ne zamandan beri beklediğini söyler, noktası hafifçe atar. Süreyi Uyarılar altında ayarlarsın.",
+        "zh": "会话等待你超过 10 分钟时，所在行会显示已等待多久，圆点轻轻跳动。时长可在“提醒”中设置。"
+      },
+      {
         "de": "Hangar öffnet sich wieder in der Größe und an der Stelle, die du zuletzt hattest, und bleibt maximiert, wenn du es maximiert hattest.",
         "en": "Hangar opens again at the size and place you last had, and stays maximized if you had maximized it.",
         "el": "Το Hangar ανοίγει ξανά στο μέγεθος και στη θέση που είχε τελευταία και μένει μεγιστοποιημένο, αν το είχες μεγιστοποιήσει.",

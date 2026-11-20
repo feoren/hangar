@@ -56,6 +56,11 @@ interface Props {
   /** The partner projects (ADR 0012), kept per card. */
   partners: PartnerBook;
   partnerActions: PartnerActions;
+  /**
+   * A project chosen in quick access (`Project.key`): its card scrolls into view and its name
+   * takes the focus, once the card is there; a new `token` does it again.
+   */
+  focus?: { key: string; token: number } | null;
 }
 
 const MAX_AVATARS = 3;
@@ -148,6 +153,7 @@ export function ProjectOverview(props: Props) {
             onShowChanges={props.onShowChanges}
             partners={props.partners}
             partnerActions={props.partnerActions}
+            focusToken={props.focus?.key === project.key ? props.focus.token : null}
           />
         ))}
       </div>
@@ -209,6 +215,8 @@ type CardProps = Pick<
   refresh: number;
   /** The team store's projects; empty without a team. */
   activities: ReadonlyMap<string, TeamActivity>;
+  /** Grows when quick access asks for this card: it scrolls into view, its name takes the focus. */
+  focusToken?: number | null;
 };
 
 /** One project: its sessions, then what git, the team and the dev servers add; each block only when it has something. */
@@ -226,10 +234,20 @@ export function ProjectCard({
   onShowChanges,
   partners,
   partnerActions,
+  focusToken = null,
 }: CardProps) {
   const t = useT();
   const id = useId();
   const box = useRef<HTMLElement>(null);
+  const name = useRef<HTMLHeadingElement>(null);
+  const shownFor = useRef<number | null>(null);
+  useEffect(() => {
+    if (focusToken === null || shownFor.current === focusToken) return;
+    shownFor.current = focusToken;
+    const reduced = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+    box.current?.scrollIntoView({ block: "nearest", behavior: reduced ? "auto" : "smooth" });
+    name.current?.focus({ preventScroll: true });
+  }, [focusToken]);
   const seen = useSeen(box);
   /** With the time git answered: the commit ages count from then, not from each render. */
   const [git, setGit] = useState<(ProjectGit & { at: number }) | null>(null);
@@ -269,7 +287,7 @@ export function ProjectCard({
   return (
     <section className="project-card" ref={box} aria-labelledby={`${id}-name`}>
       <header className="project-head">
-        <h3 id={`${id}-name`} className="project-name">
+        <h3 id={`${id}-name`} ref={name} tabIndex={-1} className="project-name">
           {project.name}
         </h3>
         <span className="project-path" title={project.root}>

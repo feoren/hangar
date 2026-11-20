@@ -26,14 +26,24 @@ interface Props {
    * when it arrives; a failed one adds nothing, the rest of quick access works as before.
    */
   loaders?: readonly (() => Promise<LauncherItem[]>)[];
+  /**
+   * Entries found for the query by the backend (the notes' full text), asked shortly after the
+   * last keystroke and only while there is a query; each answer replaces that searcher's earlier
+   * one. A failed search adds nothing.
+   */
+  searchers?: readonly ((query: string) => Promise<LauncherItem[]>)[];
   /** Closed without running anything (Escape, click outside); the caller returns focus. */
   onClose: () => void;
   /** An entry was chosen: the dialog is closed first, then `item.run()` follows. */
   onRun: (item: LauncherItem) => void;
 }
 
+/** Pause after the last keystroke before the searchers ask the backend. */
+export const SEARCH_DELAY_MS = 200;
+
 const SECTION_NAMES: Record<LauncherSection, MessageKey> = {
   sessions: "sidebar.sessions",
+  projects: "projects.title",
   start: "launcher.start",
   files: "files.title",
   notes: "notes.title",
@@ -49,14 +59,33 @@ const SECTION_NAMES: Record<LauncherSection, MessageKey> = {
  * Combobox pattern: the focus stays in the field, the chosen entry is announced via
  * aria-activedescendant.
  */
-export function LauncherDialog({ buildItems, loaders, onClose, onRun }: Props) {
+export function LauncherDialog({ buildItems, loaders, searchers, onClose, onRun }: Props) {
   const t = useT();
   const id = useId();
   const [items, setItems] = useState(buildItems);
   const [query, setQuery] = useState("");
   // Ranking thousands of files may take a moment; typing stays immediate.
   const ranked = useDeferredValue(query);
-  const sections = useMemo(() => rankEntries(items, ranked), [items, ranked]);
+  /** What the searchers found, per searcher, with the query it was found for. */
+  const [found, setFound] = useState<{ query: string; items: readonly LauncherItem[][] }>({
+    query: "",
+    items: [],
+  });
+  const searchQuery = ranked.trim();
+  // The hits of the last answer stay while the query only grows from it (typing on), until the
+  // new answer replaces them, so they do not flicker away after every keystroke.
+  const shownFound = useMemo(
+    () =>
+      found.query !== "" && searchQuery !== "" && searchQuery.startsWith(found.query)
+        ? found.items.flat()
+        : [],
+    [found, searchQuery],
+  );
+  const all = useMemo(
+    () => (shownFound.length === 0 ? items : [...items, ...shownFound]),
+    [items, shownFound],
+  );
+  const sections = useMemo(() => rankEntries(all, ranked), [all, ranked]);
   const flat = useMemo(() => flatEntries(sections), [sections]);
   const [chosen, setSelected] = useState(() => firstSelectable(flat));
   const list = useRef<HTMLDivElement>(null);
@@ -78,6 +107,34 @@ export function LauncherDialog({ buildItems, loaders, onClose, onRun }: Props) {
       open = false;
     };
   }, []);
+
+  // The searchers, shortly after the last keystroke; an answer for an older query is dropped.
+  const startSearchers = useRef(searchers);
+  useEffect(() => {
+    const list = startSearchers.current ?? [];
+    if (searchQuery === "" || list.length === 0) return;
+    let current = true;
+    const timer = window.setTimeout(() => {
+      list.forEach((search, index) => {
+        search(searchQuery)
+          .then((more) => {
+            if (!current) return;
+            setFound((previous) => {
+              const kept = previous.query === searchQuery ? [...previous.items] : [];
+              kept[index] = more;
+              return { query: searchQuery, items: kept };
+            });
+          })
+          .catch(() => {
+            // Optional entries: without them quick access still finds everything else.
+          });
+      });
+    }, SEARCH_DELAY_MS);
+    return () => {
+      current = false;
+      window.clearTimeout(timer);
+    };
+  }, [searchQuery]);
 
   // New query: the best entry is chosen again (adjusted during render, no flash of the old one).
   // New items with the same query (a session changed state) keep the choice where it still fits.

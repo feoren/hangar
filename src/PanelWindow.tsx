@@ -172,6 +172,10 @@ export function PanelWindow() {
         showTab(command.tab);
         if (command.tab === "notes") ask((token) => ({ token, kind: "focus" }));
         return;
+      case "openNote":
+        showTab("notes");
+        ask((token) => ({ token, kind: "openNote", folder: command.folder, id: command.id }));
+        return;
       case "refresh":
         void refreshFolders();
         setRefreshToken((value) => value + 1);
