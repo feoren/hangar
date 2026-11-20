@@ -553,16 +553,17 @@ fn dictation_signals_carry_no_text_and_commands_check_the_window() {
     }
 }
 
-/// One target list for every platform (ADR 0013): the bundler builds only the formats of the
-/// platform it runs on, so Windows keeps building the NSIS installer alone and Linux builds the
-/// AppImage (the format the updater replaces) and a .deb. Updater artifacts stay on in the
-/// config; release.py turns them off for `tauri build` and signs afterwards.
+/// One target list for every platform (ADR 0013, ADR 0017): the bundler builds only the formats
+/// of the platform it runs on, so Windows keeps building the NSIS installer alone, Linux builds
+/// the AppImage (the format the updater replaces) and a .deb, and macOS the .app (whose archive
+/// the updater replaces) and a .dmg. Updater artifacts stay on in the config; release.py and CI
+/// turn them off for `tauri build`, and the owner's machine signs afterwards.
 #[test]
 fn bundle_targets_per_platform() {
     let config: serde_json::Value = serde_json::from_str(&read("tauri.conf.json")).unwrap();
     assert_eq!(
         config["bundle"]["targets"],
-        serde_json::json!(["nsis", "appimage", "deb"])
+        serde_json::json!(["nsis", "appimage", "deb", "app", "dmg"])
     );
     assert_eq!(
         config["bundle"]["createUpdaterArtifacts"],
@@ -588,4 +589,20 @@ fn macos_bundle_may_open_the_microphone() {
     let entitlements = read("Entitlements.plist");
     assert!(entitlements.contains("<key>com.apple.security.device.audio-input</key>\n  <true/>"));
     assert!(read("Info.plist").contains("<key>NSMicrophoneUsageDescription</key>"));
+}
+
+/// macOS 13 is the oldest supported macOS (ADR 0017); the bundler writes it as
+/// `LSMinimumSystemVersion` and builds against it. Without an Apple Developer ID the bundle is
+/// signed ad hoc (`-`): Apple silicon runs no native code without a signature. A real identity
+/// comes from `APPLE_SIGNING_IDENTITY`, which the Tauri CLI prefers over this value.
+#[test]
+fn macos_bundle_targets_macos_13_and_is_signed_ad_hoc() {
+    let config: serde_json::Value = serde_json::from_str(&read("tauri.conf.json")).unwrap();
+    let macos = &config["bundle"]["macOS"];
+    assert_eq!(macos["minimumSystemVersion"], serde_json::json!("13.0"));
+    assert_eq!(macos["signingIdentity"], serde_json::json!("-"));
+    // The hardened runtime stays at the bundler's default (on), which notarization requires.
+    assert!(macos.get("hardenedRuntime").is_none());
+    let icons = config["bundle"]["icon"].as_array().unwrap();
+    assert!(icons.contains(&serde_json::json!("icons/icon.icns")));
 }
