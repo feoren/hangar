@@ -1257,3 +1257,9 @@ Read the settings docs of Claude Code, Codex CLI, Gemini CLI, Aider and Copilot 
 "Agents without prompts" now reads the settings files too (`src-tauri/src/unattended.rs`); any
 place that says so counts. Pages changed: [[unattended-settings-reading]] (new),
 [[0014-session-links]], index.
+
+## [2026-11-20] lint | macOS start test in CI
+The `macos-bundle` job now starts the app from the unpacked updater archive on the runner's
+desktop: it must still run after 30 s; screenshot and log go into the artifact
+`macos-start-<arch>`, Gatekeeper's verdict on a quarantined copy into the run summary. Pages
+changed: [[0017-macos-release]].

@@ -387,6 +387,54 @@ jobs:
             ls "$out" | sed 's/^/- /'
           } >> "$GITHUB_STEP_SUMMARY"
 
+      # The window, not just the bundle: the app from the unpacked updater archive (what an update
+      # installs) must start and stay up. The runner has a logged-in desktop, so the screenshot
+      # shows what a first start looks like. Gatekeeper's verdict on a downloaded copy (quarantine
+      # attribute set as a browser would) goes into the summary as information only: without a
+      # Developer ID it rejects the app, which is the documented "Open Anyway" path (ADR 0017).
+      - name: Start test
+        run: |
+          set -euo pipefail
+          app="$RUNNER_TEMP/unpacked/Hangar.app"
+          shots="$RUNNER_TEMP/macos-start"
+          mkdir -p "$shots"
+          "$app/Contents/MacOS/hangar" >"$shots/hangar.log" 2>&1 &
+          pid=$!
+          sleep 30
+          alive=yes
+          kill -0 "$pid" 2>/dev/null || alive=no
+          screencapture -x "$shots/start-${{ matrix.arch }}.png" || echo "::warning::no screenshot"
+          if [ "$alive" = yes ]; then
+            kill "$pid"
+            wait "$pid" 2>/dev/null || true
+          fi
+          downloaded="$RUNNER_TEMP/downloaded"
+          mkdir -p "$downloaded"
+          ditto "$app" "$downloaded/Hangar.app"
+          xattr -w com.apple.quarantine "0081;$(printf '%x' "$(date +%s)");Safari;" \
+            "$downloaded/Hangar.app"
+          verdict=$(spctl --assess --type execute -vv "$downloaded/Hangar.app" 2>&1 || true)
+          {
+            echo "### macOS start (${{ matrix.arch }})"
+            echo "- Still running after 30 s: \`$alive\`"
+            echo "- Gatekeeper on a downloaded copy: \`$(head -n 1 <<<"$verdict")\`"
+          } >> "$GITHUB_STEP_SUMMARY"
+          echo "$verdict"
+          cat "$shots/hangar.log"
+          if [ "$alive" != yes ]; then
+            echo "::error::Hangar ended within 30 s of starting"
+            exit 1
+          fi
+
+      - name: Upload start test
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: macos-start-${{ matrix.arch }}
+          path: ${{ runner.temp }}/macos-start/
+          if-no-files-found: ignore
+          retention-days: 14
+
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: macos-bundles-${{ matrix.arch }}

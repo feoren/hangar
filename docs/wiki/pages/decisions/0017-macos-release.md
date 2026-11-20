@@ -91,8 +91,10 @@ hurt a first macOS user:
 
 > [!question] Unverified
 > - Every row above on a real Mac: nothing has run outside CI. CI checks the bundle (signature,
->   architecture, minimum version, `hangar-send` starts, archive unpacks to a valid app), not the
->   window.
+>   architecture, minimum version, `hangar-send` starts, archive unpacks to a valid app) and
+>   starts the app from the unpacked archive on the runner's desktop: it must still run after
+>   30 s, and the artifact `macos-start-<arch>` holds a screenshot and the log. Nobody clicks
+>   through the window there.
 > - The ad hoc signature changes with every build. macOS ties privacy grants (microphone) and
 >   keychain item access to the code's designated requirement, so after each update macOS may ask
 >   again for the microphone and for the keychain items.
@@ -114,7 +116,8 @@ hurt a first macOS user:
 
 > [!question] Unverified
 > - The exact first-start dialog for an ad hoc signed arm64 app on macOS 15 and 26, and that the
->   `xattr` line skips it.
+>   `xattr` line skips it. CI's start test writes `spctl`'s verdict on a quarantined copy into
+>   the run summary (information only, it does not fail the job).
 > - Whether an update that Hangar downloads gets a quarantine attribute (and so a Gatekeeper check
 >   again); the updater writes the bytes with its own HTTP client, not through the browser.
 
