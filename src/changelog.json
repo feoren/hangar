@@ -2,7 +2,36 @@
   {
     "version": "0.13.0",
     "date": null,
-    "items": []
+    "items": [
+      {
+        "de": "Linux: Hangar zeigt jetzt die Last der Grafikkarte, und das Programmsymbol in Dock oder Taskleiste zeigt, wie viele Sessions auf dich warten.",
+        "en": "Linux: Hangar now shows the graphics card's load, and the app icon in the dock or taskbar shows how many sessions are waiting for you.",
+        "el": "Linux: το Hangar δείχνει τώρα το φορτίο της κάρτας γραφικών, και το εικονίδιο στο dock ή στη γραμμή εργασιών δείχνει πόσες sessions σε περιμένουν.",
+        "es": "Linux: Hangar ahora muestra cuánto trabaja la tarjeta gráfica, y el icono de la app en el dock o la barra de tareas muestra cuántas sesiones te esperan.",
+        "fr": "Linux : Hangar montre la charge de la carte graphique, et l’icône dans le dock ou la barre des tâches indique combien de sessions t’attendent.",
+        "it": "Linux: Hangar ora mostra quanto lavora la scheda grafica, e l’icona dell’app nel dock o nella barra delle applicazioni mostra quante sessioni ti aspettano.",
+        "ja": "Linux：Hangar がグラフィックカードの負荷も表示するようになりました。Dock やタスクバーのアプリアイコンには、あなたを待っているセッションの数が表示されます。",
+        "pl": "Linux: Hangar pokazuje teraz, jak mocno pracuje karta graficzna, a ikona aplikacji w docku lub na pasku zadań pokazuje, ile sesji na ciebie czeka.",
+        "pt": "Linux: o Hangar agora mostra a carga da placa de vídeo, e o ícone no dock ou na barra de tarefas mostra quantas sessões esperam por você.",
+        "ru": "Linux: Hangar теперь показывает, насколько загружена видеокарта, а значок приложения в доке или на панели задач показывает, сколько сессий тебя ждут.",
+        "tr": "Linux: Hangar artık ekran kartının ne kadar çalıştığını gösteriyor, dock veya görev çubuğundaki uygulama simgesi de seni bekleyen oturum sayısını gösteriyor.",
+        "zh": "Linux：Hangar 现在也会显示显卡的负载，程序坞或任务栏中的应用图标会显示有多少会话在等你。"
+      },
+      {
+        "de": "Hangar sieht unter Linux jetzt aus wie unter Windows: dieselben Schriften und dieselben Bedienelemente.",
+        "en": "On Linux, Hangar now looks the same as on Windows: the same fonts and the same controls.",
+        "el": "Στο Linux το Hangar φαίνεται τώρα όπως στα Windows: ίδιες γραμματοσειρές και ίδια στοιχεία ελέγχου.",
+        "es": "En Linux, Hangar ahora se ve igual que en Windows: las mismas fuentes y los mismos controles.",
+        "fr": "Sous Linux, Hangar a maintenant le même aspect que sous Windows : les mêmes polices et les mêmes commandes.",
+        "it": "Su Linux Hangar ora ha lo stesso aspetto che su Windows: gli stessi caratteri e gli stessi controlli.",
+        "ja": "Linux 版の Hangar の見た目が Windows 版と同じになりました。同じフォントと同じ操作部品を使います。",
+        "pl": "Na Linuksie Hangar wygląda teraz tak samo jak na Windows: te same czcionki i te same elementy sterujące.",
+        "pt": "No Linux, o Hangar agora tem a mesma aparência que no Windows: as mesmas fontes e os mesmos controles.",
+        "ru": "В Linux Hangar теперь выглядит так же, как в Windows: те же шрифты и те же элементы управления.",
+        "tr": "Hangar artık Linux'ta da Windows'taki gibi görünüyor: aynı yazı tipleri ve aynı kontroller.",
+        "zh": "Hangar 在 Linux 上的外观现在与 Windows 上一样：相同的字体和相同的控件。"
+      }
+    ]
   },
   {
     "version": "0.12.0",
