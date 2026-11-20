@@ -3,19 +3,25 @@ import { describe, expect, it, vi } from "vitest";
 import { badgeKind, badgeLabel, badgeText, TaskbarBadge } from "./taskbarBadge";
 
 describe("badgeKind", () => {
-  it("uses the overlay icon on Windows, the badge count on macOS and nothing on Linux", () => {
+  it("uses the overlay icon on Windows, the Dock badge on macOS and the launcher on Linux", () => {
     expect(badgeKind("Mozilla/5.0 (Windows NT 10.0; Win64; x64) Edg/140")).toBe("overlay");
     expect(badgeKind("Mozilla/5.0 (Macintosh; Intel Mac OS X 14_0) AppleWebKit")).toBe("count");
-    expect(badgeKind("Mozilla/5.0 (X11; Linux x86_64) AppleWebKit")).toBe("none");
+    expect(badgeKind("Mozilla/5.0 (X11; Linux x86_64) AppleWebKit")).toBe("launcher");
   });
 
-  it("never calls the platform on Linux", async () => {
-    const apply = vi.fn(() => Promise.resolve());
-    const badge = new TaskbarBadge("none", apply);
-    expect(badgeText(3, "none")).toBeNull();
-    badge.update(3, "#f2e3c6");
+  it("sends the plain count to the Linux launcher and clears it on quit", async () => {
+    const apply = vi.fn<(count: number, text: string | null, color: string) => Promise<void>>(() =>
+      Promise.resolve(),
+    );
+    const badge = new TaskbarBadge("launcher", apply);
+    expect(badgeText(12, "launcher")).toBe("12");
+    expect(badgeText(0, "launcher")).toBeNull();
+    badge.update(12, "#f2e3c6");
     await badge.clear();
-    expect(apply).not.toHaveBeenCalled();
+    expect(apply.mock.calls).toEqual([
+      [12, "12", "#f2e3c6"],
+      [0, null, "#f2e3c6"],
+    ]);
   });
 });
 

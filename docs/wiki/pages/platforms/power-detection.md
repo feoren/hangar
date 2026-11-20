@@ -2,9 +2,9 @@
 title: Power detection per platform
 type: platform
 tags: [power, battery, windows, linux, macos, contract]
-sources: ["[[power-status-sources]]"]
+sources: ["[[power-status-sources]]", "[[platform-parity-reading]]"]
 created: 2026-11-14
-updated: 2026-11-14
+updated: 2026-11-20
 ---
 
 # Power detection per platform
@@ -58,8 +58,17 @@ power-profiles-daemon over D-Bus).
 
 ## macOS
 
-Not implemented: IOKit's power source API needs CoreFoundation bindings. The state is `unknown`,
-no thread runs and the setting stays hidden.
+`/usr/bin/pmset -g batt` (argument list, absolute path) mapped by `classify_pmset`, with
+`NSProcessInfo.isLowPowerModeEnabled` as the battery saver ([[platform-parity-reading]]): no
+`-InternalBattery` line means `noBattery` (a desktop, also one on a UPS); "Now drawing from 'AC
+Power'" means `ac`, also with Low Power Mode on; "'Battery Power'" means `battery`, or `saver`
+with Low Power Mode on; anything else `unknown`. Same 30 s poll as elsewhere; `pmset` gets 2 s (`src-tauri/src/bounded_output.rs`, killed past that, then `unknown`), and the command `power_state` reads on a blocking thread. Chosen over IOKit's
+`IOPSCopyPowerSourcesInfo`: no CoreFoundation dictionary handling in unsafe code, and the parser
+is a pure function tested on every platform.
+
+> [!question] Unverified
+> No Mac was measured; the `pmset` lines in the tests follow published output of MacBooks, the
+> desktop case a user comment.
 
 ## What saving changes in the window
 

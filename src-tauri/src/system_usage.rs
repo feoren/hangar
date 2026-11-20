@@ -10,7 +10,10 @@
 //!
 //! - Windows: `GetSystemTimes`, `GlobalMemoryStatusEx`; the GPU from the shared PDH reading
 //!   (`gpu.rs`).
-//! - Linux: `/proc/stat` and `/proc/meminfo`; no GPU (no vendor-neutral source).
+//! - Linux: `/proc/stat` and `/proc/meminfo`; the GPU from the shared reading where amdgpu or
+//!   NVIDIA's NVML give it (`gpu.rs`).
+//! - macOS: `host_statistics` (CPU ticks), `hw.memsize` and `host_statistics64` (pages in use,
+//!   counted like Activity Monitor's "Memory Used"); the GPU from the shared reading (`gpu.rs`).
 //! - Other systems: nothing yet.
 
 use std::sync::{Arc, Mutex};
@@ -106,6 +109,36 @@ pub fn parse_meminfo(text: &str) -> Option<(u64, u64)> {
             .and_then(|rest| rest.split_whitespace().next()?.parse::<u64>().ok())
     };
     Some((field("MemTotal")?, field("MemAvailable")?))
+}
+
+/// macOS `host_cpu_load_info` ticks in the order user, system, idle, nice (`CPU_STATE_*`).
+pub fn cpu_times_from_ticks(ticks: [u32; 4]) -> CpuTimes {
+    CpuTimes {
+        idle: u64::from(ticks[2]),
+        total: ticks.iter().map(|tick| u64::from(*tick)).sum(),
+    }
+}
+
+/// The page counts of macOS `vm_statistics64` that make up the memory in use.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct MacPages {
+    pub internal: u64,
+    pub purgeable: u64,
+    pub wired: u64,
+    pub compressed: u64,
+}
+
+/// Available memory in bytes as Activity Monitor's "Memory Used" leaves it: in use is app memory
+/// (anonymous pages minus purgeable ones), wired and compressed pages; file cache counts as
+/// available, as `MemAvailable` does on Linux.
+pub fn mac_available_memory(total: u64, pages: MacPages, page_size: u64) -> u64 {
+    let used = pages
+        .internal
+        .saturating_sub(pages.purgeable)
+        .saturating_add(pages.wired)
+        .saturating_add(pages.compressed)
+        .saturating_mul(page_size);
+    total.saturating_sub(used)
 }
 
 /// The previous CPU reading and the last answer.
@@ -213,7 +246,82 @@ mod platform {
     }
 }
 
-#[cfg(not(any(windows, target_os = "linux")))]
+#[cfg(target_os = "macos")]
+mod platform {
+    use std::sync::OnceLock;
+
+    use super::{cpu_times_from_ticks, mac_available_memory, CpuTimes, MacPages};
+
+    /// The host port, asked for once: every `mach_host_self` call adds a reference to it.
+    #[allow(deprecated)] // libc points to the mach2 crate; these few bindings are enough.
+    fn host() -> libc::mach_port_t {
+        static HOST: OnceLock<libc::mach_port_t> = OnceLock::new();
+        // SAFETY: mach_host_self has no preconditions and returns a send right to the host.
+        *HOST.get_or_init(|| unsafe { libc::mach_host_self() })
+    }
+
+    pub fn cpu_times() -> Option<CpuTimes> {
+        let mut load = libc::host_cpu_load_info { cpu_ticks: [0; 4] };
+        let mut count = libc::HOST_CPU_LOAD_INFO_COUNT;
+        // SAFETY: `load` is a live host_cpu_load_info and `count` its size in integer_t words,
+        // as the flavor HOST_CPU_LOAD_INFO wants.
+        let status = unsafe {
+            libc::host_statistics(
+                host(),
+                libc::HOST_CPU_LOAD_INFO,
+                (&raw mut load).cast(),
+                &mut count,
+            )
+        };
+        (status == libc::KERN_SUCCESS).then(|| cpu_times_from_ticks(load.cpu_ticks))
+    }
+
+    /// Total and available physical memory in bytes.
+    pub fn memory() -> Option<(u64, u64)> {
+        let mut total: u64 = 0;
+        let mut size = std::mem::size_of::<u64>();
+        // SAFETY: `total` is a writable u64 and `size` its length; the name is NUL-terminated.
+        let status = unsafe {
+            libc::sysctlbyname(
+                c"hw.memsize".as_ptr(),
+                (&raw mut total).cast(),
+                &mut size,
+                std::ptr::null_mut(),
+                0,
+            )
+        };
+        if status != 0 || size != std::mem::size_of::<u64>() {
+            return None;
+        }
+        // SAFETY: An all-zero vm_statistics64 is a valid value of the plain counter struct.
+        let mut stats: libc::vm_statistics64 = unsafe { std::mem::zeroed() };
+        let mut count = libc::HOST_VM_INFO64_COUNT;
+        // SAFETY: `stats` is a live vm_statistics64 and `count` its size in integer_t words; an
+        // older kernel fills fewer words and says so in `count`.
+        let status = unsafe {
+            libc::host_statistics64(
+                host(),
+                libc::HOST_VM_INFO64,
+                (&raw mut stats).cast(),
+                &mut count,
+            )
+        };
+        if status != libc::KERN_SUCCESS {
+            return None;
+        }
+        // SAFETY: sysconf only reads system configuration.
+        let page = u64::try_from(unsafe { libc::sysconf(libc::_SC_PAGESIZE) }).ok()?;
+        let pages = MacPages {
+            internal: u64::from(stats.internal_page_count),
+            purgeable: u64::from(stats.purgeable_count),
+            wired: u64::from(stats.wire_count),
+            compressed: u64::from(stats.compressor_page_count),
+        };
+        Some((total, mac_available_memory(total, pages, page)))
+    }
+}
+
+#[cfg(not(any(windows, target_os = "linux", target_os = "macos")))]
 mod platform {
     use super::CpuTimes;
 
@@ -282,6 +390,53 @@ mod tests {
         assert_eq!(times.total, 100 + 5 + 50 + 800 + 40 + 3 + 2);
         assert_eq!(parse_proc_stat("cpu0 1 2 3 4\n"), None);
         assert_eq!(parse_proc_stat("cpu  1 x 3 4\n"), None);
+    }
+
+    #[test]
+    fn mac_ticks_count_idle_apart() {
+        let times = cpu_times_from_ticks([300, 100, 550, 50]);
+        assert_eq!(
+            times,
+            CpuTimes {
+                idle: 550,
+                total: 1000
+            }
+        );
+        let later = cpu_times_from_ticks([400, 150, 600, 50]);
+        // 200 ticks passed, 50 of them idle.
+        assert_eq!(cpu_percent(times, later), Some(75.0));
+        // A counter that wrapped says nothing rather than something wrong.
+        let wrapped = cpu_times_from_ticks([0, 0, 600, 0]);
+        assert_eq!(cpu_percent(times, wrapped), None);
+    }
+
+    #[test]
+    fn mac_memory_in_use_leaves_the_file_cache_available() {
+        const PAGE: u64 = 16 * 1024;
+        let total = 1000 * PAGE;
+        let pages = MacPages {
+            internal: 400,
+            purgeable: 50,
+            wired: 100,
+            compressed: 50,
+        };
+        assert_eq!(mac_available_memory(total, pages, PAGE), 500 * PAGE);
+        assert_eq!(memory_percent(total, 500 * PAGE), Some(50.0));
+        // Counts beyond the total never underflow.
+        let huge = MacPages {
+            internal: u64::MAX,
+            purgeable: 0,
+            wired: 1,
+            compressed: 1,
+        };
+        assert_eq!(mac_available_memory(total, huge, PAGE), 0);
+        let none = MacPages {
+            internal: 10,
+            purgeable: 20,
+            wired: 0,
+            compressed: 0,
+        };
+        assert_eq!(mac_available_memory(total, none, PAGE), total);
     }
 
     #[test]

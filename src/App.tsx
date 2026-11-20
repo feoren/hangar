@@ -1043,6 +1043,12 @@ export function App() {
         await appWindow.setBadgeCount(text === null ? undefined : count);
         return;
       }
+      if (kind === "launcher") {
+        // Rejecting lets the badge send the count again on its next change.
+        const sent = await api.setLauncherCount(text === null ? 0 : count);
+        if (sent !== true) throw new Error("launcher count not sent");
+        return;
+      }
       if (text === null) {
         await appWindow.setOverlayIcon(undefined);
         return;

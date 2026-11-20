@@ -1,20 +1,22 @@
 // Number of waiting sessions on the taskbar button (Windows: a small overlay icon drawn by the
-// window) or the Dock icon (macOS: the system's badge count). Tied to the attention setting:
-// without attention there is nothing waiting and the badge is cleared.
+// window), the Dock icon (macOS: the system's badge count) or the launcher icon (Linux: the
+// LauncherEntry signal docks listen for). Tied to the attention setting: without attention there
+// is nothing waiting and the badge is cleared.
 
 import { platformOf } from "./platform";
 
 /**
- * How the platform shows a count: Windows has no badge count, only an overlay icon. Linux shows
- * none: the badge count needs the Unity launcher API, which most desktops do not show, so the
- * count is not offered there (ADR 0013).
+ * How the platform shows a count: Windows has no badge count, only an overlay icon. On Linux the
+ * backend sends the count itself (`launcher_badge.rs`): Tauri's badge count goes through libunity
+ * and only while the Unity shell runs, so KDE Plasma and Dash to Dock would never see it
+ * (ADR 0013).
  */
-export type BadgeKind = "overlay" | "count" | "none";
+export type BadgeKind = "overlay" | "count" | "launcher";
 
 export function badgeKind(userAgent: string): BadgeKind {
   const platform = platformOf(userAgent);
   if (platform === "windows") return "overlay";
-  return platform === "mac" ? "count" : "none";
+  return platform === "mac" ? "count" : "launcher";
 }
 
 /** Text in the overlay icon: "1" to "9", then "9+"; `null` clears it. */
@@ -25,7 +27,6 @@ export function badgeLabel(count: number): string | null {
 
 /** What the badge shows: the overlay label, or the plain count for a system badge. */
 export function badgeText(count: number, kind: BadgeKind): string | null {
-  if (kind === "none") return null;
   if (kind === "overlay") return badgeLabel(count);
   return Number.isFinite(count) && count >= 1 ? String(Math.floor(count)) : null;
 }

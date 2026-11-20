@@ -17,13 +17,12 @@ export function currentPlatform(): Platform {
   return platformOf(typeof navigator === "undefined" ? "" : navigator.userAgent);
 }
 
-/** GPU load and memory: only Windows' performance counters deliver them (`gpu.rs`). */
-export function hasGpuReading(platform: Platform): boolean {
-  return platform === "windows";
-}
-
-/** Desktop notifications: Windows toasts and the freedesktop service on Linux (`notify.rs`). */
-export function hasDesktopNotifications(platform: Platform): boolean {
+/**
+ * GPU figures per session: Windows' performance counters and Linux's DRM client statistics give
+ * them per process; macOS gives only the whole machine without root (`gpu.rs`). The machine's GPU
+ * shows wherever a reading comes back, on every platform.
+ */
+export function hasSessionGpu(platform: Platform): boolean {
   return platform !== "mac";
 }
 

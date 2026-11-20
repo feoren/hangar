@@ -13,6 +13,7 @@ pub mod app_menu;
 pub mod arena;
 pub mod avatar;
 pub mod batch;
+pub mod bounded_output;
 pub mod child_env;
 pub mod civil;
 pub mod claims;
@@ -50,6 +51,7 @@ pub mod hook_recipes;
 pub mod icon;
 pub mod install_source;
 pub mod instructions;
+pub mod launcher_badge;
 pub mod link_service;
 pub mod links;
 pub mod login_path;
@@ -291,6 +293,7 @@ pub fn run() -> tauri::Result<()> {
             app.manage(git_snapshots::Snapshots::default());
             app.manage(file_viewer::Viewers::default());
             app.manage(notify::Notifier::default());
+            app.manage(launcher_badge::LauncherBadge::default());
             app.manage(resources::ResourceMonitor::default());
             app.manage(system_usage::SystemMonitor::default());
             // Battery or AC for the power saving mode: one cheap reading every 30 s, events only
@@ -652,6 +655,7 @@ pub fn run() -> tauri::Result<()> {
             commands::session_resources,
             commands::system_usage,
             commands::power_state,
+            commands::set_launcher_count,
             commands::push_settings,
             commands::push_save,
             commands::push_test,

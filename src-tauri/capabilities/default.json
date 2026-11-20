@@ -70,6 +70,7 @@
     "allow-session-resources",
     "allow-system-usage",
     "allow-power-state",
+    "allow-set-launcher-count",
     "allow-push-settings",
     "allow-push-save",
     "allow-push-test",

@@ -1960,10 +1960,28 @@ pub async fn system_usage(app: tauri::AppHandle) -> SystemUsage {
 }
 
 /// Whether the machine runs on battery, read afresh (power.rs); later changes arrive as
-/// `power-changed` events with the same shape. One system call or a few small sysfs files.
+/// `power-changed` events with the same shape. One system call, a few small sysfs files or, on
+/// macOS, one `pmset` run of at most 2 s, hence on a blocking thread.
 #[tauri::command]
-pub fn power_state(monitor: State<'_, crate::power::PowerMonitor>) -> crate::power::PowerState {
-    monitor.refresh(crate::power::read())
+pub async fn power_state(app: tauri::AppHandle) -> crate::power::PowerState {
+    tauri::async_runtime::spawn_blocking(move || {
+        app.state::<crate::power::PowerMonitor>()
+            .refresh(crate::power::read())
+    })
+    .await
+    .unwrap_or_default()
+}
+
+/// The waiting sessions on the Linux launcher icon (launcher_badge.rs); `false` elsewhere and
+/// when the session bus cannot be reached. On a blocking thread: the first call connects.
+#[tauri::command]
+pub async fn set_launcher_count(app: tauri::AppHandle, count: u32) -> bool {
+    tauri::async_runtime::spawn_blocking(move || {
+        app.state::<crate::launcher_badge::LauncherBadge>()
+            .set(count)
+    })
+    .await
+    .unwrap_or(false)
 }
 
 /// The keychain may take a moment or ask the user, hence on a blocking thread.

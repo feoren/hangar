@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-set-launcher-count"
+description = "Enables the set_launcher_count command without any pre-configured scope."
+commands.allow = ["set_launcher_count"]
+
+[[permission]]
+identifier = "deny-set-launcher-count"
+description = "Denies the set_launcher_count command without any pre-configured scope."
+commands.deny = ["set_launcher_count"]

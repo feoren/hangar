@@ -797,14 +797,11 @@ const de = {
     "Ausreißer: hält seit einer Weile einen ganzen Kern beschäftigt oder braucht viel Speicher",
   "settings.resources": "Ressourcen",
   "settings.showResources": "CPU, Speicher und GPU zeigen",
-  "settings.showResourcesNoGpu": "CPU und Speicher zeigen",
   "settings.showResourcesHelp":
     "Eine Zeile über Neue Session zeigt die Last der ganzen Maschine. Ruht die Maus auf einer Session, nennt die Vorschau ihren Anteil, für das Programm und alles, was es startet. Ein Zeichen markiert Ausreißer: 30 Sekunden lang ein ganzer Kern oder mehr als 4 GB Speicher.",
   "settings.powerSaving": "Energiesparen im Akkubetrieb",
   "settings.powerSavingHelp":
     "Läuft dein Computer mit Akku, fragt Hangar CPU, Speicher und GPU nur alle 5 Sekunden ab und die Branches jede Minute, und pulsierende Sessions halten still. Am Netzteil ändert sich nichts.",
-  "settings.powerSavingHelpNoGpu":
-    "Läuft dein Computer mit Akku, fragt Hangar CPU und Speicher nur alle 5 Sekunden ab und die Branches jede Minute, und pulsierende Sessions halten still. Am Netzteil ändert sich nichts.",
   "power.active": "Energiesparen aktiv",
   "power.activeHint":
     "Energiesparen aktiv: Dein Computer läuft mit Akku, Hangar fragt seltener ab und hält die Sessions still.",
@@ -3065,14 +3062,11 @@ const en: Record<MessageKey, string> = {
   "session.outlier": "Outlier: has kept a whole core busy for a while or uses a lot of memory",
   "settings.resources": "Resources",
   "settings.showResources": "Show CPU, memory and GPU",
-  "settings.showResourcesNoGpu": "Show CPU and memory",
   "settings.showResourcesHelp":
     "A row above New session shows the load of the whole machine. Resting the mouse on a session shows its share in the peek, for the program and everything it starts. A mark flags outliers: a whole core for 30 seconds or more than 4 GB of memory.",
   "settings.powerSaving": "Save energy on battery",
   "settings.powerSavingHelp":
     "When your computer runs on battery, Hangar reads CPU, memory and GPU only every 5 seconds and the branches every minute, and pulsing sessions hold still. Nothing changes while plugged in.",
-  "settings.powerSavingHelpNoGpu":
-    "When your computer runs on battery, Hangar reads CPU and memory only every 5 seconds and the branches every minute, and pulsing sessions hold still. Nothing changes while plugged in.",
   "power.active": "Energy saving on",
   "power.activeHint":
     "Energy saving on: your computer runs on battery, so Hangar checks less often and keeps the sessions still.",
@@ -5318,14 +5312,11 @@ const el: Record<MessageKey, string> = {
     "Ακραία τιμή: απασχολεί εδώ και λίγο έναν ολόκληρο πυρήνα ή χρησιμοποιεί πολλή μνήμη",
   "settings.resources": "Πόροι",
   "settings.showResources": "Εμφάνιση CPU, μνήμης και GPU",
-  "settings.showResourcesNoGpu": "Εμφάνιση CPU και μνήμης",
   "settings.showResourcesHelp":
     "Μια γραμμή πάνω από τη Νέα συνεδρία δείχνει το φορτίο ολόκληρου του μηχανήματος. Αν αφήσεις το ποντίκι σε μια συνεδρία, η προεπισκόπηση δείχνει το μερίδιό της, για το πρόγραμμα και ό,τι ξεκινά. Ένα σημάδι δείχνει τις ακραίες τιμές: ολόκληρος πυρήνας για 30 δευτερόλεπτα ή πάνω από 4 GB μνήμης.",
   "settings.powerSaving": "Εξοικονόμηση ενέργειας με μπαταρία",
   "settings.powerSavingHelp":
     "Όταν ο υπολογιστής σου λειτουργεί με μπαταρία, το Hangar διαβάζει CPU, μνήμη και GPU μόνο κάθε 5 δευτερόλεπτα και τους κλάδους κάθε λεπτό, και οι συνεδρίες που πάλλονται μένουν ακίνητες. Στο ρεύμα δεν αλλάζει τίποτα.",
-  "settings.powerSavingHelpNoGpu":
-    "Όταν ο υπολογιστής σου λειτουργεί με μπαταρία, το Hangar διαβάζει CPU και μνήμη μόνο κάθε 5 δευτερόλεπτα και τους κλάδους κάθε λεπτό, και οι συνεδρίες που πάλλονται μένουν ακίνητες. Στο ρεύμα δεν αλλάζει τίποτα.",
   "power.active": "Εξοικονόμηση ενέργειας ενεργή",
   "power.activeHint":
     "Εξοικονόμηση ενέργειας ενεργή: ο υπολογιστής σου λειτουργεί με μπαταρία, έτσι το Hangar ελέγχει λιγότερο συχνά και κρατά τις συνεδρίες ακίνητες.",
@@ -7609,14 +7600,11 @@ const es: Record<MessageKey, string> = {
   "session.outlier": "Valor atípico: lleva un rato ocupando un núcleo entero o usa mucha memoria",
   "settings.resources": "Recursos",
   "settings.showResources": "Mostrar CPU, memoria y GPU",
-  "settings.showResourcesNoGpu": "Mostrar CPU y memoria",
   "settings.showResourcesHelp":
     "Una fila sobre Nueva sesión muestra la carga de toda la máquina. Al dejar el ratón sobre una sesión, la vista previa muestra su parte, para el programa y todo lo que inicia. Una marca señala valores atípicos: un núcleo entero durante 30 segundos o más de 4 GB de memoria.",
   "settings.powerSaving": "Ahorrar energía con batería",
   "settings.powerSavingHelp":
     "Cuando tu equipo funciona con batería, Hangar lee CPU, memoria y GPU solo cada 5 segundos y las ramas cada minuto, y las sesiones que laten se quedan quietas. Enchufado no cambia nada.",
-  "settings.powerSavingHelpNoGpu":
-    "Cuando tu equipo funciona con batería, Hangar lee CPU y memoria solo cada 5 segundos y las ramas cada minuto, y las sesiones que laten se quedan quietas. Enchufado no cambia nada.",
   "power.active": "Ahorro de energía activo",
   "power.activeHint":
     "Ahorro de energía activo: tu equipo funciona con batería, así que Hangar consulta con menos frecuencia y mantiene quietas las sesiones.",
@@ -9885,14 +9873,11 @@ const fr: Record<MessageKey, string> = {
     "Valeur aberrante : occupe un cœur entier depuis un moment ou utilise beaucoup de mémoire",
   "settings.resources": "Ressources",
   "settings.showResources": "Afficher CPU, mémoire et GPU",
-  "settings.showResourcesNoGpu": "Afficher CPU et mémoire",
   "settings.showResourcesHelp":
     "Une ligne au-dessus de Nouvelle session montre la charge de toute la machine. En laissant la souris sur une session, l’aperçu montre sa part, pour le programme et tout ce qu’il lance. Un signe marque les valeurs aberrantes : un cœur entier pendant 30 secondes ou plus de 4 Go de mémoire.",
   "settings.powerSaving": "Économiser l’énergie sur batterie",
   "settings.powerSavingHelp":
     "Quand ton ordinateur fonctionne sur batterie, Hangar lit CPU, mémoire et GPU seulement toutes les 5 secondes et les branches chaque minute, et les sessions qui pulsent restent immobiles. Sur secteur, rien ne change.",
-  "settings.powerSavingHelpNoGpu":
-    "Quand ton ordinateur fonctionne sur batterie, Hangar lit CPU et mémoire seulement toutes les 5 secondes et les branches chaque minute, et les sessions qui pulsent restent immobiles. Sur secteur, rien ne change.",
   "power.active": "Économie d’énergie active",
   "power.activeHint":
     "Économie d’énergie active : ton ordinateur fonctionne sur batterie, Hangar interroge donc moins souvent et garde les sessions immobiles.",
@@ -12177,14 +12162,11 @@ const it: Record<MessageKey, string> = {
   "session.outlier": "Anomalia: tiene occupato un intero core da un po' o usa molta memoria",
   "settings.resources": "Risorse",
   "settings.showResources": "Mostra CPU, memoria e GPU",
-  "settings.showResourcesNoGpu": "Mostra CPU e memoria",
   "settings.showResourcesHelp":
     "Una riga sopra Nuova sessione mostra il carico dell'intera macchina. Lasciando il mouse su una sessione, l'anteprima ne mostra la quota, per il programma e tutto ciò che avvia. Un segno indica le anomalie: un intero core per 30 secondi o più di 4 GB di memoria.",
   "settings.powerSaving": "Risparmia energia a batteria",
   "settings.powerSavingHelp":
     "Quando il computer funziona a batteria, Hangar legge CPU, memoria e GPU solo ogni 5 secondi e i branch ogni minuto, e le sessioni che pulsano restano ferme. Con l'alimentatore non cambia nulla.",
-  "settings.powerSavingHelpNoGpu":
-    "Quando il computer funziona a batteria, Hangar legge CPU e memoria solo ogni 5 secondi e i branch ogni minuto, e le sessioni che pulsano restano ferme. Con l'alimentatore non cambia nulla.",
   "power.active": "Risparmio energetico attivo",
   "power.activeHint":
     "Risparmio energetico attivo: il computer funziona a batteria, quindi Hangar controlla meno spesso e tiene ferme le sessioni.",
@@ -14456,14 +14438,11 @@ const ja: Record<MessageKey, string> = {
   "session.outlier": "外れ値: しばらく CPU コア 1 つ分を使い続けているか、メモリを多く使っています",
   "settings.resources": "リソース",
   "settings.showResources": "CPU、メモリ、GPU を表示",
-  "settings.showResourcesNoGpu": "CPU とメモリを表示",
   "settings.showResourcesHelp":
     "新しいセッションの上の 1 行に、マシン全体の負荷を表示します。セッションにマウスを置くと、プレビューにそのプログラムと起動したものすべての使用量が出ます。外れ値には印が付きます: 30 秒間コア 1 つ分を使い続けるか、メモリが 4 GB を超えた場合です。",
   "settings.powerSaving": "バッテリー駆動時に省電力",
   "settings.powerSavingHelp":
     "バッテリーで動作しているとき、Hangar は CPU、メモリ、GPU を 5 秒ごと、ブランチを 1 分ごとにだけ読み取り、点滅するセッションを止めます。電源接続時は何も変わりません。",
-  "settings.powerSavingHelpNoGpu":
-    "バッテリーで動作しているとき、Hangar は CPU とメモリを 5 秒ごと、ブランチを 1 分ごとにだけ読み取り、点滅するセッションを止めます。電源接続時は何も変わりません。",
   "power.active": "省電力が有効",
   "power.activeHint":
     "省電力が有効: バッテリーで動作しているため、Hangar は確認の頻度を下げ、セッションの点滅を止めています。",
@@ -16719,14 +16698,11 @@ const pl: Record<MessageKey, string> = {
   "session.outlier": "Odstający: od dłuższej chwili zajmuje cały rdzeń lub zużywa dużo pamięci",
   "settings.resources": "Zasoby",
   "settings.showResources": "Pokazuj CPU, pamięć i GPU",
-  "settings.showResourcesNoGpu": "Pokazuj CPU i pamięć",
   "settings.showResourcesHelp":
     "Wiersz nad Nowa sesja pokazuje obciążenie całej maszyny. Gdy kursor spocznie na sesji, podgląd pokazuje jej udział, dla programu i wszystkiego, co uruchamia. Znak oznacza sesje odstające: cały rdzeń przez 30 sekund lub ponad 4 GB pamięci.",
   "settings.powerSaving": "Oszczędzaj energię na baterii",
   "settings.powerSavingHelp":
     "Gdy komputer działa na baterii, Hangar odczytuje CPU, pamięć i GPU tylko co 5 sekund, a gałęzie co minutę, a pulsujące sesje zastygają. Przy zasilaczu nic się nie zmienia.",
-  "settings.powerSavingHelpNoGpu":
-    "Gdy komputer działa na baterii, Hangar odczytuje CPU i pamięć tylko co 5 sekund, a gałęzie co minutę, a pulsujące sesje zastygają. Przy zasilaczu nic się nie zmienia.",
   "power.active": "Oszczędzanie energii włączone",
   "power.activeHint":
     "Oszczędzanie energii włączone: komputer działa na baterii, więc Hangar sprawdza rzadziej i zatrzymuje pulsowanie sesji.",
@@ -18971,14 +18947,11 @@ const pt: Record<MessageKey, string> = {
   "session.outlier": "Fora do padrão: ocupa um núcleo inteiro há algum tempo ou usa muita memória",
   "settings.resources": "Recursos",
   "settings.showResources": "Mostrar CPU, memória e GPU",
-  "settings.showResourcesNoGpu": "Mostrar CPU e memória",
   "settings.showResourcesHelp":
     "Uma linha acima de Nova sessão mostra a carga da máquina inteira. Ao deixar o mouse sobre uma sessão, a prévia mostra a parte dela, para o programa e tudo o que ele inicia. Uma marca aponta sessões fora do padrão: um núcleo inteiro por 30 segundos ou mais de 4 GB de memória.",
   "settings.powerSaving": "Economizar energia na bateria",
   "settings.powerSavingHelp":
     "Quando o computador funciona na bateria, o Hangar lê CPU, memória e GPU só a cada 5 segundos e os branches a cada minuto, e as sessões que pulsam ficam paradas. Na tomada nada muda.",
-  "settings.powerSavingHelpNoGpu":
-    "Quando o computador funciona na bateria, o Hangar lê CPU e memória só a cada 5 segundos e os branches a cada minuto, e as sessões que pulsam ficam paradas. Na tomada nada muda.",
   "power.active": "Economia de energia ativa",
   "power.activeHint":
     "Economia de energia ativa: o computador funciona na bateria, então o Hangar consulta com menos frequência e mantém as sessões paradas.",
@@ -21231,14 +21204,11 @@ const ru: Record<MessageKey, string> = {
   "session.outlier": "Выброс: уже какое-то время занимает целое ядро или тратит много памяти",
   "settings.resources": "Ресурсы",
   "settings.showResources": "Показывать CPU, память и GPU",
-  "settings.showResourcesNoGpu": "Показывать CPU и память",
   "settings.showResourcesHelp":
     "Строка над «Новым сеансом» показывает нагрузку всей машины. Если задержать мышь на сессии, превью покажет её долю, для программы и всего, что она запускает. Значок отмечает выбросы: целое ядро в течение 30 секунд или больше 4 ГБ памяти.",
   "settings.powerSaving": "Экономить энергию от батареи",
   "settings.powerSavingHelp":
     "Когда компьютер работает от батареи, Hangar считывает CPU, память и GPU только раз в 5 секунд, а ветки раз в минуту, и пульсирующие сессии замирают. От сети ничего не меняется.",
-  "settings.powerSavingHelpNoGpu":
-    "Когда компьютер работает от батареи, Hangar считывает CPU и память только раз в 5 секунд, а ветки раз в минуту, и пульсирующие сессии замирают. От сети ничего не меняется.",
   "power.active": "Экономия энергии включена",
   "power.activeHint":
     "Экономия энергии включена: компьютер работает от батареи, поэтому Hangar проверяет реже и не анимирует сессии.",
@@ -23473,14 +23443,11 @@ const tr: Record<MessageKey, string> = {
     "Aykırı değer: bir süredir tam bir çekirdeği meşgul ediyor veya çok bellek kullanıyor",
   "settings.resources": "Kaynaklar",
   "settings.showResources": "CPU, bellek ve GPU göster",
-  "settings.showResourcesNoGpu": "CPU ve bellek göster",
   "settings.showResourcesHelp":
     "Yeni oturum’un üstündeki satır tüm makinenin yükünü gösterir. Fareyi bir oturumun üzerinde tutunca önizleme, program ve başlattığı her şey için onun payını gösterir. Bir işaret aykırı değerleri gösterir: 30 saniye boyunca tam bir çekirdek veya 4 GB üzeri bellek.",
   "settings.powerSaving": "Pilde enerji tasarrufu",
   "settings.powerSavingHelp":
     "Bilgisayarın pilde çalışırken Hangar CPU, bellek ve GPU’yu yalnızca 5 saniyede bir, dalları dakikada bir okur ve atan oturumlar durgun kalır. Prizdeyken hiçbir şey değişmez.",
-  "settings.powerSavingHelpNoGpu":
-    "Bilgisayarın pilde çalışırken Hangar CPU ve belleği yalnızca 5 saniyede bir, dalları dakikada bir okur ve atan oturumlar durgun kalır. Prizdeyken hiçbir şey değişmez.",
   "power.active": "Enerji tasarrufu açık",
   "power.activeHint":
     "Enerji tasarrufu açık: bilgisayarın pilde çalışıyor, bu yüzden Hangar daha seyrek kontrol eder ve oturumları durgun tutar.",
@@ -25676,14 +25643,11 @@ const zh: Record<MessageKey, string> = {
   "session.outlier": "异常: 一段时间以来占满一个完整的 CPU 核心，或占用大量内存",
   "settings.resources": "资源",
   "settings.showResources": "显示 CPU、内存和 GPU",
-  "settings.showResourcesNoGpu": "显示 CPU 和内存",
   "settings.showResourcesHelp":
     "“新建会话”上方的一行显示整台机器的负载。鼠标停在会话上时，预览会显示它的占用，包括程序及其启动的所有进程。异常会带有标记: 30 秒内占满一个完整核心，或内存超过 4 GB。",
   "settings.powerSaving": "使用电池时节能",
   "settings.powerSavingHelp":
     "电脑使用电池时，Hangar 每 5 秒才读取一次 CPU、内存和 GPU，每分钟读取一次分支，闪动的会话保持静止。接通电源时一切照常。",
-  "settings.powerSavingHelpNoGpu":
-    "电脑使用电池时，Hangar 每 5 秒才读取一次 CPU 和内存，每分钟读取一次分支，闪动的会话保持静止。接通电源时一切照常。",
   "power.active": "节能已开启",
   "power.activeHint": "节能已开启: 电脑正在使用电池，Hangar 减少查询次数并让会话保持静止。",
   "system.usage": "系统负载",

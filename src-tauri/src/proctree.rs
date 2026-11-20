@@ -7,8 +7,9 @@
 //! [`usages`] reads what a whole tree uses right now (CPU time, resident memory and the ids of its
 //! processes, which `gpu.rs` matches against the GPU counters), for the
 //! resources of a session (`resources.rs`). Windows asks the Job Object; Linux reads `/proc` once
-//! for all trees and sums every process of the child's terminal session; other systems report
-//! nothing, so the window shows nothing.
+//! for all trees and sums every process of the child's terminal session; macOS lists every
+//! process once through libproc and sums the child's session and descendants ([`darwin`]); other
+//! systems report nothing, so the window shows nothing.
 
 use std::time::Duration;
 
@@ -45,7 +46,11 @@ pub fn usages(trees: &[std::sync::Arc<ProcTree>]) -> Vec<Option<TreeUsage>> {
     {
         linux::usages(trees)
     }
-    #[cfg(all(unix, not(target_os = "linux")))]
+    #[cfg(target_os = "macos")]
+    {
+        mac::usages(trees)
+    }
+    #[cfg(all(unix, not(any(target_os = "linux", target_os = "macos"))))]
     {
         vec![None; trees.len()]
     }
@@ -738,12 +743,220 @@ mod linux {
     }
 }
 
-/// The fields of `/proc/<pid>/stat` the resources and the session signals need. Plain text
-/// parsing, so it is tested on every platform.
+#[cfg(target_os = "macos")]
+mod mac {
+    use std::time::Duration;
+
+    use super::darwin::{self, Process};
+    use super::{ProcTree, TreeUsage};
+
+    /// Every process id; `None` when libproc does not answer.
+    fn all_pids() -> Option<Vec<libc::pid_t>> {
+        // SAFETY: A null buffer asks only for the number of processes.
+        let estimate = unsafe { libc::proc_listallpids(std::ptr::null_mut(), 0) };
+        let estimate = usize::try_from(estimate).ok()?;
+        // Room for processes started between the two calls.
+        let mut pids: Vec<libc::pid_t> = vec![0; estimate + 64];
+        let bytes = i32::try_from(pids.len() * std::mem::size_of::<libc::pid_t>()).ok()?;
+        // SAFETY: `pids` holds `bytes` writable bytes; libproc writes at most that many.
+        let count = unsafe { libc::proc_listallpids(pids.as_mut_ptr().cast(), bytes) };
+        let count = usize::try_from(count).ok()?.min(pids.len());
+        pids.truncate(count);
+        pids.retain(|pid| *pid > 0);
+        Some(pids)
+    }
+
+    fn process(pid: libc::pid_t) -> Option<Process> {
+        // SAFETY: An all-zero proc_bsdinfo is a valid value of the plain struct.
+        let mut info: libc::proc_bsdinfo = unsafe { std::mem::zeroed() };
+        let size = i32::try_from(std::mem::size_of::<libc::proc_bsdinfo>()).ok()?;
+        // SAFETY: `info` is a live proc_bsdinfo of `size` bytes, the flavor's buffer type.
+        let written = unsafe {
+            libc::proc_pidinfo(pid, libc::PROC_PIDTBSDINFO, 0, (&raw mut info).cast(), size)
+        };
+        if written != size {
+            return None;
+        }
+        // SAFETY: getsid only reads the process table.
+        let session = unsafe { libc::getsid(pid) };
+        Some(Process {
+            pid: u32::try_from(pid).ok()?,
+            parent: info.pbi_ppid,
+            session: u32::try_from(session).ok(),
+        })
+    }
+
+    /// CPU time (with the reaped children's) in Mach time units and resident bytes.
+    fn rusage(pid: u32) -> Option<(u64, u64)> {
+        // SAFETY: An all-zero rusage_info_v2 is a valid value of the plain struct.
+        let mut info: libc::rusage_info_v2 = unsafe { std::mem::zeroed() };
+        // SAFETY: `info` is a live rusage_info_v2, the buffer RUSAGE_INFO_V2 fills.
+        let status = unsafe {
+            libc::proc_pid_rusage(
+                libc::c_int::try_from(pid).ok()?,
+                libc::RUSAGE_INFO_V2,
+                (&raw mut info).cast(),
+            )
+        };
+        (status == 0).then(|| {
+            let cpu = info
+                .ri_user_time
+                .saturating_add(info.ri_system_time)
+                .saturating_add(info.ri_child_user_time)
+                .saturating_add(info.ri_child_system_time);
+            (cpu, info.ri_resident_size)
+        })
+    }
+
+    /// The factor from Mach time units to nanoseconds (1 on Intel, 125/3 on Apple silicon).
+    #[allow(deprecated)] // libc points to the mach2 crate; this one binding is enough.
+    fn timebase() -> (u32, u32) {
+        let mut info = libc::mach_timebase_info { numer: 0, denom: 0 };
+        // SAFETY: `info` is a live mach_timebase_info the call fills in.
+        let status = unsafe { libc::mach_timebase_info(&mut info) };
+        if status == libc::KERN_SUCCESS && info.denom != 0 {
+            (info.numer, info.denom)
+        } else {
+            (1, 1)
+        }
+    }
+
+    pub fn usages(trees: &[std::sync::Arc<ProcTree>]) -> Vec<Option<TreeUsage>> {
+        let Some(pids) = all_pids() else {
+            return vec![None; trees.len()];
+        };
+        let processes: Vec<Process> = pids.into_iter().filter_map(process).collect();
+        let (numer, denom) = timebase();
+        trees
+            .iter()
+            .map(|tree| {
+                let group = u32::try_from(tree.group()).ok()?;
+                let members = darwin::members(&processes, group);
+                if members.is_empty() {
+                    return None;
+                }
+                let (cpu, memory) = members
+                    .iter()
+                    .filter_map(|pid| rusage(*pid))
+                    .fold((0u64, 0u64), |(cpu, memory), (c, m)| {
+                        (cpu.saturating_add(c), memory.saturating_add(m))
+                    });
+                Some(TreeUsage {
+                    cpu: Duration::from_nanos(darwin::nanos(cpu, numer, denom)),
+                    memory,
+                    processes: members,
+                })
+            })
+            .collect()
+    }
+}
+
+/// Which processes make up a tree on macOS, and its time unit, as plain logic tested on every
+/// platform.
+#[cfg_attr(not(target_os = "macos"), allow(dead_code))]
+pub(crate) mod darwin {
+    use std::collections::{HashMap, HashSet};
+
+    /// One process of the process table.
+    #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+    pub struct Process {
+        pub pid: u32,
+        pub parent: u32,
+        /// `None` where the session could not be read.
+        pub session: Option<u32>,
+    }
+
+    /// The processes of the tree whose child is `group`: every process of the child's terminal
+    /// session (it is the session leader), as on Linux, and every descendant of the child, which
+    /// also finds a program that started a session of its own. Sorted, each once.
+    pub fn members(processes: &[Process], group: u32) -> Vec<u32> {
+        let mut children: HashMap<u32, Vec<u32>> = HashMap::new();
+        for process in processes {
+            children
+                .entry(process.parent)
+                .or_default()
+                .push(process.pid);
+        }
+        let mut found: HashSet<u32> = processes
+            .iter()
+            .filter(|process| process.pid == group || process.session == Some(group))
+            .map(|process| process.pid)
+            .collect();
+        let mut queue: Vec<u32> = found.iter().copied().collect();
+        while let Some(pid) = queue.pop() {
+            for child in children.get(&pid).into_iter().flatten() {
+                if found.insert(*child) {
+                    queue.push(*child);
+                }
+            }
+        }
+        let mut members: Vec<u32> = found.into_iter().collect();
+        members.sort_unstable();
+        members
+    }
+
+    /// Mach time units to nanoseconds with the timebase `numer / denom`, without overflow.
+    pub fn nanos(ticks: u64, numer: u32, denom: u32) -> u64 {
+        if denom == 0 {
+            return ticks;
+        }
+        let nanos = u128::from(ticks) * u128::from(numer) / u128::from(denom);
+        u64::try_from(nanos).unwrap_or(u64::MAX)
+    }
+
+    #[cfg(test)]
+    mod tests {
+        use super::*;
+
+        fn process(pid: u32, parent: u32, session: Option<u32>) -> Process {
+            Process {
+                pid,
+                parent,
+                session,
+            }
+        }
+
+        #[test]
+        fn a_tree_is_the_childs_session_and_descendants() {
+            let processes = [
+                process(1, 0, Some(1)),
+                process(100, 1, Some(100)),   // Hangar
+                process(200, 100, Some(200)), // the session's child
+                process(201, 200, Some(200)), // its agent
+                process(202, 201, Some(300)), // a helper with a session of its own
+                process(203, 1, Some(200)),   // reparented, still in the session
+                process(300, 1, Some(300)),   // another program
+                process(301, 300, None),
+            ];
+            assert_eq!(members(&processes, 200), [200, 201, 202, 203]);
+            assert!(members(&processes, 999).is_empty());
+        }
+
+        #[test]
+        fn a_tree_without_a_readable_session_still_has_its_descendants() {
+            let processes = [process(200, 100, None), process(201, 200, None)];
+            assert_eq!(members(&processes, 200), [200, 201]);
+        }
+
+        #[test]
+        fn mach_time_turns_into_nanoseconds() {
+            assert_eq!(nanos(1_000, 1, 1), 1_000);
+            // Apple silicon: 24 MHz ticks.
+            assert_eq!(nanos(24_000_000, 125, 3), 1_000_000_000);
+            assert_eq!(nanos(u64::MAX, 125, 3), u64::MAX);
+            assert_eq!(nanos(7, 1, 0), 7);
+        }
+    }
+}
+
+/// The fields of `/proc/<pid>/stat` the resources, the session signals and the GPU reading
+/// (`gpu.rs`) need. Plain text parsing, so it is tested on every platform.
 #[cfg_attr(not(target_os = "linux"), allow(dead_code))]
-mod stat {
+pub(crate) mod stat {
     #[derive(Debug, PartialEq, Eq)]
     pub struct Fields {
+        /// Field 4: the parent process.
+        pub parent: i64,
         pub session: i64,
         /// utime + stime + cutime + cstime: a child's times move to its parent once it is waited
         /// for, so a tree's total does not drop when one of its processes ends.
@@ -764,6 +977,7 @@ mod stat {
         let number = |field: usize| -> Option<i64> { fields.get(field - 3)?.parse().ok() };
         let ticks = |field: usize| -> Option<u64> { u64::try_from(number(field)?).ok() };
         Some(Fields {
+            parent: number(4)?,
             session: number(6)?,
             cpu_ticks: ticks(14)?
                 .saturating_add(ticks(15)?)
@@ -797,6 +1011,7 @@ mod stat {
             assert_eq!(
                 parse(line),
                 Some(Fields {
+                    parent: 1,
                     session: 4242,
                     cpu_ticks: 215,
                     rss_pages: 2560,

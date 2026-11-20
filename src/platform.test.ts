@@ -1,12 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import {
-  hasDesktopNotifications,
-  hasGpuReading,
-  platformOf,
-  revealLabelKey,
-  type Platform,
-} from "./platform";
+import { hasSessionGpu, platformOf, revealLabelKey, type Platform } from "./platform";
 
 const WINDOWS = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Edg/140";
 const MAC = "Mozilla/5.0 (Macintosh; Intel Mac OS X 14_0) AppleWebKit/605.1.15";
@@ -23,12 +17,8 @@ describe("platformOf", () => {
 describe("only what works is offered", () => {
   const all: Platform[] = ["windows", "mac", "linux"];
 
-  it("shows the GPU on Windows only", () => {
-    expect(all.filter(hasGpuReading)).toEqual(["windows"]);
-  });
-
-  it("shows desktop notifications on Windows and Linux", () => {
-    expect(all.filter(hasDesktopNotifications)).toEqual(["windows", "linux"]);
+  it("gives sessions GPU figures on Windows and Linux, not on macOS", () => {
+    expect(all.filter(hasSessionGpu)).toEqual(["windows", "linux"]);
   });
 
   it("names the file manager of each platform", () => {

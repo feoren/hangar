@@ -4,9 +4,9 @@ type: decision
 status: accepted
 superseded_by:
 tags: [linux, release, appimage, deb, updater, environment, platform]
-sources: ["[[linux-bundling-reading]]", "[[tauri-updater-and-nsis]]", "[[freedesktop-notifications]]"]
+sources: ["[[linux-bundling-reading]]", "[[tauri-updater-and-nsis]]", "[[freedesktop-notifications]]", "[[platform-parity-reading]]", "[[launcher-entry-and-macos-usage-reading]]"]
 created: 2026-11-18
-updated: 2026-11-18
+updated: 2026-11-20
 ---
 
 # ADR 0013: Linux x64 release
@@ -58,13 +58,51 @@ job on ubuntu-latest), but nothing is bundled, and three things would hurt a fir
   `GDK_BACKEND=x11` and an empty `GTK_THEME` go. Only when Hangar's own executable lies inside
   `APPDIR`: an `APPDIR` inherited from another program's environment stays untouched. Hangar's
   own process keeps them, its bundled GTK needs them.
-- **Only offer what works:** on Linux the GPU wording and the launcher badge are hidden, and "Show
-  in Explorer" reads "Show in file manager" (`src/platform.ts`). Desktop notifications stay hidden
-  on macOS only.
+- **Only offer what works:** "Show in Explorer" reads "Show in file manager" on Linux
+  (`src/platform.ts`). Since 2026-11-20 the GPU shows on Linux too ([[gpu-readings]]), the
+  launcher icon carries the count ("Platform check" below), and desktop notifications are offered
+  on every platform.
 - **Desktop notifications on Linux** through `org.freedesktop.Notifications` with zbus directly
   (already in the tree; notify-rust would add zbus 6, tauri-plugin-notification a second path
   next to WinRT): one per session via `replaces_id`, a click switches to the session where the
   server reports actions ([[freedesktop-notifications]]).
+
+## Platform check (Linux)
+| Area | State on Linux | What Hangar does |
+| --- | --- | --- |
+| Desktop notifications | `org.freedesktop.Notifications` through zbus ([[freedesktop-notifications]]) | offered |
+| GPU readings | per session from DRM fdinfo; machine from amdgpu sysfs and NVML ([[gpu-readings]]) | offered (new 2026-11-20); an Intel GPU has no system bar figure, its rows still show one |
+| Battery or AC | `/sys/class/power_supply`, no battery saver ([[power-detection]]) | offered |
+| Launcher badge | Tauri 2.12.5's `setBadgeCount` goes through tao's libunity wrapper, which acts only while the Unity shell runs and sends no D-Bus signal itself ([[platform-parity-reading]]) | Hangar sends the `LauncherEntry` signal itself (new 2026-11-20, `badgeKind` `launcher`) |
+
+**Launcher count** (`src-tauri/src/launcher_badge.rs`, command `set_launcher_count`): Hangar
+emits `com.canonical.Unity.LauncherEntry` `Update` with `application://<desktop id>` and the
+properties `count` (int64) and `count-visible` (false for 0) on the session bus through zbus
+(already in the Linux tree), the signal KDE Plasma's task manager and Dash to Dock listen for.
+Nothing is read at start: the desktop id is worked out on the first count, on the command's blocking thread. AppImageLauncher files are checked on the opened handle (a regular file of at most 64 KiB, read through `take`; on Unix opened without blocking), so a symbolic link counts by its target and a FIFO cannot hold the read up. The bus is opened on the first count and kept; a failed send drops it, and the window's badge
+retries on its next change. Quitting sends 0. The desktop id, most reliable first
+([[launcher-entry-and-macos-usage-reading]]):
+
+1. `GIO_LAUNCHED_DESKTOP_FILE`'s file name, only when `GIO_LAUNCHED_DESKTOP_FILE_PID` is Hangar's
+   own process or its parent (an AppImage's runtime). A terminal started from its desktop file
+   passes the variable on to everything started in it; the pid tells that apart. GLib-based
+   launchers (GNOME Shell, among others) set both.
+2. For an AppImage (`APPIMAGE` set): the AppImageLauncher file `appimagekit_*.desktop` in
+   `$XDG_DATA_HOME/applications` (default `~/.local/share/applications`) whose `Exec=` starts with
+   exactly this AppImage's path.
+3. Otherwise `Hangar.desktop`, the file the Tauri bundler writes for the .deb and the id Tauri's
+   own badge count names. An AppImage that was never integrated has no desktop file and no
+   launcher icon to badge.
+
+`BAMF_DESKTOP_FILE_HINT` is not read: only Unity's BAMF sets it, and Unity is the one desktop that
+Tauri's own path already reached.
+
+> [!question] Unverified
+> - That KDE Plasma and Dash to Dock show the count from the signal without a `Query` method on
+>   Hangar's side (libunity offers one; Hangar answers none), and that the object path
+>   (`/com/feoren/hangar/LauncherEntry`) does not matter to them.
+> - What KDE Plasma's launcher sets in the environment (assumed: no GIO variables, so the .deb
+>   falls back to `Hangar.desktop`, which is right) and AppImageLauncher's file naming.
 
 ## Consequences
 - Startup on Linux and macOS waits for the login shell, usually well under a second, at most
