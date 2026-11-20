@@ -28,6 +28,7 @@ use crate::partner_service::{self, PartnerInbox, PartnerServiceError, Probe};
 use crate::partners::{
     clean_message, valid_name, PartnerBook, PartnerError, SendAnswer, SendRequest,
 };
+use crate::secret_scan::{self, SecretKind};
 use crate::session::{SessionId, SessionInfo, SessionKind, Status};
 
 /// Signal to the main window that groups, linkable sessions or link messages changed; no
@@ -87,6 +88,8 @@ pub struct LinkMessageView {
     pub auto: bool,
     /// A paste of it runs right now; no second one may start.
     pub claimed: bool,
+    /// Kinds of secret the text seems to hold (ADR 0015); the card names them.
+    pub secrets: Vec<SecretKind>,
 }
 
 /// One message of a group's history as the window shows it, newest first.
@@ -145,10 +148,12 @@ pub struct LinkRequest {
 }
 
 /// Why a message waits for a click instead of going on its own.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum HeldBy {
     AskFirst,
     Brake,
+    /// The text seems to hold a secret of these kinds (ADR 0015); it wins over the others.
+    Secret(Vec<SecretKind>),
 }
 
 /// What became of a message an agent sent to its group.
@@ -430,13 +435,20 @@ impl LinkService {
             return LinkRoute::Taken(Err(LinkError::Full(full.to_owned())));
         }
         let ask_first = state.links.group(group).is_some_and(|g| g.ask_first);
-        let mut held = None;
+        // A text that seems to hold a key never goes on its own, whatever the group's setting,
+        // and does not count against the brake: the person decides on its card (ADR 0015).
+        let secrets = secret_scan::scan(&text);
+        let mut held = (!secrets.is_empty()).then(|| HeldBy::Secret(secrets.clone()));
         for target in &targets {
-            let pace = match state.links.admit(group, now) {
-                Ok(pace) => pace,
-                Err(error) => return LinkRoute::Taken(Err(error)),
+            let pace = if secrets.is_empty() {
+                match state.links.admit(group, now) {
+                    Ok(pace) => pace,
+                    Err(error) => return LinkRoute::Taken(Err(error)),
+                }
+            } else {
+                Pace::Held
             };
-            if pace == Pace::Held {
+            if pace == Pace::Held && held.is_none() {
                 held = Some(if ask_first {
                     HeldBy::AskFirst
                 } else {
@@ -453,6 +465,7 @@ impl LinkService {
                 text: &text,
                 at: now,
                 auto: pace == Pace::Auto,
+                secrets: &secrets,
             }) {
                 return LinkRoute::Taken(Err(error));
             }
@@ -494,6 +507,7 @@ impl LinkService {
         let group = state.links.group(message.group);
         if automatic {
             let goes = message.auto
+                && message.secrets.is_empty()
                 && group.is_some_and(|group| {
                     !group.ask_first && (message.from.is_none() || !group.brake.engaged(now))
                 });
@@ -629,6 +643,7 @@ fn introduce(
             text: &text,
             at: now,
             auto: !group.ask_first,
+            secrets: &[],
         }) {
             refused.push(error);
         }
@@ -664,6 +679,7 @@ fn message_view(message: &LinkMessage) -> LinkMessageView {
         at: message.at,
         auto: message.auto,
         claimed: message.claimed,
+        secrets: message.secrets.clone(),
     }
 }
 
@@ -716,6 +732,18 @@ pub fn link_answer(result: &Result<Sent, LinkError>) -> (hook_http::Status, Send
                 "Many messages went back and forth in this group within the last minute, so the \
                  message to {} waits in Hangar for the person. Send again only when it matters.",
                 quoted(to)
+            ),
+        ),
+        Ok(Sent {
+            to,
+            held: Some(HeldBy::Secret(kinds)),
+        }) => answer(
+            hook_http::Status::Ok,
+            "waiting",
+            format!(
+                "The message to {} seems to contain a secret ({}), so it waits in Hangar for the person. Do not send keys or tokens in messages.",
+                quoted(to),
+                secret_scan::labels(kinds)
             ),
         ),
         Err(error @ LinkError::Full(_)) => {
@@ -1077,6 +1105,65 @@ mod tests {
             (status, answer.code),
             (hook_http::Status::BadRequest, "refused")
         );
+    }
+
+    /// A text that looks like it holds a GitHub token; built at run time from harmless parts.
+    fn secret_text() -> String {
+        format!(
+            "use gh{}_{} now",
+            "p", "Fake0Marker1Value2Test3Hangar4Only5N"
+        )
+    }
+
+    #[test]
+    fn a_message_with_a_secret_waits_for_a_click_and_never_counts_against_the_brake() {
+        let (links, _) = service();
+        links
+            .link(&[1, 2], &sessions(), &facts, 0, &LinkRequest::default())
+            .unwrap();
+        take_all(&links);
+        let text = secret_text();
+        let sent = links.receive(1, &request("web", &text), 5);
+        assert_eq!(
+            sent,
+            LinkRoute::Taken(Ok(Sent {
+                to: vec!["web".into()],
+                held: Some(HeldBy::Secret(vec![SecretKind::GithubToken]))
+            }))
+        );
+        let snapshot = links.snapshot(6, &attended);
+        let message = &snapshot.messages[0];
+        assert!(!message.auto);
+        assert_eq!(message.secrets, vec![SecretKind::GithubToken]);
+        // The window cannot paste it on its own; the person's click can.
+        assert!(matches!(
+            links.text_for(message.id, 2, &sessions(), true, 7),
+            Err(LinkServiceError::Link(LinkError::Held))
+        ));
+        assert!(links.text_for(message.id, 2, &sessions(), false, 7).is_ok());
+        // The answer names the kind, never the text.
+        let LinkRoute::Taken(result) = sent else {
+            unreachable!()
+        };
+        let (status, answer) = link_answer(&result);
+        assert_eq!((status, answer.code), (hook_http::Status::Ok, "waiting"));
+        assert!(
+            answer.message.contains("GitHub token"),
+            "{}",
+            answer.message
+        );
+        assert!(!answer.message.contains("Marker1"), "{}", answer.message);
+        assert!(!answer.message.contains("  "), "{}", answer.message);
+        // The brake did not count it: a full minute of ordinary messages still goes on its own.
+        for at in 0..BRAKE_LIMIT as i64 {
+            let target = if at % 2 == 0 { "web" } else { "app" };
+            let sent = links.receive(1 + (at as u64 % 2), &request(target, "x"), 10 + at);
+            assert!(
+                matches!(sent, LinkRoute::Taken(Ok(Sent { held: None, .. }))),
+                "{sent:?}"
+            );
+            take_all(&links);
+        }
     }
 
     #[test]

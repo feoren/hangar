@@ -142,6 +142,34 @@
         "ru": "После сбоя Hangar сообщает, сколько сеансов восстановлено и какие запустились без прежнего разговора. История терминала сохраняется каждые 10 с.",
         "tr": "Bir çökmeden sonra Hangar kaç oturumun geri geldiğini ve hangilerinin konuşmaları olmadan başladığını söyler. Terminal geçmişi her 10 sn'de kaydedilir.",
         "zh": "崩溃后，Hangar 会告诉你恢复了多少个会话，以及哪些会话在没有之前对话的情况下重新启动。终端历史每 10 秒保存一次。"
+      },
+      {
+        "de": "Geheimnis-Wächter: Nachrichten, Commits und Einfügen mit einem vermuteten API-Schlüssel oder Token halten an und fragen dich zuerst.",
+        "en": "Secret guard: messages, commits and pastes that seem to hold an API key or token stop and ask you first.",
+        "el": "Φύλακας μυστικών: μηνύματα, commits και επικολλήσεις που μάλλον περιέχουν κλειδί API ή token σταματούν και σε ρωτούν πρώτα.",
+        "es": "Guardián de secretos: los mensajes, commits y pegados que parecen contener una clave de API o un token se detienen y te preguntan antes.",
+        "fr": "Gardien des secrets : messages, commits et collages qui semblent contenir une clé d’API ou un jeton s’arrêtent et te demandent d’abord.",
+        "it": "Guardiano dei segreti: messaggi, commit e incollaggi che sembrano contenere una chiave API o un token si fermano e ti chiedono prima.",
+        "ja": "シークレットガード：API キーやトークンを含むと思われるメッセージ、コミット、貼り付けは止まり、先に確認します。",
+        "pl": "Strażnik sekretów: wiadomości, commity i wklejenia, które wyglądają na klucz API lub token, zatrzymują się i najpierw pytają.",
+        "pt": "Guardião de segredos: mensagens, commits e colagens que parecem conter uma chave de API ou um token param e perguntam antes.",
+        "ru": "Страж секретов: сообщения, коммиты и вставки, похожие на API-ключ или токен, останавливаются и сначала спрашивают тебя.",
+        "tr": "Gizli bilgi koruması: API anahtarı ya da belirteç içeriyor gibi görünen mesajlar, commit'ler ve yapıştırmalar durur ve önce sana sorar.",
+        "zh": "密钥守护：看起来含有 API 密钥或令牌的消息、提交和粘贴会先停下来询问你。"
+      },
+      {
+        "de": "Hangar erkennt jetzt über die Hooks von Claude Code, wann eine Session auf deine Freigabe wartet, auch privat, und drückt dann kein Enter für eine Nachricht.",
+        "en": "Hangar now learns from Claude Code's hooks when a session waits for your approval, also in private sessions, and then presses no Enter for a message.",
+        "el": "Το Hangar μαθαίνει πλέον από τα hooks του Claude Code πότε ένα session περιμένει την έγκρισή σου, και ιδιωτικά, και τότε δεν πατά Enter για μήνυμα.",
+        "es": "Hangar ahora sabe por los hooks de Claude Code cuándo una sesión espera tu aprobación, también en privadas, y entonces no pulsa Enter por un mensaje.",
+        "fr": "Hangar apprend désormais des hooks de Claude Code quand une session attend ton autorisation, aussi en privé, et n’appuie alors pas sur Entrée.",
+        "it": "Hangar ora sa dagli hook di Claude Code quando una sessione attende la tua approvazione, anche privata, e allora non preme Invio per un messaggio.",
+        "ja": "Claude Code のフックから、セッションが承認待ちかどうかを Hangar が把握します。プライベートでも同様で、その間はメッセージのために Enter を押しません。",
+        "pl": "Hangar wie teraz z hooków Claude Code, kiedy sesja czeka na twoją zgodę, także prywatna, i wtedy nie naciska Enter za wiadomość.",
+        "pt": "O Hangar agora sabe pelos hooks do Claude Code quando uma sessão aguarda sua aprovação, também privada, e então não pressiona Enter por uma mensagem.",
+        "ru": "Hangar теперь узнаёт из хуков Claude Code, когда сессия ждёт твоего разрешения, и в приватных тоже, и тогда не жмёт Enter за сообщение.",
+        "tr": "Hangar artık Claude Code hook'larından bir oturumun onayını ne zaman beklediğini öğrenir, özel oturumlarda da; o sırada mesaj için Enter'a basmaz.",
+        "zh": "Hangar 现在通过 Claude Code 的钩子得知会话何时在等待你的批准，私人会话也一样，此时不会为消息按下回车。"
       }
     ]
   },

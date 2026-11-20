@@ -15,10 +15,12 @@ export type AttentionState = "idle" | "working" | "attention";
 
 /**
  * Why a session waits: it went quiet after working, the program rang the bell (BEL, often a
- * question), or its process exited. Only set while the state is "attention". "gate" never comes
- * from the tracker: the app sets it while the agent waits for a pending decision (gate.ts).
+ * question), or its process exited. Only set while the state is "attention". "gate" and
+ * "permission" never come from the tracker: the app sets "gate" while the agent waits for a
+ * pending decision (gate.ts) and "permission" while the agent's own hooks report a permission or
+ * input dialog (permissionWaits.ts, ADR 0016).
  */
-export type AttentionReason = "quiet" | "bell" | "exit" | "gate";
+export type AttentionReason = "quiet" | "bell" | "exit" | "gate" | "permission";
 
 export interface AttentionConfig {
   enabled: boolean;

@@ -6,6 +6,7 @@
 
 import { projectOfSession, validName, type PartnerBook } from "./partners";
 import { shellKind } from "./pathQuote";
+import { secretKinds, type SecretKind } from "./secretScan";
 
 /** The backend's `WaitingMessage`. */
 export interface WaitingMessage {
@@ -18,6 +19,8 @@ export interface WaitingMessage {
   text: string;
   /** Unix time in milliseconds when it arrived. */
   at: number;
+  /** Kinds of secret the backend found in the text (ADR 0015); left out when none. */
+  secrets?: readonly SecretKind[];
   /**
    * The card's heading when it is not "Message from <from>": a link group member's message
    * (ADR 0014) shown with the same card. Set by the window, never by the backend.
@@ -36,7 +39,8 @@ function waitingMessage(value: unknown): WaitingMessage | null {
   if (typeof from !== "string" || typeof to !== "string" || typeof text !== "string") return null;
   if (!validName(from) || !validName(to) || text.trim() === "") return null;
   if (typeof at !== "number" || !Number.isFinite(at)) return null;
-  return { id, from, to, text, at };
+  const secrets = secretKinds(Reflect.get(value, "secrets"));
+  return secrets.length === 0 ? { id, from, to, text, at } : { id, from, to, text, at, secrets };
 }
 
 /** The backend's answer; a malformed entry is left out, anything else malformed reads as none. */

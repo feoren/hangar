@@ -2,10 +2,12 @@
 // Unlike Ctrl+V, the user did not just see the text arrive in the clipboard, and the button says
 // it adds no Enter. That only holds when the program has turned on bracketed paste (DECSET
 // 2004): without it, xterm turns every line break into a carriage return and each line but the
-// last runs at once. So the app asks first in that case, and also when the text holds characters
-// that make it read differently than it runs (src/invisible.ts).
+// last runs at once. So the app asks first in that case, also when the text holds characters
+// that make it read differently than it runs (src/invisible.ts), and when it seems to hold a
+// secret key or token (src/secretScan.ts, ADR 0015).
 
 import { hasInvisible } from "./invisible";
+import { scanSecrets, type ShownKind } from "./secretScan";
 import { sanitizePaste } from "./termSafety";
 
 export interface PasteWarning {
@@ -13,6 +15,8 @@ export interface PasteWarning {
   runsLines: boolean;
   /** Bidi controls or zero-width characters. */
   hidden: boolean;
+  /** Kinds of secret the text seems to hold; left out when none. */
+  secrets?: readonly ShownKind[];
 }
 
 export interface PasteTarget {
@@ -31,12 +35,24 @@ export function pasteWarning(text: string, bracketedPaste: boolean): PasteWarnin
   const clean = sanitizePaste(text);
   const runsLines = !bracketedPaste && /[\r\n]/.test(clean);
   const hidden = hasInvisible(clean.replace(LAYOUT, "").replace(EMOJI_JOINER, ""));
-  return runsLines || hidden ? { runsLines, hidden } : null;
+  const secrets = scanSecrets(clean);
+  if (!runsLines && !hidden && secrets.length === 0) return null;
+  return secrets.length === 0 ? { runsLines, hidden } : { runsLines, hidden, secrets };
+}
+
+/**
+ * Only the secret part of `warning`, for a paste whose line and character questions are switched
+ * off in Settings: a key in the clipboard is asked about all the same.
+ */
+export function secretWarning(warning: PasteWarning | null): PasteWarning | null {
+  const secrets = warning?.secrets ?? [];
+  return secrets.length === 0 ? null : { runsLines: false, hidden: false, secrets };
 }
 
 /** Whether the user's answer to `asked` also covers what `now` warns about. */
 function covers(asked: PasteWarning, now: PasteWarning): boolean {
-  return (asked.runsLines || !now.runsLines) && (asked.hidden || !now.hidden);
+  const secrets = (asked.secrets?.length ?? 0) > 0 || (now.secrets?.length ?? 0) === 0;
+  return (asked.runsLines || !now.runsLines) && (asked.hidden || !now.hidden) && secrets;
 }
 
 /** How often the question is asked again when the program changed its mode meanwhile. */
@@ -48,18 +64,20 @@ const MAX_QUESTIONS = 2;
  * `bracketedPaste` is read again after the answer: a yes given to a text whose lines would not
  * have run does not cover lines that now would, the question comes again with the new warning
  * (once; after that the text is dropped). Text without a warning needs no call, so it can go in
- * synchronously.
+ * synchronously. `check` finds the warning anew; a caller that asks only about secrets passes one
+ * that keeps to them, so a yes is not followed by a question the person switched off.
  */
 export async function askBeforePaste(
   text: string,
   warning: PasteWarning,
   bracketedPaste: () => boolean,
   confirm: (warning: PasteWarning) => Promise<boolean>,
+  check: (text: string, bracketedPaste: boolean) => PasteWarning | null = pasteWarning,
 ): Promise<boolean> {
   let asked = warning;
   for (let questions = 1; questions <= MAX_QUESTIONS; questions += 1) {
     if (!(await confirm(asked))) return false;
-    const now = pasteWarning(text, bracketedPaste());
+    const now = check(text, bracketedPaste());
     if (now === null || covers(asked, now)) return true;
     asked = now;
   }

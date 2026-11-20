@@ -1682,6 +1682,7 @@ fn invalid_conversation_id_is_refused_before_anything_starts() {
 struct RecordingGate {
     prepared: std::sync::Mutex<Vec<u64>>,
     ended: std::sync::Mutex<Vec<u64>>,
+    notified: std::sync::Mutex<Vec<u64>>,
 }
 
 impl LaunchGate for RecordingGate {
@@ -1721,6 +1722,24 @@ impl LaunchGate for RecordingGate {
             }),
             _ => GatePlan::Skip,
         }
+    }
+
+    fn notify(
+        &self,
+        session: u64,
+        agent: &hangar_lib::agent_catalog::Agent,
+        _program: &std::path::Path,
+        _version: Option<&str>,
+    ) -> Option<GateLaunch> {
+        self.notified.lock().unwrap().push(session);
+        (agent.id() == "noticed").then(|| GateLaunch {
+            prepend: Vec::new(),
+            args: Vec::new(),
+            env: vec![(
+                hangar_lib::gate::NOTIFY_TOKEN_ENV.into(),
+                Zeroizing::new("notice-token-marker".into()),
+            )],
+        })
     }
 
     fn ended(&self, session: u64) {
@@ -1935,6 +1954,54 @@ fn a_private_session_never_gets_the_gate_not_even_after_a_restart() {
     assert_eq!(restarted.gate, GateStatus::None);
     collect_until_exit(&manager, info.id, &rx);
     // The gate was never asked for this session.
+    assert!(!gate.prepared.lock().unwrap().contains(&info.id));
+}
+
+/// A private agent session gets the report-only notice hooks (ADR 0016) at every start, never the
+/// gate: its status stays "none" and the gate's own token never reaches it.
+#[test]
+fn a_private_session_gets_the_notice_hooks_but_never_the_gate() {
+    let probe = if cfg!(windows) {
+        profile(
+            "noticed",
+            "cmd",
+            &[
+                "/d",
+                "/c",
+                "echo",
+                "NOTICE=%HANGAR_NOTIFY_TOKEN%",
+                "GATE=%HANGAR_HOOK_TOKEN%",
+            ],
+        )
+    } else {
+        profile(
+            "noticed",
+            "sh",
+            &[
+                "-c",
+                "echo NOTICE=${HANGAR_NOTIFY_TOKEN:-none} GATE=${HANGAR_HOOK_TOKEN:-none}",
+            ],
+        )
+    };
+    let manager = SessionManager::new(vec![probe], Vec::new(), std::env::temp_dir());
+    let gate = Arc::new(RecordingGate::default());
+    manager.set_launch_gate(gate.clone());
+    let (tx, rx) = channel();
+    let info = manager
+        .create("noticed", None, SIZE, move |e| tx.send(e).unwrap_or(()))
+        .unwrap();
+    assert_eq!(info.mode, SessionMode::Private);
+    assert_eq!(info.gate, GateStatus::None);
+    let (output, _) = collect_until_exit(&manager, info.id, &rx);
+    assert!(output.contains("NOTICE=notice-token-marker"), "{output:?}");
+    assert!(!output.contains("gate-token-marker"), "{output:?}");
+    wait_for_status(&manager, info.id, Status::Exited);
+    let (tx, rx) = channel();
+    manager
+        .restart(info.id, SIZE, move |e| tx.send(e).unwrap_or(()))
+        .unwrap();
+    collect_until_exit(&manager, info.id, &rx);
+    assert_eq!(gate.notified.lock().unwrap().as_slice(), [info.id, info.id]);
     assert!(!gate.prepared.lock().unwrap().contains(&info.id));
 }
 

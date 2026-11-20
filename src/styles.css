@@ -8026,6 +8026,21 @@ body.resizing-horizontal * {
   border-radius: 5px;
 }
 
+/* The staged lines seem to hold secrets (ADR 0015): files and kinds, then the choice. */
+.commit-secrets p {
+  margin: 0 0 4px;
+}
+
+.commit-secrets-title {
+  font-weight: 600;
+}
+
+.commit-secrets-list {
+  margin: 0 0 6px;
+  padding-left: 18px;
+  overflow-wrap: anywhere;
+}
+
 .changes-plus {
   font-variant-numeric: tabular-nums;
   color: var(--diff-add-fg);
@@ -13714,6 +13729,13 @@ body.session-dragging .session-actions {
 }
 
 .waiting-message-from {
+  font-weight: 600;
+  overflow-wrap: anywhere;
+}
+
+/* A message that seems to hold a secret key (ADR 0015). */
+.waiting-message-secret {
+  color: var(--warn);
   font-weight: 600;
   overflow-wrap: anywhere;
 }

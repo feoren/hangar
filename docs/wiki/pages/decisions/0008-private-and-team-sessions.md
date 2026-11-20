@@ -6,7 +6,7 @@ superseded_by:
 tags: [teams, sessions, worktree, gate, hooks, claims, ui]
 sources: ["[[claude-http-hook-measurement]]", "[[agent-hooks-per-session-research]]", "[[gate-hook-helper-measurement]]", "[[codex-gate-live-measurement]]"]
 created: 2026-11-12
-updated: 2026-11-12
+updated: 2026-11-20
 ---
 
 # ADR 0008: Private and team sessions
@@ -41,7 +41,9 @@ Option 2.
 
 - **Private session:** starts directly in the folder, without the agent gate, and is never part
   of the team's presence, shared claims or the repositories offered for linking. Claims between
-  the person's own sessions (step A) still cover it.
+  the person's own sessions (step A) still cover it. Since [[0016-permission-notices]] a private
+  Claude Code session carries report-only notice hooks that tell Hangar when a permission dialog
+  waits; they never hold, decide or block anything, so the session still has no gate.
 - **Team session:** always a git worktree of its own on its own branch (the former worktree
   flow, `create_worktree`), the agent gate on (where the global gate setting allows it), visible
   to the team when its repository is linked to a shared project. Without sign-in it still works

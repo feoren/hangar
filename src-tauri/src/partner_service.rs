@@ -27,6 +27,7 @@ use crate::partners::{
     PartnerBook, PartnerError, ProjectEnd, SendAnswer, SendRequest, SessionPlace,
     MAX_WAITING_PER_PROJECT, SEND_ENV,
 };
+use crate::secret_scan::{self, SecretKind};
 use crate::session::{SessionId, SessionInfo, SessionKind, Status};
 
 #[derive(Debug, thiserror::Error)]
@@ -248,6 +249,18 @@ pub struct Accepted {
     pub waiting: usize,
     /// Running agent sessions of `to`, where the person can paste it now.
     pub running: usize,
+    /// Kinds of secret the text seems to hold (ADR 0015).
+    pub secrets: Vec<SecretKind>,
+}
+
+/// A waiting message as the window shows it: the stored message and the kinds of secret its text
+/// seems to hold, found anew on every read (ADR 0015), so the stored file keeps its shape.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct WaitingView {
+    #[serde(flatten)]
+    pub message: WaitingMessage,
+    pub secrets: Vec<SecretKind>,
 }
 
 /// Checks a message session `from` sent to its partner `request.partner` and adds it to the
@@ -264,11 +277,13 @@ pub fn accept(
 ) -> Result<Accepted, PartnerServiceError> {
     let found = targets(book, sessions, from, &request.partner, probe)?;
     let text = clean_message(&request.text)?;
+    let secrets = secret_scan::scan(&text);
     inbox.push(&found.sender, &found.partner.name, text, now, Some(from))?;
     Ok(Accepted {
         waiting: inbox.waiting_at(&found.partner.name),
         to: found.partner.name,
         running: found.sessions.iter().filter(|s| s.running).count(),
+        secrets,
     })
 }
 
@@ -292,6 +307,12 @@ pub fn send_answer(
                  person there decides whether it is pasted.",
                 accepted.to, accepted.waiting
             );
+            if !accepted.secrets.is_empty() {
+                message.push_str(&format!(
+                    " It seems to contain a secret ({}); do not send keys or tokens in messages.",
+                    secret_scan::labels(&accepted.secrets)
+                ));
+            }
             if accepted.running == 0 {
                 message.push_str(&format!(
                     " No agent session of \"{}\" runs right now; it shows once one does.",
@@ -468,12 +489,19 @@ impl PartnerInbox {
 
     /// The waiting messages, oldest first. Messages between projects that are no partners any
     /// more go: their target could never take them.
-    pub fn waiting(&self, book: &PartnerBook) -> Vec<WaitingMessage> {
+    pub fn waiting(&self, book: &PartnerBook) -> Vec<WaitingView> {
         let mut inbox = lock(&self.inner.inbox);
         if inbox.retain(|message| book.partner(&message.from, &message.to).is_ok()) {
             self.save(&inbox);
         }
-        inbox.messages().to_vec()
+        inbox
+            .messages()
+            .iter()
+            .map(|message| WaitingView {
+                secrets: secret_scan::scan(&message.text),
+                message: message.clone(),
+            })
+            .collect()
     }
 
     /// The text to paste for message `id` into session `to`, header first ([`compose`]):
@@ -838,7 +866,8 @@ mod tests {
             Accepted {
                 to: "web".into(),
                 waiting: 1,
-                running: 1
+                running: 1,
+                secrets: Vec::new(),
             }
         );
         let message = &inbox.messages()[0];
@@ -865,6 +894,40 @@ mod tests {
             );
         }
         assert_eq!(inbox.messages().len(), 1);
+    }
+
+    #[test]
+    fn a_message_with_a_secret_still_waits_and_both_answer_and_card_name_the_kind() {
+        let sessions = vec![info(1, &folder("app")), info(2, &folder("web"))];
+        let mut inbox = Inbox::default();
+        // A made-up Stripe-shaped key, put together at run time.
+        let text = format!("key {}_live_{}", "sk", "Fake0Marker1Value2Test3Hangar4");
+        let accepted = accept(
+            &mut inbox,
+            &book(),
+            &sessions,
+            1,
+            &request("web", &text),
+            &PROBE,
+            7,
+        )
+        .unwrap();
+        assert_eq!(accepted.secrets, vec![SecretKind::StripeKey]);
+        let (_, answer) = send_answer(&Ok(accepted), &[]);
+        assert_eq!(answer.code, "waiting");
+        assert!(
+            answer.message.contains("Stripe secret key"),
+            "{}",
+            answer.message
+        );
+        assert!(!answer.message.contains("Marker1"), "{}", answer.message);
+        let view = WaitingView {
+            secrets: secret_scan::scan(&inbox.messages()[0].text),
+            message: inbox.messages()[0].clone(),
+        };
+        let json = serde_json::to_value(&view).unwrap();
+        assert_eq!(json["secrets"], serde_json::json!(["stripeKey"]));
+        assert_eq!(json["from"], "app");
     }
 
     #[test]
@@ -1050,7 +1113,7 @@ mod tests {
             .unwrap();
         assert_eq!(accepted.running, 2);
         assert_eq!(signals.load(std::sync::atomic::Ordering::SeqCst), 1);
-        let id = inbox.waiting(&book())[0].id;
+        let id = inbox.waiting(&book())[0].message.id;
         // Either running agent of the partner project may take it.
         for to in [2, 3] {
             assert_eq!(
@@ -1094,7 +1157,7 @@ mod tests {
             inbox
                 .receive(&book(), &sessions, 1, &request("web", "x"), &PROBE, 1)
                 .unwrap();
-            inbox.waiting(&book())[0].id
+            inbox.waiting(&book())[0].message.id
         };
         let parted = book().unlink("app", "web").unwrap();
         assert!(matches!(

@@ -5,6 +5,7 @@
 // a running group into what a workspace template keeps. Pure; the backend keeps the groups and
 // checks everything again (links.rs, link_service.rs).
 
+import { secretKinds, type SecretKind } from "./secretScan";
 import type { AttentionReason, AttentionState } from "./attention";
 import { READY_QUIET_MS } from "./handover";
 
@@ -53,6 +54,8 @@ export interface LinkMessage {
   auto: boolean;
   /** A paste of it runs right now. */
   claimed: boolean;
+  /** Kinds of secret the backend found (ADR 0015): it never goes on its own; left out when none. */
+  secrets?: readonly SecretKind[];
 }
 
 /** The backend's `LinkSnapshot`. */
@@ -139,7 +142,10 @@ function message(value: unknown): LinkMessage | null {
   if (typeof text !== "string" || text.trim() === "") return null;
   if (typeof at !== "number" || !Number.isFinite(at) || typeof auto !== "boolean") return null;
   if (typeof claimed !== "boolean") return null;
-  return { id: messageId, group: groupId, fromName, to, text, at, auto, claimed };
+  const found = { id: messageId, group: groupId, fromName, to, text, at, auto, claimed };
+  const secrets = secretKinds(Reflect.get(value, "secrets"));
+  // A message with a secret waits for a click, whatever `auto` says.
+  return secrets.length === 0 ? found : { ...found, auto: false, secrets };
 }
 
 /** The backend's answer; malformed entries are left out, anything else malformed reads as none. */
@@ -492,6 +498,11 @@ export interface TargetFacts {
   asks: boolean;
   /** The agent waits for the person's decision on a held tool call (gate). */
   gatePending: boolean;
+  /**
+   * The agent's own hooks report a permission or input dialog (ADR 0016): a sure sign, so the
+   * Enter never goes in, whatever the screen shows.
+   */
+  permissionPending?: boolean;
   /** Milliseconds since the person last typed there, `null` before any key. */
   typedAgoMs: number | null;
   /** The person began a line there that waits for its Enter. */
@@ -501,15 +512,16 @@ export interface TargetFacts {
 /**
  * Whether Hangar may paste a message with Enter into this target now (ADR 0014): only when the
  * target went quiet after a working phase, which is its prompt waiting for the next task. Never
- * while it works or rests without having worked, rang the bell, waits for a gate decision or may
- * show a question, and never while the person types there (`typing`). A target on screen turns
+ * while it works or rests without having worked, rang the bell, waits for a gate decision, shows a
+ * dialog its hooks reported or may show a question, and never while the person types there
+ * (`typing`). A target on screen turns
  * "idle" instead of "attention" when it goes quiet; its `endedBy` still says "quiet".
  */
 export function autoReadiness(facts: TargetFacts): "ready" | "wait" | "typing" {
   if (facts.draft || (facts.typedAgoMs !== null && facts.typedAgoMs < TYPING_PAUSE_MS)) {
     return "typing";
   }
-  if (facts.asks || facts.gatePending) return "wait";
+  if (facts.asks || facts.gatePending || facts.permissionPending === true) return "wait";
   const quietAfterWork =
     facts.state === "attention"
       ? facts.reason === "quiet"

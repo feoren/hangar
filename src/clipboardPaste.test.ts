@@ -89,6 +89,27 @@ describe("pasteFromClipboard", () => {
     expect(session.written).toEqual([]);
   });
 
+  it("asks before a secret even when the line questions are switched off", async () => {
+    const key = ["gh", "p_", "Fake0Marker1Value2Test3Hangar4Only5N"].join("");
+    const session = target({ bracketed: false, warns: false });
+    const text = ["one", key].join("\n");
+    await expect(pasteFromClipboard(session, text, noImage)).resolves.toBe("declined");
+    expect(session.asked).toEqual([{ runsLines: false, hidden: false, secrets: ["githubToken"] }]);
+    expect(session.written).toEqual([]);
+    const plain = target({ bracketed: false, warns: false });
+    await expect(pasteFromClipboard(plain, "one\ntwo", noImage)).resolves.toBe("text");
+    expect(plain.asked).toEqual([]);
+  });
+
+  it("asks about a secret once and never adds the switched off line question after a yes", async () => {
+    const key = ["gh", "p_", "Fake0Marker1Value2Test3Hangar4Only5N"].join("");
+    const session = target({ bracketed: false, warns: false, answer: true });
+    const text = ["one", key].join("\n");
+    await expect(pasteFromClipboard(session, text, noImage)).resolves.toBe("text");
+    expect(session.asked).toEqual([{ runsLines: false, hidden: false, secrets: ["githubToken"] }]);
+    expect(session.written).toEqual([text]);
+  });
+
   it("asks before text with hidden characters, even with bracketed paste", async () => {
     const session = target({ bracketed: true });
     await pasteFromClipboard(session, "marker\u202eetxt", noImage);

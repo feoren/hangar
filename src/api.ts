@@ -705,8 +705,13 @@ export const api = {
   gitUnstage: (id: number, paths: string[]) => invoke<null>("git_unstage", { id, paths }),
   /** Throws the changes away; untracked files are deleted. Ask the user first. */
   gitDiscard: (id: number, paths: string[]) => invoke<null>("git_discard", { id, paths }),
-  /** Commits what is staged; hooks run as configured. */
-  gitCommit: (id: number, message: string) => invoke<null>("git_commit", { id, message }),
+  /**
+   * Commits what is staged; hooks run as configured. Nothing is committed when the staged changes
+   * seem to hold a secret, unless `allowTree` is the tree that answer named ("Commit anyway" for
+   * exactly that index); check the answer with `parseCommitOutcome`.
+   */
+  gitCommit: (id: number, message: string, allowTree: string | null) =>
+    invoke<unknown>("git_commit", { id, message, allowTree }),
   /**
    * Timeline of a session's work tree (git_snapshots.rs). The main window binds the session's
    * workspace key once (`snapshotBind`), which names its snapshots across restarts; every other
@@ -808,6 +813,13 @@ export const api = {
   configureGate: (enabled: boolean) => invoke<null>("configure_gate", { enabled }),
   /** The newest gate snapshot; check with `parseGateSnapshot`. */
   gateSnapshot: () => invoke<unknown>("gate_snapshot"),
+  /**
+   * The sessions whose agent shows a permission or input dialog, as its report-only hooks tell
+   * (ADR 0016); check with `parsePermissionWaiting`. Main window only.
+   */
+  permissionWaiting: () => invoke<unknown>("permission_waiting"),
+  /** The person answered the reported dialog of session `id` with a key (ADR 0016). */
+  permissionAnswered: (id: number) => invoke<null>("permission_answered", { id }),
   /** `false`: the decision no longer waits (answered elsewhere, timed out, session ended). */
   answerGate: (id: number, answer: GateAnswer) => invoke<boolean>("answer_gate", { id, answer }),
   /** The gate rules of every project; check with `parseGateRules`. */
@@ -968,6 +980,11 @@ export const POWER_CHANGED = "power-changed";
 export const CLAIMS_CHANGED = "claims-changed";
 /** Signal without a payload: the gate changed; read it with `api.gateSnapshot`. */
 export const GATE_CHANGED = "gate-changed";
+/**
+ * Signal without payload: the sessions whose agent shows a permission or input dialog changed
+ * (ADR 0016); read them with `permissionWaiting`.
+ */
+export const PERMISSION_WAITS_CHANGED = "permission-waits-changed";
 /**
  * Signal without payload: a message from a partner project's agent arrived or went (ADR 0012);
  * read them with `waitingMessages`. Other webviews may hear it too, so it carries no text.

@@ -855,6 +855,18 @@
           "markdownDescription": "Enables the paste_sub_agent_figure command without any pre-configured scope."
         },
         {
+          "description": "Enables the permission_answered command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-permission-answered",
+          "markdownDescription": "Enables the permission_answered command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the permission_waiting command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-permission-waiting",
+          "markdownDescription": "Enables the permission_waiting command without any pre-configured scope."
+        },
+        {
           "description": "Enables the power_state command without any pre-configured scope.",
           "type": "string",
           "const": "allow-power-state",
@@ -2035,6 +2047,18 @@
           "type": "string",
           "const": "deny-paste-sub-agent-figure",
           "markdownDescription": "Denies the paste_sub_agent_figure command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the permission_answered command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-permission-answered",
+          "markdownDescription": "Denies the permission_answered command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the permission_waiting command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-permission-waiting",
+          "markdownDescription": "Denies the permission_waiting command without any pre-configured scope."
         },
         {
           "description": "Denies the power_state command without any pre-configured scope.",

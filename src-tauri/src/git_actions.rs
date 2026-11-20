@@ -20,6 +20,7 @@ use std::time::{Duration, Instant};
 use serde::{Serialize, Serializer};
 
 use crate::git::{self, Git, GitError, Output};
+use crate::secret_scan::{self, SecretKind};
 use crate::session::SessionId;
 
 /// Files per call; the panel lists at most what `git_diff` found.
@@ -35,6 +36,12 @@ const ACTION_TIMEOUT_PER_PATH: Duration = Duration::from_millis(10);
 /// Entries of an untracked folder checked for links before it is deleted; a larger folder is
 /// refused rather than deleted unchecked.
 pub const MAX_LINK_SCAN: usize = 100_000;
+/// Staged diff read for the secret check before a commit (ADR 0015); the rest is not checked.
+pub const MAX_SCAN_BYTES: usize = 8 * 1024 * 1024;
+/// How long the secret check may take; after it the commit goes ahead unchecked.
+pub const SCAN_TIMEOUT: Duration = Duration::from_secs(10);
+/// Files named in one answer; more found are counted in `more`.
+pub const MAX_FINDINGS: usize = 20;
 /// Commands without a pathspec file (`ls-files`, `clean`) take their paths as arguments; a few
 /// per call keep the command line short.
 const CLEAN_CHUNK: usize = 64;
@@ -569,6 +576,276 @@ pub fn discard(git: &Git, cwd: &Path, paths: &[String]) -> Result<(), ActionErro
     run().map_err(explain_timeout)
 }
 
+/// A staged file whose added lines seem to hold a secret: its path and the kinds, never the
+/// line.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SecretFinding {
+    pub path: String,
+    pub kinds: Vec<SecretKind>,
+}
+
+/// What the commit box's commit did.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(tag = "kind", rename_all = "camelCase")]
+pub enum CommitOutcome {
+    /// Committed; `checked` says how far the staged changes were checked for secrets.
+    #[serde(rename_all = "camelCase")]
+    Committed { checked: Checked },
+    /// Nothing was committed: the staged changes seem to hold secrets; the person decides.
+    /// `complete`: the whole staged diff was read; `more`: files found beyond [`MAX_FINDINGS`];
+    /// `tree`: the index as `git write-tree` names it, which "Commit anyway" hands back
+    /// (`allow_tree`), so the answer covers exactly what was checked.
+    #[serde(rename_all = "camelCase")]
+    Secrets {
+        findings: Vec<SecretFinding>,
+        more: usize,
+        complete: bool,
+        tree: Option<String>,
+    },
+}
+
+/// How far a commit's staged changes were checked for secrets before it went in.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub enum Checked {
+    /// The whole diff, or the person committed the checked index anyway.
+    Full,
+    /// Only the start: the diff was cut at [`MAX_SCAN_BYTES`] or the check ran out of time.
+    Partial,
+    /// Not at all: git could not show the diff.
+    Skipped,
+}
+
+/// What the check of the staged changes found.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct StagedScan {
+    pub findings: Vec<SecretFinding>,
+    /// Everything was read and scanned in time.
+    pub complete: bool,
+}
+
+/// A path as git prints it after `+++ `: `b/` in front, quoted with C escapes when it holds a
+/// quote, a backslash or a control character (`core.quotePath` is off, so other characters come
+/// as they are).
+fn diff_path(raw: &str) -> String {
+    let Some(quoted) = raw
+        .strip_prefix('"')
+        .and_then(|rest| rest.strip_suffix('"'))
+    else {
+        return raw.strip_prefix("b/").unwrap_or(raw).to_owned();
+    };
+    let mut out = String::new();
+    let mut chars = quoted.chars();
+    while let Some(c) = chars.next() {
+        if c != '\\' {
+            out.push(c);
+            continue;
+        }
+        match chars.next() {
+            Some('t') => out.push('\t'),
+            Some('n') => out.push('\n'),
+            Some('r') => out.push('\r'),
+            Some(other) => out.push(other),
+            None => {}
+        }
+    }
+    out.strip_prefix("b/").map(str::to_owned).unwrap_or(out)
+}
+
+/// Lines read between two looks at the deadline.
+const DEADLINE_EVERY: usize = 4096;
+
+/// The files of a `git diff --unified=0` whose added lines seem to hold secrets, in diff order,
+/// and whether all of it was scanned before `deadline`. Removed and context lines do not count; a
+/// deleted file has no added lines.
+pub fn added_secrets(diff: &[u8], deadline: Instant) -> (Vec<SecretFinding>, bool) {
+    let mut findings = Vec::new();
+    let mut path: Option<String> = None;
+    let mut added = String::new();
+    let mut in_hunk = false;
+    let mut finish = |path: &mut Option<String>, added: &mut String| {
+        if let Some(path) = path.take() {
+            let kinds = secret_scan::scan(added);
+            if !kinds.is_empty() {
+                findings.push(SecretFinding { path, kinds });
+            }
+        }
+        added.clear();
+    };
+    for (number, line) in diff.split(|b| *b == b'\n').enumerate() {
+        if number % DEADLINE_EVERY == 0 && Instant::now() >= deadline {
+            return (findings, false);
+        }
+        let line = line.strip_suffix(b"\r").unwrap_or(line);
+        if line.starts_with(b"diff --git ") {
+            finish(&mut path, &mut added);
+            in_hunk = false;
+        } else if !in_hunk && line.starts_with(b"+++ ") {
+            let target = String::from_utf8_lossy(&line[4..]).into_owned();
+            path = (target != "/dev/null").then(|| diff_path(&target));
+        } else if line.starts_with(b"@@") {
+            in_hunk = true;
+        } else if in_hunk && line.first() == Some(&b'+') {
+            added.push_str(&String::from_utf8_lossy(&line[1..]));
+            added.push('\n');
+        }
+    }
+    if Instant::now() >= deadline {
+        return (findings, false);
+    }
+    finish(&mut path, &mut added);
+    (findings, true)
+}
+
+/// Joins the files found by name ([`secret_scan::secret_file_name`]) with those found by their
+/// added lines, one entry per path, in the order of `names` (the diff's order), content-only
+/// paths after them.
+fn merge_findings(names: &[String], content: Vec<SecretFinding>) -> Vec<SecretFinding> {
+    let mut merged: Vec<SecretFinding> = names
+        .iter()
+        .filter(|name| secret_scan::secret_file_name(name))
+        .map(|name| SecretFinding {
+            path: name.clone(),
+            kinds: vec![SecretKind::SecretFile],
+        })
+        .collect();
+    for finding in content {
+        match merged.iter_mut().find(|known| known.path == finding.path) {
+            Some(known) => {
+                known.kinds.extend(finding.kinds);
+                known.kinds.sort();
+                known.kinds.dedup();
+            }
+            None => merged.push(finding),
+        }
+    }
+    let order = |path: &str| {
+        names
+            .iter()
+            .position(|name| name == path)
+            .unwrap_or(usize::MAX)
+    };
+    merged.sort_by_key(|finding| order(&finding.path));
+    merged
+}
+
+/// The index as a tree id (`git write-tree`), or `None` when git cannot name it (an unmerged
+/// index, which git would not commit either).
+fn staged_tree(git: &Git, root: &Path, deadline: Instant) -> Option<String> {
+    let output = git.run(root, ["write-tree"], deadline, 4096).ok()?;
+    let tree = String::from_utf8_lossy(&output.stdout).trim().to_owned();
+    (output.success && valid_tree(&tree)).then_some(tree)
+}
+
+/// A tree id as git prints it: 40 (SHA-1) or 64 (SHA-256) lowercase hex digits.
+pub fn valid_tree(tree: &str) -> bool {
+    matches!(tree.len(), 40 | 64)
+        && tree
+            .bytes()
+            .all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b))
+}
+
+/// The staged changes' files whose added lines seem to hold secrets, and whether the whole diff
+/// was read. Filters, external diff drivers and text conversions do not run; at most
+/// [`MAX_SCAN_BYTES`] are read within [`SCAN_TIMEOUT`].
+pub fn staged_secrets(
+    git: &Git,
+    root: &Path,
+    deadline: Instant,
+) -> Result<StagedScan, ActionError> {
+    let overrides = git::filter_overrides(git, root, deadline)?;
+    let diff = |extra: &[&'static str], limit: usize| {
+        let output = git.run(
+            root,
+            overrides
+                .iter()
+                .map(String::as_str)
+                .chain(["-c", "core.quotePath=false"])
+                .chain(git::DIFF_ARGS.iter().copied())
+                .chain(["--cached", "--no-renames"])
+                .chain(extra.iter().copied())
+                .chain(["--"]),
+            deadline,
+            limit,
+        )?;
+        // stderr only: git's own message, never a line of the diff.
+        if !output.usable() {
+            return Err(ActionError::from(output.failure()));
+        }
+        Ok(output)
+    };
+    // Staged files whose name usually holds a secret (`.env` and the like), deleted ones aside.
+    let listed = diff(
+        &["--name-only", "-z", "--diff-filter=d"],
+        git::MAX_LIST_BYTES,
+    )?;
+    let names: Vec<String> = listed
+        .stdout
+        .split(|b| *b == 0)
+        .filter(|name| !name.is_empty())
+        .map(|name| String::from_utf8_lossy(name).into_owned())
+        .collect();
+    // `--text`: a file git takes for binary (a NUL byte, an attribute) is read line by line too.
+    let patch = diff(
+        &[
+            "--text",
+            "--unified=0",
+            "--src-prefix=a/",
+            "--dst-prefix=b/",
+        ],
+        MAX_SCAN_BYTES,
+    )?;
+    let (content, scanned) = added_secrets(&patch.stdout, deadline);
+    Ok(StagedScan {
+        findings: merge_findings(&names, content),
+        complete: scanned && !listed.truncated && !patch.truncated,
+    })
+}
+
+/// The commit box's commit. The staged changes are checked first ([`staged_secrets`]) and
+/// nothing is committed when they seem to hold a secret, unless `allow_tree` names the index as
+/// it is now: the person saw exactly these findings and chose "Commit anyway". Any other index
+/// is checked anew. A check that cannot run or takes too long lets the commit go ahead (it is a
+/// helper, not a gate), and the answer says so.
+pub fn commit_checked(
+    git: &Git,
+    cwd: &Path,
+    message: &str,
+    allow_tree: Option<&str>,
+) -> Result<CommitOutcome, ActionError> {
+    check_message(message)?;
+    let deadline = Instant::now() + SCAN_TIMEOUT;
+    let root = repo_root(git, cwd, deadline)?;
+    let tree = staged_tree(git, &root, deadline);
+    let allowed = allow_tree.filter(|allowed| valid_tree(allowed));
+    let checked = if tree.is_some() && allowed == tree.as_deref() {
+        Checked::Full
+    } else {
+        match staged_secrets(git, &root, deadline) {
+            Ok(mut scan) if !scan.findings.is_empty() => {
+                let more = scan.findings.len().saturating_sub(MAX_FINDINGS);
+                scan.findings.truncate(MAX_FINDINGS);
+                return Ok(CommitOutcome::Secrets {
+                    findings: scan.findings,
+                    more,
+                    complete: scan.complete,
+                    tree,
+                });
+            }
+            Ok(scan) if scan.complete => Checked::Full,
+            Ok(_) => Checked::Partial,
+            // git's message (stderr) names no file content.
+            Err(error) => {
+                eprintln!("hangar: staged changes not checked for secrets: {error}");
+                Checked::Skipped
+            }
+        }
+    };
+    commit(git, cwd, message)?;
+    Ok(CommitOutcome::Committed { checked })
+}
+
 /// A commit message: not empty after trimming, at most [`MAX_MESSAGE_BYTES`], and no control
 /// characters except tab and line breaks (an escape sequence would reach every log reader's
 /// terminal).
@@ -967,6 +1244,222 @@ mod tests {
             );
         }
         assert!(check_message("feat: x\r\n\n\tbody").is_ok());
+    }
+
+    /// A made-up GitHub-shaped token, put together at run time so no complete shape is stored.
+    fn fake_token() -> String {
+        format!("gh{}_{}", "p", "Fake0Marker1Value2Test3Hangar4Only5N")
+    }
+
+    #[test]
+    fn added_lines_with_a_secret_name_their_file_and_kind_only() {
+        let token = fake_token();
+        let diff = [
+            "diff --git a/src/config.rs b/src/config.rs",
+            "index 1..2 100644",
+            "--- a/src/config.rs",
+            "+++ b/src/config.rs",
+            "@@ -1 +1 @@",
+            &format!("-let old = \"{token}\";"),
+            "+let token = load();",
+            "diff --git a/deploy/app env.txt b/deploy/app env.txt",
+            "new file mode 100644",
+            "--- /dev/null",
+            "+++ b/deploy/app env.txt",
+            "@@ -0,0 +1,2 @@",
+            &format!("+TOKEN={token}\r"),
+            "++++ looks like a header",
+            "diff --git a/gone.txt b/gone.txt",
+            "deleted file mode 100644",
+            "--- a/gone.txt",
+            "+++ /dev/null",
+            "@@ -1 +0,0 @@",
+            &format!("-{token}"),
+            r#"diff --git "a/tab\there.txt" "b/tab\there.txt""#,
+            "--- /dev/null",
+            r#"+++ "b/tab\there.txt""#,
+            "@@ -0,0 +1 @@",
+            &format!("+{token}"),
+            "",
+        ]
+        .join("\n");
+        let (findings, complete) = added_secrets(diff.as_bytes(), Instant::now() + SCAN_TIMEOUT);
+        assert!(complete);
+        assert_eq!(
+            findings,
+            vec![
+                SecretFinding {
+                    path: "deploy/app env.txt".into(),
+                    kinds: vec![SecretKind::GithubToken],
+                },
+                SecretFinding {
+                    path: "tab\there.txt".into(),
+                    kinds: vec![SecretKind::GithubToken],
+                },
+            ]
+        );
+        let shown = format!("{findings:?} {}", serde_json::to_string(&findings).unwrap());
+        assert!(!shown.contains("Marker1"), "{shown}");
+        assert_eq!(
+            added_secrets(b"", Instant::now() + SCAN_TIMEOUT),
+            (Vec::new(), true)
+        );
+        // Past the deadline nothing more is scanned and the result says so.
+        assert_eq!(
+            added_secrets(diff.as_bytes(), Instant::now()),
+            (Vec::new(), false)
+        );
+    }
+
+    #[test]
+    fn a_commit_with_a_staged_secret_waits_for_the_person() {
+        let Some(git) = git() else { return };
+        let tmp = TempDir::new("git-actions-secret");
+        let repo = committed_repo(&git, &tmp);
+        write(
+            &repo.join("a.txt"),
+            &format!("one\nkey = {}\n", fake_token()),
+        );
+        stage(&git, &repo, &owned(&["a.txt"])).unwrap();
+        let outcome = commit_checked(&git, &repo, "feat: key", None).unwrap();
+        let CommitOutcome::Secrets {
+            findings,
+            more,
+            complete,
+            tree: Some(tree),
+        } = outcome.clone()
+        else {
+            panic!("{outcome:?}");
+        };
+        assert_eq!(
+            findings,
+            vec![SecretFinding {
+                path: "a.txt".into(),
+                kinds: vec![SecretKind::GithubToken],
+            }]
+        );
+        assert_eq!((more, complete), (0, true));
+        assert!(valid_tree(&tree), "{tree}");
+        let json = serde_json::to_value(&outcome).unwrap();
+        assert_eq!(json["kind"], "secrets");
+        assert_eq!(json["findings"][0]["kinds"][0], "githubToken");
+        assert_eq!(json["tree"], tree.as_str());
+        // Nothing was committed.
+        assert_eq!(codes(&git, &repo), [pair("M ", "a.txt")]);
+        // "Commit anyway" for another index (here: a made-up tree) checks again and asks again.
+        let other = "0".repeat(40);
+        assert!(matches!(
+            commit_checked(&git, &repo, "feat: key", Some(&other)).unwrap(),
+            CommitOutcome::Secrets { .. }
+        ));
+        // A file staged after the question changes the index: the old answer does not cover it.
+        write(&repo.join("b.txt"), &format!("two\n{}\n", fake_token()));
+        stage(&git, &repo, &owned(&["b.txt"])).unwrap();
+        let again = commit_checked(&git, &repo, "feat: key", Some(&tree)).unwrap();
+        let CommitOutcome::Secrets {
+            findings,
+            tree: Some(new_tree),
+            ..
+        } = again
+        else {
+            panic!("{again:?}");
+        };
+        assert_eq!(findings.len(), 2);
+        assert_ne!(new_tree, tree);
+        // The answer for exactly this index commits it.
+        assert_eq!(
+            commit_checked(&git, &repo, "feat: key", Some(&new_tree)).unwrap(),
+            CommitOutcome::Committed {
+                checked: Checked::Full
+            }
+        );
+        assert!(codes(&git, &repo).is_empty());
+        // A change without a secret commits at once, fully checked.
+        write(&repo.join("a.txt"), "one\nplain\n");
+        stage(&git, &repo, &owned(&["a.txt"])).unwrap();
+        let committed = commit_checked(&git, &repo, "fix: plain", None).unwrap();
+        assert_eq!(
+            committed,
+            CommitOutcome::Committed {
+                checked: Checked::Full
+            }
+        );
+        assert_eq!(
+            serde_json::to_value(&committed).unwrap(),
+            serde_json::json!({ "kind": "committed", "checked": "full" })
+        );
+        // The message is checked before the scan.
+        assert!(matches!(
+            commit_checked(&git, &repo, " ", None),
+            Err(ActionError::EmptyMessage)
+        ));
+    }
+
+    #[test]
+    fn a_staged_secret_file_and_a_binary_file_with_a_key_are_found() {
+        let Some(git) = git() else { return };
+        let tmp = TempDir::new("git-actions-secret-file");
+        let repo = committed_repo(&git, &tmp);
+        write(&repo.join(".env"), "MARKER=harmless\n");
+        write(&repo.join(".env.example"), "MARKER=\n");
+        // A NUL byte makes git take the file for binary; `--text` still shows its lines.
+        std::fs::write(
+            repo.join("blob.bin"),
+            format!("\0head\n{}\n", fake_token()).as_bytes(),
+        )
+        .unwrap();
+        stage(&git, &repo, &owned(&[".env", ".env.example", "blob.bin"])).unwrap();
+        let scan = staged_secrets(&git, &repo, Instant::now() + SCAN_TIMEOUT).unwrap();
+        assert!(scan.complete);
+        assert_eq!(
+            scan.findings,
+            vec![
+                SecretFinding {
+                    path: ".env".into(),
+                    kinds: vec![SecretKind::SecretFile],
+                },
+                SecretFinding {
+                    path: "blob.bin".into(),
+                    kinds: vec![SecretKind::GithubToken],
+                },
+            ]
+        );
+    }
+
+    #[test]
+    fn name_and_content_findings_merge_per_file() {
+        let names = vec![
+            "a.txt".to_owned(),
+            "x/id_rsa".to_owned(),
+            "c.txt".to_owned(),
+        ];
+        let content = vec![
+            SecretFinding {
+                path: "c.txt".into(),
+                kinds: vec![SecretKind::StripeKey],
+            },
+            SecretFinding {
+                path: "x/id_rsa".into(),
+                kinds: vec![SecretKind::PrivateKey],
+            },
+        ];
+        assert_eq!(
+            merge_findings(&names, content),
+            vec![
+                SecretFinding {
+                    path: "x/id_rsa".into(),
+                    kinds: vec![SecretKind::PrivateKey, SecretKind::SecretFile],
+                },
+                SecretFinding {
+                    path: "c.txt".into(),
+                    kinds: vec![SecretKind::StripeKey],
+                },
+            ]
+        );
+        assert!(valid_tree(&"a".repeat(40)));
+        assert!(valid_tree(&"0".repeat(64)));
+        assert!(!valid_tree(&"A".repeat(40)));
+        assert!(!valid_tree("HEAD"));
     }
 
     #[test]

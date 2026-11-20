@@ -288,6 +288,8 @@ const de = {
   "partnerError.shellSender": "Nur Agenten-Sitzungen senden an Partnerprojekte.",
   "inbox.from": "Nachricht von „{project}“",
   "inbox.discard": "Verwerfen",
+  "message.secretHint":
+    "Enthält vermutlich einen geheimen Schlüssel ({kinds}). Prüfe die Nachricht, bevor du sie einfügst.",
   "inbox.marker": "Wartende Nachrichten: {count}",
   "inbox.arrived": "Eine Nachricht von „{from}“ wartet, bis in „{to}“ eine Agenten-Sitzung läuft.",
   "links.menu": "Verknüpfen mit …",
@@ -400,6 +402,7 @@ const de = {
   "gate.failed": "Deine Antwort kam nicht an: {error}",
   "gate.announce": "{title} wartet auf deine Entscheidung",
   "status.gate": "braucht deine Entscheidung",
+  "status.permission": "wartet auf deine Freigabe",
   "settings.gate":
     "Agenten anhalten, bevor sie eine Datei bearbeiten, die eine andere Session ändert",
   "settings.gateHelp":
@@ -771,6 +774,7 @@ const de = {
   "status.short.attention": "fertig",
   "status.short.asks": "Frage",
   "status.short.gate": "Entscheidung",
+  "status.short.permission": "Freigabe",
   "status.short.failed": "Fehler",
   "status.short.exited": "beendet",
   "status.short.exitedByUser": "gestoppt",
@@ -783,6 +787,7 @@ const de = {
   "status.agent.attention": "{agent} wartet auf dich",
   "status.agent.asks": "{agent} fragt dich",
   "status.agent.gate": "{agent} braucht deine Entscheidung",
+  "status.agent.permission": "{agent} wartet auf deine Freigabe",
   "status.agent.failed": "{agent} hat einen Fehler",
   "status.agent.exited": "{agent} ist beendet",
   "status.agent.exitedByUser": "{agent} wurde von dir beendet",
@@ -896,10 +901,20 @@ const de = {
     "Nicht gesendet an {sessions}: Der Text hat mehrere Zeilen oder unsichtbare Zeichen, und das Programm dort würde jede Zeile sofort ausführen.",
   "settings.warnMultilinePaste": "Vor mehrzeiligem Einfügen warnen",
   "settings.warnMultilinePasteHelp":
-    "Strg+V und Umschalt+Einfg fragen nach, bevor mehrere Zeilen in ein Programm gehen, das jede Zeile sofort ausführt, oder bevor Text mit unsichtbaren Zeichen eingefügt wird.",
+    "Strg+V und Umschalt+Einfg fragen nach, bevor mehrere Zeilen in ein Programm gehen, das jede Zeile sofort ausführt, oder bevor Text mit unsichtbaren Zeichen eingefügt wird. Bei einem vermuteten Schlüssel fragen sie immer.",
   "paste.runsLines": "{name} führt jede Zeile sofort aus, sobald sie ankommt.",
   "paste.hidden": "Der Text enthält unsichtbare Zeichen. Er könnte anders laufen, als er aussieht.",
+  "paste.secret": "Der Text enthält vermutlich einen geheimen Schlüssel ({kinds}).",
   "paste.sendAnyway": "Trotzdem senden",
+  "secret.privateKey": "privater Schlüssel",
+  "secret.awsAccessKey": "AWS-Zugangsschlüssel",
+  "secret.githubToken": "GitHub-Token",
+  "secret.anthropicKey": "Anthropic-API-Schlüssel",
+  "secret.openaiKey": "OpenAI-API-Schlüssel",
+  "secret.slackToken": "Slack-Token",
+  "secret.stripeKey": "Stripe-Schlüssel",
+  "secret.secretFile": "Datei, die meist Geheimnisse enthält",
+  "secret.unknown": "Art nicht erkennbar",
   "paste.imageFailed": "Das Bild aus der Zwischenablage ließ sich nicht einfügen.",
   "settings.scrollbackSecrets":
     "Darin steht alles, was im Terminal zu sehen war, auch Passwörter oder Tokens. Lösch den Verlauf, wenn er so etwas enthält.",
@@ -1463,6 +1478,15 @@ const de = {
   "changes.viewTimeline": "Zeitleiste",
   "changes.commitMessage": "Commit-Nachricht",
   "changes.commit": "Commit",
+  "changes.secretTitle": "Die gestagten Änderungen enthalten vermutlich geheime Schlüssel:",
+  "changes.secretMore": "Weitere Dateien: {count}.",
+  "changes.secretPartial": "Die Änderungen sind sehr groß, geprüft wurde nur der Anfang.",
+  "changes.secretNoTree":
+    "Git kann den gestagten Stand gerade nicht festhalten. Committe in diesem Fall im Terminal.",
+  "changes.commitAnyway": "Trotzdem committen",
+  "changes.checkedPartial":
+    "Committet. Die Änderungen waren sehr groß, nur der Anfang wurde auf Schlüssel geprüft.",
+  "changes.checkedSkipped": "Committet. Die Änderungen ließen sich nicht auf Schlüssel prüfen.",
   "changes.stageAllCommit": "Geänderte stagen und committen",
   "changes.stageAllHint":
     "Stagt alle geänderten und gelöschten Dateien und committet sie. Neue Dateien nimmst du über ihr Häkchen dazu.",
@@ -2139,6 +2163,8 @@ const de = {
   "guardRule.tooLong": "Zu lang zum Prüfen: über 64 KiB oder mit einem NUL-Zeichen",
   "guardRule.hangarConfig":
     "Betrifft Hangars eigene Einstellungen (Regeldatei oder gemerkte Antworten)",
+  "guardRule.secretFile":
+    "git add mit einer Datei, die meist Geheimnisse enthält (.env, .pem, .key, id_rsa, credentials.json)",
   "gate.commandHidden": "{count} weitere Zeichen nicht angezeigt",
   "gate.commandAppliesTo": "Gilt für: {rules}",
   "settings.commandGuardFewer":
@@ -2542,6 +2568,8 @@ const en: Record<MessageKey, string> = {
   "partnerError.shellSender": "Only agent sessions send to partner projects.",
   "inbox.from": "Message from “{project}”",
   "inbox.discard": "Discard",
+  "message.secretHint":
+    "Probably contains a secret key ({kinds}). Check the message before you paste it.",
   "inbox.marker": "Waiting messages: {count}",
   "inbox.arrived": "A message from “{from}” waits until an agent session runs in “{to}”.",
   "links.menu": "Link with …",
@@ -2651,6 +2679,7 @@ const en: Record<MessageKey, string> = {
   "gate.failed": "Your answer did not get through: {error}",
   "gate.announce": "{title} is waiting for your decision",
   "status.gate": "needs your decision",
+  "status.permission": "waits for your approval",
   "settings.gate": "Pause agents before editing a file another session is changing",
   "settings.gateHelp":
     "The agent then waits until you decide here. Applies to team sessions you start while this is on, not inside WSL. This coordinates your sessions and is no protection: changes made through the terminal are not held, and if Hangar cannot answer, the change goes ahead.",
@@ -3015,6 +3044,7 @@ const en: Record<MessageKey, string> = {
   "status.short.attention": "done",
   "status.short.asks": "question",
   "status.short.gate": "decision",
+  "status.short.permission": "approval",
   "status.short.failed": "error",
   "status.short.exited": "exited",
   "status.short.exitedByUser": "stopped",
@@ -3027,6 +3057,7 @@ const en: Record<MessageKey, string> = {
   "status.agent.attention": "{agent} is waiting for you",
   "status.agent.asks": "{agent} has a question",
   "status.agent.gate": "{agent} needs your decision",
+  "status.agent.permission": "{agent} waits for your approval",
   "status.agent.failed": "{agent} hit an error",
   "status.agent.exited": "{agent} has exited",
   "status.agent.exitedByUser": "{agent} was stopped by you",
@@ -3134,10 +3165,20 @@ const en: Record<MessageKey, string> = {
     "Not sent to {sessions}: the text has several lines or hidden characters, and the program there would run each line at once.",
   "settings.warnMultilinePaste": "Warn before pasting several lines",
   "settings.warnMultilinePasteHelp":
-    "Ctrl+V and Shift+Insert ask first before several lines go into a program that runs each line at once, or before text with hidden characters is pasted.",
+    "Ctrl+V and Shift+Insert ask first before several lines go into a program that runs each line at once, or before text with hidden characters is pasted. With a suspected secret key they always ask.",
   "paste.runsLines": "{name} runs each line as soon as it arrives.",
   "paste.hidden": "The text contains hidden characters. It may run differently than it reads.",
+  "paste.secret": "The text probably contains a secret key ({kinds}).",
   "paste.sendAnyway": "Send anyway",
+  "secret.privateKey": "private key",
+  "secret.awsAccessKey": "AWS access key",
+  "secret.githubToken": "GitHub token",
+  "secret.anthropicKey": "Anthropic API key",
+  "secret.openaiKey": "OpenAI API key",
+  "secret.slackToken": "Slack token",
+  "secret.stripeKey": "Stripe secret key",
+  "secret.secretFile": "file that usually holds secrets",
+  "secret.unknown": "kind not known",
   "paste.imageFailed": "The image on the clipboard could not be pasted.",
   "settings.scrollbackSecrets":
     "It contains everything that was shown in the terminal, including passwords or tokens. Clear the history if it holds anything like that.",
@@ -3695,6 +3736,15 @@ const en: Record<MessageKey, string> = {
   "changes.viewTimeline": "Timeline",
   "changes.commitMessage": "Commit message",
   "changes.commit": "Commit",
+  "changes.secretTitle": "The staged changes probably contain secret keys:",
+  "changes.secretMore": "More files: {count}.",
+  "changes.secretPartial": "The changes are very large; only the start was checked.",
+  "changes.secretNoTree":
+    "Git cannot record the staged state right now. Commit in the terminal in this case.",
+  "changes.commitAnyway": "Commit anyway",
+  "changes.checkedPartial":
+    "Committed. The changes were very large; only the start was checked for keys.",
+  "changes.checkedSkipped": "Committed. The changes could not be checked for keys.",
   "changes.stageAllCommit": "Stage changed and commit",
   "changes.stageAllHint":
     "Stages every changed and deleted file and commits them. Add new files with their own checkbox.",
@@ -4356,6 +4406,8 @@ const en: Record<MessageKey, string> = {
   "guardRule.tooLong": "Too long to check: over 64 KiB or with a NUL character",
   "guardRule.hangarConfig":
     "Touches Hangar's own settings (the rules file or the remembered answers)",
+  "guardRule.secretFile":
+    "git add with a file that usually holds secrets (.env, .pem, .key, id_rsa, credentials.json)",
   "gate.commandHidden": "{count} more characters not shown",
   "gate.commandAppliesTo": "Applies to: {rules}",
   "settings.commandGuardFewer":
@@ -4756,6 +4808,8 @@ const el: Record<MessageKey, string> = {
   "partnerError.shellSender": "Μόνο συνεδρίες πρακτόρων στέλνουν σε έργα συνεργατών.",
   "inbox.from": "Μήνυμα από «{project}»",
   "inbox.discard": "Απόρριψη",
+  "message.secretHint":
+    "Μάλλον περιέχει ένα μυστικό κλειδί ({kinds}). Έλεγξε το μήνυμα πριν το επικολλήσεις.",
   "inbox.marker": "Μηνύματα σε αναμονή: {count}",
   "inbox.arrived":
     "Ένα μήνυμα από «{from}» περιμένει μέχρι να τρέξει μια συνεδρία πράκτορα στο «{to}».",
@@ -4867,6 +4921,7 @@ const el: Record<MessageKey, string> = {
   "gate.failed": "Η απάντησή σου δεν έφτασε: {error}",
   "gate.announce": "Το {title} περιμένει την απόφασή σου",
   "status.gate": "θέλει την απόφασή σου",
+  "status.permission": "περιμένει την έγκρισή σου",
   "settings.gate": "Παύση πρακτόρων πριν αλλάξουν αρχείο που αλλάζει άλλη συνεδρία",
   "settings.gateHelp":
     "Ο agent τότε περιμένει μέχρι να αποφασίσεις εδώ. Ισχύει για ομαδικές συνεδρίες που ξεκινάς όσο είναι ενεργό, όχι μέσα σε WSL. Συντονίζει τις συνεδρίες σου και δεν είναι προστασία: αλλαγές μέσω του τερματικού δεν σταματούν, και αν το Hangar δεν μπορεί να απαντήσει, η αλλαγή γίνεται.",
@@ -5242,6 +5297,7 @@ const el: Record<MessageKey, string> = {
   "status.short.attention": "έτοιμο",
   "status.short.asks": "ερώτηση",
   "status.short.gate": "απόφαση",
+  "status.short.permission": "έγκριση",
   "status.short.failed": "σφάλμα",
   "status.short.exited": "τέλος",
   "status.short.exitedByUser": "διακοπή",
@@ -5254,6 +5310,7 @@ const el: Record<MessageKey, string> = {
   "status.agent.attention": "{agent} σε περιμένει",
   "status.agent.asks": "{agent} σε ρωτά κάτι",
   "status.agent.gate": "{agent} θέλει την απόφασή σου",
+  "status.agent.permission": "{agent} περιμένει την έγκρισή σου",
   "status.agent.failed": "{agent} τερματίστηκε με σφάλμα",
   "status.agent.exited": "{agent} τερματίστηκε",
   "status.agent.exitedByUser": "{agent} τερματίστηκε από σένα",
@@ -5367,11 +5424,21 @@ const el: Record<MessageKey, string> = {
     "Δεν στάλθηκε σε {sessions}: το κείμενο έχει πολλές γραμμές ή αόρατους χαρακτήρες και το πρόγραμμα εκεί θα εκτελούσε κάθε γραμμή αμέσως.",
   "settings.warnMultilinePaste": "Προειδοποίηση πριν από επικόλληση πολλών γραμμών",
   "settings.warnMultilinePasteHelp":
-    "Τα Ctrl+V και Shift+Insert ρωτούν πρώτα, πριν πάνε πολλές γραμμές σε πρόγραμμα που εκτελεί κάθε γραμμή αμέσως ή πριν επικολληθεί κείμενο με αόρατους χαρακτήρες.",
+    "Τα Ctrl+V και Shift+Insert ρωτούν πρώτα, πριν πάνε πολλές γραμμές σε πρόγραμμα που εκτελεί κάθε γραμμή αμέσως ή πριν επικολληθεί κείμενο με αόρατους χαρακτήρες. Όταν υπάρχει πιθανό μυστικό κλειδί, ρωτούν πάντα.",
   "paste.runsLines": "Το {name} εκτελεί κάθε γραμμή μόλις φτάσει.",
   "paste.hidden":
     "Το κείμενο περιέχει κρυφούς χαρακτήρες. Μπορεί να εκτελεστεί διαφορετικά από ό,τι φαίνεται.",
+  "paste.secret": "Το κείμενο μάλλον περιέχει ένα μυστικό κλειδί ({kinds}).",
   "paste.sendAnyway": "Αποστολή ούτως ή άλλως",
+  "secret.privateKey": "ιδιωτικό κλειδί",
+  "secret.awsAccessKey": "κλειδί πρόσβασης AWS",
+  "secret.githubToken": "token του GitHub",
+  "secret.anthropicKey": "κλειδί API της Anthropic",
+  "secret.openaiKey": "κλειδί API της OpenAI",
+  "secret.slackToken": "token του Slack",
+  "secret.stripeKey": "μυστικό κλειδί του Stripe",
+  "secret.secretFile": "αρχείο που συνήθως περιέχει μυστικά",
+  "secret.unknown": "άγνωστο είδος",
   "paste.imageFailed": "Η εικόνα από το πρόχειρο δεν μπόρεσε να επικολληθεί.",
   "settings.scrollbackSecrets":
     "Περιέχει ό,τι εμφανίστηκε στο τερματικό, ακόμη και κωδικούς πρόσβασης ή tokens. Διάγραψε το ιστορικό αν περιέχει κάτι τέτοιο.",
@@ -5942,6 +6009,15 @@ const el: Record<MessageKey, string> = {
   "changes.viewTimeline": "Χρονολόγιο",
   "changes.commitMessage": "Μήνυμα commit",
   "changes.commit": "Commit",
+  "changes.secretTitle": "Οι αλλαγές στο stage μάλλον περιέχουν μυστικά κλειδιά:",
+  "changes.secretMore": "Περισσότερα αρχεία: {count}.",
+  "changes.secretPartial": "Οι αλλαγές είναι πολύ μεγάλες· ελέγχθηκε μόνο η αρχή.",
+  "changes.secretNoTree":
+    "Το Git δεν μπορεί τώρα να καταγράψει την κατάσταση του stage. Κάνε commit στο τερματικό.",
+  "changes.commitAnyway": "Commit ούτως ή άλλως",
+  "changes.checkedPartial":
+    "Έγινε commit. Οι αλλαγές ήταν πολύ μεγάλες· ελέγχθηκε για κλειδιά μόνο η αρχή.",
+  "changes.checkedSkipped": "Έγινε commit. Οι αλλαγές δεν μπόρεσαν να ελεγχθούν για κλειδιά.",
   "changes.stageAllCommit": "Stage αλλαγμένων και commit",
   "changes.stageAllHint":
     "Κάνει stage όλα τα αλλαγμένα και διαγραμμένα αρχεία και τα κάνει commit. Τα νέα αρχεία τα προσθέτεις με το δικό τους πλαίσιο.",
@@ -6623,6 +6699,8 @@ const el: Record<MessageKey, string> = {
   "guardRule.tooLong": "Πολύ μεγάλη για έλεγχο: πάνω από 64 KiB ή με χαρακτήρα NUL",
   "guardRule.hangarConfig":
     "Αγγίζει τις ρυθμίσεις του ίδιου του Hangar (αρχείο κανόνων ή αποθηκευμένες απαντήσεις)",
+  "guardRule.secretFile":
+    "git add με αρχείο που συνήθως περιέχει μυστικά (.env, .pem, .key, id_rsa, credentials.json)",
   "gate.commandHidden": "{count} ακόμη χαρακτήρες δεν εμφανίζονται",
   "gate.commandAppliesTo": "Ισχύει για: {rules}",
   "settings.commandGuardFewer":
@@ -7028,6 +7106,8 @@ const es: Record<MessageKey, string> = {
   "partnerError.shellSender": "Solo las sesiones de agente envían a proyectos socios.",
   "inbox.from": "Mensaje de «{project}»",
   "inbox.discard": "Descartar",
+  "message.secretHint":
+    "Probablemente contiene una clave secreta ({kinds}). Revisa el mensaje antes de pegarlo.",
   "inbox.marker": "Mensajes en espera: {count}",
   "inbox.arrived":
     "Un mensaje de «{from}» espera hasta que se ejecute una sesión de agente en «{to}».",
@@ -7139,6 +7219,7 @@ const es: Record<MessageKey, string> = {
   "gate.failed": "Tu respuesta no llegó: {error}",
   "gate.announce": "{title} espera tu decisión",
   "status.gate": "necesita tu decisión",
+  "status.permission": "espera tu aprobación",
   "settings.gate": "Pausar a los agentes antes de editar un archivo que otra sesión está cambiando",
   "settings.gateHelp":
     "El agente espera entonces a que decidas aquí. Se aplica a las sesiones de equipo que inicies mientras esté activado, no dentro de WSL. Coordina tus sesiones y no es una protección: los cambios desde el terminal no se detienen y, si Hangar no puede responder, el cambio sigue adelante.",
@@ -7509,6 +7590,7 @@ const es: Record<MessageKey, string> = {
   "status.short.attention": "listo",
   "status.short.asks": "pregunta",
   "status.short.gate": "decisión",
+  "status.short.permission": "aprobación",
   "status.short.failed": "error",
   "status.short.exited": "terminada",
   "status.short.exitedByUser": "detenida",
@@ -7521,6 +7603,7 @@ const es: Record<MessageKey, string> = {
   "status.agent.attention": "{agent} te está esperando",
   "status.agent.asks": "{agent} te pregunta algo",
   "status.agent.gate": "{agent} necesita tu decisión",
+  "status.agent.permission": "{agent} espera tu aprobación",
   "status.agent.failed": "{agent} terminó con un error",
   "status.agent.exited": "{agent} ha terminado",
   "status.agent.exitedByUser": "{agent} detenido por ti",
@@ -7630,11 +7713,21 @@ const es: Record<MessageKey, string> = {
     "No se envió a {sessions}: el texto tiene varias líneas o caracteres ocultos, y el programa de allí ejecutaría cada línea al instante.",
   "settings.warnMultilinePaste": "Avisar antes de pegar varias líneas",
   "settings.warnMultilinePasteHelp":
-    "Ctrl+V y Mayús+Insert preguntan antes de que varias líneas vayan a un programa que ejecuta cada línea al instante, o antes de pegar texto con caracteres ocultos.",
+    "Ctrl+V y Mayús+Insert preguntan antes de que varias líneas vayan a un programa que ejecuta cada línea al instante, o antes de pegar texto con caracteres ocultos. Si parece haber una clave secreta, siempre preguntan.",
   "paste.runsLines": "{name} ejecuta cada línea en cuanto llega.",
   "paste.hidden":
     "El texto contiene caracteres ocultos. Podría ejecutarse de forma distinta a como se lee.",
+  "paste.secret": "El texto probablemente contiene una clave secreta ({kinds}).",
   "paste.sendAnyway": "Enviar de todos modos",
+  "secret.privateKey": "clave privada",
+  "secret.awsAccessKey": "clave de acceso de AWS",
+  "secret.githubToken": "token de GitHub",
+  "secret.anthropicKey": "clave de API de Anthropic",
+  "secret.openaiKey": "clave de API de OpenAI",
+  "secret.slackToken": "token de Slack",
+  "secret.stripeKey": "clave secreta de Stripe",
+  "secret.secretFile": "archivo que suele contener secretos",
+  "secret.unknown": "tipo desconocido",
   "paste.imageFailed": "No se pudo pegar la imagen del portapapeles.",
   "settings.scrollbackSecrets":
     "Contiene todo lo que se mostró en la terminal, incluidas contraseñas o tokens. Borra el historial si contiene algo así.",
@@ -8202,6 +8295,15 @@ const es: Record<MessageKey, string> = {
   "changes.viewTimeline": "Línea de tiempo",
   "changes.commitMessage": "Mensaje del commit",
   "changes.commit": "Commit",
+  "changes.secretTitle": "Los cambios preparados probablemente contienen claves secretas:",
+  "changes.secretMore": "Más archivos: {count}.",
+  "changes.secretPartial": "Los cambios son muy grandes; solo se revisó el principio.",
+  "changes.secretNoTree":
+    "Git no puede registrar ahora el estado preparado. En este caso, haz commit en la terminal.",
+  "changes.commitAnyway": "Hacer commit de todos modos",
+  "changes.checkedPartial":
+    "Commit hecho. Los cambios eran muy grandes; solo se revisó el principio en busca de claves.",
+  "changes.checkedSkipped": "Commit hecho. No se pudieron revisar los cambios en busca de claves.",
   "changes.stageAllCommit": "Preparar cambiados y hacer commit",
   "changes.stageAllHint":
     "Prepara todos los archivos cambiados y eliminados y hace el commit. Los archivos nuevos los añades con su propia casilla.",
@@ -8876,6 +8978,8 @@ const es: Record<MessageKey, string> = {
   "guardRule.tooLong": "Demasiado largo para revisar: más de 64 KiB o con un carácter NUL",
   "guardRule.hangarConfig":
     "Afecta a los ajustes propios de Hangar (el archivo de reglas o las respuestas recordadas)",
+  "guardRule.secretFile":
+    "git add con un archivo que suele contener secretos (.env, .pem, .key, id_rsa, credentials.json)",
   "gate.commandHidden": "{count} caracteres más no se muestran",
   "gate.commandAppliesTo": "Se aplica a: {rules}",
   "settings.commandGuardFewer":
@@ -9274,6 +9378,8 @@ const fr: Record<MessageKey, string> = {
   "partnerError.shellSender": "Seules les sessions d'agent envoient aux projets partenaires.",
   "inbox.from": "Message de « {project} »",
   "inbox.discard": "Ignorer",
+  "message.secretHint":
+    "Contient probablement une clé secrète ({kinds}). Vérifie le message avant de le coller.",
   "inbox.marker": "Messages en attente : {count}",
   "inbox.arrived": "Un message de « {from} » attend qu'une session d'agent tourne dans « {to} ».",
   "links.menu": "Relier à …",
@@ -9386,6 +9492,7 @@ const fr: Record<MessageKey, string> = {
   "gate.failed": "Ta réponse n'est pas arrivée : {error}",
   "gate.announce": "{title} attend ta décision",
   "status.gate": "attend ta décision",
+  "status.permission": "attend ton autorisation",
   "settings.gate":
     "Mettre les agents en pause avant de modifier un fichier qu'une autre session modifie",
   "settings.gateHelp":
@@ -9759,6 +9866,7 @@ const fr: Record<MessageKey, string> = {
   "status.short.attention": "terminé",
   "status.short.asks": "question",
   "status.short.gate": "décision",
+  "status.short.permission": "autorisation",
   "status.short.failed": "erreur",
   "status.short.exited": "terminée",
   "status.short.exitedByUser": "arrêtée",
@@ -9771,6 +9879,7 @@ const fr: Record<MessageKey, string> = {
   "status.agent.attention": "{agent} t'attend",
   "status.agent.asks": "{agent} te pose une question",
   "status.agent.gate": "{agent} attend ta décision",
+  "status.agent.permission": "{agent} attend ton autorisation",
   "status.agent.failed": "{agent} a rencontré une erreur",
   "status.agent.exited": "{agent} est terminé",
   "status.agent.exitedByUser": "Tu as arrêté {agent}",
@@ -9883,11 +9992,21 @@ const fr: Record<MessageKey, string> = {
     "Non envoyé à {sessions} : le texte a plusieurs lignes ou des caractères invisibles, et le programme là-bas exécuterait chaque ligne aussitôt.",
   "settings.warnMultilinePaste": "Avertir avant de coller plusieurs lignes",
   "settings.warnMultilinePasteHelp":
-    "Ctrl+V et Maj+Inser demandent d’abord avant que plusieurs lignes aillent dans un programme qui exécute chaque ligne aussitôt, ou avant de coller un texte avec des caractères invisibles.",
+    "Ctrl+V et Maj+Inser demandent d’abord avant que plusieurs lignes aillent dans un programme qui exécute chaque ligne aussitôt, ou avant de coller un texte avec des caractères invisibles. En cas de clé secrète probable, ils demandent toujours.",
   "paste.runsLines": "{name} exécute chaque ligne dès qu'elle arrive.",
   "paste.hidden":
     "Le texte contient des caractères cachés. Il pourrait s'exécuter autrement qu'il ne se lit.",
+  "paste.secret": "Le texte contient probablement une clé secrète ({kinds}).",
   "paste.sendAnyway": "Envoyer quand même",
+  "secret.privateKey": "clé privée",
+  "secret.awsAccessKey": "clé d'accès AWS",
+  "secret.githubToken": "jeton GitHub",
+  "secret.anthropicKey": "clé d'API Anthropic",
+  "secret.openaiKey": "clé d'API OpenAI",
+  "secret.slackToken": "jeton Slack",
+  "secret.stripeKey": "clé secrète Stripe",
+  "secret.secretFile": "fichier qui contient souvent des secrets",
+  "secret.unknown": "type inconnu",
   "paste.imageFailed": "Impossible de coller l'image du presse-papiers.",
   "settings.scrollbackSecrets":
     "Il contient tout ce qui s’est affiché dans le terminal, y compris des mots de passe ou des jetons. Efface l’historique s’il contient ce genre de chose.",
@@ -10461,6 +10580,16 @@ const fr: Record<MessageKey, string> = {
   "changes.viewTimeline": "Chronologie",
   "changes.commitMessage": "Message de commit",
   "changes.commit": "Commit",
+  "changes.secretTitle": "Les modifications indexées contiennent probablement des clés secrètes :",
+  "changes.secretMore": "Autres fichiers : {count}.",
+  "changes.secretPartial":
+    "Les modifications sont très volumineuses ; seul le début a été vérifié.",
+  "changes.secretNoTree":
+    "Git ne peut pas enregistrer l’état indexé pour le moment. Dans ce cas, committe dans le terminal.",
+  "changes.commitAnyway": "Committer quand même",
+  "changes.checkedPartial":
+    "Commit fait. Les modifications étaient très volumineuses ; seul le début a été vérifié.",
+  "changes.checkedSkipped": "Commit fait. Les modifications n’ont pas pu être vérifiées.",
   "changes.stageAllCommit": "Indexer les modifiés et committer",
   "changes.stageAllHint":
     "Indexe tous les fichiers modifiés et supprimés puis les commite. Ajoute les nouveaux fichiers avec leur propre case.",
@@ -11141,6 +11270,8 @@ const fr: Record<MessageKey, string> = {
   "guardRule.tooLong": "Trop long à vérifier : plus de 64 Kio ou avec un caractère NUL",
   "guardRule.hangarConfig":
     "Touche aux réglages de Hangar lui-même (fichier de règles ou réponses retenues)",
+  "guardRule.secretFile":
+    "git add avec un fichier qui contient souvent des secrets (.env, .pem, .key, id_rsa, credentials.json)",
   "gate.commandHidden": "{count} caractères de plus non affichés",
   "gate.commandAppliesTo": "S'applique à : {rules}",
   "settings.commandGuardFewer":
@@ -11544,6 +11675,8 @@ const it: Record<MessageKey, string> = {
   "partnerError.shellSender": "Solo le sessioni agente inviano ai progetti partner.",
   "inbox.from": "Messaggio da «{project}»",
   "inbox.discard": "Scarta",
+  "message.secretHint":
+    "Probabilmente contiene una chiave segreta ({kinds}). Controlla il messaggio prima di incollarlo.",
   "inbox.marker": "Messaggi in attesa: {count}",
   "inbox.arrived":
     "Un messaggio da «{from}» attende finché in «{to}» non è attiva una sessione agente.",
@@ -11655,6 +11788,7 @@ const it: Record<MessageKey, string> = {
   "gate.failed": "La tua risposta non è arrivata: {error}",
   "gate.announce": "{title} attende la tua decisione",
   "status.gate": "attende la tua decisione",
+  "status.permission": "attende la tua approvazione",
   "settings.gate":
     "Metti in pausa gli agenti prima di modificare un file che un'altra sessione sta cambiando",
   "settings.gateHelp":
@@ -12026,6 +12160,7 @@ const it: Record<MessageKey, string> = {
   "status.short.attention": "pronto",
   "status.short.asks": "domanda",
   "status.short.gate": "decisione",
+  "status.short.permission": "approvazione",
   "status.short.failed": "errore",
   "status.short.exited": "terminata",
   "status.short.exitedByUser": "fermata",
@@ -12038,6 +12173,7 @@ const it: Record<MessageKey, string> = {
   "status.agent.attention": "{agent} ti sta aspettando",
   "status.agent.asks": "{agent} ti chiede qualcosa",
   "status.agent.gate": "{agent} attende la tua decisione",
+  "status.agent.permission": "{agent} attende la tua approvazione",
   "status.agent.failed": "{agent} è terminato con un errore",
   "status.agent.exited": "{agent} è terminato",
   "status.agent.exitedByUser": "Hai fermato {agent}",
@@ -12148,11 +12284,21 @@ const it: Record<MessageKey, string> = {
     "Non inviato a {sessions}: il testo ha più righe o caratteri invisibili, e il programma lì eseguirebbe subito ogni riga.",
   "settings.warnMultilinePaste": "Avvisa prima di incollare più righe",
   "settings.warnMultilinePasteHelp":
-    "Ctrl+V e Maiusc+Ins chiedono prima che più righe vadano in un programma che esegue subito ogni riga, o prima di incollare testo con caratteri invisibili.",
+    "Ctrl+V e Maiusc+Ins chiedono prima che più righe vadano in un programma che esegue subito ogni riga, o prima di incollare testo con caratteri invisibili. Se sembra esserci una chiave segreta, chiedono sempre.",
   "paste.runsLines": "{name} esegue ogni riga appena arriva.",
   "paste.hidden":
     "Il testo contiene caratteri nascosti. Potrebbe essere eseguito diversamente da come si legge.",
+  "paste.secret": "Il testo probabilmente contiene una chiave segreta ({kinds}).",
   "paste.sendAnyway": "Invia comunque",
+  "secret.privateKey": "chiave privata",
+  "secret.awsAccessKey": "chiave di accesso AWS",
+  "secret.githubToken": "token GitHub",
+  "secret.anthropicKey": "chiave API Anthropic",
+  "secret.openaiKey": "chiave API OpenAI",
+  "secret.slackToken": "token Slack",
+  "secret.stripeKey": "chiave segreta Stripe",
+  "secret.secretFile": "file che di solito contiene segreti",
+  "secret.unknown": "tipo sconosciuto",
   "paste.imageFailed": "Impossibile incollare l'immagine dagli appunti.",
   "settings.scrollbackSecrets":
     "Contiene tutto ciò che è apparso nel terminale, comprese password o token. Cancella la cronologia se contiene qualcosa del genere.",
@@ -12720,6 +12866,15 @@ const it: Record<MessageKey, string> = {
   "changes.viewTimeline": "Cronologia",
   "changes.commitMessage": "Messaggio di commit",
   "changes.commit": "Commit",
+  "changes.secretTitle": "Le modifiche in stage probabilmente contengono chiavi segrete:",
+  "changes.secretMore": "Altri file: {count}.",
+  "changes.secretPartial": "Le modifiche sono molto grandi; è stato controllato solo l'inizio.",
+  "changes.secretNoTree":
+    "Git ora non riesce a registrare lo stato in stage. In questo caso esegui il commit nel terminale.",
+  "changes.commitAnyway": "Esegui il commit comunque",
+  "changes.checkedPartial":
+    "Commit eseguito. Le modifiche erano molto grandi; è stato controllato solo l'inizio.",
+  "changes.checkedSkipped": "Commit eseguito. Non è stato possibile controllare le modifiche.",
   "changes.stageAllCommit": "Aggiungi i modificati e fai commit",
   "changes.stageAllHint":
     "Aggiunge allo stage tutti i file modificati ed eliminati e ne fa il commit. I file nuovi li aggiungi con la loro casella.",
@@ -13394,6 +13549,8 @@ const it: Record<MessageKey, string> = {
   "guardRule.tooLong": "Troppo lungo da controllare: oltre 64 KiB o con un carattere NUL",
   "guardRule.hangarConfig":
     "Tocca le impostazioni di Hangar stesso (file delle regole o risposte ricordate)",
+  "guardRule.secretFile":
+    "git add con un file che di solito contiene segreti (.env, .pem, .key, id_rsa, credentials.json)",
   "gate.commandHidden": "Altri {count} caratteri non mostrati",
   "gate.commandAppliesTo": "Vale per: {rules}",
   "settings.commandGuardFewer":
@@ -13802,6 +13959,8 @@ const ja: Record<MessageKey, string> = {
     "パートナープロジェクトに送れるのはエージェントのセッションだけです。",
   "inbox.from": "「{project}」からのメッセージ",
   "inbox.discard": "破棄",
+  "message.secretHint":
+    "秘密鍵が含まれている可能性があります ({kinds})。貼り付ける前にメッセージを確認してください。",
   "inbox.marker": "待機中のメッセージ: {count}",
   "inbox.arrived":
     "「{from}」からのメッセージは、「{to}」でエージェントのセッションが動くまで待機します。",
@@ -13915,6 +14074,7 @@ const ja: Record<MessageKey, string> = {
   "gate.failed": "応答を送れませんでした: {error}",
   "gate.announce": "{title} があなたの判断を待っています",
   "status.gate": "判断待ち",
+  "status.permission": "承認待ち",
   "settings.gate": "別のセッションが変更中のファイルを編集する前にエージェントを一時停止",
   "settings.gateHelp":
     "エージェントはここで判断するまで待ちます。オンの間に開始したチームセッションに適用されます（WSL 内は対象外）。セッション間の調整であり、保護ではありません。ターミナル経由の変更は止まらず、Hangar が応答できない場合は変更が実行されます。",
@@ -14280,6 +14440,7 @@ const ja: Record<MessageKey, string> = {
   "status.short.attention": "完了",
   "status.short.asks": "質問",
   "status.short.gate": "判断待ち",
+  "status.short.permission": "承認待ち",
   "status.short.failed": "エラー",
   "status.short.exited": "終了",
   "status.short.exitedByUser": "停止",
@@ -14292,6 +14453,7 @@ const ja: Record<MessageKey, string> = {
   "status.agent.attention": "{agent} 入力待ち",
   "status.agent.asks": "{agent} が質問しています",
   "status.agent.gate": "{agent} 判断待ち",
+  "status.agent.permission": "{agent} 承認待ち",
   "status.agent.failed": "{agent} がエラーで終了",
   "status.agent.exited": "{agent} 終了",
   "status.agent.exitedByUser": "{agent} を自分で終了",
@@ -14399,11 +14561,21 @@ const ja: Record<MessageKey, string> = {
     "{sessions} には送信しませんでした: テキストに複数の行または見えない文字があり、そこのプログラムは各行をすぐに実行してしまいます。",
   "settings.warnMultilinePaste": "複数行を貼り付ける前に警告する",
   "settings.warnMultilinePasteHelp":
-    "Ctrl+V と Shift+Insert は、各行をすぐに実行するプログラムに複数行を送る前や、見えない文字を含むテキストを貼り付ける前に確認します。",
+    "Ctrl+V と Shift+Insert は、各行をすぐに実行するプログラムに複数行を送る前や、見えない文字を含むテキストを貼り付ける前に確認します。秘密鍵が含まれていそうな場合は常に確認します。",
   "paste.runsLines": "{name} は届いた行をすぐに 1 行ずつ実行します。",
   "paste.hidden":
     "テキストに見えない文字が含まれています。見た目と違う動作をする可能性があります。",
+  "paste.secret": "このテキストには秘密鍵が含まれている可能性があります ({kinds})。",
   "paste.sendAnyway": "このまま送信",
+  "secret.privateKey": "秘密鍵",
+  "secret.awsAccessKey": "AWS アクセスキー",
+  "secret.githubToken": "GitHub トークン",
+  "secret.anthropicKey": "Anthropic API キー",
+  "secret.openaiKey": "OpenAI API キー",
+  "secret.slackToken": "Slack トークン",
+  "secret.stripeKey": "Stripe シークレットキー",
+  "secret.secretFile": "秘密情報を含むことが多いファイル",
+  "secret.unknown": "種類不明",
   "paste.imageFailed": "クリップボードの画像を貼り付けられませんでした。",
   "settings.scrollbackSecrets":
     "ターミナルに表示された内容がすべて含まれ、パスワードやトークンも含まれる場合があります。そのような内容がある場合は履歴を削除してください。",
@@ -14973,6 +15145,15 @@ const ja: Record<MessageKey, string> = {
   "changes.viewTimeline": "タイムライン",
   "changes.commitMessage": "コミットメッセージ",
   "changes.commit": "コミット",
+  "changes.secretTitle": "ステージした変更に秘密鍵が含まれている可能性があります:",
+  "changes.secretMore": "ほかのファイル: {count}。",
+  "changes.secretPartial": "変更が非常に大きいため、先頭だけを確認しました。",
+  "changes.secretNoTree":
+    "Git が現在ステージの状態を記録できません。この場合はターミナルでコミットしてください。",
+  "changes.commitAnyway": "このままコミット",
+  "changes.checkedPartial":
+    "コミットしました。変更が非常に大きいため、秘密鍵の確認は先頭だけです。",
+  "changes.checkedSkipped": "コミットしました。変更の秘密鍵チェックはできませんでした。",
   "changes.stageAllCommit": "変更分をステージしてコミット",
   "changes.stageAllHint":
     "変更・削除されたファイルをすべてステージしてコミットします。新しいファイルはそれぞれのチェックボックスで追加してください。",
@@ -15643,6 +15824,8 @@ const ja: Record<MessageKey, string> = {
     "シェルがパイプまたは here-string からスクリプトを読み込みます。Hangar からは見えません",
   "guardRule.tooLong": "長すぎて確認できません: 64 KiB を超えるか NUL 文字を含みます",
   "guardRule.hangarConfig": "Hangar 自身の設定 (ルールファイルまたは記憶した回答) に触れます",
+  "guardRule.secretFile":
+    "秘密情報を含むことが多いファイルの git add (.env, .pem, .key, id_rsa, credentials.json)",
   "gate.commandHidden": "表示されていない文字があと {count} 文字あります",
   "gate.commandAppliesTo": "対象: {rules}",
   "settings.commandGuardFewer":
@@ -16040,6 +16223,8 @@ const pl: Record<MessageKey, string> = {
   "partnerError.shellSender": "Do projektów partnerskich wysyłają tylko sesje agentów.",
   "inbox.from": "Wiadomość od „{project}”",
   "inbox.discard": "Odrzuć",
+  "message.secretHint":
+    "Prawdopodobnie zawiera tajny klucz ({kinds}). Sprawdź wiadomość, zanim ją wkleisz.",
   "inbox.marker": "Oczekujące wiadomości: {count}",
   "inbox.arrived": "Wiadomość od „{from}” czeka, aż w „{to}” zadziała sesja agenta.",
   "links.menu": "Połącz z …",
@@ -16152,6 +16337,7 @@ const pl: Record<MessageKey, string> = {
   "gate.failed": "Twoja odpowiedź nie dotarła: {error}",
   "gate.announce": "{title} czeka na twoją decyzję",
   "status.gate": "czeka na twoją decyzję",
+  "status.permission": "czeka na twoją zgodę",
   "settings.gate": "Wstrzymuj agentów przed edycją pliku, który zmienia inna sesja",
   "settings.gateHelp":
     "Agent czeka wtedy, aż zdecydujesz tutaj. Dotyczy sesji zespołowych uruchomionych, gdy to jest włączone, nie w WSL. To koordynuje twoje sesje i nie jest ochroną: zmiany przez terminal nie są wstrzymywane, a gdy Hangar nie może odpowiedzieć, zmiana zostaje wykonana.",
@@ -16518,6 +16704,7 @@ const pl: Record<MessageKey, string> = {
   "status.short.attention": "gotowe",
   "status.short.asks": "pytanie",
   "status.short.gate": "decyzja",
+  "status.short.permission": "zgoda",
   "status.short.failed": "błąd",
   "status.short.exited": "koniec",
   "status.short.exitedByUser": "zatrzymana",
@@ -16530,6 +16717,7 @@ const pl: Record<MessageKey, string> = {
   "status.agent.attention": "{agent} czeka na ciebie",
   "status.agent.asks": "{agent} o coś pyta",
   "status.agent.gate": "{agent} czeka na twoją decyzję",
+  "status.agent.permission": "{agent} czeka na twoją zgodę",
   "status.agent.failed": "{agent} zakończył się błędem",
   "status.agent.exited": "{agent} zakończył pracę",
   "status.agent.exitedByUser": "{agent} zatrzymany przez ciebie",
@@ -16639,10 +16827,20 @@ const pl: Record<MessageKey, string> = {
     "Nie wysłano do {sessions}: tekst ma kilka wierszy lub niewidoczne znaki, a tamten program wykonałby każdy wiersz od razu.",
   "settings.warnMultilinePaste": "Ostrzegaj przed wklejeniem kilku wierszy",
   "settings.warnMultilinePasteHelp":
-    "Ctrl+V i Shift+Insert pytają najpierw, zanim kilka wierszy trafi do programu, który wykonuje każdy wiersz od razu, albo zanim zostanie wklejony tekst z niewidocznymi znakami.",
+    "Ctrl+V i Shift+Insert pytają najpierw, zanim kilka wierszy trafi do programu, który wykonuje każdy wiersz od razu, albo zanim zostanie wklejony tekst z niewidocznymi znakami. Przy prawdopodobnym tajnym kluczu pytają zawsze.",
   "paste.runsLines": "{name} wykonuje każdy wiersz, gdy tylko dotrze.",
   "paste.hidden": "Tekst zawiera ukryte znaki. Może działać inaczej, niż wygląda.",
+  "paste.secret": "Tekst prawdopodobnie zawiera tajny klucz ({kinds}).",
   "paste.sendAnyway": "Wyślij mimo to",
+  "secret.privateKey": "klucz prywatny",
+  "secret.awsAccessKey": "klucz dostępu AWS",
+  "secret.githubToken": "token GitHub",
+  "secret.anthropicKey": "klucz API Anthropic",
+  "secret.openaiKey": "klucz API OpenAI",
+  "secret.slackToken": "token Slack",
+  "secret.stripeKey": "tajny klucz Stripe",
+  "secret.secretFile": "plik, który zwykle zawiera sekrety",
+  "secret.unknown": "rodzaj nieznany",
   "paste.imageFailed": "Nie udało się wkleić obrazu ze schowka.",
   "settings.scrollbackSecrets":
     "Zawiera wszystko, co było widać w terminalu, także hasła lub tokeny. Usuń historię, jeśli zawiera coś takiego.",
@@ -17204,6 +17402,14 @@ const pl: Record<MessageKey, string> = {
   "changes.viewTimeline": "Oś czasu",
   "changes.commitMessage": "Opis commita",
   "changes.commit": "Commit",
+  "changes.secretTitle": "Zmiany w stage prawdopodobnie zawierają tajne klucze:",
+  "changes.secretMore": "Pozostałe pliki: {count}.",
+  "changes.secretPartial": "Zmiany są bardzo duże; sprawdzono tylko początek.",
+  "changes.secretNoTree":
+    "Git nie może teraz zapisać stanu w stage. W takim przypadku zrób commit w terminalu.",
+  "changes.commitAnyway": "Mimo to zrób commit",
+  "changes.checkedPartial": "Commit wykonany. Zmiany były bardzo duże; sprawdzono tylko początek.",
+  "changes.checkedSkipped": "Commit wykonany. Nie udało się sprawdzić zmian pod kątem kluczy.",
   "changes.stageAllCommit": "Dodaj zmienione i zrób commit",
   "changes.stageAllHint":
     "Dodaje do stage wszystkie zmienione i usunięte pliki i robi commit. Nowe pliki dodajesz ich własnym polem wyboru.",
@@ -17868,6 +18074,8 @@ const pl: Record<MessageKey, string> = {
   "guardRule.tooLong": "Zbyt długie do sprawdzenia: ponad 64 KiB albo ze znakiem NUL",
   "guardRule.hangarConfig":
     "Dotyczy własnych ustawień Hangara (pliku reguł lub zapamiętanych odpowiedzi)",
+  "guardRule.secretFile":
+    "git add z plikiem, który zwykle zawiera sekrety (.env, .pem, .key, id_rsa, credentials.json)",
   "gate.commandHidden": "Nie pokazano jeszcze {count} znaków",
   "gate.commandAppliesTo": "Dotyczy: {rules}",
   "settings.commandGuardFewer":
@@ -18267,6 +18475,8 @@ const pt: Record<MessageKey, string> = {
   "partnerError.shellSender": "Só sessões de agente enviam para projetos parceiros.",
   "inbox.from": "Mensagem de “{project}”",
   "inbox.discard": "Descartar",
+  "message.secretHint":
+    "Provavelmente contém uma chave secreta ({kinds}). Confira a mensagem antes de colar.",
   "inbox.marker": "Mensagens em espera: {count}",
   "inbox.arrived": "Uma mensagem de “{from}” espera até que uma sessão de agente rode em “{to}”.",
   "links.menu": "Vincular com …",
@@ -18378,6 +18588,7 @@ const pt: Record<MessageKey, string> = {
   "gate.failed": "Sua resposta não chegou: {error}",
   "gate.announce": "{title} aguarda sua decisão",
   "status.gate": "aguarda sua decisão",
+  "status.permission": "aguarda sua aprovação",
   "settings.gate": "Pausar agentes antes de editar um arquivo que outra sessão está alterando",
   "settings.gateHelp":
     "O agente então espera até você decidir aqui. Vale para sessões de equipe iniciadas enquanto isto estiver ativado, não dentro do WSL. Isto coordena suas sessões e não é uma proteção: alterações pelo terminal não são retidas e, se o Hangar não puder responder, a alteração segue adiante.",
@@ -18746,6 +18957,7 @@ const pt: Record<MessageKey, string> = {
   "status.short.attention": "pronto",
   "status.short.asks": "pergunta",
   "status.short.gate": "decisão",
+  "status.short.permission": "aprovação",
   "status.short.failed": "erro",
   "status.short.exited": "encerrada",
   "status.short.exitedByUser": "parada",
@@ -18758,6 +18970,7 @@ const pt: Record<MessageKey, string> = {
   "status.agent.attention": "{agent} está esperando você",
   "status.agent.asks": "{agent} tem uma pergunta",
   "status.agent.gate": "{agent} aguarda sua decisão",
+  "status.agent.permission": "{agent} aguarda sua aprovação",
   "status.agent.failed": "{agent} encerrou com erro",
   "status.agent.exited": "{agent} foi encerrado",
   "status.agent.exitedByUser": "Você encerrou {agent}",
@@ -18867,11 +19080,21 @@ const pt: Record<MessageKey, string> = {
     "Não enviado para {sessions}: o texto tem várias linhas ou caracteres ocultos, e o programa ali executaria cada linha na hora.",
   "settings.warnMultilinePaste": "Avisar antes de colar várias linhas",
   "settings.warnMultilinePasteHelp":
-    "Ctrl+V e Shift+Insert perguntam antes que várias linhas vão para um programa que executa cada linha na hora, ou antes de colar texto com caracteres ocultos.",
+    "Ctrl+V e Shift+Insert perguntam antes que várias linhas vão para um programa que executa cada linha na hora, ou antes de colar texto com caracteres ocultos. Se parecer haver uma chave secreta, sempre perguntam.",
   "paste.runsLines": "{name} executa cada linha assim que ela chega.",
   "paste.hidden":
     "O texto contém caracteres ocultos. Ele pode ser executado de forma diferente do que parece.",
+  "paste.secret": "O texto provavelmente contém uma chave secreta ({kinds}).",
   "paste.sendAnyway": "Enviar mesmo assim",
+  "secret.privateKey": "chave privada",
+  "secret.awsAccessKey": "chave de acesso da AWS",
+  "secret.githubToken": "token do GitHub",
+  "secret.anthropicKey": "chave de API da Anthropic",
+  "secret.openaiKey": "chave de API da OpenAI",
+  "secret.slackToken": "token do Slack",
+  "secret.stripeKey": "chave secreta do Stripe",
+  "secret.secretFile": "arquivo que costuma conter segredos",
+  "secret.unknown": "tipo desconhecido",
   "paste.imageFailed": "Não foi possível colar a imagem da área de transferência.",
   "settings.scrollbackSecrets":
     "Ele contém tudo o que apareceu no terminal, inclusive senhas ou tokens. Apague o histórico se ele tiver algo assim.",
@@ -19437,6 +19660,16 @@ const pt: Record<MessageKey, string> = {
   "changes.viewTimeline": "Linha do tempo",
   "changes.commitMessage": "Mensagem do commit",
   "changes.commit": "Commit",
+  "changes.secretTitle": "As alterações preparadas provavelmente contêm chaves secretas:",
+  "changes.secretMore": "Mais arquivos: {count}.",
+  "changes.secretPartial": "As alterações são muito grandes; só o começo foi verificado.",
+  "changes.secretNoTree":
+    "O Git não consegue registrar o estado preparado agora. Nesse caso, faça o commit no terminal.",
+  "changes.commitAnyway": "Fazer commit mesmo assim",
+  "changes.checkedPartial":
+    "Commit feito. As alterações eram muito grandes; só o começo foi verificado.",
+  "changes.checkedSkipped":
+    "Commit feito. Não foi possível verificar as alterações em busca de chaves.",
   "changes.stageAllCommit": "Preparar alterados e fazer commit",
   "changes.stageAllHint":
     "Prepara todos os arquivos alterados e excluídos e faz o commit. Arquivos novos você adiciona pela própria caixa de seleção.",
@@ -20108,6 +20341,8 @@ const pt: Record<MessageKey, string> = {
   "guardRule.tooLong": "Longo demais para verificar: mais de 64 KiB ou com um caractere NUL",
   "guardRule.hangarConfig":
     "Mexe nas configurações do próprio Hangar (arquivo de regras ou respostas lembradas)",
+  "guardRule.secretFile":
+    "git add com um arquivo que costuma conter segredos (.env, .pem, .key, id_rsa, credentials.json)",
   "gate.commandHidden": "Mais {count} caracteres não exibidos",
   "gate.commandAppliesTo": "Vale para: {rules}",
   "settings.commandGuardFewer":
@@ -20505,6 +20740,8 @@ const ru: Record<MessageKey, string> = {
   "partnerError.shellSender": "Отправлять в проекты-партнёры могут только сессии агентов.",
   "inbox.from": "Сообщение от «{project}»",
   "inbox.discard": "Отклонить",
+  "message.secretHint":
+    "Похоже, содержит секретный ключ ({kinds}). Проверь сообщение, прежде чем вставить его.",
   "inbox.marker": "Ожидающие сообщения: {count}",
   "inbox.arrived": "Сообщение от «{from}» ждёт, пока в «{to}» не заработает сессия агента.",
   "links.menu": "Связать с …",
@@ -20614,6 +20851,7 @@ const ru: Record<MessageKey, string> = {
   "gate.failed": "Твой ответ не дошёл: {error}",
   "gate.announce": "{title} ждёт твоего решения",
   "status.gate": "ждёт твоего решения",
+  "status.permission": "ждёт твоего разрешения",
   "settings.gate": "Останавливать агентов перед правкой файла, который меняет другая сессия",
   "settings.gateHelp":
     "Тогда агент ждёт, пока ты решишь здесь. Действует для командных сессий, запущенных, пока это включено, но не внутри WSL. Это согласует твои сессии и не является защитой: изменения через терминал не задерживаются, а если Hangar не может ответить, изменение выполняется.",
@@ -20980,6 +21218,7 @@ const ru: Record<MessageKey, string> = {
   "status.short.attention": "готово",
   "status.short.asks": "вопрос",
   "status.short.gate": "решение",
+  "status.short.permission": "разрешение",
   "status.short.failed": "ошибка",
   "status.short.exited": "завершён",
   "status.short.exitedByUser": "остановлен",
@@ -20992,6 +21231,7 @@ const ru: Record<MessageKey, string> = {
   "status.agent.attention": "{agent} ждёт тебя",
   "status.agent.asks": "{agent} что-то спрашивает",
   "status.agent.gate": "{agent} ждёт твоего решения",
+  "status.agent.permission": "{agent} ждёт твоего разрешения",
   "status.agent.failed": "{agent} завершён с ошибкой",
   "status.agent.exited": "{agent} завершён",
   "status.agent.exitedByUser": "{agent} остановлен тобой",
@@ -21098,10 +21338,20 @@ const ru: Record<MessageKey, string> = {
     "Не отправлено в {sessions}: в тексте несколько строк или невидимые символы, а программа там выполнила бы каждую строку сразу.",
   "settings.warnMultilinePaste": "Предупреждать перед вставкой нескольких строк",
   "settings.warnMultilinePasteHelp":
-    "Ctrl+V и Shift+Insert сначала спрашивают, прежде чем несколько строк попадут в программу, которая сразу выполняет каждую строку, или прежде чем вставить текст с невидимыми символами.",
+    "Ctrl+V и Shift+Insert сначала спрашивают, прежде чем несколько строк попадут в программу, которая сразу выполняет каждую строку, или прежде чем вставить текст с невидимыми символами. Если похоже на секретный ключ, они спрашивают всегда.",
   "paste.runsLines": "{name} выполняет каждую строку сразу, как только она приходит.",
   "paste.hidden": "В тексте есть скрытые символы. Он может выполниться не так, как выглядит.",
+  "paste.secret": "Похоже, текст содержит секретный ключ ({kinds}).",
   "paste.sendAnyway": "Всё равно отправить",
+  "secret.privateKey": "закрытый ключ",
+  "secret.awsAccessKey": "ключ доступа AWS",
+  "secret.githubToken": "токен GitHub",
+  "secret.anthropicKey": "API-ключ Anthropic",
+  "secret.openaiKey": "API-ключ OpenAI",
+  "secret.slackToken": "токен Slack",
+  "secret.stripeKey": "секретный ключ Stripe",
+  "secret.secretFile": "файл, в котором обычно хранятся секреты",
+  "secret.unknown": "тип неизвестен",
   "paste.imageFailed": "Не удалось вставить изображение из буфера обмена.",
   "settings.scrollbackSecrets":
     "В ней есть всё, что было видно в терминале, в том числе пароли или токены. Удали историю, если в ней есть что-то такое.",
@@ -21666,6 +21916,15 @@ const ru: Record<MessageKey, string> = {
   "changes.viewTimeline": "Хронология",
   "changes.commitMessage": "Сообщение коммита",
   "changes.commit": "Коммит",
+  "changes.secretTitle": "Похоже, подготовленные изменения содержат секретные ключи:",
+  "changes.secretMore": "Ещё файлы: {count}.",
+  "changes.secretPartial": "Изменения очень большие, проверено только начало.",
+  "changes.secretNoTree":
+    "Git сейчас не может зафиксировать подготовленное состояние. В этом случае сделай коммит в терминале.",
+  "changes.commitAnyway": "Всё равно закоммитить",
+  "changes.checkedPartial":
+    "Закоммичено. Изменения очень большие, на ключи проверено только начало.",
+  "changes.checkedSkipped": "Закоммичено. Проверить изменения на ключи не удалось.",
   "changes.stageAllCommit": "Изменённые в индекс и коммит",
   "changes.stageAllHint":
     "Добавляет в индекс все изменённые и удалённые файлы и делает коммит. Новые файлы добавляй их собственным флажком.",
@@ -22326,6 +22585,8 @@ const ru: Record<MessageKey, string> = {
   "guardRule.tooLong": "Слишком длинно для проверки: больше 64 КиБ или с символом NUL",
   "guardRule.hangarConfig":
     "Затрагивает собственные настройки Hangar (файл правил или запомненные ответы)",
+  "guardRule.secretFile":
+    "git add с файлом, в котором обычно хранятся секреты (.env, .pem, .key, id_rsa, credentials.json)",
   "gate.commandHidden": "Ещё {count} символов не показано",
   "gate.commandAppliesTo": "Относится к: {rules}",
   "settings.commandGuardFewer":
@@ -22721,6 +22982,8 @@ const tr: Record<MessageKey, string> = {
   "partnerError.shellSender": "Ortak projelere yalnızca ajan oturumları gönderir.",
   "inbox.from": "“{project}” projesinden mesaj",
   "inbox.discard": "At",
+  "message.secretHint":
+    "Büyük olasılıkla gizli bir anahtar içeriyor ({kinds}). Yapıştırmadan önce mesajı kontrol et.",
   "inbox.marker": "Bekleyen mesajlar: {count}",
   "inbox.arrived":
     "“{from}” projesinden bir mesaj, “{to}” içinde bir ajan oturumu çalışana kadar bekliyor.",
@@ -22831,6 +23094,7 @@ const tr: Record<MessageKey, string> = {
   "gate.failed": "Yanıtın ulaşmadı: {error}",
   "gate.announce": "{title} kararını bekliyor",
   "status.gate": "kararını bekliyor",
+  "status.permission": "onayını bekliyor",
   "settings.gate": "Başka bir oturumun değiştirdiği dosyayı düzenlemeden önce ajanları duraklat",
   "settings.gateHelp":
     "Agent o zaman sen burada karar verene kadar bekler. Bu açıkken başlattığın ekip oturumları için geçerlidir, WSL içinde değil. Bu, oturumlarını eşgüdümler ve bir koruma değildir: terminal üzerinden yapılan değişiklikler durdurulmaz ve Hangar yanıt veremezse değişiklik yapılır.",
@@ -23196,6 +23460,7 @@ const tr: Record<MessageKey, string> = {
   "status.short.attention": "bitti",
   "status.short.asks": "soru",
   "status.short.gate": "karar",
+  "status.short.permission": "onay",
   "status.short.failed": "hata",
   "status.short.exited": "sonlandı",
   "status.short.exitedByUser": "durduruldu",
@@ -23208,6 +23473,7 @@ const tr: Record<MessageKey, string> = {
   "status.agent.attention": "{agent} seni bekliyor",
   "status.agent.asks": "{agent} sana bir şey soruyor",
   "status.agent.gate": "{agent} kararını bekliyor",
+  "status.agent.permission": "{agent} onayını bekliyor",
   "status.agent.failed": "{agent} hatayla sona erdi",
   "status.agent.exited": "{agent} sonlandı",
   "status.agent.exitedByUser": "{agent} senin tarafından durduruldu",
@@ -23315,10 +23581,20 @@ const tr: Record<MessageKey, string> = {
     "{sessions} oturumuna gönderilmedi: metinde birden çok satır veya görünmez karakter var ve oradaki program her satırı hemen çalıştırırdı.",
   "settings.warnMultilinePaste": "Birden çok satır yapıştırmadan önce uyar",
   "settings.warnMultilinePasteHelp":
-    "Ctrl+V ve Shift+Insert, birden çok satır her satırı hemen çalıştıran bir programa gitmeden ya da görünmez karakterli metin yapıştırılmadan önce sorar.",
+    "Ctrl+V ve Shift+Insert, birden çok satır her satırı hemen çalıştıran bir programa gitmeden ya da görünmez karakterli metin yapıştırılmadan önce sorar. Gizli bir anahtar varmış gibi görünüyorsa her zaman sorarlar.",
   "paste.runsLines": "{name} her satırı gelir gelmez çalıştırır.",
   "paste.hidden": "Metin gizli karakterler içeriyor. Göründüğünden farklı çalışabilir.",
+  "paste.secret": "Metin büyük olasılıkla gizli bir anahtar içeriyor ({kinds}).",
   "paste.sendAnyway": "Yine de gönder",
+  "secret.privateKey": "özel anahtar",
+  "secret.awsAccessKey": "AWS erişim anahtarı",
+  "secret.githubToken": "GitHub belirteci",
+  "secret.anthropicKey": "Anthropic API anahtarı",
+  "secret.openaiKey": "OpenAI API anahtarı",
+  "secret.slackToken": "Slack belirteci",
+  "secret.stripeKey": "Stripe gizli anahtarı",
+  "secret.secretFile": "genellikle gizli bilgi içeren dosya",
+  "secret.unknown": "türü bilinmiyor",
   "paste.imageFailed": "Panodaki görüntü yapıştırılamadı.",
   "settings.scrollbackSecrets":
     "Terminalde görünen her şeyi, parolalar ve token’lar dahil, içerir. Böyle bir şey varsa geçmişi sil.",
@@ -23879,6 +24155,15 @@ const tr: Record<MessageKey, string> = {
   "changes.viewTimeline": "Zaman çizelgesi",
   "changes.commitMessage": "Commit mesajı",
   "changes.commit": "Commit",
+  "changes.secretTitle": "Hazırlanan değişiklikler büyük olasılıkla gizli anahtarlar içeriyor:",
+  "changes.secretMore": "Diğer dosyalar: {count}.",
+  "changes.secretPartial": "Değişiklikler çok büyük; yalnızca başlangıç kontrol edildi.",
+  "changes.secretNoTree":
+    "Git şu anda hazırlanan durumu kaydedemiyor. Bu durumda commit'i terminalde yap.",
+  "changes.commitAnyway": "Yine de commit et",
+  "changes.checkedPartial":
+    "Commit edildi. Değişiklikler çok büyüktü; anahtar için yalnızca başlangıç kontrol edildi.",
+  "changes.checkedSkipped": "Commit edildi. Değişiklikler anahtar için kontrol edilemedi.",
   "changes.stageAllCommit": "Değişenleri stage’e al ve commit et",
   "changes.stageAllHint":
     "Değişen ve silinen tüm dosyaları stage’e alır ve commit eder. Yeni dosyaları kendi onay kutularıyla eklersin.",
@@ -24537,6 +24822,8 @@ const tr: Record<MessageKey, string> = {
   "guardRule.tooLong": "Denetlemek için fazla uzun: 64 KiB'tan büyük veya NUL karakteri içeriyor",
   "guardRule.hangarConfig":
     "Hangar'ın kendi ayarlarına dokunuyor (kural dosyası veya hatırlanan yanıtlar)",
+  "guardRule.secretFile":
+    "Genellikle gizli bilgi içeren bir dosyayla git add (.env, .pem, .key, id_rsa, credentials.json)",
   "gate.commandHidden": "{count} karakter daha gösterilmiyor",
   "gate.commandAppliesTo": "Geçerli olduğu kurallar: {rules}",
   "settings.commandGuardFewer":
@@ -24923,6 +25210,7 @@ const zh: Record<MessageKey, string> = {
   "partnerError.shellSender": "只有智能体会话可以向伙伴项目发送。",
   "inbox.from": "来自“{project}”的消息",
   "inbox.discard": "丢弃",
+  "message.secretHint": "可能包含密钥（{kinds}）。粘贴前请检查这条消息。",
   "inbox.marker": "等待中的消息：{count}",
   "inbox.arrived": "来自“{from}”的消息正在等待，直到“{to}”中有智能体会话运行。",
   "links.menu": "关联到 …",
@@ -25026,6 +25314,7 @@ const zh: Record<MessageKey, string> = {
   "gate.failed": "你的回答未能送达：{error}",
   "gate.announce": "{title} 正在等待你的决定",
   "status.gate": "等待你的决定",
+  "status.permission": "等待你的批准",
   "settings.gate": "在代理编辑另一个会话正在修改的文件前暂停",
   "settings.gateHelp":
     "代理会等你在这里做出决定。适用于开启期间启动的团队会话，WSL 中的除外。这只是协调你的会话，并非保护：通过终端进行的修改不会被拦下，Hangar 无法回应时修改会照常进行。",
@@ -25376,6 +25665,7 @@ const zh: Record<MessageKey, string> = {
   "status.short.attention": "完成",
   "status.short.asks": "提问",
   "status.short.gate": "待决定",
+  "status.short.permission": "待批准",
   "status.short.failed": "错误",
   "status.short.exited": "已结束",
   "status.short.exitedByUser": "已停止",
@@ -25388,6 +25678,7 @@ const zh: Record<MessageKey, string> = {
   "status.agent.attention": "{agent} 在等你",
   "status.agent.asks": "{agent} 在向你提问",
   "status.agent.gate": "{agent} 等待你的决定",
+  "status.agent.permission": "{agent} 等待你的批准",
   "status.agent.failed": "{agent} 出错退出",
   "status.agent.exited": "{agent} 已退出",
   "status.agent.exitedByUser": "{agent} 已由你结束",
@@ -25488,10 +25779,20 @@ const zh: Record<MessageKey, string> = {
   "send.blocked": "未发送到 {sessions}:文本有多行或隐藏字符,那里的程序会立即执行每一行。",
   "settings.warnMultilinePaste": "粘贴多行前发出警告",
   "settings.warnMultilinePasteHelp":
-    "在多行文本进入会立即执行每一行的程序之前,或在粘贴含隐藏字符的文本之前,Ctrl+V 和 Shift+Insert 会先询问。",
+    "在多行文本进入会立即执行每一行的程序之前,或在粘贴含隐藏字符的文本之前,Ctrl+V 和 Shift+Insert 会先询问。看起来含有密钥时始终会询问。",
   "paste.runsLines": "{name} 会在每一行到达时立即执行。",
   "paste.hidden": "文本包含隐藏字符，实际执行的内容可能与看到的不同。",
+  "paste.secret": "文本可能包含密钥（{kinds}）。",
   "paste.sendAnyway": "仍然发送",
+  "secret.privateKey": "私钥",
+  "secret.awsAccessKey": "AWS 访问密钥",
+  "secret.githubToken": "GitHub 令牌",
+  "secret.anthropicKey": "Anthropic API 密钥",
+  "secret.openaiKey": "OpenAI API 密钥",
+  "secret.slackToken": "Slack 令牌",
+  "secret.stripeKey": "Stripe 私密密钥",
+  "secret.secretFile": "通常含有机密的文件",
+  "secret.unknown": "类型未知",
   "paste.imageFailed": "无法粘贴剪贴板中的图片。",
   "settings.scrollbackSecrets":
     "其中包含终端中显示过的所有内容，也包括密码或令牌。如果有这类内容，请清除历史记录。",
@@ -26026,6 +26327,13 @@ const zh: Record<MessageKey, string> = {
   "changes.viewTimeline": "时间线",
   "changes.commitMessage": "提交信息",
   "changes.commit": "提交",
+  "changes.secretTitle": "暂存的更改可能包含密钥：",
+  "changes.secretMore": "其他文件：{count}。",
+  "changes.secretPartial": "更改非常大，只检查了开头部分。",
+  "changes.secretNoTree": "Git 现在无法记录暂存状态。这种情况下请在终端中提交。",
+  "changes.commitAnyway": "仍然提交",
+  "changes.checkedPartial": "已提交。更改非常大，只检查了开头部分是否含有密钥。",
+  "changes.checkedSkipped": "已提交。无法检查这些更改是否含有密钥。",
   "changes.stageAllCommit": "暂存已更改的并提交",
   "changes.stageAllHint": "暂存所有已更改和已删除的文件并提交。新文件请通过各自的复选框加入。",
   "changes.diffKeys": "差异。方向键选择一行，按 Enter 或 C 为代理评论该行。",
@@ -26636,6 +26944,8 @@ const zh: Record<MessageKey, string> = {
   "guardRule.stdinScript": "某个 shell 从管道或 here-string 读取脚本，Hangar 看不到其内容",
   "guardRule.tooLong": "过长，无法检查：超过 64 KiB 或包含 NUL 字符",
   "guardRule.hangarConfig": "涉及 Hangar 自身的设置（规则文件或已记住的回答）",
+  "guardRule.secretFile":
+    "git add 一个通常含有机密的文件（.env, .pem, .key, id_rsa, credentials.json）",
   "gate.commandHidden": "还有 {count} 个字符未显示",
   "gate.commandAppliesTo": "适用于：{rules}",
   "settings.commandGuardFewer":

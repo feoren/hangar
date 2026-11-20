@@ -440,6 +440,9 @@ import {
   type TeammateOverlap,
 } from "./team";
 import { gateReady, useGate } from "./useGate";
+import { withPermission } from "./permissionWaits";
+import { secretLabels } from "./secretScan";
+import { usePermissionWaits } from "./usePermissionWaits";
 import { useRuleNotes } from "./useRuleNotes";
 import {
   decisionText,
@@ -1701,19 +1704,31 @@ export function App() {
     () => gate.pending.filter((decision) => !answeredGate.has(decision.id)),
     [gate.pending, answeredGate],
   );
-  /** Sessions with a pending gate decision, for the attention listener (a queued message waits). */
+  /**
+   * Sessions with a pending gate decision or a dialog their agent's hooks reported (ADR 0016), for
+   * the attention listener (a queued message waits) and the link deliveries (no Enter goes in).
+   */
   const gateWaitingRef = useRef<ReadonlySet<number>>(new Set());
+  const permissionWaits = usePermissionWaits();
+  const permissionWaitingRef = useRef<ReadonlySet<number>>(new Set());
   useEffect(() => {
     gateWaitingRef.current = waitingSessions({ enabled: gate.enabled, pending: pendingGate });
   }, [gate.enabled, pendingGate]);
-  // A session waiting for a decision looks like any waiting session, with the reason "gate".
+  useEffect(() => {
+    permissionWaitingRef.current = permissionWaits;
+  }, [permissionWaits]);
+  // A session waiting for a decision looks like any waiting session, with the reason "gate"; one
+  // whose agent shows a dialog, with the reason "permission".
   const { attention, reasons } = useMemo(
     () =>
-      withGate(
-        { attention: trackedAttention, reasons: trackedReasons },
-        waitingSessions({ enabled: gate.enabled, pending: pendingGate }),
+      withPermission(
+        withGate(
+          { attention: trackedAttention, reasons: trackedReasons },
+          waitingSessions({ enabled: gate.enabled, pending: pendingGate }),
+        ),
+        permissionWaits,
       ),
-    [trackedAttention, trackedReasons, gate.enabled, pendingGate],
+    [trackedAttention, trackedReasons, gate.enabled, pendingGate, permissionWaits],
   );
   /** Overlaps per session, grouped once per snapshot. */
   const overlapsById = useMemo(() => overlapsBySession(claims), [claims]);
@@ -2393,6 +2408,13 @@ export function App() {
       terminal.onImagePasteFailed = () => {
         setStartHint(createTranslator(settingsRef.current.language)("paste.imageFailed"));
       };
+      // The person answered the dialog the agent's hooks reported (ADR 0016): Claude Code sends no
+      // hook after a "No", so the signal goes with the person's key.
+      terminal.onPersonAnswerKey = () => {
+        if (permissionWaitingRef.current.has(id)) {
+          api.permissionAnswered(id).catch(() => undefined);
+        }
+      };
       // The person's own Enter in a link group member: the group's budget starts again.
       terminal.onPersonSubmit = () => {
         if (groupOf(linkStateRef.current, id) !== undefined) {
@@ -2453,7 +2475,7 @@ export function App() {
           next,
           reason,
           terminal.attention.endedBy,
-          gateWaitingRef.current.has(id),
+          gateWaitingRef.current.has(id) || permissionWaitingRef.current.has(id),
         );
         // A permission dialog rings no bell: a question on screen keeps the message, because
         // Enter after it would confirm the preselected answer (promptGuard.ts).
@@ -4991,6 +5013,7 @@ export function App() {
         to: String(message.to),
         text: message.text,
         at: message.at,
+        ...(message.secrets === undefined ? {} : { secrets: message.secrets }),
         title:
           message.fromName === null
             ? t("links.fromHangar")
@@ -5534,7 +5557,7 @@ export function App() {
       running: session?.status === "running",
       working: terminal.attention.state === "working",
       endedBy: terminal.attention.endedBy,
-      gateWaiting: gateWaitingRef.current.has(id),
+      gateWaiting: gateWaitingRef.current.has(id) || permissionWaitingRef.current.has(id),
       showsQuestion: looksLikeQuestion(terminal.screenLines()),
     });
     changeQueue(saved.queue);
@@ -6025,6 +6048,7 @@ export function App() {
             // shows (agentCommands.ts `asksQuestion`), so the message holds until it is answered.
             asks: sessionAsksRef.current(message.to),
             gatePending: gateWaitingRef.current.has(message.to),
+            permissionPending: permissionWaitingRef.current.has(message.to),
             ...terminal.personInput(),
           }),
           gone,
@@ -7037,6 +7061,14 @@ export function App() {
                   <span>{t("paste.runsLines", { name: pasteCheck.name })}</span>
                 )}
                 {pasteCheck.warning.hidden && <span>{t("paste.hidden")}</span>}
+                {pasteCheck.warning.secrets !== undefined &&
+                  pasteCheck.warning.secrets.length > 0 && (
+                    <span>
+                      {t("paste.secret", {
+                        kinds: secretLabels(pasteCheck.warning.secrets, t),
+                      })}
+                    </span>
+                  )}
                 <div className="link-actions">
                   <button
                     type="button"

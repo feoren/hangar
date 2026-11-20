@@ -110,6 +110,7 @@ describe("compact button", () => {
   it("lets menu and quick access wait only for a possible question", () => {
     expect(awaitsAnswer("bell")).toBe(true);
     expect(awaitsAnswer("gate")).toBe(true);
+    expect(awaitsAnswer("permission")).toBe(true);
     expect(awaitsAnswer("quiet")).toBe(false);
     expect(awaitsAnswer(null)).toBe(false);
   });

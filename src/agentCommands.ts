@@ -60,12 +60,13 @@ export function commandBusy(state: AttentionState, reason: AttentionReason | nul
 }
 
 /**
- * The session rang the bell or waits for a gate decision: there may be a question on screen, and
- * the Enter after a command would answer it. No command is offered until the person has looked
- * (the reason clears then). Menu and quick access still send while the agent merely works.
+ * The session rang the bell, waits for a gate decision or shows a dialog its hooks reported
+ * ("permission", ADR 0016): there may be a question on screen, and the Enter after a command
+ * would answer it. No command is offered until the person has looked (the reason clears then)
+ * or the dialog is gone. Menu and quick access still send while the agent merely works.
  */
 export function awaitsAnswer(reason: AttentionReason | null): boolean {
-  return reason === "bell" || reason === "gate";
+  return reason === "bell" || reason === "gate" || reason === "permission";
 }
 
 /**

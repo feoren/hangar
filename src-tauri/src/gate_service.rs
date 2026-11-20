@@ -17,6 +17,13 @@
 //! without the gate ([`GateService::send_token`]). Each token carries one scope
 //! ([`TokenScope`]): a send token opens no hook route and a hook token sends no message.
 //!
+//! Notice routes (ADR 0016): Claude Code sessions, private ones included, report through
+//! report-only hooks when a permission or input dialog appears and when it is gone, with a token
+//! of scope [`TokenScope::Notify`] in [`NOTIFY_TOKEN_ENV`]. The routes never decide: they answer
+//! an empty 200, read at most [`gate::MAX_NOTIFY_BODY_BYTES`] of the body and look only at the
+//! event's and the notification's name. The window hears [`PERMISSION_EVENT`] (no payload) and
+//! reads the set with [`GateService::permission_waiting`].
+//!
 //! How the hooks reach one session depends on the program's [`HookFormat`] (recipes in
 //! `hook_recipes.rs`): start arguments, and for some formats files in a folder of the session's
 //! own under `<data>/gate/sessions/`, removed when the session's process ends.
@@ -58,8 +65,9 @@ use crate::command_guard::{
 };
 use crate::gate::{
     self, Answer, AskRule, CommandConflict, CommandText, EditRequest, Gate, GateSnapshot, Opened,
-    Outcome, TokenScope, Waiting, DECISION_TIMEOUT, ROUTE_PRE_TOOL_USE, ROUTE_PRE_TOOL_USE_JSON,
-    ROUTE_USER_PROMPT_SUBMIT, ROUTE_USER_PROMPT_SUBMIT_JSON, TOKEN_ENV,
+    Outcome, TokenScope, Waiting, DECISION_TIMEOUT, NOTIFY_TOKEN_ENV, ROUTE_NOTIFY_ASKS,
+    ROUTE_NOTIFY_CLEAR, ROUTE_PRE_TOOL_USE, ROUTE_PRE_TOOL_USE_JSON, ROUTE_USER_PROMPT_SUBMIT,
+    ROUTE_USER_PROMPT_SUBMIT_JSON, TOKEN_ENV,
 };
 use crate::gate_rules::{self, GateRule, RuleAnswer, RuleBook, RuleEffect, RuleScope};
 use crate::hook_http::{self, Head, Status};
@@ -70,12 +78,18 @@ use crate::hook_recipes::{
 use crate::lock;
 use crate::manager::{GateLaunch, GatePlan, LaunchGate};
 use crate::partners::{read_send_request, SendRequest, MAX_SEND_BODY_BYTES, ROUTE_SEND};
+use crate::permission_wait::PermissionWaits;
 use crate::session::{GateStatus, SessionId};
 use crate::team_share::TeammateFile;
 use crate::team_tasks::TeamTask;
 
 /// Event to the main window with the newest [`GateSnapshot`].
 pub const EVENT: &str = "gate-changed";
+/// Signal to the main window that the sessions waiting for a dialog changed (ADR 0016); no
+/// payload, the window reads them with `permission_waiting`.
+pub const PERMISSION_EVENT: &str = "permission-waits-changed";
+/// How often old dialog signals are dropped ([`crate::permission_wait::SIGNAL_TTL`]).
+const SIGNAL_EXPIRY_TICK: Duration = Duration::from_secs(30);
 /// Connections of known sessions handled at the same time. One more is denied while the gate
 /// is on (`Inner::overloaded`): an unanswered hook would let its call go ahead unchecked.
 pub const MAX_CONNECTIONS: usize = 128;
@@ -146,6 +160,8 @@ type TeamTasks = Box<dyn Fn(&str, &str) -> Vec<TeamTask> + Send + Sync>;
 /// Hands a message an agent sent with `hangar-send` to the partner service: the sending session
 /// and the request; the answer is the HTTP status and the JSON body for the client.
 type Messages = Arc<dyn Fn(SessionId, SendRequest) -> (Status, String) + Send + Sync>;
+/// Tells the window that the dialog signals changed.
+type Signal = Arc<dyn Fn() + Send + Sync>;
 
 struct Inner {
     gate: Mutex<Gate<Waiter>>,
@@ -182,6 +198,10 @@ struct Inner {
     per_session: Arc<Mutex<HashMap<SessionId, usize>>>,
     /// Where the send route hands messages, once the app set it ([`GateService::set_messages`]).
     messages: Mutex<Option<Messages>>,
+    /// Sessions whose agent shows a permission or input dialog (ADR 0016).
+    permission: Mutex<PermissionWaits>,
+    /// Announces a change of [`Inner::permission`], once the app set it.
+    permission_signal: Mutex<Option<Signal>>,
 }
 
 /// The command guard: on by default; its rules come from the file, read again when it changed.
@@ -290,6 +310,8 @@ impl GateService {
                 heads: Arc::new(Mutex::new(Heads::default())),
                 per_session: Arc::new(Mutex::new(HashMap::new())),
                 messages: Mutex::new(None),
+                permission: Mutex::new(PermissionWaits::default()),
+                permission_signal: Mutex::new(None),
             }),
         }
     }
@@ -334,6 +356,26 @@ impl GateService {
         let port = self.ensure_server()?;
         let token = lock(&self.inner.gate).register(session, TokenScope::Send);
         Ok((port, Zeroizing::new(token)))
+    }
+
+    /// How the window hears that the sessions waiting for a dialog changed ([`PERMISSION_EVENT`]).
+    pub fn set_permission_signal(&self, signal: impl Fn() + Send + Sync + 'static) {
+        *lock(&self.inner.permission_signal) = Some(Arc::new(signal));
+    }
+
+    /// The sessions whose agent shows a permission or input dialog right now (ADR 0016).
+    pub fn permission_waiting(&self) -> Vec<SessionId> {
+        lock(&self.inner.permission).sessions(Instant::now())
+    }
+
+    /// The person pressed a key that answers a dialog (Enter, Esc, a digit) in `session`: its
+    /// signal goes. Claude Code sends no hook after a "No" in the dialog (measured), so without
+    /// this the signal would hold until the next prompt or the time limit. A key that did not
+    /// answer leaves the screen check as the fallback; the next dialog sets the signal again.
+    pub fn permission_answered(&self, session: SessionId) {
+        if lock(&self.inner.permission).clear(session) {
+            self.inner.permission_changed();
+        }
     }
 
     /// The session's send token stops working (its process ended).
@@ -518,6 +560,20 @@ impl GateService {
         thread::Builder::new()
             .name("gate-http".to_owned())
             .spawn(move || accept_loop(&inner, &listener))?;
+        // Old dialog signals go on their own; the thread ends with the service.
+        let weak = Arc::downgrade(&self.inner);
+        let _ = thread::Builder::new()
+            .name("gate-notice-expiry".to_owned())
+            .spawn(move || loop {
+                thread::sleep(SIGNAL_EXPIRY_TICK);
+                let Some(inner) = weak.upgrade() else {
+                    break;
+                };
+                let expired = lock(&inner.permission).expire(Instant::now());
+                if expired {
+                    inner.permission_changed();
+                }
+            });
         *port = Some(bound);
         Ok(bound)
     }
@@ -531,9 +587,18 @@ impl GateService {
         version: Option<&str>,
     ) -> Result<Vec<String>, GateStatus> {
         let block = gate::claude_blocks_on_failure(version);
-        let settings = gate::claude_settings(port, context, block);
+        let notify = gate::claude_notifies(version);
+        let settings = gate::claude_settings(port, context, block, notify);
+        // One file per content, so sessions of Claude Code versions on both sides of
+        // `CLAUDE_ON_FAILURE_SINCE` or `CLAUDE_NOTIFY_SINCE` never rewrite each other's file.
+        let suffix = format!(
+            "{}{}{}",
+            if context { "-context" } else { "" },
+            if block { "-block" } else { "" },
+            if notify { "-notify" } else { "" }
+        );
         let argument = if crate::batch::is_batch(program) {
-            self.settings_file(port, context, block, &settings)
+            self.settings_file(port, &suffix, &settings)
                 .ok_or(GateStatus::Launcher)?
         } else {
             settings
@@ -544,21 +609,7 @@ impl GateService {
     /// The hook settings as a file, for a cmd.exe launcher: Hangar refuses `"` in such a
     /// launcher's arguments (batch.rs), so the JSON cannot go inline. `None` when the file's path
     /// holds a character cmd.exe would interpret or the file cannot be written.
-    fn settings_file(
-        &self,
-        port: u16,
-        context: bool,
-        block: bool,
-        settings: &str,
-    ) -> Option<String> {
-        // One file per content, so sessions of Claude Code versions on both sides of
-        // `CLAUDE_ON_FAILURE_SINCE` never rewrite each other's file.
-        let suffix = match (context, block) {
-            (true, true) => "-context-block",
-            (true, false) => "-context",
-            (false, true) => "-block",
-            (false, false) => "",
-        };
+    fn settings_file(&self, port: u16, suffix: &str, settings: &str) -> Option<String> {
         let path = self
             .inner
             .settings_dir
@@ -926,16 +977,57 @@ impl LaunchGate for GateService {
         } else {
             (TOKEN_ENV.to_owned(), token)
         };
+        // Claude Code's settings carry the notice hooks too (`claude_args`), with a token of
+        // their own scope.
+        let notice_var = (format == HookFormat::ClaudeSettings && gate::claude_notifies(version))
+            .then(|| {
+                let token = lock(&self.inner.gate).register(session, TokenScope::Notify);
+                (NOTIFY_TOKEN_ENV.to_owned(), Zeroizing::new(token))
+            });
         let env = install
             .env
             .into_iter()
             .map(|(name, value)| (name, Zeroizing::new(value)))
             .chain(std::iter::once(token_var))
+            .chain(notice_var)
             .collect();
         GatePlan::Launch(GateLaunch {
             prepend: install.prepend,
             args: install.args,
             env,
+        })
+    }
+
+    fn notify(
+        &self,
+        session: SessionId,
+        agent: &Agent,
+        program: &Path,
+        version: Option<&str>,
+    ) -> Option<GateLaunch> {
+        if agent.capabilities.gate_format() != Some(HookFormat::ClaudeSettings)
+            || !gate::claude_notifies(version)
+        {
+            return None;
+        }
+        let port = match self.ensure_server() {
+            Ok(port) => port,
+            Err(error) => {
+                eprintln!("hangar: notice hooks not started: {error}");
+                return None;
+            }
+        };
+        let settings = gate::claude_notify_settings(port);
+        let argument = if crate::batch::is_batch(program) {
+            self.settings_file(port, "-notify-only", &settings)?
+        } else {
+            settings
+        };
+        let token = lock(&self.inner.gate).register(session, TokenScope::Notify);
+        Some(GateLaunch {
+            prepend: Vec::new(),
+            args: vec!["--settings".to_owned(), argument],
+            env: vec![(NOTIFY_TOKEN_ENV.to_owned(), Zeroizing::new(token))],
         })
     }
 
@@ -945,6 +1037,10 @@ impl LaunchGate for GateService {
         if !ended.is_empty() {
             deliver(ended);
             self.inner.publish();
+        }
+        // Under the session lock: the window is told on a signal only, nothing waits here.
+        if lock(&self.inner.permission).clear(session) {
+            self.inner.permission_changed();
         }
     }
 }
@@ -1523,6 +1619,42 @@ impl Inner {
         (self.emit)(&snapshot);
     }
 
+    fn permission_changed(&self) {
+        let signal = lock(&self.permission_signal).clone();
+        if let Some(signal) = signal {
+            signal();
+        }
+    }
+
+    /// A notice hook of `session`: on the asks route a dialog appeared, on the clear route it is
+    /// gone. Answers an empty 200 always, so no notice ever decides or blocks anything.
+    fn notice(&self, session: SessionId, head: &Head, body: &mut impl Read) -> (Status, String) {
+        let asks = head.path == ROUTE_NOTIFY_ASKS;
+        let notice = gate::parse_notice(body, head.content_length);
+        if gate::notice_counts(&notice, asks) {
+            let changed = {
+                // The process may have ended while the body was read: its `ended` cleared the
+                // signal and dropped the token, and a late notice must not set it again. The
+                // gate's lock is held while the signal changes, and `ended` takes the two locks
+                // one after the other, so either the token is gone here or `ended` clears after.
+                let gate = lock(&self.gate);
+                if !gate.holds(session, TokenScope::Notify) {
+                    return (Status::Ok, String::new());
+                }
+                let mut waits = lock(&self.permission);
+                if asks {
+                    waits.set(session, Instant::now())
+                } else {
+                    waits.clear(session)
+                }
+            };
+            if changed {
+                self.permission_changed();
+            }
+        }
+        (Status::Ok, String::new())
+    }
+
     /// The guard's rules, read again when the file changed (one look at its metadata per call,
     /// taken from the opened file so the check and the read see the same file). A missing file
     /// is written once per run with the commented defaults. The disk is never touched under the
@@ -1706,6 +1838,7 @@ impl Inner {
             | ROUTE_PRE_TOOL_USE_JSON
             | ROUTE_USER_PROMPT_SUBMIT
             | ROUTE_USER_PROMPT_SUBMIT_JSON => TokenScope::Hooks,
+            ROUTE_NOTIFY_ASKS | ROUTE_NOTIFY_CLEAR => TokenScope::Notify,
             _ => return (Status::NotFound, String::new()),
         };
         if scope != wanted {
@@ -1714,6 +1847,9 @@ impl Inner {
         let mut body = reader.take(head.content_length);
         if path == ROUTE_SEND {
             return self.send(session, head, &mut body);
+        }
+        if wanted == TokenScope::Notify {
+            return self.notice(session, head, &mut body);
         }
         // The JSON routes answer "no decision" with `{}` instead of an empty body.
         let json = path == ROUTE_PRE_TOOL_USE_JSON || path == ROUTE_USER_PROMPT_SUBMIT_JSON;
@@ -2380,7 +2516,7 @@ mod tests {
             ..no_context.capabilities
         };
         let launch = launched(fixture.service.prepare(2, &no_context, program, &[], None));
-        assert!(!launch.args[1].contains("UserPromptSubmit"));
+        assert!(!launch.args[1].contains(ROUTE_USER_PROMPT_SUBMIT));
     }
 
     #[test]
@@ -2416,7 +2552,7 @@ mod tests {
         assert_eq!(crate::batch::check(program, &launch.args), Ok(()));
         let text = std::fs::read_to_string(&path).unwrap();
         let port = fixture.service.port().unwrap();
-        assert_eq!(text, gate::claude_settings(port, true, false));
+        assert_eq!(text, gate::claude_settings(port, true, false, false));
         assert!(!text.contains(launch.env[0].1.as_str()));
         // A second start reuses the file.
         let again = launched(fixture.service.prepare(2, &claude(), program, &[], None));
@@ -2496,6 +2632,217 @@ mod tests {
         // A session's token stops working when the session ends.
         fixture.service.ended(1);
         assert_eq!(post(port, ROUTE_PRE_TOOL_USE, Some(&token), &body).0, 401);
+    }
+
+    /// The private session's notice launch and the token in it.
+    fn notice_launch(fixture: &Fixture, session: SessionId) -> (u16, String, GateLaunch) {
+        let launch = fixture
+            .service
+            .notify(session, &claude(), Path::new("claude.exe"), Some("2.1.329"))
+            .expect("notice hooks");
+        assert_eq!(launch.env.len(), 1);
+        assert_eq!(launch.env[0].0, NOTIFY_TOKEN_ENV);
+        let token = launch.env[0].1.to_string();
+        (fixture.service.port().unwrap(), token, launch)
+    }
+
+    #[test]
+    fn a_private_session_gets_report_only_hooks_and_no_gate() {
+        let fixture = fixture(DECISION_TIMEOUT);
+        // The gate setting is off: the notices do not depend on it.
+        let (_, token, launch) = notice_launch(&fixture, 4);
+        assert_eq!(launch.args[0], "--settings");
+        assert!(launch.prepend.is_empty());
+        let json: serde_json::Value = serde_json::from_str(&launch.args[1]).unwrap();
+        assert!(json["hooks"].get("PreToolUse").is_none());
+        assert!(json["hooks"].get("PermissionRequest").is_some());
+        assert!(!launch.args[1].contains(&token));
+        // Nothing for another program, an older or unknown Claude Code.
+        let program = Path::new("claude.exe");
+        assert!(fixture
+            .service
+            .notify(5, &plain_agent(), program, Some("2.1.329"))
+            .is_none());
+        for version in [None, Some("2.1.200")] {
+            assert!(fixture
+                .service
+                .notify(5, &claude(), program, version)
+                .is_none());
+        }
+        // Nothing waits for a decision of a private session.
+        assert!(fixture.service.snapshot().pending.is_empty());
+    }
+
+    #[test]
+    fn a_notice_token_opens_the_notice_routes_only_and_decides_nothing() {
+        let fixture = fixture(DECISION_TIMEOUT);
+        fixture.service.configure(true);
+        let (port, notice, _) = notice_launch(&fixture, 4);
+        let (_, hooks) = launch(&fixture, 1);
+        let (_, send) = fixture.service.send_token(4).unwrap();
+        let body = r#"{"hook_event_name":"PermissionRequest","tool_name":"Bash"}"#;
+        // A notice is answered with an empty 200: no decision, the person's dialog stays.
+        assert_eq!(
+            post(port, ROUTE_NOTIFY_ASKS, Some(&notice), body),
+            (200, String::new())
+        );
+        assert_eq!(fixture.service.permission_waiting(), [4]);
+        // The notice token opens no gate route and sends no message.
+        let edit_body = edit(&fixture.root, "src/shared.rs");
+        for route in [
+            ROUTE_PRE_TOOL_USE,
+            ROUTE_PRE_TOOL_USE_JSON,
+            ROUTE_USER_PROMPT_SUBMIT,
+        ] {
+            assert_eq!(
+                post(port, route, Some(&notice), &edit_body).0,
+                403,
+                "{route}"
+            );
+        }
+        assert_eq!(
+            post(
+                port,
+                ROUTE_SEND,
+                Some(&notice),
+                r#"{"partner":"web","text":"hi"}"#
+            )
+            .0,
+            403
+        );
+        // Neither a hook token nor a send token reaches the notice routes.
+        assert_eq!(post(port, ROUTE_NOTIFY_ASKS, Some(&hooks), body).0, 403);
+        assert_eq!(
+            post(port, ROUTE_NOTIFY_CLEAR, Some(send.as_str()), body).0,
+            403
+        );
+        assert_eq!(post(port, ROUTE_NOTIFY_ASKS, None, body).0, 401);
+        assert_eq!(post(port, "/v1/notification", Some(&notice), body).0, 404);
+        assert!(fixture.service.snapshot().pending.is_empty());
+    }
+
+    #[test]
+    fn notices_set_and_clear_the_signal_and_tell_the_window() {
+        let fixture = fixture(DECISION_TIMEOUT);
+        let signals = Arc::new(AtomicUsize::new(0));
+        let counted = Arc::clone(&signals);
+        fixture.service.set_permission_signal(move || {
+            counted.fetch_add(1, Ordering::SeqCst);
+        });
+        let (port, token, _) = notice_launch(&fixture, 4);
+        let (_, other, _) = notice_launch(&fixture, 6);
+        let ask = |token: &str, body: &str| post(port, ROUTE_NOTIFY_ASKS, Some(token), body).0;
+        let clear = |token: &str, body: &str| post(port, ROUTE_NOTIFY_CLEAR, Some(token), body).0;
+        // An idle notice is no dialog, even when it reaches the asks route.
+        let idle = r#"{"hook_event_name":"Notification","notification_type":"idle_prompt"}"#;
+        assert_eq!(ask(&token, idle), 200);
+        assert!(fixture.service.permission_waiting().is_empty());
+        let prompt = r#"{"hook_event_name":"Notification","message":"Claude needs your permission","notification_type":"permission_prompt"}"#;
+        assert_eq!(ask(&token, prompt), 200);
+        assert_eq!(
+            ask(&other, r#"{"hook_event_name":"PermissionRequest"}"#),
+            200
+        );
+        assert_eq!(fixture.service.permission_waiting(), [4, 6]);
+        assert_eq!(signals.load(Ordering::SeqCst), 2);
+        // The same dialog again changes nothing to show.
+        assert_eq!(ask(&token, prompt), 200);
+        assert_eq!(signals.load(Ordering::SeqCst), 2);
+        // The tool ran: the dialog is gone; a session's notice never clears another's.
+        assert_eq!(clear(&token, r#"{"hook_event_name":"PostToolUse"}"#), 200);
+        assert_eq!(fixture.service.permission_waiting(), [6]);
+        assert_eq!(signals.load(Ordering::SeqCst), 3);
+        // A PermissionRequest with a whole file in it: not kept, the route still counts.
+        let large = format!(
+            r#"{{"hook_event_name":"PermissionRequest","tool_input":{{"content":"{}"}}}}"#,
+            "m".repeat(200 * 1024)
+        );
+        assert_eq!(ask(&token, &large), 200);
+        assert_eq!(fixture.service.permission_waiting(), [4, 6]);
+        // A body that is no JSON: the route decides.
+        assert_eq!(clear(&other, "not json"), 200);
+        assert_eq!(fixture.service.permission_waiting(), [4]);
+        // The process ends: its signal goes with it.
+        fixture.service.ended(4);
+        assert!(fixture.service.permission_waiting().is_empty());
+        assert_eq!(signals.load(Ordering::SeqCst), 6);
+        // And its token is gone.
+        assert_eq!(ask(&token, prompt), 401);
+    }
+
+    #[test]
+    fn the_persons_answer_clears_the_signal_of_that_session_only() {
+        let fixture = fixture(DECISION_TIMEOUT);
+        let signals = Arc::new(AtomicUsize::new(0));
+        let counted = Arc::clone(&signals);
+        fixture.service.set_permission_signal(move || {
+            counted.fetch_add(1, Ordering::SeqCst);
+        });
+        let (port, four, _) = notice_launch(&fixture, 4);
+        let (_, six, _) = notice_launch(&fixture, 6);
+        let body = r#"{"hook_event_name":"PermissionRequest"}"#;
+        assert_eq!(post(port, ROUTE_NOTIFY_ASKS, Some(&four), body).0, 200);
+        assert_eq!(post(port, ROUTE_NOTIFY_ASKS, Some(&six), body).0, 200);
+        fixture.service.permission_answered(4);
+        assert_eq!(fixture.service.permission_waiting(), [6]);
+        assert_eq!(signals.load(Ordering::SeqCst), 3);
+        // Nothing to clear: no signal.
+        fixture.service.permission_answered(4);
+        assert_eq!(signals.load(Ordering::SeqCst), 3);
+        // The next dialog sets it again.
+        assert_eq!(post(port, ROUTE_NOTIFY_ASKS, Some(&four), body).0, 200);
+        assert_eq!(fixture.service.permission_waiting(), [4, 6]);
+    }
+
+    #[test]
+    fn a_notice_that_arrives_after_its_session_ended_sets_nothing() {
+        let fixture = fixture(DECISION_TIMEOUT);
+        let (port, token, _) = notice_launch(&fixture, 4);
+        // The request is admitted, then the process ends while its body is still on the way.
+        let mut stream = connect(port);
+        let body = r#"{"hook_event_name":"PermissionRequest"}"#;
+        let head = format!(
+            "POST {ROUTE_NOTIFY_ASKS} HTTP/1.1\r\nHost: 127.0.0.1:{port}\r\n\
+             Authorization: Bearer {token}\r\nContent-Length: {}\r\n\r\n",
+            body.len()
+        );
+        stream.write_all(head.as_bytes()).unwrap();
+        stream.flush().unwrap();
+        thread::sleep(Duration::from_millis(200));
+        fixture.service.ended(4);
+        stream.write_all(body.as_bytes()).unwrap();
+        let (status, _) = read_response(stream);
+        assert_eq!(status, 200);
+        assert!(fixture.service.permission_waiting().is_empty());
+    }
+
+    #[test]
+    fn a_team_session_gets_the_notices_next_to_the_gate() {
+        let fixture = fixture(DECISION_TIMEOUT);
+        fixture.service.configure(true);
+        let program = Path::new("claude.exe");
+        let launch = launched(
+            fixture
+                .service
+                .prepare(1, &claude(), program, &[], Some("2.1.329")),
+        );
+        assert_eq!(launch.env[0].0, TOKEN_ENV);
+        assert_eq!(launch.env[1].0, NOTIFY_TOKEN_ENV);
+        assert_ne!(launch.env[0].1.as_str(), launch.env[1].1.as_str());
+        let json: serde_json::Value = serde_json::from_str(&launch.args[1]).unwrap();
+        assert!(json["hooks"].get("PreToolUse").is_some());
+        assert!(json["hooks"].get("PermissionRequest").is_some());
+        let port = fixture.service.port().unwrap();
+        let notice = launch.env[1].1.to_string();
+        assert_eq!(
+            post(port, ROUTE_NOTIFY_ASKS, Some(&notice), "{}"),
+            (200, String::new())
+        );
+        assert_eq!(fixture.service.permission_waiting(), [1]);
+        // Without a known version: the gate as before, no notices.
+        let older = launched(fixture.service.prepare(2, &claude(), program, &[], None));
+        assert_eq!(older.env.len(), 1);
+        assert!(!older.args[1].contains("PermissionRequest"));
     }
 
     #[test]

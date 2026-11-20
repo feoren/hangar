@@ -6,7 +6,7 @@ superseded_by:
 tags: [gate, hooks, team, shell, security, claude-code, pi, opencode, codex]
 sources: ["[[shell-tool-input-shapes]]", "[[opencode-gate-live-measurement]]", "[[agent-hooks-per-session-research]]", "[[codex-gate-live-measurement]]", "[[claude-http-hook-measurement]]"]
 created: 2026-11-14
-updated: 2026-11-15
+updated: 2026-11-20
 ---
 
 # ADR 0010: Command guard in the agent gate
@@ -127,6 +127,11 @@ Option 2 with reach A.
   `-c clean.requireForce=...` or `--config-env` for them; `hangar-stdin-script` also a database
   client (mysql, mariadb, psql, sqlite3, sqlcmd, duckdb, clickhouse-client) fed by a pipe without
   an SQL option or argument, or by a here-document built from variables.
+- **`hangar-secret-file`** (added 2026-11-20, [[0015-secret-guard]]): `git add` or `git stage`
+  naming a file that usually holds a secret (`.env`, `.env.<name>` except the example, sample and
+  template files, `*.pem`, `*.key`, `*.p12`, `*.pfx`, SSH private keys, `credentials.json`,
+  `.netrc`, `.pgpass`). Read from the words like the other rules; `git add .` or `-A` is not
+  asked about, since only the folder would tell.
 - **Reading a command.** The dialect follows the tool: `Bash` POSIX, `PowerShell` PowerShell,
   `Shell` all three with every hit counted. POSIX: quotes, every backslash outside quotes
   escapes (as Git Bash reads it), `$'...'` decoded, `$(...)` and backticks checked as commands of

@@ -35,7 +35,7 @@ use crate::gate::{Answer, GateSnapshot};
 use crate::gate_rules::GateRule;
 use crate::gate_service::{GateService, GuardInfo};
 use crate::git::{self, Git, GitDiff, GitError};
-use crate::git_actions::{self, ActionError};
+use crate::git_actions::{self, ActionError, CommitOutcome};
 use crate::git_activity::{self, ActivityError, GitActivity};
 use crate::git_history::{self, GitCommitDiff, GitLog};
 use crate::git_snapshots::{
@@ -63,8 +63,9 @@ use crate::notes::{
 };
 use crate::notify::{self, Notifier};
 use crate::panel_window::{self, PanelMessage, PanelScope, PanelWindowError};
-use crate::partner_inbox::WaitingMessage;
-use crate::partner_service::{self, PartnerInbox, PartnerServiceError, PartnerTargets};
+use crate::partner_service::{
+    self, PartnerInbox, PartnerServiceError, PartnerTargets, WaitingView,
+};
 use crate::partners::PartnerBook;
 use crate::paste_image::{self, PasteGate, PasteImageError, PasteOutcome};
 use crate::path_links::{self, Opened, PathKind, PathLinkError};
@@ -2228,13 +2229,13 @@ fn action_folder(manager: &SessionManager, id: SessionId) -> Result<PathBuf, Act
 }
 
 /// Runs one git action (git_actions.rs) on a blocking thread, in the session's folder.
-async fn git_action(
+async fn git_action<T: Send + 'static>(
     window: &tauri::Window,
     scope: &PanelScope,
     manager: &SessionManager,
     id: SessionId,
-    work: impl FnOnce(&Git, &std::path::Path) -> Result<(), ActionError> + Send + 'static,
-) -> Result<(), ActionError> {
+    work: impl FnOnce(&Git, &std::path::Path) -> Result<T, ActionError> + Send + 'static,
+) -> Result<T, ActionError> {
     if !in_scope(window, scope, id) {
         return Err(ActionError::UnknownSession(id));
     }
@@ -2292,7 +2293,10 @@ pub async fn git_discard(
     .await
 }
 
-/// Commits what is staged in the session's repository; hooks run as configured.
+/// Commits what is staged in the session's repository; hooks run as configured. Nothing is
+/// committed when the staged changes seem to hold a secret: the answer names the files and kinds
+/// and the index's tree (ADR 0015), and the person may commit anyway by handing that tree back as
+/// `allow_tree`.
 #[tauri::command]
 pub async fn git_commit(
     window: tauri::Window,
@@ -2300,9 +2304,10 @@ pub async fn git_commit(
     manager: Manager<'_>,
     id: SessionId,
     message: String,
-) -> Result<(), ActionError> {
+    allow_tree: Option<String>,
+) -> Result<CommitOutcome, ActionError> {
     git_action(&window, &scope, &manager, id, move |git, cwd| {
-        git_actions::commit(git, cwd, &message)
+        git_actions::commit_checked(git, cwd, &message, allow_tree.as_deref())
     })
     .await
 }
@@ -3140,6 +3145,31 @@ pub fn gate_snapshot(gate: State<'_, GateService>) -> GateSnapshot {
     gate.snapshot()
 }
 
+/// The sessions whose agent shows a permission or input dialog right now, as its notice hooks
+/// reported it (ADR 0016). Main window only; the payload-free `permission-waits-changed` signal
+/// says when to read it again.
+#[tauri::command]
+pub fn permission_waiting(
+    window: tauri::Window,
+    gate: State<'_, GateService>,
+) -> Result<Vec<SessionId>, PanelWindowError> {
+    panel_window::check_main(window.label())?;
+    Ok(gate.permission_waiting())
+}
+
+/// The person pressed a key in session `id` that answers a dialog (Enter, Esc, a digit) while its
+/// agent's hooks reported one: the signal goes (ADR 0016). Main window only.
+#[tauri::command]
+pub fn permission_answered(
+    window: tauri::Window,
+    gate: State<'_, GateService>,
+    id: SessionId,
+) -> Result<(), PanelWindowError> {
+    panel_window::check_main(window.label())?;
+    gate.permission_answered(id);
+    Ok(())
+}
+
 /// The person's answer to a waiting edit; `false` when it no longer waits (answered, timed out,
 /// session ended). On a blocking thread: an "always" answer writes the rules file.
 #[tauri::command]
@@ -3834,7 +3864,7 @@ pub async fn waiting_messages(
     window: tauri::Window,
     store: State<'_, MainStore>,
     inbox: State<'_, PartnerInbox>,
-) -> Result<Vec<WaitingMessage>, PartnerServiceError> {
+) -> Result<Vec<WaitingView>, PartnerServiceError> {
     main_store::check_main(window.label()).map_err(PartnerServiceError::Store)?;
     let store = store.inner().clone();
     let inbox = inbox.inner().clone();

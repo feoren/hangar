@@ -4,7 +4,7 @@ type: agent
 tags: [agents, attention, queue]
 sources: ["[[agent-prompt-strings-reading]]"]
 created: 2026-11-14
-updated: 2026-11-14
+updated: 2026-11-20
 ---
 
 # Agent prompt shapes (questions vs. idle input)
@@ -22,6 +22,11 @@ bell. Used by `src/promptGuard.ts` so that a queued message never answers a dial
 | Gemini CLI | not determined | none |
 
 So "asks" from a bell cannot be relied on; the screen has to be read.
+
+For Claude Code from 2.1.268 Hangar does not depend on the screen for permission and MCP input
+dialogs: report-only hooks (`PermissionRequest`, `Notification`) set the attention reason
+`permission` ([[0016-permission-notices]], [[claude-permission-hooks-measurement]]). The patterns
+below stay the fallback for every other program and for a trust dialog.
 
 ## Patterns checked by the guard
 
