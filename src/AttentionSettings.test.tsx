@@ -27,25 +27,16 @@ describe("AttentionSettings per platform", () => {
     vi.unstubAllGlobals();
   });
 
-  it("offers desktop notifications and the GPU on Windows", () => {
+  it.each([
+    ["Windows", WINDOWS],
+    ["Linux", LINUX],
+    ["macOS", MAC],
+  ])("offers desktop notifications and the GPU on %s", (_name, userAgent) => {
     const t = createTranslator("en");
-    const html = render(WINDOWS);
+    const html = render(userAgent);
     expect(html).toContain('id="notify-desktop-help"');
     expect(html).toContain(t("settings.showResources"));
     expect(html).toContain(t("settings.powerSavingHelp"));
-  });
-
-  it("offers desktop notifications on Linux and hides the GPU", () => {
-    const t = createTranslator("en");
-    const html = render(LINUX);
-    expect(html).toContain('id="notify-desktop-help"');
-    expect(html).not.toContain(t("settings.showResources"));
-    expect(html).toContain(t("settings.showResourcesNoGpu"));
-    expect(html).toContain(t("settings.powerSavingHelpNoGpu"));
-  });
-
-  it("hides desktop notifications on macOS", () => {
-    expect(render(MAC)).not.toContain('id="notify-desktop-help"');
   });
 });
 

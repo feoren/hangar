@@ -615,6 +615,8 @@ export const api = {
   systemUsage: () => invoke<unknown>("system_usage"),
   /** Battery or AC, read afresh (power.ts parses it). */
   powerState: () => invoke<unknown>("power_state"),
+  /** Linux: the waiting sessions on the launcher icon; 0 hides the count (launcher_badge.rs). */
+  setLauncherCount: (count: number) => invoke<unknown>("set_launcher_count", { count }),
   /** Push settings and which secrets are stored, never their values (phonePush.ts parses it). */
   pushSettings: () => invoke<unknown>("push_settings"),
   /** Saves the push settings; secrets go to the keychain only. Rejects with an error kind. */

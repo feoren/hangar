@@ -107,8 +107,9 @@ your own accounts, on your own machine. The desktop app is open source under the
   row that opens it in the browser.
 - **Load at a glance.** A one-row bar shows the machine's CPU, memory and GPU load as small live
   graphs with the memory in use, and every session row shows its own CPU, memory and, when it uses
-  the GPU, GPU load and memory (GPU numbers on Windows); a mark flags a session that keeps a whole
-  core busy or holds a lot of memory.
+  the GPU, GPU load and memory (per session on Windows and on Linux with AMD or Intel graphics,
+  the machine's GPU only on macOS); a mark flags a session that keeps a whole core busy or holds
+  a lot of memory.
 - **Context at a glance.** Claude Code sessions show how full their context window is right in
   their row, for example `12 % · 123k / 1M`. From 80 % a compact button on the row sends the
   agent's compact command.

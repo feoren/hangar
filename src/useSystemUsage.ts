@@ -10,12 +10,16 @@ import { api } from "./api";
 import {
   advance,
   EMPTY_STATE,
+  keepsGpuColumn,
   parseSystemUsage,
-  reportsGpu,
   type SystemState,
 } from "./systemUsage";
+import { currentPlatform } from "./platform";
 import { pollInterval, PollTimer } from "./power";
 import { isPowerSaving, onPowerSavingChange } from "./usePower";
+
+/** The platform does not change while the window lives. */
+const platform = currentPlatform();
 
 let state: SystemState = EMPTY_STATE;
 /** What the bar renders; lags `state` while readings change nothing. */
@@ -115,5 +119,5 @@ export function useSystemUsage(): SystemState {
  * answer changes, not with every reading.
  */
 export function useGpuColumn(): boolean {
-  return useSyncExternalStore(subscribe, () => reportsGpu(published.usage));
+  return useSyncExternalStore(subscribe, () => keepsGpuColumn(published.usage, platform));
 }

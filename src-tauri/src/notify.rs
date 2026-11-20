@@ -3,7 +3,9 @@
 //! Windows through the WinRT toast API: each toast carries the session id as its tag, so a new
 //! notification for a session replaces the previous one instead of piling up. Linux through the
 //! freedesktop notification service (`freedesktop.rs`), where `replaces_id` does the same. macOS
-//! reports "not supported" and the window falls back to its own signals.
+//! through `UNUserNotificationCenter` (`user_notifications.rs`), where the request identifier
+//! does the same. Elsewhere, and on macOS outside an app bundle, "not supported": the window
+//! falls back to its own signals.
 
 use std::path::Path;
 
@@ -11,6 +13,10 @@ use std::path::Path;
 mod dbus;
 #[cfg(any(target_os = "linux", test))]
 pub mod freedesktop;
+#[cfg(target_os = "macos")]
+mod macos;
+#[cfg(any(target_os = "macos", test))]
+pub mod user_notifications;
 
 pub const MAX_CHARS: usize = 200;
 
@@ -91,8 +97,9 @@ pub enum NotifyError {
     #[cfg(windows)]
     #[error("Toast failed: {0}")]
     Toast(#[from] windows::core::Error),
-    /// No session bus, no notification server, or a call to it failed.
-    #[cfg(any(target_os = "linux", test))]
+    /// No session bus, no notification server, or a call to it failed (Linux); the notification
+    /// center refused or did not answer (macOS).
+    #[cfg(any(target_os = "linux", target_os = "macos", test))]
     #[error("Notification service: {0}")]
     Service(String),
 }
@@ -192,7 +199,20 @@ mod imp {
     }
 }
 
-#[cfg(not(any(windows, target_os = "linux")))]
+#[cfg(target_os = "macos")]
+mod imp {
+    use super::user_notifications::Clicks;
+    pub use super::user_notifications::Notifier;
+
+    impl Default for Notifier {
+        fn default() -> Self {
+            let clicks = Clicks::default();
+            Self::with_center(super::macos::connect(clicks.clone()), clicks)
+        }
+    }
+}
+
+#[cfg(not(any(windows, target_os = "linux", target_os = "macos")))]
 mod imp {
     use super::NotifyError;
 

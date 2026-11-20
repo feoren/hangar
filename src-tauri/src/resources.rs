@@ -8,7 +8,8 @@
 //! [`CPU_SUSTAIN`] (a whole core for a long time, whatever the machine's size) or holds more than
 //! [`MEMORY_LIMIT`]. Answers are cached for [`CACHE_FOR`], so several callers do not multiply the
 //! system calls. GPU load and GPU memory come from the shared GPU reading (`gpu.rs`), matched to
-//! the tree by its process ids; Windows only, `None` elsewhere.
+//! the tree by its process ids; Windows and Linux, `None` elsewhere (macOS gives no per-process
+//! GPU figures without root).
 
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};

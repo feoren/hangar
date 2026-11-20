@@ -10,6 +10,7 @@ import {
   gaugeAmountLabel,
   gaugeWarns,
   HISTORY_LENGTH,
+  keepsGpuColumn,
   parseSystemUsage,
   pushHistory,
   reportsGpu,
@@ -123,6 +124,17 @@ describe("reportsGpu", () => {
     expect(reportsGpu(reading(10, 40, null))).toBe(false);
     expect(reportsGpu(reading(10, 40, 0))).toBe(true);
     expect(reportsGpu({ ...reading(10, 40, null), gpuMemory: GB })).toBe(true);
+  });
+});
+
+describe("keepsGpuColumn", () => {
+  it("keeps the column only where sessions can have GPU figures", () => {
+    const busy = reading(10, 40, 30);
+    expect(keepsGpuColumn(busy, "windows")).toBe(true);
+    expect(keepsGpuColumn(busy, "linux")).toBe(true);
+    // macOS gives the machine only: every row's cell would stay empty.
+    expect(keepsGpuColumn(busy, "mac")).toBe(false);
+    expect(keepsGpuColumn(reading(10, 40, null), "linux")).toBe(false);
   });
 });
 

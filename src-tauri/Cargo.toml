@@ -194,6 +194,42 @@ libc = "0.2"
 # lock file), no new license and nothing on Windows.
 tokio = { version = "1", default-features = false, features = ["signal"] }
 
+[target.'cfg(target_os = "macos")'.dependencies]
+# Desktop notifications (notify/macos.rs) through UNUserNotificationCenter, and the Low Power Mode
+# for the power saving mode (power.rs, NSProcessInfo). The objc2 bindings (MIT, madsmtm,
+# maintained) are already in the macOS tree at these versions through tauri, tao, muda and
+# arboard; objc2-user-notifications is in the lock file through objc2-ui-kit. Only the features
+# named here are compiled. Alternatives: mac-notification-sys (MIT/Apache-2.0) wraps the
+# NSUserNotification API deprecated since macOS 11; osascript's `display notification` cannot
+# route a click back to Hangar; tauri-plugin-notification has no "replace by session" and would be
+# a second Windows path.
+# `exception`: the first access to the notification center is guarded against an Objective-C
+# exception (notify/macos.rs). Adds objc2-exception-helper (MIT, same maintainer), a few lines of
+# Objective-C compiled with the system's clang; already in the lock file.
+objc2 = { version = "0.6", features = ["exception"] }
+block2 = "0.6"
+objc2-foundation = { version = "0.3", default-features = false, features = [
+  "std",
+  "NSArray",
+  "NSBundle",
+  "NSError",
+  "NSObject",
+  "NSProcessInfo",
+  "NSString",
+] }
+objc2-user-notifications = { version = "0.3", default-features = false, features = [
+  "std",
+  "bitflags",
+  "block2",
+  "UNNotification",
+  "UNNotificationContent",
+  "UNNotificationRequest",
+  "UNNotificationResponse",
+  "UNNotificationSound",
+  "UNNotificationTrigger",
+  "UNUserNotificationCenter",
+] }
+
 [target.'cfg(target_os = "linux")'.dependencies]
 # Desktop notifications (notify.rs) through org.freedesktop.Notifications. zbus (pure Rust D-Bus,
 # no libdbus; MIT, dbus2 org, maintained) is already in the Linux tree at this version with its

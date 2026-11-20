@@ -10,6 +10,8 @@
 //!
 //! - Windows: `GetSystemPowerStatus` (AC line, "no system battery" flag, battery saver).
 //! - Linux: `/sys/class/power_supply` (kernel ABI `sysfs-class-power`); no battery saver.
+//! - macOS: `pmset -g batt` (power source, internal battery) and `NSProcessInfo`'s Low Power
+//!   Mode as the battery saver.
 //! - Other systems: [`PowerState::Unknown`], and the window hides the setting.
 
 use std::fs;
@@ -29,7 +31,7 @@ pub const EVENT: &str = "power-changed";
 /// How often the thread reads the power state.
 pub const POLL_INTERVAL: Duration = Duration::from_secs(30);
 /// Whether this platform can tell battery from AC at all; elsewhere no thread is started.
-pub const SUPPORTED: bool = cfg!(any(windows, target_os = "linux"));
+pub const SUPPORTED: bool = cfg!(any(windows, target_os = "linux", target_os = "macos"));
 
 /// Where the power comes from.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize)]
@@ -114,6 +116,26 @@ pub fn classify_supplies(supplies: &[Supply]) -> PowerState {
     PowerState::Unknown
 }
 
+/// The state from the output of `pmset -g batt` and the Low Power Mode. The first line names the
+/// source power is drawn from (`Now drawing from 'AC Power'`, `'Battery Power'` or `'UPS Power'`);
+/// a Mac with a battery lists it as `-InternalBattery-0`, a desktop lists none. A UPS is no system
+/// battery, as on Linux. Low Power Mode on AC counts as AC: on AC, Hangar changes nothing.
+pub fn classify_pmset(batt: &str, low_power: bool) -> PowerState {
+    if !batt.lines().any(|line| line.contains("-InternalBattery")) {
+        return PowerState::NoBattery;
+    }
+    let source = batt.lines().find_map(|line| {
+        let rest = line.trim().strip_prefix("Now drawing from '")?;
+        rest.split('\'').next()
+    });
+    match source {
+        Some("AC Power") => PowerState::Ac,
+        Some("Battery Power") if low_power => PowerState::Saver,
+        Some("Battery Power") => PowerState::Battery,
+        _ => PowerState::Unknown,
+    }
+}
+
 /// Reads every entry of a `power_supply` class folder; an unreadable folder gives none.
 pub fn read_supplies(dir: &Path) -> Vec<Supply> {
     let Ok(entries) = fs::read_dir(dir) else {
@@ -170,8 +192,24 @@ pub fn read() -> PowerState {
     classify_supplies(&read_supplies(Path::new("/sys/class/power_supply")))
 }
 
+/// The power state right now. `pmset` by its absolute path and as an argument list, so no `PATH`
+/// entry can stand in for it, and with a time limit; a `pmset` that hangs reads as unknown.
+#[cfg(target_os = "macos")]
+pub fn read() -> PowerState {
+    use crate::bounded_output::{output_within, TOOL_LIMIT};
+
+    let Some(output) = output_within("/usr/bin/pmset", &["-g", "batt"], TOOL_LIMIT) else {
+        return PowerState::Unknown;
+    };
+    // The power thread and the command's worker thread have no autorelease pool of their own.
+    let low_power = objc2::rc::autoreleasepool(|_| {
+        objc2_foundation::NSProcessInfo::processInfo().isLowPowerModeEnabled()
+    });
+    classify_pmset(&String::from_utf8_lossy(&output), low_power)
+}
+
 /// The power state right now.
-#[cfg(not(any(windows, target_os = "linux")))]
+#[cfg(not(any(windows, target_os = "linux", target_os = "macos")))]
 pub fn read() -> PowerState {
     PowerState::Unknown
 }
@@ -407,6 +445,52 @@ mod tests {
         );
         assert_eq!(classify_supplies(&supplies), PowerState::Battery);
         assert!(read_supplies(&dir.path().join("missing")).is_empty());
+    }
+
+    const PMSET_LAPTOP_AC: &str = "Now drawing from 'AC Power'\n \
+        -InternalBattery-0 (id=4653155)\t100%; charged; 0:00 remaining present: true\n";
+    const PMSET_LAPTOP_BATTERY: &str = "Now drawing from 'Battery Power'\n \
+        -InternalBattery-0 (id=4653155)\t87%; discharging; 5:12 remaining present: true\n";
+
+    #[test]
+    fn pmset_output_maps_to_the_state() {
+        assert_eq!(classify_pmset(PMSET_LAPTOP_AC, false), PowerState::Ac);
+        assert_eq!(
+            classify_pmset(PMSET_LAPTOP_BATTERY, false),
+            PowerState::Battery
+        );
+        assert_eq!(
+            classify_pmset(PMSET_LAPTOP_BATTERY, true),
+            PowerState::Saver
+        );
+        // Charging and "AC attached; not charging" are both drawn from AC.
+        let not_charging = PMSET_LAPTOP_AC.replace("charged", "AC attached; not charging");
+        assert_eq!(classify_pmset(&not_charging, false), PowerState::Ac);
+    }
+
+    #[test]
+    fn low_power_mode_on_ac_changes_nothing() {
+        assert_eq!(classify_pmset(PMSET_LAPTOP_AC, true), PowerState::Ac);
+    }
+
+    #[test]
+    fn a_mac_without_battery_says_so() {
+        assert_eq!(
+            classify_pmset("Now drawing from 'AC Power'\n", false),
+            PowerState::NoBattery
+        );
+        // A UPS is no system battery, also while power comes from it.
+        let ups = "Now drawing from 'UPS Power'\n -Back-UPS 700 (id=1)\t95%; discharging\n";
+        assert_eq!(classify_pmset(ups, true), PowerState::NoBattery);
+        assert_eq!(classify_pmset("", false), PowerState::NoBattery);
+    }
+
+    #[test]
+    fn an_unknown_pmset_source_is_unknown() {
+        let odd = PMSET_LAPTOP_AC.replace("AC Power", "Solar Power");
+        assert_eq!(classify_pmset(&odd, false), PowerState::Unknown);
+        let missing = " -InternalBattery-0 (id=1)\t50%; charging\n";
+        assert_eq!(classify_pmset(missing, false), PowerState::Unknown);
     }
 
     #[test]

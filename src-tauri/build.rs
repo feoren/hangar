@@ -59,6 +59,7 @@ const COMMANDS: &[&str] = &[
     "session_resources",
     "system_usage",
     "power_state",
+    "set_launcher_count",
     "push_settings",
     "push_save",
     "push_test",

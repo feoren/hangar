@@ -3,6 +3,7 @@
 // sparkline's shape are testable without a DOM; useSystemUsage.ts asks the backend.
 
 import type { Translate } from "./i18n";
+import { hasSessionGpu, type Platform } from "./platform";
 import { formatMemory } from "./resources";
 
 /** How often the window asks while it is visible. */
@@ -146,12 +147,18 @@ export function barPending(usage: SystemUsage, tick: number): boolean {
   return usage.cpu === null && tick < 2;
 }
 
-/**
- * Whether the machine gives GPU numbers at all (Windows today): then every session row keeps a
- * GPU column, empty for a session that leaves the GPU alone, so the columns after it line up.
- */
+/** Whether the machine gives GPU numbers at all. */
 export function reportsGpu(usage: SystemUsage): boolean {
   return usage.gpu !== null || usage.gpuMemory !== null;
+}
+
+/**
+ * Whether every session row keeps a GPU column, empty for a session that leaves the GPU alone, so
+ * the columns after it line up: while the machine gives GPU numbers and the platform has them per
+ * session too. On macOS the column would stay empty in every row.
+ */
+export function keepsGpuColumn(usage: SystemUsage, platform: Platform): boolean {
+  return reportsGpu(usage) && hasSessionGpu(platform);
 }
 
 export function gaugeWarns(value: number): boolean {

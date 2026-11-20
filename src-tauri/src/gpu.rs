@@ -8,7 +8,17 @@
 //!
 //! - Windows: one PDH query that stays open, with `\GPU Engine(*)\Utilization Percentage`,
 //!   `\GPU Process Memory(*)\Dedicated Usage` and `\GPU Adapter Memory(*)\Dedicated Usage`.
+//! - Linux: per process the DRM client statistics in `/proc/<pid>/fdinfo` of the sessions'
+//!   processes; per machine amdgpu's sysfs files and NVIDIA's NVML (`drm.rs`, `nvml.rs`). A
+//!   machine with neither (an Intel GPU, say) gives the sessions' figures only.
+//! - macOS: the machine from the IOAccelerator registry entries (`ioreg.rs`); no per-process
+//!   figures without root.
 //! - Other systems: nothing (`None`), the window hides the GPU.
+
+pub mod drm;
+pub mod ioreg;
+#[cfg(target_os = "linux")]
+mod nvml;
 
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
@@ -83,6 +93,22 @@ impl GpuSnapshot {
         snapshot
     }
 
+    /// A snapshot from readings parsed elsewhere (Linux, macOS): per process its engines with
+    /// their load in percent and its device memory in bytes, and the machine's load and memory.
+    pub fn from_parts(
+        engines: HashMap<u32, Vec<(String, f64)>>,
+        process_memory: HashMap<u32, u64>,
+        load: Option<f64>,
+        memory: Option<u64>,
+    ) -> Self {
+        Self {
+            engines,
+            process_memory,
+            load: load.map(percent),
+            memory,
+        }
+    }
+
     /// The tree of `processes`: their shares summed per engine (two processes on the same 3D
     /// engine share its load), the busiest engine as the load, like the machine's load; their
     /// dedicated memory summed.
@@ -141,10 +167,19 @@ fn instance_pid(name: &str) -> Option<u32> {
     rest[..end].parse().ok()
 }
 
-#[derive(Default)]
 struct State {
-    sampler: platform::Sampler,
+    /// Taken out while a reading runs, so the lock is not held during it.
+    sampler: Option<platform::Sampler>,
     last: Option<(Instant, Option<Arc<GpuSnapshot>>)>,
+}
+
+impl Default for State {
+    fn default() -> Self {
+        Self {
+            sampler: Some(platform::Sampler::default()),
+            last: None,
+        }
+    }
 }
 
 /// Managed state: the open query and the last snapshot, shared by every reader.
@@ -156,16 +191,30 @@ pub struct GpuMonitor {
 impl GpuMonitor {
     /// The snapshot for `now`: the cached one when it is younger than [`CACHE_FOR`], otherwise a
     /// fresh collection. `None` where the platform has no counters, and on the very first
-    /// collection, which only sets the utilization's baseline. The lock is held while
-    /// collecting, so a second caller waits and gets the cached snapshot.
+    /// collection, which only sets the utilization's baseline. The lock is not held while
+    /// collecting (a macOS reading runs a tool for up to 2 s): a second caller meanwhile gets the
+    /// previous snapshot instead of waiting or collecting twice.
     pub fn snapshot(&self, now: Instant) -> Option<Arc<GpuSnapshot>> {
-        let mut state = lock(&self.state);
-        if let Some((at, snapshot)) = &state.last {
-            if now.saturating_duration_since(*at) < CACHE_FOR {
-                return snapshot.clone();
+        let mut sampler = {
+            let mut state = lock(&self.state);
+            if let Some((at, snapshot)) = &state.last {
+                if now.saturating_duration_since(*at) < CACHE_FOR {
+                    return snapshot.clone();
+                }
             }
-        }
-        let snapshot = state.sampler.read().map(Arc::new);
+            match state.sampler.take() {
+                Some(sampler) => sampler,
+                None => {
+                    return state
+                        .last
+                        .as_ref()
+                        .and_then(|(_, snapshot)| snapshot.clone())
+                }
+            }
+        };
+        let snapshot = sampler.read().map(Arc::new);
+        let mut state = lock(&self.state);
+        state.sampler = Some(sampler);
         state.last = Some((now, snapshot.clone()));
         snapshot
     }
@@ -365,7 +414,174 @@ mod platform {
     }
 }
 
-#[cfg(not(windows))]
+#[cfg(target_os = "linux")]
+mod platform {
+    use std::fs;
+    use std::path::Path;
+    use std::time::Instant;
+
+    use super::drm::{self, History, ProcessEntry, Reading};
+    use super::nvml::Nvml;
+    use super::GpuSnapshot;
+
+    /// Open files read at most per process; an agent with more than this many is counted
+    /// partially rather than walked without bound.
+    const MAX_FILES: usize = 4096;
+
+    /// The busy counters of the last reading and NVML, opened on the first reading and kept.
+    #[derive(Default)]
+    pub struct Sampler {
+        history: History,
+        /// `None` until tried, then `Some(None)` on a machine without NVML.
+        nvml: Option<Option<Nvml>>,
+        /// The first reading only sets the busy counters' baseline, as on Windows.
+        started: bool,
+    }
+
+    impl Sampler {
+        pub fn read(&mut self) -> Option<GpuSnapshot> {
+            let now = Instant::now();
+            let nvml = self.nvml.get_or_insert_with(Nvml::open);
+            let mut devices = amdgpu_devices();
+            if let Some(nvml) = nvml {
+                devices.extend(nvml.read());
+            }
+            let (load, memory) = drm::combine(devices);
+            let members = drm::session_members(&processes(), std::process::id());
+            let (engines, process_memory) = self.history.update(readings(&members), now);
+            if !std::mem::replace(&mut self.started, true) {
+                return None;
+            }
+            Some(GpuSnapshot::from_parts(
+                engines,
+                process_memory,
+                load,
+                memory,
+            ))
+        }
+    }
+
+    /// Load and VRAM in use of every amdgpu card (`/sys/class/drm/card<n>/device`); other
+    /// drivers have neither file.
+    fn amdgpu_devices() -> Vec<(Option<f64>, Option<u64>)> {
+        let Ok(entries) = fs::read_dir("/sys/class/drm") else {
+            return Vec::new();
+        };
+        entries
+            .flatten()
+            .filter(|entry| {
+                let name = entry.file_name();
+                let name = name.to_string_lossy();
+                name.strip_prefix("card")
+                    .is_some_and(|n| !n.is_empty() && n.bytes().all(|b| b.is_ascii_digit()))
+            })
+            .filter_map(|entry| {
+                let device = entry.path().join("device");
+                let number = |file: &str| {
+                    fs::read_to_string(device.join(file))
+                        .ok()
+                        .and_then(|text| drm::parse_sysfs_number(&text))
+                };
+                let load = number("gpu_busy_percent").map(|percent| percent as f64);
+                let memory = number("mem_info_vram_used");
+                (load.is_some() || memory.is_some()).then_some((load, memory))
+            })
+            .collect()
+    }
+
+    /// Every process of `/proc` with its parent and session; one that ends meanwhile is left out.
+    fn processes() -> Vec<ProcessEntry> {
+        let Ok(entries) = fs::read_dir("/proc") else {
+            return Vec::new();
+        };
+        entries
+            .flatten()
+            .filter_map(|entry| {
+                let pid = entry.file_name().to_string_lossy().parse::<u32>().ok()?;
+                let text = fs::read_to_string(entry.path().join("stat")).ok()?;
+                let fields = crate::proctree::stat::parse(&text)?;
+                Some(ProcessEntry {
+                    pid,
+                    parent: fields.parent,
+                    session: fields.session,
+                })
+            })
+            .collect()
+    }
+
+    /// The DRM client statistics of every open DRM file (`/dev/dri/*`) of `pids`.
+    fn readings(pids: &[u32]) -> Vec<Reading> {
+        let mut readings = Vec::new();
+        for &pid in pids {
+            let process = Path::new("/proc").join(pid.to_string());
+            let Ok(files) = fs::read_dir(process.join("fd")) else {
+                continue;
+            };
+            for file in files.flatten().take(MAX_FILES) {
+                let Ok(fd) = file.file_name().to_string_lossy().parse::<u32>() else {
+                    continue;
+                };
+                let is_drm =
+                    fs::read_link(file.path()).is_ok_and(|target| target.starts_with("/dev/dri/"));
+                if !is_drm {
+                    continue;
+                }
+                let info = process.join("fdinfo").join(fd.to_string());
+                if let Some(client) = fs::read_to_string(info)
+                    .ok()
+                    .and_then(|text| drm::parse_fdinfo(&text))
+                {
+                    readings.push(Reading { pid, fd, client });
+                }
+            }
+        }
+        readings
+    }
+}
+
+#[cfg(target_os = "macos")]
+mod platform {
+    use std::collections::HashMap;
+
+    use crate::bounded_output::{output_within, TOOL_LIMIT};
+
+    use super::{drm, ioreg, GpuSnapshot};
+
+    /// Given up for good when the registry has no accelerator statistics (a virtual machine,
+    /// say), so `ioreg` does not run again on every reading.
+    #[derive(Default)]
+    pub struct Sampler {
+        unavailable: bool,
+    }
+
+    impl Sampler {
+        pub fn read(&mut self) -> Option<GpuSnapshot> {
+            if self.unavailable {
+                return None;
+            }
+            // By its absolute path and as an argument list, so no `PATH` entry can stand in, and
+            // with a time limit; a failed or slow run gives nothing this time.
+            let output = output_within(
+                "/usr/sbin/ioreg",
+                &["-r", "-d", "1", "-w", "0", "-c", "IOAccelerator"],
+                TOOL_LIMIT,
+            )?;
+            let Some(devices) = ioreg::parse(&String::from_utf8_lossy(&output)) else {
+                self.unavailable = true;
+                return None;
+            };
+            let (load, memory) = drm::combine(devices);
+            Some(GpuSnapshot::from_parts(
+                HashMap::new(),
+                HashMap::new(),
+                load,
+                memory,
+            ))
+        }
+    }
+}
+
+#[cfg(not(any(windows, target_os = "linux", target_os = "macos")))]
 mod platform {
     use super::GpuSnapshot;
 
@@ -510,10 +726,13 @@ mod tests {
         let monitor = GpuMonitor::default();
         let start = Instant::now();
         let first = monitor.snapshot(start);
-        assert!(
-            first.is_none(),
-            "the first collection only sets the baseline"
-        );
+        // macOS reads gauges only, so it has no baseline to wait for.
+        if !cfg!(target_os = "macos") {
+            assert!(
+                first.is_none(),
+                "the first collection only sets the baseline"
+            );
+        }
         monitor.snapshot(start + Duration::from_millis(900));
         assert!(lock(&monitor.state)
             .last
@@ -524,6 +743,29 @@ mod tests {
             .last
             .as_ref()
             .is_some_and(|(at, _)| *at == start + CACHE_FOR));
+    }
+
+    #[test]
+    fn a_reading_in_progress_hands_out_the_previous_snapshot() {
+        let monitor = GpuMonitor::default();
+        let start = Instant::now();
+        let previous = Arc::new(GpuSnapshot::from_parts(
+            HashMap::new(),
+            HashMap::new(),
+            Some(12.0),
+            None,
+        ));
+        {
+            let mut state = lock(&monitor.state);
+            // Another caller holds the sampler: its reading runs.
+            state.sampler = None;
+            state.last = Some((start, Some(Arc::clone(&previous))));
+        }
+        let later = start + Duration::from_secs(5);
+        assert_eq!(monitor.snapshot(later), Some(previous));
+        let state = lock(&monitor.state);
+        assert!(state.last.as_ref().is_some_and(|(at, _)| *at == start));
+        assert!(state.sampler.is_none(), "nothing collected meanwhile");
     }
 
     /// The real counters of this machine; prints the values and the time a collection takes.
