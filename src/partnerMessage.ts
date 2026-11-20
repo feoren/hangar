@@ -110,18 +110,22 @@ export interface HoldProbe {
   working: () => boolean;
   /** The target session is gone; the message is dropped. */
   gone: () => boolean;
+  /** The person cancelled the wait (a card's "Cancel"); left out where nobody can. */
+  cancelled?: () => boolean;
 }
 
 /**
- * Holds a message while its target works and resolves `paused` once it stopped, or `gone`
- * when the session went away. There is no time limit: the message waits as long as the task
- * runs, like a queued message.
+ * Holds a message while its target works and resolves `paused` once it stopped, `gone` when the
+ * session went away, or `cancelled` when the person stopped the wait. There is no time limit: the
+ * message waits as long as the task runs, like a queued message, and whoever waits sees so and
+ * can cancel.
  */
 export async function holdUntilPaused(
   probe: HoldProbe,
   wait: (ms: number) => Promise<void>,
-): Promise<"paused" | "gone"> {
+): Promise<"paused" | "gone" | "cancelled"> {
   for (;;) {
+    if (probe.cancelled?.() === true) return "cancelled";
     if (probe.gone()) return "gone";
     if (!probe.working()) return "paused";
     await wait(HOLD_POLL_MS);
@@ -132,6 +136,7 @@ export async function holdUntilPaused(
 export type DeliveryResult =
   | { kind: "pasted" }
   | { kind: "gone" }
+  | { kind: "cancelled" }
   | { kind: "notReady" }
   | { kind: "refused"; error: unknown }
   | { kind: "pasteFailed" };
@@ -140,6 +145,8 @@ export type DeliveryResult =
 export interface DeliveryDeps extends HoldProbe {
   /** The held message is shown to the person once, when the target is working. */
   onHeld: () => void;
+  /** The paste begins now: from here on a cancel comes too late. */
+  onSending?: () => void;
   /** Waits until the target can take a paste (`waitUntilReady` of the handover). */
   ready: () => Promise<"ready" | "notReady" | "gone">;
   /**
@@ -168,9 +175,13 @@ export async function deliverMessage(
   enterDelayMs: number,
 ): Promise<DeliveryResult> {
   if (deps.working()) deps.onHeld();
-  if ((await holdUntilPaused(deps, deps.wait)) === "gone") return { kind: "gone" };
+  const held = await holdUntilPaused(deps, deps.wait);
+  if (held !== "paused") return { kind: held };
   const ready = await deps.ready();
+  // A cancel during the wait for the paste ends it as one (the caller's `ready` sees it as gone).
+  if (deps.cancelled?.() === true) return { kind: "cancelled" };
   if (ready !== "ready") return { kind: ready };
+  deps.onSending?.();
   let text: string;
   try {
     text = await deps.prepare();

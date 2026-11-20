@@ -169,6 +169,48 @@ describe("deliverMessage", () => {
     expect(failed.calls).toEqual(["prepare"]);
   });
 
+  it("stops a held delivery the person cancelled, before anything is prepared", async () => {
+    // A card's "Send" to a target that works waited without a limit and without a way out (the
+    // card kept greyed-out buttons). Cancelled, it ends and claims nothing.
+    let cancelled = false;
+    let checks = 0;
+    const run = deps({
+      working: () => true,
+      cancelled: () => cancelled,
+      wait: () => {
+        if (++checks === 3) cancelled = true;
+        return Promise.resolve();
+      },
+    });
+    expect(await deliverMessage(run.deps, true, 0)).toEqual({ kind: "cancelled" });
+    expect(run.calls).toEqual(["held"]);
+  });
+
+  it("stops when cancelled while waiting to paste, and says when the paste begins", async () => {
+    let cancelled = false;
+    const late = deps({
+      cancelled: () => cancelled,
+      ready: () => {
+        cancelled = true;
+        return Promise.resolve("gone");
+      },
+    });
+    expect(await deliverMessage(late.deps, true, 0)).toEqual({ kind: "cancelled" });
+    expect(late.calls).toEqual([]);
+    // From the paste on, a cancel comes too late: the text goes in with its Enter.
+    cancelled = false;
+    const sending = deps({ cancelled: () => cancelled });
+    const run: DeliveryDeps = {
+      ...sending.deps,
+      onSending: () => {
+        sending.calls.push("sending");
+        cancelled = true;
+      },
+    };
+    expect(await deliverMessage(run, true, 0)).toEqual({ kind: "pasted" });
+    expect(sending.calls).toEqual(["sending", "prepare", "paste:HEAD\ntext", "submit"]);
+  });
+
   it("presses no Enter when the target went away during the delay", async () => {
     let gone = false;
     const run = deps({ gone: () => gone, wait: () => ((gone = true), Promise.resolve()) });

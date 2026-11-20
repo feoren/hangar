@@ -220,6 +220,24 @@ describe("claimed messages", () => {
     expect(nextDeliveries([claimed, message(3, 2, true)], new Set()).map((m) => m.id)).toEqual([3]);
     expect(heldBySession([held]).size).toBe(0);
   });
+
+  it("get no card while their automatic delivery still runs, even once the claim ran out", () => {
+    // A slow paste can outlast the backend's claim: the message then reads as a held one, and
+    // a card's "Send" would paste it a second time.
+    const ranOut = message(4, 2, false);
+    expect(heldBySession([ranOut], new Set([4])).size).toBe(0);
+    expect(
+      heldBySession([ranOut], new Set([9]))
+        .get(2)
+        ?.map((m) => m.id),
+    ).toEqual([4]);
+    // Once the delivery ended, it is a card again.
+    expect(
+      heldBySession([ranOut], new Set())
+        .get(2)
+        ?.map((m) => m.id),
+    ).toEqual([4]);
+  });
 });
 
 const QUIET: TargetFacts = {

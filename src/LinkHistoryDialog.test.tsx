@@ -71,7 +71,8 @@ describe("the lead", () => {
     expect(two).toContain("<span>Lead</span>");
     expect(two).toMatch(/<option value="" selected="">No lead<\/option>/);
     expect(two).toContain('<option value="2">Web</option>');
-    expect(two).toContain("hangar-send lead");
+    // What a lead does is said once one is picked (LinkDialog.test.tsx), not for "No lead".
+    expect(two).not.toContain("hangar-send lead");
   });
 
   it("is preselected when editing a group that has one", () => {

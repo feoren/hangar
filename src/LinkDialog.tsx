@@ -71,7 +71,8 @@ function LeadChoice(props: {
           ))}
         </select>
       </label>
-      <p className="muted link-lead-help">{t("links.leadHelp")}</p>
+      {/* What a lead does is said once one is picked; "No lead" needs no words. */}
+      {props.lead !== null && <p className="muted link-lead-help">{t("links.leadHelp")}</p>}
     </div>
   );
 }
@@ -177,7 +178,9 @@ export function LinkDialog(props: {
       {ids.some((chosenId) => props.unattended.has(chosenId)) && (
         <p className="link-note">{t("links.unattendedNote")}</p>
       )}
-      <p className="muted link-tip">{t("links.tip", { key: props.selectKey })}</p>
+      {props.candidates.length >= 2 && (
+        <p className="muted link-tip">{t("links.tip", { key: props.selectKey })}</p>
+      )}
       {problem !== null && (
         <p className="link-problem" role="alert">
           {problem}

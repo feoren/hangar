@@ -248,6 +248,59 @@ links, everything above holds unchanged.
   it links nothing and says so. An agent without prompts still turns "Ask before pasting" on;
   the template can only turn it on, never off.
 
+## Simpler cards (2026-11-20)
+The owner reported that the card below a member row ("Paste", "Paste and send", "Discard")
+sometimes did not go away, and asked for it to be simpler. Causes found in the code, each built
+with a test (`src/partnerMessage.test.ts`, `src/messageCard.test.ts`, `link_service.rs`):
+
+- **A send to a working target waited without end and without a word.** `deliverMessage` holds
+  while the target works (`holdUntilPaused`, no time limit, as decided). For link cards `onHeld`
+  did nothing, so the card stood with greyed-out buttons; a session whose attention wrongly
+  stayed "working" kept it forever. Now the card shows "Sends once {session} waits" with
+  "Cancel" (`HoldProbe.cancelled`, result `cancelled`); the cancel counts until the paste begins
+  (`onSending`), and the card goes by itself once the message is in.
+- **No reload after an action.** Pasting and discarding relied on the backend's event alone; a
+  removal that failed (`link_message_gone`, the message went meanwhile) left a stale card and an
+  error for a message that had arrived. Now every card action reads the list again afterwards
+  (`sendFromCard`), a message that is gone already counts as done without an error, and a
+  discard hides the card at once (`discardFromCard`) and shows it again only when the backend
+  kept the message.
+- **A message that left the list during the wait** (group unlinked, target left) kept the wait
+  running and later showed `link_message_gone`. The wait now ends when the backend no longer
+  lists the message, without a word (`cardNotice`).
+- **A claim nobody closes.** A window reloaded mid-paste or a lost answer left a message claimed
+  for good: invisible (claimed messages show no card) and taking one of the five places. A claim
+  now runs out after `CLAIM_TIMEOUT_MS` (120 s, `LinkQueue::release_stale`, applied on every
+  `link_state` and `link_message_text`); the message then waits as a card, never on its own
+  again. The window reads again once after that time while any message is claimed. A paste has
+  no hard upper bound: the window waits up to 30 s for each stuck piece of input
+  (`BUSY_LIMIT_MS` in `src/sessionInput.ts`, restarted after any progress), behind the input
+  queued before it. So a slow automatic paste can outlast the claim; the window keeps the ids of
+  the automatic deliveries it runs and shows no card for them (`heldBySession(messages,
+  delivering)`), and a click on such a message is refused, so it is never pasted twice. A message
+  whose paste went in but whose close was lost can still come back as a card, which the person
+  sees and can discard.
+- **Overlapping reads.** Each event reads the whole list; reads can overlap (`link_state` waits
+  for the settings readers first), so an older answer could bring back a card a newer one had
+  dropped. Only an answer newer than the last applied one counts now (`latestOnly`). Not seen in
+  practice; the guard costs nothing.
+- **Arm delay.** Link cards armed with the partner messages' generation only, so a new link card
+  did not arm the others. All cards now arm anew whenever any card in the sidebar appears or goes
+  (`cardsKey`).
+- **Two clicks.** The busy flag lived in React state, read from the render; a send now starts
+  through `CardSends`, which refuses a second start for the same message.
+
+The card itself: sender and time in one line with a close mark (discard, tooltip and
+`aria-label`), the text cut to 4 lines or 240 characters with "More", one primary "Send"
+(paste and Enter) and "Paste only" as a text button. The same card serves partner messages;
+their rule (nothing pasted before a click) is unchanged.
+
+Why the window waits and the backend does not deliver on its own after the click: the wait
+claims nothing (the claim comes only with the paste), so a reloaded window or a cancel leaves
+the message as it was; the same path serves partner messages, which have no automatic delivery;
+and no new state or command is needed in the backend. A window reload ends the wait, and the card
+simply offers "Send" again.
+
 ## Evidence
 - [[cross-project-paste-measurement]]: a bracketed paste with a header line arrives as one prompt,
   Enter as a separate write submits it (Claude Code, Codex CLI, Pi, Aider on Windows).

@@ -13740,9 +13740,34 @@ body.session-dragging .session-actions {
   border-radius: 6px;
 }
 
+/* Sender, time and the discard mark in one line. */
+.waiting-message-head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 20px;
+}
+
 .waiting-message-from {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
   font-weight: 600;
-  overflow-wrap: anywhere;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.waiting-message-time {
+  flex: none;
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}
+
+.waiting-message-head .waiting-message-discard {
+  flex: none;
+  width: 20px;
+  height: 20px;
+  margin: -2px -4px -2px 0;
 }
 
 /* A message that seems to hold a secret key (ADR 0015). */
@@ -13753,36 +13778,65 @@ body.session-dragging .session-actions {
 }
 
 .waiting-message-text {
-  max-height: 9em;
+  max-height: 16em;
   overflow-y: auto;
   color: var(--muted);
   white-space: pre-wrap;
   overflow-wrap: anywhere;
 }
 
+.waiting-message-more {
+  align-self: flex-start;
+  margin: -2px 0 0 -4px;
+  padding: 0 4px;
+  font-size: 11px;
+}
+
 .waiting-message-actions {
   display: flex;
   flex-wrap: wrap;
-  gap: 6px;
+  align-items: center;
+  gap: 4px 8px;
+  margin-top: 2px;
+}
+
+.waiting-message-actions .primary-button {
+  padding: 3px 12px;
+}
+
+.waiting-message-actions .link-button {
+  padding: 3px 4px;
+}
+
+.waiting-message-actions .link-button:hover,
+.waiting-message-more:hover {
+  text-decoration: underline;
+}
+
+/* While a send waits for its target: what happens, and "Cancel". */
+.waiting-message-status {
+  flex: 1;
+  min-width: 0;
+  color: var(--muted);
+  overflow-wrap: anywhere;
+}
+
+.waiting-message[data-sending="true"] {
+  border-style: dashed;
 }
 
 /* For a moment after a message appears its buttons take no click (useArmDelay.ts). */
-.waiting-message .secondary-button {
+.waiting-message button {
   transition: opacity 160ms ease-out;
 }
 
-.waiting-message .secondary-button[aria-disabled="true"],
-.waiting-message .secondary-button:disabled {
+.waiting-message button[aria-disabled="true"] {
   opacity: 0.55;
   cursor: default;
 }
 
-.waiting-message-send {
-  border-color: color-mix(in srgb, var(--accent) 55%, var(--border));
-}
-
 @media (prefers-reduced-motion: reduce) {
-  .waiting-message .secondary-button {
+  .waiting-message button {
     transition: none;
   }
 }

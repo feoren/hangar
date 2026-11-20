@@ -1306,3 +1306,11 @@ held during a reading, the macOS notification center's first access guarded agai
 autorelease pools on worker threads, AppImageLauncher files checked on the opened handle and the
 launcher's desktop id worked out on the first count. Pages changed: [[0013-linux-release]],
 [[0017-macos-release]], [[power-detection]], [[gpu-readings]].
+
+## [2026-11-20] lint | Simpler message cards and the causes of cards that stayed
+Card below a session row: one "Send", "Paste only", a close mark, sender and time in one line,
+long texts cut with "More". Causes of cards that stayed or hung without a word, each with a test:
+endless wait for a working target, no reload after an action, a message gone during the wait, a
+claim nobody closed (now runs out after 120 s, no card while its automatic paste runs),
+overlapping reads, arm delay per card list.
+Pages changed: [[0014-session-links]], [[0012-cross-project-messages]].

@@ -144,6 +144,12 @@ because the person wrote it.
   - Agents learn about `hangar-send` from a line appended to `HANGAR.md` for sessions with
     partners, only where `HANGAR.md` is on and the program takes it inline (not Aider's
     `--read`).
+- **Simpler card (2026-11-20).** A waiting message uses the card of [[0014-session-links]]
+  ("Simpler cards"): "Send" (paste and Enter), "Paste only" as a text button and a close mark to
+  discard. A send to a target that works shows "Sends once {session} waits" with "Cancel"
+  instead of a start hint, the list is read again after every action, and a discard hides the
+  card at once. Decision point 4 is unchanged: nothing reaches the terminal before the person's
+  click.
 
 ## Evidence
 - Code paths named in Context, read on 2026-11-17 at commit `d7e66f1`.
