@@ -1238,3 +1238,11 @@ names. Pages changed: [[claude-permission-hooks-measurement]], [[0016-permission
 The README screenshots now show the overview plus eight scenes for 0.12.0 instead of seven in
 total: link groups, group history, data flow, quick access, costs, morning summary, secret guard
 and one line. The scenes of 0.11.0 are gone. Pages changed: [[release-rollout]].
+
+## [2026-11-20] ingest | macOS release
+Read GitHub's runner list, Tauri's macOS signing guide, the Tauri CLI 2.12.4 source, the local
+sources of tauri-utils, tauri-plugin-updater, tauri and tao, and four Apple pages. New ADR 0017:
+macOS arm64 and x64 bundles built in CI per architecture, `.app.tar.gz` plus `.dmg`, macOS 13
+minimum, ad hoc signature until an Apple Developer ID exists, `release.py --macos`, the login
+shell from the account or zsh, an own Cmd+Q item, and a platform check list. Pages changed:
+[[macos-release-reading]], [[0017-macos-release]], [[release-rollout]], [[overview]], index.

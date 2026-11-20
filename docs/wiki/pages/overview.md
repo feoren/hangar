@@ -4,7 +4,7 @@ type: overview
 tags: []
 sources: []
 created: 2026-11-07
-updated: 2026-11-15
+updated: 2026-11-20
 ---
 
 # Overview
@@ -18,7 +18,8 @@ These points were set as assumptions at the start and still need evidence:
 > - Target platforms and minimum versions (Windows 10 1809+ because of ConPTY, macOS 13+, Linux X11/Wayland).
 > - portable-pty: resize, exit code and killing the process tree per platform (Job Objects, process groups).
 > - Throughput: batching at 8 to 16 ms and backpressure at 10 MB/s of output with xterm.js.
-> - macOS: load the login shell environment so that `claude`/`codex` are found on the PATH.
+> - macOS: load the login shell environment so that `claude`/`codex` are found on the PATH. Built
+>   for macOS and Linux ([[0013-linux-release]], [[0017-macos-release]]); not yet run on a Mac.
 > - Path for config and layout (so far only "the platform's usual config path") and keychain integration.
 
 ## Restoring sessions
