@@ -10,6 +10,7 @@ import os
 import shutil
 import subprocess
 import sys
+import tarfile
 import tempfile
 import unittest
 from unittest import mock
@@ -1468,6 +1469,339 @@ class LinuxReleaseTest(unittest.TestCase):
             with self.subTest(version=version), mock.patch("sys.stderr"), self.assertRaises(SystemExit):
                 self.run_add_linux(self.bundles, version=version)
         self.assertNotIn("linux-x86_64-appimage", self.manifest_now()["platforms"])
+
+
+MAC_NAMES = {
+    "aarch64": ("Hangar_0.2.0-31_aarch64.app.tar.gz", "Hangar_0.2.0-31_aarch64.dmg"),
+    "x64": ("Hangar_0.2.0-31_x64.app.tar.gz", "Hangar_0.2.0-31_x64.dmg"),
+}
+
+
+def write_app_archive(path, members=None):
+    """A gzip tar like the CI job's: Hangar.app as the only top folder, the executable inside.
+    `members` replaces the default entries (name, bytes); a None value is a folder."""
+    if members is None:
+        members = [
+            ("Hangar.app", None),
+            ("Hangar.app/Contents", None),
+            ("Hangar.app/Contents/MacOS", None),
+            ("Hangar.app/Contents/MacOS/hangar", b"app-marker " + path.name.encode()),
+            ("Hangar.app/Contents/MacOS/hangar-send", b"send-marker"),
+        ]
+    with tarfile.open(path, "w:gz") as archive:
+        for name, data in members:
+            info = tarfile.TarInfo(name)
+            if data is None:
+                info.type = tarfile.DIRTYPE
+                info.mode = 0o755
+                archive.addfile(info)
+            else:
+                info.size = len(data)
+                info.mode = 0o755
+                archive.addfile(info, io.BytesIO(data))
+
+
+class MacosReleaseTest(unittest.TestCase):
+    """--macos: the CI bundles of both architectures join a finished release."""
+
+    def setUp(self):
+        self.folder = test_folder(self, "release macos ")
+        patch = mock.patch.object(release, "RELEASE_DIR", self.folder / "release")
+        patch.start()
+        self.addCleanup(patch.stop)
+        self.target = self.folder / "release" / "0.2.0-31"
+        self.target.mkdir(parents=True)
+        self.write_windows_release(GITHUB_DOWNLOAD)
+        # The merged artifact puts the files of both jobs side by side.
+        self.bundles = self.folder / "macos bundles"
+        self.write_bundles(self.bundles)
+        verifier = self.folder / "verify update sig.exe"
+        verifier.write_bytes(b"verifier-marker")
+        self.verifier = release.Verifier(verifier, release.sha256_hex(verifier))
+
+    def write_windows_release(self, base_url):
+        (self.target / SETUP_NAME).write_bytes(b"windows installer")
+        (self.target / "Hangar-Setup.exe").write_bytes(b"windows installer")
+        self.manifest = {
+            "version": "0.2.0+31",
+            "notes": "- Neu",
+            "pub_date": "2026-11-20T10:00:00+00:00",
+            "platforms": {
+                "windows-x86_64": {"signature": "windows-signature-marker", "url": "%s/%s" % (base_url, SETUP_NAME)}
+            },
+        }
+        release.write_json(self.target / "latest.json", self.manifest)
+        release.write_checksums(self.target, [SETUP_NAME, "Hangar-Setup.exe"])
+
+    def write_bundles(self, folder, version="0.2.0+31", arches=("aarch64", "x64")):
+        folder.mkdir(parents=True, exist_ok=True)
+        for arch in arches:
+            write_app_archive(folder / ("Hangar_%s_%s.app.tar.gz" % (version, arch)))
+            (folder / ("Hangar_%s_%s.dmg" % (version, arch))).write_bytes(("dmg " + arch).encode())
+
+    def signed(self, bundles):
+        result = {}
+        for arch, item in bundles.items():
+            signature = item.archive.with_name(item.archive.name + ".sig")
+            signature.write_text("mac-signature-" + arch, encoding="utf-8")
+            result[arch] = release.Signed(signature, "mac-signature-" + arch, release.sha256_hex(item.archive))
+        return result
+
+    def collect(self, verify_returncode=0):
+        self.verified = []
+
+        def fake_run(command, **kwargs):
+            self.verified.append((command, Path(command[2]).read_text(encoding="utf-8")))
+            return subprocess.CompletedProcess(command, verify_returncode)
+
+        bundles = release.find_macos_bundles(self.bundles, "0.2.0+31")
+        with mock.patch.object(release.subprocess, "run", side_effect=fake_run), mock.patch.object(
+            release, "updater_pubkey", return_value="pubkey-marker"
+        ):
+            return release.collect_macos(bundles, self.signed(bundles), "0.2.0+31", self.target, self.verifier)
+
+    def manifest_now(self):
+        return json.loads((self.target / "latest.json").read_text(encoding="utf-8"))
+
+    def checksum_lines(self):
+        content = (self.target / "SHA256SUMS.txt").read_bytes()
+        self.assertNotIn(b"\r", content)
+        return [line.split(b"  ", 1)[1].decode() for line in content.splitlines()]
+
+    def errors(self, err):
+        return "".join(str(c.args[0]) for c in err.write.call_args_list)
+
+    def test_finds_both_architectures(self):
+        bundles = release.find_macos_bundles(self.bundles, "0.2.0+31")
+        self.assertEqual(sorted(bundles), ["aarch64", "x64"])
+        self.assertEqual(bundles["x64"].archive, self.bundles / "Hangar_0.2.0+31_x64.app.tar.gz")
+        self.assertEqual(bundles["aarch64"].dmg, self.bundles / "Hangar_0.2.0+31_aarch64.dmg")
+        self.assertEqual(bundles["x64"].dmg_sha256, release.sha256_hex(bundles["x64"].dmg))
+
+    def test_no_bundle_at_all_means_none(self):
+        empty = self.folder / "empty"
+        empty.mkdir()
+        self.assertIsNone(release.find_macos_bundles(empty, "0.2.0+31"))
+        self.assertIsNone(release.find_macos_bundles(self.folder / "missing", "0.2.0+31"))
+
+    def test_a_missing_architecture_aborts(self):
+        lonely = self.folder / "lonely"
+        self.write_bundles(lonely, arches=("aarch64",))
+        with mock.patch("sys.stderr") as err, self.assertRaises(SystemExit):
+            release.find_macos_bundles(lonely, "0.2.0+31")
+        self.assertIn("exactly one x64", self.errors(err))
+
+    def test_a_bundle_of_another_version_aborts(self):
+        other = self.folder / "other"
+        self.write_bundles(other, "0.1.9+30")
+        with mock.patch("sys.stderr") as err, self.assertRaises(SystemExit):
+            release.find_macos_bundles(other, "0.2.0+31")
+        self.assertIn("not a bundle of version 0.2.0+31", self.errors(err))
+
+    def test_an_unknown_bundle_name_aborts(self):
+        (self.bundles / "Hangar_0.2.0+31_universal.dmg").write_bytes(b"dmg")
+        with mock.patch("sys.stderr") as err, self.assertRaises(SystemExit):
+            release.find_macos_bundles(self.bundles, "0.2.0+31")
+        self.assertIn("not a macOS bundle", self.errors(err))
+
+    def test_an_archive_with_more_than_the_app_aborts(self):
+        cases = {
+            "beside": [("Hangar.app/Contents/MacOS/hangar", b"x"), ("Other.app/x", b"y")],
+            "appledouble": [("Hangar.app/Contents/MacOS/hangar", b"x"), ("Hangar.app/._Contents", b"y")],
+            "parent": [("Hangar.app/Contents/MacOS/hangar", b"x"), ("Hangar.app/../evil", b"y")],
+            "absolute": [("/Hangar.app/Contents/MacOS/hangar", b"x")],
+            "no executable": [("Hangar.app/Contents/Info.plist", b"x")],
+        }
+        for case, members in cases.items():
+            with self.subTest(case=case):
+                archive = self.folder / ("case %s.tar.gz" % case)
+                write_app_archive(archive, members)
+                self.assertIsNotNone(release.macos_archive_problem(archive))
+        garbage = self.folder / "garbage.tar.gz"
+        garbage.write_bytes(b"not gzip")
+        self.assertIn("no readable", release.macos_archive_problem(garbage))
+        self.assertIsNone(release.macos_archive_problem(self.bundles / "Hangar_0.2.0+31_x64.app.tar.gz"))
+
+    def test_latest_json_announces_both_architectures(self):
+        setup_name, names = self.collect()
+        self.assertEqual(setup_name, SETUP_NAME)
+        self.assertEqual(names, [*MAC_NAMES["aarch64"], *MAC_NAMES["x64"]])
+        platforms = self.manifest_now()["platforms"]
+        self.assertEqual(platforms["windows-x86_64"], self.manifest["platforms"]["windows-x86_64"])
+        self.assertEqual(
+            platforms["darwin-aarch64"],
+            {"signature": "mac-signature-aarch64", "url": "%s/%s" % (GITHUB_DOWNLOAD, MAC_NAMES["aarch64"][0])},
+        )
+        self.assertEqual(
+            platforms["darwin-x86_64"],
+            {"signature": "mac-signature-x64", "url": "%s/%s" % (GITHUB_DOWNLOAD, MAC_NAMES["x64"][0])},
+        )
+        for key in ("version", "notes", "pub_date"):
+            self.assertEqual(self.manifest_now()[key], self.manifest[key])
+        self.assertEqual((self.target / MAC_NAMES["x64"][1]).read_bytes(), b"dmg x64")
+
+    def test_each_uploaded_archive_copy_is_verified_with_its_own_signature(self):
+        self.collect()
+        checked = [(Path(command[1]).name, text) for command, text in self.verified]
+        self.assertEqual(
+            checked,
+            [(MAC_NAMES["aarch64"][0], "mac-signature-aarch64"), (MAC_NAMES["x64"][0], "mac-signature-x64")],
+        )
+        self.assertEqual(self.verified[0][0][3:], ["pubkey-marker", "0.2.0+31"])
+        self.assertFalse((self.target / release.VERIFY_SIGNATURE_NAME).exists())
+
+    def test_checksums_keep_the_linux_lines(self):
+        for name in (APPIMAGE_NAME, DEB_NAME):
+            (self.target / name).write_bytes(name.encode())
+        release.write_checksums(self.target, [SETUP_NAME, "Hangar-Setup.exe", APPIMAGE_NAME, DEB_NAME])
+        self.collect()
+        self.assertEqual(
+            self.checksum_lines(),
+            [SETUP_NAME, "Hangar-Setup.exe", APPIMAGE_NAME, DEB_NAME, *MAC_NAMES["aarch64"], *MAC_NAMES["x64"]],
+        )
+        self.assertEqual(
+            release.extra_release_names(self.target, SETUP_NAME),
+            [APPIMAGE_NAME, DEB_NAME, *MAC_NAMES["aarch64"], *MAC_NAMES["x64"]],
+        )
+
+    def test_linux_after_macos_keeps_the_macos_lines(self):
+        self.collect()
+        linux = self.folder / "linux bundles"
+        (linux / "appimage").mkdir(parents=True)
+        (linux / "deb").mkdir()
+        (linux / "appimage" / "Hangar_0.2.0+31_amd64.AppImage").write_bytes(b"appimage")
+        (linux / "deb" / "Hangar_0.2.0+31_amd64.deb").write_bytes(b"deb package")
+        bundles = release.find_linux_bundles(linux, "0.2.0+31")
+        signature = bundles.appimage.with_name(bundles.appimage.name + ".sig")
+        signature.write_text("linux-signature-marker", encoding="utf-8")
+        signed = release.Signed(signature, "linux-signature-marker", release.sha256_hex(bundles.appimage))
+        with mock.patch.object(
+            release.subprocess, "run", return_value=subprocess.CompletedProcess([], 0)
+        ), mock.patch.object(release, "updater_pubkey", return_value="pubkey-marker"):
+            release.collect_linux(bundles, signed, "0.2.0+31", self.target, self.verifier)
+        self.assertEqual(
+            self.checksum_lines(),
+            [SETUP_NAME, "Hangar-Setup.exe", *MAC_NAMES["aarch64"], *MAC_NAMES["x64"], APPIMAGE_NAME, DEB_NAME],
+        )
+        platforms = self.manifest_now()["platforms"]
+        self.assertIn("darwin-aarch64", platforms)
+        self.assertIn("linux-x86_64-appimage", platforms)
+
+    def test_a_failed_verification_leaves_the_release_as_it_was(self):
+        before = (self.target / "latest.json").read_bytes()
+        sums = (self.target / "SHA256SUMS.txt").read_bytes()
+        with mock.patch("sys.stderr"), self.assertRaises(SystemExit):
+            self.collect(verify_returncode=1)
+        self.assertEqual((self.target / "latest.json").read_bytes(), before)
+        self.assertEqual((self.target / "SHA256SUMS.txt").read_bytes(), sums)
+        for names in MAC_NAMES.values():
+            for name in names:
+                self.assertFalse((self.target / name).exists(), name)
+
+    def test_a_dmg_changed_after_it_was_found_aborts(self):
+        bundles = release.find_macos_bundles(self.bundles, "0.2.0+31")
+        signed = self.signed(bundles)
+        bundles["x64"].dmg.write_bytes(b"swapped image")
+        with mock.patch("sys.stderr"), self.assertRaises(SystemExit):
+            release.collect_macos(bundles, signed, "0.2.0+31", self.target, self.verifier)
+        self.assertFalse((self.target / MAC_NAMES["x64"][1]).exists())
+        self.assertNotIn("darwin-x86_64", self.manifest_now()["platforms"])
+
+    def test_a_self_hosted_release_keeps_its_folder(self):
+        self.write_windows_release("https://example.org/dl")
+        self.collect()
+        url = self.manifest_now()["platforms"]["darwin-x86_64"]["url"]
+        self.assertEqual(url, "https://example.org/dl/" + MAC_NAMES["x64"][0])
+
+    def test_the_windows_run_says_it_is_without_macos(self):
+        lines = release.without_macos_lines("0.2.0")
+        self.assertTrue(lines[0].startswith("Without macOS"))
+        self.assertIn("  py -3 tools/release.py --macos 0.2.0", lines)
+
+    def run_add_macos(self, bundles_dir, version="0.2.0+31", runs=None, download=None):
+        """add_macos() with the signer, verifier, git and gh replaced; returns the gh calls, the
+        passwords the signer got and what was printed."""
+        gh_calls = []
+        passwords = []
+
+        def fake_gh(*args):
+            gh_calls.append(args)
+            if args[:2] == ("run", "list"):
+                return json.dumps(runs or [])
+            if download:
+                download(Path(args[args.index("--dir") + 1]))
+            return ""
+
+        def fake_sign(key_path, setup, signed_version, expected_sha256, allow_unencrypted_key=False, password=None):
+            self.assertEqual(signed_version, version)
+            self.assertEqual(expected_sha256, release.sha256_hex(setup))
+            passwords.append(password)
+            signature = setup.with_name(setup.name + ".sig")
+            signature.write_text("mac-signature-marker", encoding="utf-8")
+            return release.Signed(signature, "mac-signature-marker", expected_sha256)
+
+        out = io.StringIO()
+        with mock.patch.object(release, "current_version", return_value=version), mock.patch.object(
+            release, "gh_run", side_effect=fake_gh
+        ), mock.patch.object(release, "git", return_value="c0ffee" * 6 + "abcd"), mock.patch.object(
+            release, "working_tree_dirty", return_value=False
+        ), mock.patch.object(release, "build_verifier", return_value=self.verifier), mock.patch.object(
+            release, "sign_update", side_effect=fake_sign
+        ), mock.patch.object(release, "key_password", return_value="pw-marker") as prompt, mock.patch.object(
+            release, "update_signature_problem", return_value=None
+        ), contextlib.redirect_stdout(out):
+            release.add_macos("0.2.0", bundles_dir, self.folder / "test key.key", False, False)
+        self.prompts = prompt.call_count
+        return gh_calls, passwords, out.getvalue()
+
+    def test_add_macos_from_a_folder_asks_for_the_password_once(self):
+        gh_calls, passwords, printed = self.run_add_macos(self.bundles)
+        self.assertEqual(gh_calls, [])
+        self.assertEqual(self.prompts, 1)
+        self.assertEqual(passwords, ["pw-marker", "pw-marker"])
+        platforms = self.manifest_now()["platforms"]
+        self.assertIn("darwin-aarch64", platforms)
+        self.assertIn("darwin-x86_64", platforms)
+        create = next(line for line in printed.splitlines() if "gh release create v0.2.0" in line)
+        for name in (*MAC_NAMES["aarch64"], *MAC_NAMES["x64"]):
+            self.assertIn(name, create)
+        self.assertLess(create.index(MAC_NAMES["x64"][1]), create.index("latest.json"))
+        self.assertIn("Gatekeeper", printed)
+        self.assertTrue(self.bundles.is_dir())
+
+    def test_add_macos_downloads_the_merged_artifact_of_the_push_run(self):
+        runs = [
+            {"databaseId": 9, "status": "completed", "event": "pull_request", "headBranch": "main"},
+            {"databaseId": 7, "status": "completed", "event": "push", "headBranch": "main"},
+        ]
+        gh_calls, _, _ = self.run_add_macos(None, runs=runs, download=self.write_bundles)
+        listed, downloaded = gh_calls
+        self.assertEqual(listed[listed.index("--commit") + 1], "c0ffee" * 6 + "abcd")
+        self.assertEqual(downloaded[:3], ("run", "download", "7"))
+        self.assertEqual(downloaded[downloaded.index("--name") + 1], "macos-bundles")
+        self.assertIn("darwin-x86_64", self.manifest_now()["platforms"])
+        self.assertFalse((self.target / release.MACOS_DOWNLOAD_NAME).exists())
+
+    def test_an_unfinished_run_names_the_macos_job(self):
+        running = [{"databaseId": 5, "status": "in_progress", "event": "push", "headBranch": "main"}]
+        with mock.patch("sys.stderr") as err, self.assertRaises(SystemExit):
+            self.run_add_macos(None, runs=running)
+        self.assertIn("wait for the job macos-bundle", self.errors(err))
+
+    def test_without_macos_bundles_the_release_stays_as_it_was(self):
+        empty = self.folder / "empty"
+        empty.mkdir()
+        before = (self.target / "latest.json").read_bytes()
+        with mock.patch("sys.stderr") as err, self.assertRaises(SystemExit):
+            self.run_add_macos(empty)
+        self.assertIn("stays without macOS", self.errors(err))
+        self.assertEqual((self.target / "latest.json").read_bytes(), before)
+
+    def test_add_macos_needs_the_release_state_in_the_files(self):
+        for version in ("0.3.0", "0.2.0", "0.1.0+30"):
+            with self.subTest(version=version), mock.patch("sys.stderr"), self.assertRaises(SystemExit):
+                self.run_add_macos(self.bundles, version=version)
+        self.assertNotIn("darwin-aarch64", self.manifest_now()["platforms"])
 
 
 class CiRunTest(unittest.TestCase):

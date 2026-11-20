@@ -27,7 +27,7 @@
   },
   "bundle": {
     "active": true,
-    "targets": ["nsis", "appimage", "deb"],
+    "targets": ["nsis", "appimage", "deb", "app", "dmg"],
     "createUpdaterArtifacts": true,
     "publisher": "Feoren",
     "copyright": "© 2026 Feoren",
@@ -41,7 +41,9 @@
       "icons/icon.ico"
     ],
     "macOS": {
-      "entitlements": "Entitlements.plist"
+      "entitlements": "Entitlements.plist",
+      "minimumSystemVersion": "13.0",
+      "signingIdentity": "-"
     },
     "linux": {
       "deb": {

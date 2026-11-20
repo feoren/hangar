@@ -8,6 +8,8 @@ Usage:
   py -3 tools/release.py --version 0.2.0 --base-url https://example.org/download   # self-hosted
   py -3 tools/release.py --linux 0.2.0                   # add the Linux bundles of the CI run (see below)
   py -3 tools/release.py --linux 0.2.0 --linux-bundles <folder>   # ... from a folder instead
+  py -3 tools/release.py --macos 0.2.0                   # add the macOS bundles of the CI run (see below)
+  py -3 tools/release.py --macos 0.2.0 --macos-bundles <folder>   # ... from a folder instead
 
 Rule "the code always carries the upcoming version" (ADR 0002): tauri.conf.json, package.json and
 Cargo.toml name the version that ships next, and it is the highest one in src/changelog.json (still
@@ -99,6 +101,23 @@ first and then "linux-x86_64". A plain "linux-x86_64" would offer the AppImage t
 installations, which the updater then cannot install (it runs dpkg on it); the .deb gets no
 in-app update (ADR 0013).
 
+macOS (ADR 0017): the CI job macos-bundle builds per architecture (aarch64 on Apple silicon, x64 on
+Intel) the .app, signed ad hoc unless an Apple Developer ID is set up as CI secrets, packs it as the
+updater archive Hangar_<version>_<arch>.app.tar.gz and adds the .dmg; the job macos-bundles merges
+both into the workflow artifact "macos-bundles". Like Linux it never sees the updater key. After
+the push, `--macos X.Y.Z` (before --next, before or after --linux):
+  - downloads that artifact of the push run of ci.yml on main for HEAD, or takes the files from
+    --macos-bundles <folder>; it needs one archive and one .dmg per architecture, each named with
+    this version, and an archive whose only top folder is Hangar.app,
+  - asks for the key password once and signs both archives like the installer, then checks each
+    copy with the same verifier,
+  - adds Hangar_<x.y.z-build>_<arch>.app.tar.gz and Hangar_<x.y.z-build>_<arch>.dmg to
+    release/<version>/, all four to SHA256SUMS.txt (lines of an earlier --linux stay), and the
+    archives to latest.json under "darwin-aarch64" and "darwin-x86_64",
+  - prints the gh commands (or the upload order) with every file of the release.
+On macOS the bundle type is always "app", so the updater tries "darwin-<arch>-app" and then the
+plain "darwin-<arch>"; the plain key reaches every macOS installation, the .dmg holds the same app.
+
 No dependencies beyond Python 3 and the project toolchain. Never prints keys, thumbprints or
 signing commands.
 """
@@ -114,6 +133,7 @@ import re
 import shutil
 import subprocess
 import sys
+import tarfile
 import tempfile
 import time
 from pathlib import Path
@@ -149,6 +169,14 @@ LINUX_PLATFORM = "linux-x86_64-appimage"
 LINUX_BUNDLE = re.compile(r"^Hangar_(.+)_amd64\.(AppImage|deb)$")
 # Where --linux puts the downloaded artifact, inside release/<version>/; removed afterwards.
 LINUX_DOWNLOAD_NAME = "linux-download"
+# The macOS bundles come from CI as well (ADR 0017): artifact, the CI job that builds them, the
+# platform key per architecture (the arch in the bundle names, tauri-bundler's naming).
+MACOS_ARTIFACT = "macos-bundles"
+MACOS_JOB = "macos-bundle"
+MACOS_PLATFORMS = {"aarch64": "darwin-aarch64", "x64": "darwin-x86_64"}
+MACOS_BUNDLE = re.compile(r"^Hangar_(.+)_(aarch64|x64)\.(app\.tar\.gz|dmg)$")
+MACOS_DOWNLOAD_NAME = "macos-download"
+MACOS_APP = "Hangar.app"
 
 
 class SigningError(ValueError):
@@ -731,25 +759,50 @@ def write_checksums(target, names):
     (target / CHECKSUMS_NAME).write_bytes(checksums_text(target, names).encode("utf-8"))
 
 
-def release_files(target, setup_name, linux_names=()):
-    """Files to attach or upload, in order. latest.json stays last: it announces the update."""
+def release_files(target, setup_name, extra_names=()):
+    """Files to attach or upload, in order: the Windows installers, the Linux and macOS bundles
+    (`extra_names`), the checksums. latest.json stays last: it announces the update."""
     return [
         target / setup_name,
         target / "Hangar-Setup.exe",
-        *(target / name for name in linux_names),
+        *(target / name for name in extra_names),
         target / CHECKSUMS_NAME,
         target / "latest.json",
     ]
 
 
-def github_release_commands(base_version, version, target, setup_name, notes_file, linux_names=()):
+def checksum_names(target):
+    """The file names SHA256SUMS.txt under `target` lists, in its order; [] without the file."""
+    try:
+        text = (target / CHECKSUMS_NAME).read_text(encoding="utf-8")
+    except OSError:
+        return []
+    return [line.split("  ", 1)[1] for line in text.splitlines() if "  " in line]
+
+
+def merged_checksum_names(target, setup_name, added):
+    """The installers first, then the bundles an earlier --linux or --macos run listed, then
+    `added`, each once: adding one platform keeps the lines of the other."""
+    names = [setup_name, "Hangar-Setup.exe"]
+    for name in checksum_names(target) + list(added):
+        if name not in names:
+            names.append(name)
+    return names
+
+
+def extra_release_names(target, setup_name):
+    """The bundles of other platforms the release under `target` carries (from SHA256SUMS.txt)."""
+    return [name for name in checksum_names(target) if name not in (setup_name, "Hangar-Setup.exe")]
+
+
+def github_release_commands(base_version, version, target, setup_name, notes_file, extra_names=()):
     """The gh commands that publish a built release, as argv lists (never a shell string).
 
     Draft first and publish last: GitHub's /releases/latest skips drafts, so installed apps see the
     update only once every file is attached.
     """
     tag = github_tag(base_version)
-    files = [str(path) for path in release_files(target, setup_name, linux_names)]
+    files = [str(path) for path in release_files(target, setup_name, extra_names)]
     return [
         ["git", "push", "origin", "main"],
         [
@@ -986,7 +1039,7 @@ Signed = collections.namedtuple("Signed", "signature text sha256")
 Verifier = collections.namedtuple("Verifier", "path sha256")
 
 
-def sign_update(key_path, setup, version, expected_sha256, allow_unencrypted_key=False):
+def sign_update(key_path, setup, version, expected_sha256, allow_unencrypted_key=False, password=None):
     """Signs the finished installer for the updater and returns what collect() needs (Signed).
 
     Runs after Authenticode signing, which changes the file. `expected_sha256` is the installer's
@@ -994,7 +1047,8 @@ def sign_update(key_path, setup, version, expected_sha256, allow_unencrypted_key
     they must be the same after it. `--app-version` binds the version into the signed trusted
     comment, as `tauri build` does (`version:<version>`); the updater compares it with the
     version latest.json announces. The password goes only into the signer's environment, never
-    into os.environ, so no other child process sees it.
+    into os.environ, so no other child process sees it. `password` is one key_password() already
+    returned (several files, one prompt); without it the password is asked for here.
     """
     problem = unlock_variable_problem(os.environ)
     if problem:
@@ -1005,7 +1059,7 @@ def sign_update(key_path, setup, version, expected_sha256, allow_unencrypted_key
     # Tauri accepts a path or the content; the content avoids trouble with spaces in the path.
     env["TAURI_SIGNING_PRIVATE_KEY"] = key_path.read_text(encoding="utf-8").strip()
     # Always set: without the variable the signer assumes an empty password (Tauri CLI 2.12.4).
-    env[KEY_UNLOCK_VARIABLE] = key_password(allow_unencrypted_key)
+    env[KEY_UNLOCK_VARIABLE] = key_password(allow_unencrypted_key) if password is None else password
     signature = setup.with_name(setup.name + ".sig")
     # Only a signature written by this run counts.
     signature.unlink(missing_ok=True)
@@ -1213,7 +1267,7 @@ def find_linux_bundles(folder, version):
     return LinuxBundles(found[".AppImage"][0], deb, sha256_hex(deb))
 
 
-def pick_ci_run(runs_text, commit):
+def pick_ci_run(runs_text, commit, job="linux-bundle"):
     """(run id, None) for the newest finished push run of ci.yml on main in `gh run list --json`
     output, or (None, reason). Only push runs on main: a pull request run builds code that is
     not on main, and only a finished run has its artifact."""
@@ -1235,7 +1289,7 @@ def pick_ci_run(runs_text, commit):
     if not isinstance(run_id, int) or isinstance(run_id, bool):
         return None, "the output of gh run list is not readable"
     if run.get("status") != "completed":
-        return None, "CI run %d of %s has not finished yet; wait for the job linux-bundle" % (run_id, commit[:12])
+        return None, "CI run %d of %s has not finished yet; wait for the job %s" % (run_id, commit[:12], job)
     return run_id, None
 
 
@@ -1260,6 +1314,11 @@ def gh_run(*args):
 
 def download_linux_bundles(commit, folder):
     """Downloads the artifact linux-bundles of the CI run of `commit` into a fresh `folder`."""
+    download_artifact(commit, folder, LINUX_ARTIFACT, "linux-bundle")
+
+
+def download_artifact(commit, folder, artifact, job):
+    """Downloads `artifact` of the CI run of `commit` into a fresh `folder`; `job` builds it."""
     listed = gh_run(
         "run", "list",
         "--repo", GITHUB_REPO,
@@ -1268,14 +1327,14 @@ def download_linux_bundles(commit, folder):
         "--json", "databaseId,status,conclusion,event,headBranch",
         "--limit", "20",
     )
-    run_id, problem = pick_ci_run(listed, commit)
+    run_id, problem = pick_ci_run(listed, commit, job)
     if problem:
         fail(problem)
     shutil.rmtree(folder, ignore_errors=True)
     folder.mkdir(parents=True)
-    print("Downloading %s of CI run %d ..." % (LINUX_ARTIFACT, run_id))
-    # The artifact exists only when the job linux-bundle got to its last step, and for 14 days.
-    gh_run("run", "download", str(run_id), "--repo", GITHUB_REPO, "--name", LINUX_ARTIFACT, "--dir", str(folder))
+    print("Downloading %s of CI run %d ..." % (artifact, run_id))
+    # The artifact exists only when its job got to its last step, and for 14 days.
+    gh_run("run", "download", str(run_id), "--repo", GITHUB_REPO, "--name", artifact, "--dir", str(folder))
 
 
 def read_release_manifest(target, version):
@@ -1327,7 +1386,7 @@ def collect_linux(bundles, signed, version, target, verifier):
     if problem:
         signed.signature.unlink(missing_ok=True)
         discard(problem)
-    write_checksums(target, [setup_name, "Hangar-Setup.exe", appimage_name, deb_name])
+    write_checksums(target, merged_checksum_names(target, setup_name, [appimage_name, deb_name]))
     manifest["platforms"][LINUX_PLATFORM] = {
         "signature": signed.text,
         "url": "%s/%s" % (base_url, appimage_name),
@@ -1370,15 +1429,197 @@ def add_linux(base_version, bundles_dir, key_path, allow_unencrypted_key, allow_
         shutil.rmtree(bundles_dir, ignore_errors=True)
     print()
     print("Linux added to %s: %s (updater: %s) and %s." % (target, linux_names[0], LINUX_PLATFORM, linux_names[1]))
-    for line in publish_lines(base_version, version, target, setup_name, linux_names):
+    for line in publish_lines(base_version, version, target, setup_name, extra_release_names(target, setup_name)):
         print(line)
 
 
-def publish_lines(base_version, version, target, setup_name, linux_names):
-    """What --linux prints for publishing: the gh commands, or the upload order for a
+def without_macos_lines(base_version):
+    """What the Windows run says about macOS: the bundles come from CI later, as for Linux."""
+    return [
+        "Without macOS: to add the macOS bundles, push the release commit, wait for the CI job "
+        "%s of that commit, then run (before --next)" % MACOS_JOB,
+        "  py -3 tools/release.py --macos %s" % base_version,
+    ]
+
+
+# The bundles of one architecture: the updater archive, the .dmg and the .dmg's SHA-256.
+MacBundles = collections.namedtuple("MacBundles", "archive dmg dmg_sha256")
+
+
+def macos_bundle_names(version, arch):
+    """Names under release/: the shown version, like the installer (0.2.0+31 -> 0.2.0-31)."""
+    shown = display(version)
+    return "Hangar_%s_%s.app.tar.gz" % (shown, arch), "Hangar_%s_%s.dmg" % (shown, arch)
+
+
+def macos_archive_problem(path):
+    """Why `path` is no updater archive of Hangar.app, or None. tauri-plugin-updater 2.14.1 drops
+    the first path part of every entry and puts the rest in place of the installed app, so the
+    archive must hold Hangar.app and nothing beside it: no absolute or `..` paths, no AppleDouble
+    `._` files, and the app's own executable. Only lists the entries, never extracts them."""
+    executable = "%s/Contents/MacOS/hangar" % MACOS_APP
+    found = False
+    try:
+        with tarfile.open(path, "r:gz") as archive:
+            for member in archive:
+                name = member.name.rstrip("/")
+                if name.startswith("./"):
+                    name = name[2:]
+                parts = name.split("/")
+                if name.startswith("/") or ".." in parts or any(part.startswith("._") for part in parts):
+                    return "%s holds the entry %r" % (path.name, member.name)
+                if parts[0] != MACOS_APP:
+                    return "%s holds %r beside %s" % (path.name, member.name, MACOS_APP)
+                if name == executable and member.isfile():
+                    found = True
+    except (OSError, tarfile.TarError, EOFError) as error:
+        return "%s is no readable .tar.gz: %s" % (path.name, error)
+    if not found:
+        return "%s lacks %s" % (path.name, executable)
+    return None
+
+
+def find_macos_bundles(folder, version):
+    """The archive and the .dmg per architecture in `folder` (any depth), or None when there is
+    no macOS bundle at all. Aborts unless both architectures have exactly one of each, every name
+    carries `version` and each archive holds Hangar.app only. Links are skipped."""
+    folder = Path(folder)
+    found = {(arch, kind): [] for arch in MACOS_PLATFORMS for kind in ("app.tar.gz", "dmg")}
+    if folder.is_dir():
+        for path in sorted(folder.rglob("*")):
+            if not path.is_file() or path.is_symlink():
+                continue
+            match = MACOS_BUNDLE.match(path.name)
+            if match is None:
+                if path.name.endswith((".app.tar.gz", ".dmg")):
+                    fail("%s is not a macOS bundle of Hangar; take the CI run of the release commit" % path.name)
+                continue
+            if match.group(1) not in (version, display(version)):
+                fail(
+                    "%s is not a bundle of version %s; take the CI run of the release commit"
+                    % (path.name, version)
+                )
+            found[(match.group(2), match.group(3))].append(path)
+    if not any(found.values()):
+        return None
+    for (arch, kind), paths in found.items():
+        if len(paths) != 1:
+            fail("expected exactly one %s .%s in %s, found: %d" % (arch, kind, folder, len(paths)))
+    bundles = {}
+    for arch in MACOS_PLATFORMS:
+        archive = found[(arch, "app.tar.gz")][0]
+        problem = macos_archive_problem(archive)
+        if problem:
+            fail(problem)
+        dmg = found[(arch, "dmg")][0]
+        bundles[arch] = MacBundles(archive, dmg, sha256_hex(dmg))
+    return bundles
+
+
+def collect_macos(bundles, signed, version, target, verifier):
+    """Copies the archives and the .dmg files under release/, verifies each archive copy and adds
+    all of them to SHA256SUMS.txt and the archives to latest.json. Same rules as collect_linux():
+    the copies must have the hashes that held through signing, and the verifier checks the copy
+    that is uploaded against the text latest.json gets. `signed` maps each arch to its Signed.
+    Returns the installer's name and the macOS names."""
+    manifest, setup_name, base_url = read_release_manifest(target, version)
+    copies = []
+    names = []
+    for arch in MACOS_PLATFORMS:
+        archive_name, dmg_name = macos_bundle_names(version, arch)
+        copies.append((bundles[arch].archive, target / archive_name, signed[arch].sha256))
+        copies.append((bundles[arch].dmg, target / dmg_name, bundles[arch].dmg_sha256))
+        names += [archive_name, dmg_name]
+
+    def discard(message):
+        for _, copy, _ in copies:
+            copy.unlink(missing_ok=True)
+        fail(message)
+
+    for source, copy, _ in copies:
+        shutil.copy2(source, copy)
+    if any(sha256_hex(copy) != expected for _, copy, expected in copies):
+        discard("a macOS bundle changed after it was signed or found; nothing was collected")
+    text_file = target / VERIFY_SIGNATURE_NAME
+    for arch in MACOS_PLATFORMS:
+        archive_name, _ = macos_bundle_names(version, arch)
+        try:
+            text_file.write_text(signed[arch].text, encoding="utf-8")
+            problem = update_signature_problem(verifier, target / archive_name, text_file, version)
+        finally:
+            text_file.unlink(missing_ok=True)
+        if problem:
+            for item in signed.values():
+                item.signature.unlink(missing_ok=True)
+            discard(problem)
+    write_checksums(target, merged_checksum_names(target, setup_name, names))
+    for arch, platform in MACOS_PLATFORMS.items():
+        archive_name, _ = macos_bundle_names(version, arch)
+        manifest["platforms"][platform] = {
+            "signature": signed[arch].text,
+            "url": "%s/%s" % (base_url, archive_name),
+        }
+    write_json(target / "latest.json", manifest)
+    return setup_name, names
+
+
+def add_macos(base_version, bundles_dir, key_path, allow_unencrypted_key, allow_dirty):
+    """--macos: adds the signed archives and the .dmg files to the release of `base_version`."""
+    problem = unlock_variable_problem(os.environ)
+    if problem:
+        fail(problem)
+    version = current_version()
+    parsed = parse_version(version)
+    if parsed is None or not parsed[1] or dotted(parsed[0]) != base_version:
+        fail(
+            "--macos %s needs the release state in the files (tauri.conf.json has %s); run it after "
+            "--version %s and before --next" % (base_version, version, base_version)
+        )
+    target = RELEASE_DIR / display(version)
+    read_release_manifest(target, version)
+    downloaded = bundles_dir is None
+    if downloaded:
+        # The CI bundles belong to the commit; local changes would not be in them.
+        if not allow_dirty and working_tree_dirty():
+            fail("the working tree is not clean. Commit the release state first (or pass --allow-dirty).")
+        bundles_dir = target / MACOS_DOWNLOAD_NAME
+        download_artifact(git("rev-parse", "HEAD"), bundles_dir, MACOS_ARTIFACT, MACOS_JOB)
+    bundles = find_macos_bundles(bundles_dir, version)
+    if bundles is None:
+        fail(
+            "no macOS bundles in %s; the release stays without macOS (publish it with the commands "
+            "the previous run printed)" % bundles_dir
+        )
+    verifier = build_verifier()
+    password = key_password(allow_unencrypted_key)
+    signed = {
+        arch: sign_update(
+            key_path, item.archive, version, sha256_hex(item.archive), allow_unencrypted_key, password=password
+        )
+        for arch, item in bundles.items()
+    }
+    del password
+    setup_name, macos_names = collect_macos(bundles, signed, version, target, verifier)
+    if downloaded:
+        shutil.rmtree(bundles_dir, ignore_errors=True)
+    print()
+    print(
+        "macOS added to %s: %s (updater: %s)."
+        % (target, ", ".join(macos_names), ", ".join(MACOS_PLATFORMS.values()))
+    )
+    print(
+        "Signed ad hoc unless CI had an Apple Developer ID: Gatekeeper asks users to allow the app "
+        "once (release-rollout.md, \"Adding macOS\")."
+    )
+    for line in publish_lines(base_version, version, target, setup_name, extra_release_names(target, setup_name)):
+        print(line)
+
+
+def publish_lines(base_version, version, target, setup_name, extra_names):
+    """What --linux and --macos print for publishing: the gh commands, or the upload order for a
     self-hosted folder (taken from latest.json, like the download URL)."""
     _, _, base_url = read_release_manifest(target, version)
-    files = release_files(target, setup_name, linux_names)
+    files = release_files(target, setup_name, extra_names)
     if base_url != github_base_url(base_version):
         lines = ["Upload to %s/ in this order (latest.json last: it announces the update):" % base_url]
         return lines + ["  %d. %s" % (number, path.name) for number, path in enumerate(files, 1)]
@@ -1386,7 +1627,7 @@ def publish_lines(base_version, version, target, setup_name, linux_names):
     lines = ["Publish on GitHub (the push is a no-op when it is done already):"]
     lines += [
         "  %s" % quoted(argv)
-        for argv in github_release_commands(base_version, version, target, setup_name, notes_file, linux_names)
+        for argv in github_release_commands(base_version, version, target, setup_name, notes_file, extra_names)
     ]
     lines.append("Older installations only poll %s; copy latest.json there as well." % LEGACY_UPDATE_URL)
     return lines
@@ -1408,6 +1649,18 @@ def main():
         "--linux",
         metavar="X.Y.Z",
         help="after --version and the push: sign and add the Linux bundles of the CI run of HEAD",
+    )
+    mode.add_argument(
+        "--macos",
+        metavar="X.Y.Z",
+        help="after --version and the push: sign and add the macOS bundles of the CI run of HEAD",
+    )
+    parser.add_argument(
+        "--macos-bundles",
+        metavar="FOLDER",
+        type=Path,
+        default=None,
+        help="with --macos: take the archives and the .dmg files from this folder instead of downloading them",
     )
     parser.add_argument(
         "--linux-bundles",
@@ -1444,6 +1697,8 @@ def main():
         return
     if args.linux_bundles is not None and args.linux is None:
         fail("--linux-bundles works only with --linux")
+    if args.macos_bundles is not None and args.macos is None:
+        fail("--macos-bundles works only with --macos")
 
     key_path = Path(os.environ.get("HANGAR_SIGNING_KEY", DEFAULT_KEY))
     if not key_path.is_file():
@@ -1452,6 +1707,11 @@ def main():
         if args.notes is not None or args.base_url is not None or args.no_build:
             fail("--linux takes the notes and the download folder from latest.json; --notes, --base-url and --no-build do not apply")
         add_linux(args.linux, args.linux_bundles, key_path, args.allow_unencrypted_key, args.allow_dirty)
+        return
+    if args.macos is not None:
+        if args.notes is not None or args.base_url is not None or args.no_build:
+            fail("--macos takes the notes and the download folder from latest.json; --notes, --base-url and --no-build do not apply")
+        add_macos(args.macos, args.macos_bundles, key_path, args.allow_unencrypted_key, args.allow_dirty)
         return
     if args.base_url is not None and not args.base_url.startswith("https://"):
         fail("the base URL must start with https://; the updater requires TLS.")
@@ -1539,7 +1799,7 @@ def main():
         print("  3. %s     (checksums of both installers)" % CHECKSUMS_NAME)
         print("  4. latest.json        (last: announces the update)")
     print()
-    for line in without_linux_lines(args.version):
+    for line in without_linux_lines(args.version) + without_macos_lines(args.version):
         print(line)
     print()
     # Rule "the code always carries the upcoming version" (ADR 0002): otherwise the next dev build

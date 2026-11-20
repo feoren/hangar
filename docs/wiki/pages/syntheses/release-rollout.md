@@ -1,8 +1,8 @@
 ---
 title: Rolling out a release (installer and auto-update)
 type: synthesis
-tags: [release, updater, nsis, windows, linux, appimage, deb]
-sources: ["[[tauri-updater-and-nsis]]", "[[code-signing-research]]", "[[linux-bundling-reading]]"]
+tags: [release, updater, nsis, windows, linux, appimage, deb, macos, dmg]
+sources: ["[[tauri-updater-and-nsis]]", "[[code-signing-research]]", "[[linux-bundling-reading]]", "[[macos-release-reading]]"]
 created: 2026-11-07
 updated: 2026-11-20
 ---
@@ -130,15 +130,16 @@ collects its items under that same version without a date. `src/versionSync.test
    3. `gh release edit v0.2.0 --repo feoren/hangar --draft=false --latest`
 
    Draft first, publish last: `/releases/latest` skips drafts, so installed apps see the update only
-   once every file is attached. The script ends with "Without Linux"; to ship Linux too, push first,
-   then follow "Adding Linux" below and use the commands `--linux` prints instead of steps 2 and 3. The files go in the order setup, `Hangar-Setup.exe`,
+   once every file is attached. The script ends with "Without Linux" and "Without macOS"; to ship
+   them too, push first, then follow "Adding Linux" and "Adding macOS" below and use the commands
+   the last of those runs prints instead of steps 2 and 3. The files go in the order setup, `Hangar-Setup.exe`,
    `SHA256SUMS.txt`, `latest.json`; with `--base-url` the script prints the same order for the
    upload, `latest.json` last because it announces the update.
 6. Transition for old installations (0.1.x only poll the own server): also upload `latest.json` to
    `https://hangar.feoren.com/download/`. Its URL points to GitHub, so one build serves both. Once
    no 0.1.x installation is left, this step can go.
-7. Create the upcoming version (the script prints the command at the end), after `--linux` if Linux
-   ships: `py -3 tools/release.py --next 0.3.0`
+7. Create the upcoming version (the script prints the command at the end), after `--linux` and
+   `--macos` if those ship: `py -3 tools/release.py --next 0.3.0`
    - sets the three files and `Cargo.lock` to `0.3.0` (without build number)
    - adds `{"version": "0.3.0", "date": null, "items": []}` at the top of `src/changelog.json`
    - aborts if the highest changelog version has no date yet or `0.3.0` is not higher than everything before
@@ -211,6 +212,70 @@ not measured). The Tauri updater docs say nothing about stable names.
 > - Not yet run end to end: no Linux release has been published, and no AppImage has updated itself.
 > - Whether a .deb installation should get updates too (a signed .deb under `linux-x86_64-deb`,
 >   installed through `pkexec dpkg -i`); [[0013-linux-release]] says no for now.
+
+## Adding macOS
+[[0017-macos-release]]: the CI job `macos-bundle` builds per architecture (`aarch64` on
+`macos-latest`, `x64` on `macos-26-intel`) the `.app`, packs it as the updater archive
+`Hangar_X.Y.Z+Build_<arch>.app.tar.gz` and copies the `.dmg` next to it; the job `macos-bundles`
+merges both into the workflow artifact `macos-bundles` (kept 14 days). Updater artifacts are off,
+the updater key never goes to CI. Same reason for a second step as for Linux: only the release
+commit carries `X.Y.Z+Build`.
+
+1. Windows release up to step 4, then `git push origin main`. Wait for the jobs `macos-bundle`
+   (both architectures) and `macos-bundles` of that commit.
+2. `py -3 tools/release.py --macos X.Y.Z` (before `--next`; before or after `--linux`). It
+   - requires the release state in the files, a clean working tree and
+     `release/X.Y.Z-Build/latest.json` of the Windows run, as `--linux` does
+   - downloads the artifact `macos-bundles` of the newest finished push run of `ci.yml` on `main`
+     for `HEAD` into `release/X.Y.Z-Build/macos-download/` (removed afterwards), or takes the files
+     from `--macos-bundles <folder>` (that folder stays)
+   - requires exactly one `.app.tar.gz` and one `.dmg` per architecture, each named with this
+     version, and archives that hold `Hangar.app` with `Contents/MacOS/hangar` and nothing beside
+     it (no absolute or `..` paths, no AppleDouble `._` entries); it only lists the entries
+   - asks for the key password once and signs both archives with `tauri signer sign
+     --app-version X.Y.Z+Build`, same reduced environment and key id check as the installer
+   - copies `Hangar_X.Y.Z-Build_<arch>.app.tar.gz` and `Hangar_X.Y.Z-Build_<arch>.dmg` to the
+     release folder, checks their SHA-256 and runs the verifier on each archive copy against the
+     text `latest.json` gets
+   - rewrites `SHA256SUMS.txt`: the installers, then whatever an earlier `--linux` added, then the
+     four macOS files; adds `platforms["darwin-aarch64"]` and `platforms["darwin-x86_64"]` to
+     `latest.json`
+   - prints the `gh` commands with every file of the release (or the upload order)
+3. Publish with those commands, then step 6 and step 7 as above.
+
+**Platform key.** On macOS the bundle type is always `app` (`tauri-utils` `platform::bundle_type`),
+so the updater looks for `darwin-<arch>-app` and then `darwin-<arch>`; the plain key reaches every
+macOS installation, whether it came from the `.dmg` or an update ([[macos-release-reading]]).
+
+**Signing without an Apple Developer account.** The app is signed ad hoc (`signingIdentity: "-"`),
+which Apple silicon needs to run it at all; it is neither Developer ID signed nor notarized, so
+Gatekeeper blocks the first start of a downloaded copy ([[macos-release-reading]]):
+- macOS 15 Sequoia and later: open the app once, then System Settings > Privacy & Security >
+  "Open Anyway", then "Open" (Control-click > Open no longer works there).
+- macOS 13 and 14: Control-click the app > Open, or the same "Open Anyway" button.
+- Terminal: `xattr -dr com.apple.quarantine /Applications/Hangar.app` before the first start.
+The download page should say so once macOS ships.
+
+**With an Apple Developer account** (Developer Program membership, a "Developer ID Application"
+certificate) only repository secrets are added, no file changes ([[0017-macos-release]]):
+
+| Secret | Content |
+| --- | --- |
+| `APPLE_SIGNING_IDENTITY` | the certificate's name, e.g. `Developer ID Application: <name> (<team id>)`; without it CI signs ad hoc and ignores the others |
+| `APPLE_CERTIFICATE` | the exported `.p12`, base64 encoded |
+| `APPLE_CERTIFICATE_PASSWORD` | the password of that `.p12` |
+| `APPLE_ID`, `APPLE_PASSWORD`, `APPLE_TEAM_ID` | notarization with the account's e-mail, an app-specific password and the team id |
+| `APPLE_API_ISSUER`, `APPLE_API_KEY`, `APPLE_API_PRIVATE_KEY` | instead: notarization with an App Store Connect key (issuer id, key id, content of the `.p8`) |
+
+The certificate and the notarization credentials stay in CI secrets, like no other key: the
+updater key still never leaves the owner's machine. Pull requests from forks get no secrets and
+build ad hoc.
+
+> [!question] Unverified
+> - Not run end to end: no macOS bundle has been opened on a Mac, no archive has updated an
+>   installed app, no signing with a real Developer ID has happened.
+> - Whether the bundler notarizes and staples before the `.dmg` is made, so that both carry the
+>   ticket.
 
 ## Release from a fresh clone
 The clean tree check and the build input check cover the files the script knows about. Whatever
@@ -421,5 +486,6 @@ Get-AuthenticodeSignature .\release\0.2.0-31\Hangar-Setup.exe | Format-List Stat
 ## Limits and open points
 - The update URLs are hard-coded in `tauri.conf.json`. Moving to a different host requires a
   release that is still served from an old URL.
-- Windows x64 and Linux x64 (AppImage updates, .deb without). macOS needs `darwin-*` entries.
+- Windows x64, Linux x64 (AppImage updates, .deb without) and macOS arm64 and x64 (`darwin-*`,
+  prepared, not shipped yet).
 - The website has no Linux download link yet ([[0013-linux-release]], part 2).
