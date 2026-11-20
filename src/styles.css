@@ -7873,6 +7873,16 @@ body.resizing-horizontal * {
   resize: vertical;
 }
 
+/*
+ * Settings, Snippets: grows with the text (AutoGrowTextarea) from two lines to about twelve, then
+ * scrolls. No flex share here: in the column it would override the height the corner sets.
+ */
+.snippet-field .snippet-text {
+  flex: none;
+  max-height: 240px;
+  overflow-y: auto;
+}
+
 /* "Save as snippet": room for a few lines of the selection, never taller than the window allows. */
 .snippet-save-text {
   min-height: 112px;

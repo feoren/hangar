@@ -213,7 +213,6 @@ export function SubAgentItem({
       <button
         type="button"
         className={`subagent-node agent ${agent.status}${picked ? " picked" : ""}`}
-        title={[name, ...details, t("subAgents.treeHint")].join("\n")}
         aria-label={[
           name,
           ...details.slice(0, -1),

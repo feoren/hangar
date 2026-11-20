@@ -427,7 +427,6 @@ function AgentList({
     onFocused();
   }, [focusOnShow, onFocused]);
   const heading = t("subAgents.all", { count: agents.length });
-  const hint = t("subAgents.treeHint");
   return (
     <section className="subagent" style={style} aria-label={heading} onKeyDown={onKeyDown}>
       <header className="subagent-header">
@@ -447,7 +446,6 @@ function AgentList({
                   <button
                     type="button"
                     className="subagent-row"
-                    title={`${name}\n${hint}`}
                     onClick={(event) => {
                       onPick(agent.id, event.detail === 0);
                     }}

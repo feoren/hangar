@@ -1,5 +1,6 @@
 import { Fragment, useEffect, useRef } from "react";
 
+import { AutoGrowTextarea } from "./AutoGrowTextarea";
 import { useT, type MessageKey } from "./i18n";
 import { SNIPPET_VARIABLES, usedVariables, type SnippetVariable } from "./snippetVariables";
 import { ArrowDownIcon, ArrowUpIcon, PlusIcon, TrashIcon } from "./icons";
@@ -91,7 +92,7 @@ export function SnippetsSettings({ snippets, onChange }: Props) {
           return (
             <li key={snippet.id} className="snippet-row">
               <div className="snippet-field">
-                <textarea
+                <AutoGrowTextarea
                   ref={(element) => {
                     if (element) fields.current.set(snippet.id, element);
                     else fields.current.delete(snippet.id);

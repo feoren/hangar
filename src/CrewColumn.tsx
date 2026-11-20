@@ -146,7 +146,6 @@ function CrewItem({
       <button
         type="button"
         className="crew-button"
-        title={[name, stateLabel, text, t("subAgents.treeHint")].join("\n")}
         aria-label={`${name}, ${stateLabel}, ${text}`}
         aria-current={picked ? "true" : undefined}
         onClick={(event) => {
@@ -160,7 +159,7 @@ function CrewItem({
             </span>
             <AgentFigure figure={figure} size={88} crop="full" />
             <span className="crew-plinth" aria-hidden="true">
-              {/* The plinth's color alone tells the state; the word stays in the tooltip and label. */}
+              {/* The plinth's color alone tells the state; the word stays in the label. */}
               <span className="crew-plinth-label">{name}</span>
             </span>
           </>
