@@ -39,6 +39,7 @@ use crate::session::{
     GateStatus, SessionId, SessionInfo, SessionKind, SessionMode, Status, TransitionError,
 };
 use crate::subagents;
+use crate::unattended;
 use crate::updates::{self, CommandError};
 use crate::wsl;
 
@@ -480,6 +481,9 @@ struct Entry {
     /// The user ended the running process. Its exit code is then no sign of a
     /// failed resume.
     kill_requested: bool,
+    /// Whether the process of that generation runs without asking before tools, once read
+    /// ([`SessionManager::unattended_known`]).
+    unattended: Option<(u64, bool)>,
 }
 
 struct Shared {
@@ -1239,13 +1243,44 @@ impl SessionManager {
         list
     }
 
-    /// The start arguments of each session's profile, for telling an agent that runs without
-    /// asking before tools (`links::runs_without_prompts`).
-    pub fn session_args(&self) -> HashMap<SessionId, Vec<String>> {
-        lock(&self.shared.sessions)
-            .iter()
-            .map(|(id, entry)| (*id, entry.agent.profile.args.clone()))
-            .collect()
+    /// What is known of each session's agent running without asking before tools
+    /// ([`unattended::runs_unattended`]), and the sessions still to be read. Nothing is read
+    /// here, so a command on the main thread may call it; the caller reads the probes off it
+    /// ([`unattended::probe`]) and hands the results to [`Self::store_unattended`]. Read once per
+    /// process: the CLI takes its start mode from its files when it starts.
+    pub fn unattended_known(&self) -> (HashMap<SessionId, bool>, Vec<unattended::Probe>) {
+        let mut known = HashMap::new();
+        let mut missing = Vec::new();
+        for (id, entry) in lock(&self.shared.sessions).iter() {
+            match entry.unattended {
+                Some((generation, value)) if generation == entry.generation => {
+                    known.insert(*id, value);
+                }
+                _ => missing.push(unattended::Probe {
+                    session: *id,
+                    generation: entry.generation,
+                    launch: unattended::Launch {
+                        command: entry.agent.profile.command.clone(),
+                        args: entry.agent.profile.args.clone(),
+                        env: entry.agent.profile.env.clone(),
+                        cwd: entry.info.cwd.clone(),
+                    },
+                }),
+            }
+        }
+        (known, missing)
+    }
+
+    /// Keeps what was read for each probe, unless its session restarted meanwhile.
+    pub fn store_unattended(&self, found: &[(unattended::Probe, bool)]) {
+        let mut sessions = lock(&self.shared.sessions);
+        for (probe, value) in found {
+            if let Some(entry) = sessions.get_mut(&probe.session) {
+                if entry.generation == probe.generation {
+                    entry.unattended = Some((probe.generation, *value));
+                }
+            }
+        }
     }
 
     /// Kind of the session, `None` for unknown ones.
@@ -1492,6 +1527,7 @@ impl SessionManager {
                     instructions: extras.instructions.clone(),
                     sub_agent: extras.sub_agent.clone(),
                     kill_requested: false,
+                    unattended: None,
                 },
             );
             plan
@@ -2194,6 +2230,53 @@ mod tests {
         Agent::from_catalog(crate::agent_catalog::parse(&source).unwrap().remove(0))
     }
 
+    #[test]
+    fn unattended_is_read_once_per_process() {
+        let manager = SessionManager::new(Vec::new(), Vec::new(), PathBuf::from("/home/me"));
+        let entry = |generation| Entry {
+            info: SessionInfo::new(1, "p".into(), "T".into(), PathBuf::from("/w"), 0),
+            agent: prompted_agent(""),
+            generation,
+            runtime: None,
+            size: TermSize { cols: 80, rows: 24 },
+            instructions: None,
+            sub_agent: None,
+            kill_requested: false,
+            unattended: None,
+        };
+        lock(&manager.shared.sessions).insert(1, entry(0));
+
+        let (known, probes) = manager.unattended_known();
+        assert!(known.is_empty());
+        assert_eq!(probes.len(), 1);
+        assert_eq!(probes[0].launch.cwd, PathBuf::from("/w"));
+        let found = vec![(probes[0].clone(), true)];
+        manager.store_unattended(&found);
+        // The same process is not read again.
+        let (known, probes) = manager.unattended_known();
+        assert_eq!(known.get(&1), Some(&true));
+        assert!(probes.is_empty());
+
+        // A restart reads again.
+        lock(&manager.shared.sessions)
+            .get_mut(&1)
+            .unwrap()
+            .generation = 1;
+        let (known, probes) = manager.unattended_known();
+        assert!(known.is_empty());
+        assert_eq!(probes[0].generation, 1);
+
+        // What was read for a process that restarted meanwhile is not kept.
+        lock(&manager.shared.sessions)
+            .get_mut(&1)
+            .unwrap()
+            .generation = 2;
+        manager.store_unattended(&[(probes[0].clone(), true)]);
+        let (known, probes) = manager.unattended_known();
+        assert!(known.is_empty());
+        assert_eq!(probes[0].generation, 2);
+    }
+
     fn strings(items: &[&str]) -> Vec<String> {
         items.iter().map(|s| (*s).to_owned()).collect()
     }
@@ -2731,6 +2814,7 @@ mod tests {
                 instructions: None,
                 sub_agent: None,
                 kill_requested: false,
+                unattended: None,
             },
         );
 

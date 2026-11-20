@@ -99,6 +99,7 @@ mod test_support;
 pub mod text;
 pub mod token_usage;
 pub mod tray;
+pub mod unattended;
 pub mod updates;
 pub mod version;
 pub mod work_log;

@@ -50,7 +50,7 @@ use crate::link_service::{
     GroupView, HistoryView, LinkRequest, LinkService, LinkServiceError, LinkSnapshot, MemberFacts,
     MemberName,
 };
-use crate::links::{self, GroupId};
+use crate::links::GroupId;
 use crate::main_store::{
     self, MainPrefs, MainStore, MainStoreError, ProtectedSettings, QueuedMessages,
     SecuritySwitches, SubAgentSettings, WorkspaceTemplate,
@@ -85,6 +85,7 @@ use crate::team::{PendingConfirmation, TeamError, TeamStatus};
 use crate::team_service::TeamService;
 use crate::team_share::SessionState;
 use crate::tray::{self, TrayError, TrayLabels};
+use crate::unattended;
 use crate::updates::{self, UpdateCache, UpdateInfo};
 use crate::version::{self, VersionCache};
 use crate::work_log::{self, WorkLog, WorkLogError};
@@ -3932,36 +3933,56 @@ pub async fn close_waiting_message(
     .map_err(|error| PartnerServiceError::Task(error.to_string()))?
 }
 
+/// Whether each session's agent runs without asking before tools. The settings files of
+/// sessions not read yet are read on a blocking thread, never on the main thread: a working
+/// folder on a slow drive must not freeze the window.
+async fn unattended_sessions(
+    manager: &SessionManager,
+) -> Result<HashMap<SessionId, bool>, LinkServiceError> {
+    let (mut known, missing) = manager.unattended_known();
+    if missing.is_empty() {
+        return Ok(known);
+    }
+    let home = manager.home().to_path_buf();
+    let found = tauri::async_runtime::spawn_blocking(move || unattended::probe(&home, missing))
+        .await
+        .map_err(|error| LinkServiceError::Task(error.to_string()))?;
+    manager.store_unattended(&found);
+    known.extend(
+        found
+            .into_iter()
+            .map(|(probe, value)| (probe.session, value)),
+    );
+    Ok(known)
+}
+
 /// Link groups, the sessions that can be linked and the messages between members (ADR 0014).
 #[tauri::command]
-pub fn link_state(
+pub async fn link_state(
     window: tauri::Window,
     manager: Manager<'_>,
     links: State<'_, LinkService>,
 ) -> Result<LinkSnapshot, LinkServiceError> {
     main_store::check_main(window.label())?;
-    let args = manager.session_args();
-    let unattended = |id: SessionId| {
-        args.get(&id)
-            .is_some_and(|args| links::runs_without_prompts(args))
-    };
+    let unattended_sessions = unattended_sessions(&manager).await?;
+    let unattended = |id: SessionId| unattended_sessions.get(&id).copied().unwrap_or(false);
     Ok(links.snapshot(work_log::now_ms(), &unattended))
 }
 
 /// What an introduction says about a member's program, and whether its agent runs without
 /// asking before tools.
-fn member_facts(manager: &SessionManager) -> impl Fn(&SessionInfo) -> MemberFacts {
+async fn member_facts(
+    manager: &SessionManager,
+) -> Result<impl Fn(&SessionInfo) -> MemberFacts, LinkServiceError> {
     let names = manager.profile_names();
-    let args = manager.session_args();
-    move |info: &SessionInfo| MemberFacts {
+    let unattended = unattended_sessions(manager).await?;
+    Ok(move |info: &SessionInfo| MemberFacts {
         program: names
             .get(&info.profile_id)
             .cloned()
             .unwrap_or_else(|| info.profile_id.clone()),
-        unattended: args
-            .get(&info.id)
-            .is_some_and(|args| links::runs_without_prompts(args)),
-    }
+        unattended: unattended.get(&info.id).copied().unwrap_or(false),
+    })
 }
 
 /// Links the sessions `ids` into a new group; each must be a running agent session that got the
@@ -3969,7 +3990,7 @@ fn member_facts(manager: &SessionManager) -> impl Fn(&SessionInfo) -> MemberFact
 /// `lead` (the member that leads) and `ask_first` are optional. Every member gets Hangar's
 /// introduction for its role.
 #[tauri::command]
-pub fn link_sessions(
+pub async fn link_sessions(
     window: tauri::Window,
     manager: Manager<'_>,
     links: State<'_, LinkService>,
@@ -3979,7 +4000,7 @@ pub fn link_sessions(
     ask_first: Option<bool>,
 ) -> Result<GroupView, LinkServiceError> {
     main_store::check_main(window.label())?;
-    let facts = member_facts(&manager);
+    let facts = member_facts(&manager).await?;
     let request = LinkRequest {
         names: names.unwrap_or_default(),
         lead,
@@ -4002,7 +4023,7 @@ pub fn unlink_group(
 /// New member names, the "Ask before pasting" toggle and the lead (`null`: none) of link group
 /// `group`. A changed lead introduces the group's roles to every member again.
 #[tauri::command]
-pub fn edit_link_group(
+pub async fn edit_link_group(
     window: tauri::Window,
     manager: Manager<'_>,
     links: State<'_, LinkService>,
@@ -4012,7 +4033,7 @@ pub fn edit_link_group(
     lead: Option<SessionId>,
 ) -> Result<(), LinkServiceError> {
     main_store::check_main(window.label())?;
-    let facts = member_facts(&manager);
+    let facts = member_facts(&manager).await?;
     links.edit(
         group,
         &names,
