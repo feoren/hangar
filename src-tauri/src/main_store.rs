@@ -214,6 +214,10 @@ pub struct SubAgentSettings {
     pub models: BTreeMap<DefProgram, ModelChoice>,
     #[serde(default)]
     pub provide_off: BTreeSet<DefProgram>,
+    /// Hangar's own sub-agents are not placed in `~/.claude/agents`
+    /// ([`crate::bundled_agents`]); on by default.
+    #[serde(default)]
+    pub bundled_off: bool,
 }
 
 /// Every choice checked for its program; empty ones are dropped.
@@ -636,6 +640,11 @@ impl MainStore {
         Self { dir }
     }
 
+    /// Where Hangar notes the bundled sub-agents it placed ([`crate::bundled_agents`]).
+    pub fn bundled_manifest(&self) -> PathBuf {
+        self.dir.join(crate::bundled_agents::MANIFEST_FILE)
+    }
+
     /// `None`: never stored. A damaged file gives the defaults (everything on).
     pub fn load_switches(&self) -> Option<SecuritySwitches> {
         let path = self.dir.join(SWITCHES_FILE);
@@ -869,6 +878,7 @@ mod tests {
                 (DefProgram::Codex, ModelChoice::default()),
             ]),
             provide_off: BTreeSet::from([DefProgram::Codex]),
+            bundled_off: true,
         };
         store.save_sub_agents(settings).unwrap();
         let loaded = store.load_sub_agents();
@@ -878,7 +888,7 @@ mod tests {
         assert_eq!(
             serde_json::to_value(&loaded).unwrap(),
             serde_json::json!({ "models": { "claude": { "model": "sonnet", "effort": null } },
-                "provideOff": ["codex"] })
+                "provideOff": ["codex"], "bundledOff": true })
         );
         let bad = SubAgentSettings {
             models: BTreeMap::from([(
@@ -889,6 +899,7 @@ mod tests {
                 },
             )]),
             provide_off: BTreeSet::new(),
+            bundled_off: false,
         };
         assert!(store.save_sub_agents(bad).is_err());
         // A file with a value no check lets through gives the defaults.

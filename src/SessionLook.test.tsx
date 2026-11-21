@@ -16,7 +16,11 @@ function render(element: ReactElement): string {
 describe("SessionLook", () => {
   it("shows the whole figure where the place has room", () => {
     const html = render(
-      <SessionLook look={LOOK} session={{ subAgent: "tester", cwd: "C:\\src" }} crop="full" />,
+      <SessionLook
+        look={LOOK}
+        session={{ subAgent: "hangar-tester", cwd: "C:\\src" }}
+        crop="full"
+      />,
     );
     expect(html).toContain('class="session-figure full"');
     expect(html).toContain('class="agent-figure full"');
@@ -31,11 +35,11 @@ describe("SessionLook", () => {
     const html = render(
       <SessionLook
         look={LOOK}
-        session={{ subAgent: "tester", cwd: "C:\\src" }}
+        session={{ subAgent: "hangar-tester", cwd: "C:\\src" }}
         programName="Claude Code"
       />,
     );
-    expect(html).toContain('title="Claude Code as tester"');
+    expect(html).toContain('title="Claude Code as hangar-tester"');
     expect(html).toContain('class="session-figure head"');
     expect(html).toContain('class="agent-figure head"');
     expect(html).toContain('<span class="figure-corner" aria-hidden="true"><span class="badge"');

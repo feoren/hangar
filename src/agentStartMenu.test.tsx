@@ -50,11 +50,11 @@ function actions(items: PopupItem[]) {
 }
 
 describe("the start as sub-agent menu", () => {
-  const global = def("backend");
-  const project = def("backend", { scope: "project", folder: PROJECT });
+  const global = def("hangar-backend");
+  const project = def("hangar-backend", { scope: "project", folder: PROJECT });
   const own = def("reviewer", { scope: "project", folder: PROJECT });
   const library: Library = { ...EMPTY_LIBRARY, defs: [global, project, own] };
-  const figures = parseFigures({ backend: { kind: "builtin", id: "security-01" } });
+  const figures = parseFigures({ "hangar-backend": { kind: "builtin", id: "security-01" } });
 
   it("lists face, name, origin and the first line of the description", () => {
     const start = vi.fn();
@@ -65,8 +65,10 @@ describe("the start as sub-agent menu", () => {
       label: "Start Claude Code as sub-agent",
     });
     const entries = actions(items);
-    expect(entries.map((item) => item.label)).toEqual(["backend", "reviewer"]);
-    expect(entries[0]?.detail).toBe("from project hangar, replaces the global one · backend work.");
+    expect(entries.map((item) => item.label)).toEqual(["hangar-backend", "reviewer"]);
+    expect(entries[0]?.detail).toBe(
+      "from project hangar, replaces the global one · hangar-backend work.",
+    );
     expect(entries[1]?.detail).toBe("from project hangar · reviewer work.");
     expect(entries[1]?.title).toContain("Start Claude Code as reviewer");
     entries[1]?.run();
@@ -81,6 +83,12 @@ describe("the start as sub-agent menu", () => {
     const trusted = renderToStaticMarkup(<>{globalOnly?.icon}</>);
     expect(trusted).toContain("<img");
     expect(originText(global, library, t)).toBe("Global");
+    // The user's own agents wear no figure, only their initial.
+    const mine = def("writer");
+    const plain = actions(
+      agentStartItems(claude, [mine], { ...EMPTY_LIBRARY, defs: [mine] }, figures, t, vi.fn()),
+    )[0];
+    expect(renderToStaticMarkup(<>{plain?.icon}</>)).not.toContain("<img");
   });
 
   it("names what a project definition brings beyond its prompt", () => {

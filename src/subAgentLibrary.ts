@@ -125,6 +125,8 @@ export interface Library {
   codexModels: string[];
   /** What the newest copy runs left alone. */
   syncIssues: SyncIssue[];
+  /** Global definitions that are Hangar's unchanged bundled copies. */
+  bundled: string[];
 }
 
 export const EMPTY_LIBRARY: Library = {
@@ -135,6 +137,7 @@ export const EMPTY_LIBRARY: Library = {
   targets: [],
   codexModels: [],
   syncIssues: [],
+  bundled: [],
 };
 
 /** Rust `FigureView`: a chosen figure. */
@@ -267,20 +270,41 @@ function hash(text: string): number {
   return value;
 }
 
+/** Name prefix of the sub-agents that ship with Hangar (Rust `bundled_agents::BUNDLED`). */
+export const HANGAR_PREFIX = "hangar-";
+
 /**
- * The figure of an agent without a chosen one: the role figure its name points to
- * (`code-reviewer` -> manager), else its initial on its frontmatter color, else a bundled figure
- * picked from the name, the same on every start.
+ * Only Hangar's own sub-agents wear figures. Any other agent (the user's own, a project's, a
+ * Codex CLI definition, a built-in type such as `Explore`) shows its initial: a figure would
+ * suggest it came with Hangar.
+ */
+export function isHangarAgent(name: string): boolean {
+  return name.startsWith(HANGAR_PREFIX) && name.length > HANGAR_PREFIX.length;
+}
+
+const TINTS = Object.values(COLORS);
+
+/** The initial of an agent without a figure, on its frontmatter color, else one its name picks. */
+export function initialFigure(name: string, color: string | null): Figure {
+  const tint = (color === null ? undefined : COLORS[color]) ?? TINTS[hash(name) % TINTS.length];
+  return {
+    kind: "initial",
+    letter: name.slice(0, 1).toUpperCase(),
+    color: tint ?? NEUTRAL_FIGURE_COLOR,
+  };
+}
+
+/**
+ * The figure of an agent without a chosen one. A Hangar agent wears the role figure the word
+ * after the prefix points to (`hangar-tester` -> tester), else a bundled figure picked from the
+ * name, the same on every start (`hangar-n8n`). Every other agent gets its initial.
  */
 export function defaultFigure(name: string, color: string | null): Figure {
-  for (const word of name.split("-")) {
+  if (!isHangarAgent(name)) return initialFigure(name, color);
+  for (const word of name.slice(HANGAR_PREFIX.length).split("-")) {
     const role = ROLE_WORDS[word];
     const id = role === undefined ? undefined : `${role}-01`;
     if (isBuiltinFigure(id)) return { kind: "builtin", id };
-  }
-  const tint = color === null ? undefined : COLORS[color];
-  if (tint !== undefined) {
-    return { kind: "initial", letter: name.slice(0, 1).toUpperCase(), color: tint };
   }
   const id = NAME_FIGURES[hash(name) % NAME_FIGURES.length] ?? "developer-01";
   return { kind: "builtin", id };
@@ -305,12 +329,16 @@ export const NAME_FIGURES: readonly BuiltinFigure[] = [
   "tester-01",
 ];
 
-/** The chosen figure, else the default one. */
+/**
+ * The chosen figure, else the default one. A choice stored for a name that is no Hangar agent is
+ * ignored, not deleted.
+ */
 export function figureFor(
   name: string,
   color: string | null,
   chosen: ReadonlyMap<string, FigureView>,
 ): Figure {
+  if (!isHangarAgent(name)) return initialFigure(name, color);
   const view = chosen.get(name);
   if (view?.kind === "builtin" && isBuiltinFigure(view.id)) return view;
   if (view?.kind === "image") return { kind: "image", url: view.dataUrl };
@@ -392,6 +420,19 @@ export function overridesGlobal(library: Library, def: AgentDef): boolean {
   );
 }
 
+/** A project definition with the fingerprint of the global definition of its name. */
+function sameAsGlobal(library: Library, def: AgentDef): boolean {
+  return (
+    def.fingerprint !== undefined &&
+    library.defs.some(
+      (other) =>
+        other.scope === "global" &&
+        other.name === def.name &&
+        other.fingerprint === def.fingerprint,
+    )
+  );
+}
+
 /** Color of the figure of a project definition that overrides a global one. */
 export const NEUTRAL_FIGURE_COLOR = "#6b7785";
 
@@ -412,6 +453,11 @@ export function defFigure(
       letter: def.name.slice(0, 1).toUpperCase(),
       color: NEUTRAL_FIGURE_COLOR,
     };
+  }
+  // A project's own definition is the repository's, never Hangar's, whatever its name; only a
+  // copy of the global definition (equal fingerprint) is that agent.
+  if (def.scope === "project" && !sameAsGlobal(library, def)) {
+    return initialFigure(def.name, def.color);
   }
   return figureFor(def.name, def.color, chosen);
 }
@@ -626,7 +672,13 @@ export function parseLibrary(value: unknown): Library | null {
       ? models.filter((model): model is string => typeof model === "string").slice(0, 8)
       : [],
     syncIssues: issues(field(value, "syncIssues")),
+    bundled: strings(field(value, "bundled"), 64).filter(validAgentName).slice(0, 64),
   };
+}
+
+/** Whether the global definition `name` is Hangar's bundled copy, unchanged. */
+export function isFromHangar(library: Library, entry: LibraryEntry): boolean {
+  return entry.global !== null && library.bundled.includes(entry.name);
 }
 
 /** Checks the figures map; unknown figures and invalid names are left out. */

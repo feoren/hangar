@@ -84,15 +84,20 @@ struct Source {
     name: String,
     description: String,
     instructions: String,
+    /// Hangar's own unchanged bundled copy ([`crate::bundled_agents`]): the user never asked
+    /// for it, so its copy only takes a free name in the global folder, never sets a user's file
+    /// aside and never reaches a project.
+    bundled: bool,
 }
 
-fn sources(home: &Path) -> Vec<Source> {
+fn sources(home: &Path, bundled: &[String]) -> Vec<Source> {
     agent_defs::global_sources(home)
         .into_iter()
         .filter_map(|(name, path)| {
             let text = agent_defs::read_capped(&path).ok()?;
             let (description, instructions) = agent_defs::source_parts(&text)?;
             Some(Source {
+                bundled: bundled.contains(&name),
                 name,
                 description,
                 instructions,
@@ -129,12 +134,28 @@ pub const TARGETS: [DefProgram; 1] = [DefProgram::Codex];
 /// Brings the copies of `program` up to date: in the global folder and in the agents folders of
 /// `folders` that exist. `enabled = false` removes Hangar's copies and restores the backups.
 pub fn sync(home: &Path, folders: &[PathBuf], program: DefProgram, enabled: bool) -> Summary {
+    sync_with(home, folders, program, enabled, &[])
+}
+
+/// [`sync`] where the definitions named in `bundled` are Hangar's unchanged bundled copies
+/// ([`Source::bundled`]).
+pub fn sync_with(
+    home: &Path,
+    folders: &[PathBuf],
+    program: DefProgram,
+    enabled: bool,
+    bundled: &[String],
+) -> Summary {
     let mut summary = Summary::default();
     if program != DefProgram::Codex {
         return summary;
     }
     let _run = run_lock();
-    let sources = if enabled { sources(home) } else { Vec::new() };
+    let sources = if enabled {
+        sources(home, bundled)
+    } else {
+        Vec::new()
+    };
     let global = Place {
         program,
         dir: codex_agents::agents_dir(home),
@@ -184,10 +205,11 @@ pub fn sync_installed(
     folders: &[PathBuf],
     installed: &[DefProgram],
     off: &BTreeSet<DefProgram>,
+    bundled: &[String],
 ) -> Vec<Summary> {
     targets(installed, off)
         .into_iter()
-        .map(|target| sync(home, folders, target.program, target.enabled))
+        .map(|target| sync_with(home, folders, target.program, target.enabled, bundled))
         .collect()
 }
 
@@ -348,6 +370,9 @@ fn sync_dir(place: &Place<'_>, sources: &[Source], summary: &mut Summary) {
     let wanted: HashSet<&str> = sources.iter().map(|source| source.name.as_str()).collect();
     let mut handled = HashSet::new();
     for source in sources {
+        if source.bundled && place.scope != Scope::Global {
+            continue;
+        }
         let matching: Vec<&Entry> = entries
             .iter()
             .filter(|entry| {
@@ -478,6 +503,8 @@ fn update(place: &Place<'_>, entry: &Entry, source: &Source, summary: &mut Summa
     let own = codex_agents::marker(&text).filter(|marker| marker.source == source.name);
     let next = match own {
         Some(marker) => copy_text(source, model, effort, marker.backup.as_deref()),
+        // The user's file of a name Hangar brought along on its own stays theirs.
+        None if source.bundled => return,
         None => {
             let backup = match set_aside(&entry.path, &source.name, text.as_bytes()) {
                 Ok(backup) => backup,
@@ -997,6 +1024,65 @@ mod tests {
         remove(&place, entry, &marker, &mut summary);
         assert!(summary.removed.is_empty());
         assert_eq!(read(&path), edited);
+    }
+
+    #[test]
+    fn a_bundled_copy_never_displaces_a_users_file() {
+        let (temp, home) = setup("provision-bundled");
+        let claude = agent_defs::agents_dir(&home);
+        let tester = "---
+name: hangar-tester
+description: Tests
+---
+Test it.
+";
+        let developer = "---
+name: hangar-developer
+description: Builds
+---
+Build it.
+";
+        fs::write(claude.join("hangar-tester.md"), tester).unwrap();
+        fs::write(claude.join("hangar-developer.md"), developer).unwrap();
+        let global = codex_agents::agents_dir(&home);
+        fs::create_dir_all(&global).unwrap();
+        let own = FOREIGN.replace("\"manager\"", "\"hangar-tester\"");
+        fs::write(global.join("hangar-tester.toml"), &own).unwrap();
+        // An untracked project file of the name, which a user's own definition would replace.
+        let project = temp.path().join("project");
+        let project_dir = codex_agents::agents_dir(&project);
+        fs::create_dir_all(&project_dir).unwrap();
+        let project_own = FOREIGN.replace("\"manager\"", "\"hangar-developer\"");
+        fs::write(project_dir.join("hangar-developer.toml"), &project_own).unwrap();
+
+        let bundled = ["hangar-tester".to_owned(), "hangar-developer".to_owned()];
+        let summary = sync_with(
+            &home,
+            std::slice::from_ref(&project),
+            DefProgram::Codex,
+            true,
+            &bundled,
+        );
+        assert!(summary.issues.is_empty(), "{:?}", summary.issues);
+        assert!(summary.replaced.is_empty(), "{:?}", summary.replaced);
+        // The user's own file stays byte for byte, and no backup appears.
+        assert_eq!(read(&global.join("hangar-tester.toml")), own);
+        assert!(!global.join("hangar-tester.toml.bak").exists());
+        // A free name gets its copy; the project is left alone.
+        assert!(global.join("hangar-developer.toml").is_file());
+        assert_eq!(
+            read(&project_dir.join("hangar-developer.toml")),
+            project_own
+        );
+        assert!(!project_dir.join("hangar-developer.toml.bak").exists());
+        // The user's definitions still replace as before.
+        assert!(global.join("backend.toml").is_file());
+
+        // Hangar's own copy of a bundled name is kept up to date.
+        let changed = developer.replace("Build it.", "Build it well.");
+        fs::write(claude.join("hangar-developer.md"), &changed).unwrap();
+        sync_with(&home, &[], DefProgram::Codex, true, &bundled);
+        assert!(read(&global.join("hangar-developer.toml")).contains("Build it well."));
     }
 
     #[test]

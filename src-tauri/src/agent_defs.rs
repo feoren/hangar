@@ -751,7 +751,7 @@ impl Serialize for DefError {
 }
 
 /// The global agents folder, created if missing; refused when it lies off this machine.
-fn global_dir(home: &Path) -> Result<PathBuf, DefError> {
+pub(crate) fn global_dir(home: &Path) -> Result<PathBuf, DefError> {
     let dir = agents_dir(home);
     if no_links::is_network_or_device(&dir) {
         return Err(DefError::Remote(dir));
@@ -798,10 +798,7 @@ pub fn create(home: &Path, text: &str, replace: bool) -> Result<AgentDef, DefErr
         return Err(DefError::Reserved(parsed.name));
     }
     let dir = global_dir(home)?;
-    let mut bytes = text.replace("\r\n", "\n").into_bytes();
-    if !bytes.ends_with(b"\n") {
-        bytes.push(b'\n');
-    }
+    let bytes = file_bytes(text);
     let file = match find_global(home, &parsed.name) {
         // Only a definition of that name is ever replaced, in its own file.
         Some(_) if !replace => return Err(DefError::Exists(parsed.name)),
@@ -831,6 +828,15 @@ pub fn create(home: &Path, text: &str, replace: bool) -> Result<AgentDef, DefErr
     })
 }
 
+/// `text` as a definition file holds it: LF line ends and a last line break.
+pub(crate) fn file_bytes(text: &str) -> Vec<u8> {
+    let mut bytes = text.replace("\r\n", "\n").into_bytes();
+    if !bytes.ends_with(b"\n") {
+        bytes.push(b'\n');
+    }
+    bytes
+}
+
 /// Windows device names (`con`, `nul`, `com1` and so on), which cannot be file names there.
 /// Refused only when a definition is created: an existing one keeps working.
 pub fn is_device_name(name: &str) -> bool {
@@ -852,6 +858,27 @@ static TEMP_COUNTER: AtomicU64 = AtomicU64::new(0);
 /// file first, which is then hard linked to its name, a step that fails when the name is taken;
 /// where the file system has no hard links, the file is created with `create_new`.
 fn write_new(dir: &Path, name: &str, bytes: &[u8]) -> Result<String, DefError> {
+    write_first_free(dir, name, bytes, NAME_ATTEMPTS)
+}
+
+/// Writes `bytes` as the new file `<name>.md` and nothing else, the way [`write_new`] does.
+/// `Ok(false)`: a file of that name, in any case, exists already (also when it appeared during
+/// the call) and stays as it is.
+pub(crate) fn write_exact(dir: &Path, name: &str, bytes: &[u8]) -> Result<bool, DefError> {
+    match write_first_free(dir, name, bytes, 1) {
+        Ok(_) => Ok(true),
+        Err(DefError::Exists(_)) => Ok(false),
+        Err(error) => Err(error),
+    }
+}
+
+/// [`write_new`] trying at most `attempts` names.
+fn write_first_free(
+    dir: &Path,
+    name: &str,
+    bytes: &[u8],
+    attempts: usize,
+) -> Result<String, DefError> {
     let io_error = |path: &Path| {
         let path = path.to_owned();
         move |source| DefError::Io { path, source }
@@ -862,7 +889,7 @@ fn write_new(dir: &Path, name: &str, bytes: &[u8]) -> Result<String, DefError> {
         .filter_map(|entry| entry.file_name().into_string().ok())
         .map(|file| file.to_lowercase())
         .collect();
-    let candidates = (1..=NAME_ATTEMPTS)
+    let candidates = (1..=attempts)
         .map(|n| match n {
             1 => format!("{name}.md"),
             n => format!("{name}-{n}.md"),

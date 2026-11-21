@@ -1333,3 +1333,16 @@ typed with it (another key, a click, the wheel) leaves no text, and a recording 
 stopped and its text dropped in the window (`DiscardGate`), since the backend has no cancel
 command. F keys belong to the app while dictation is on. Pages changed: [[local-dictation]],
 [[overview]], index.
+
+## [2026-11-21] lint | Bundled sub-agent definitions
+Hangar ships twelve sub-agent definitions, embedded at compile time, and places each in
+`~/.claude/agents` where no definition of that name exists. A manifest in the local app data
+folder keeps the hash of what Hangar wrote: unchanged copies follow new versions, edited ones
+belong to the user, deleted ones are not created again, foreign files are never touched. Switch
+"Provide Hangar's sub-agents", on by default; off removes the unchanged copies. Settings marks
+unchanged copies "From Hangar". The bundled agents are named `hangar-<role>` and set no model;
+only Hangar's own agents wear figures, every other agent shows its initial. A name that only
+Hangar's copy holds reaches Codex CLI only where the name is free, never a project. Replacing and
+deleting a copy move it aside first and check the moved file. A `sandbox_mode` in a Codex CLI
+agent file does not override the parent's sandbox (Codex CLI documentation), so none is written.
+Pages changed: [[sub-agent-library]], index.
