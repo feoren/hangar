@@ -4,7 +4,7 @@ type: agent
 tags: [agents, updates, catalog]
 sources: ["[[update-sources]]", "[[agent-clis-research]]", "[[update-installers]]"]
 created: 2026-11-07
-updated: 2026-11-08
+updated: 2026-11-21
 ---
 
 # Newer program versions (latest, packages, self_update, update_hint)
@@ -28,7 +28,7 @@ plan can run, Hangar shows `install_*` for copying only. Code: `src-tauri/src/in
 | copilot | npm `@github/copilot` | npm, winget `GitHub.Copilot` | |
 | kimi | npm `@moonshot-ai/kimi-code` | npm, winget `MoonshotAI.KimiCodeCLI` | |
 | qwen | npm `@qwen-code/qwen-code` | npm | |
-| opencode | GitHub `anomalyco/opencode` (prefix `v`) | npm `opencode-ai` | `upgrade`, aware |
+| opencode | GitHub `anomalyco/opencode` (prefix `v`); `npm_variants`: npm `@opencode/cli` | npm `opencode-ai` | `upgrade`, aware (not for the variant) |
 | aider | PyPI `aider-chat` | PyPI (uv, pipx) | |
 | goose | GitHub `aaif-goose/goose`, prefix `v` | | `update`, aware |
 | crush | npm `@charmland/crush` | npm, winget `charmbracelet.crush` | |
@@ -62,13 +62,28 @@ unverified), powershell and cmd (part of Windows).
   > Whether `winget upgrade` without `--accept-source-agreements` prompts on its first run (the user then
   > answers in the terminal), and whether `claude update`, `pi update` and `opencode upgrade` fail
   > while the same program is running in another session.
-- **OpenCode:** two npm packages ship `opencode` (`@opencode/cli` 2.x, `opencode-ai` 1.x). The source is
-  therefore the GitHub release of `anomalyco/opencode` (2026-11-07: v1.19.5), matching `opencode-ai`
-  and `opencode upgrade`. Decision of 2026-11-07: with npm `@opencode/cli`, 1.x installations would
-  permanently see an "update" to 2.x that `opencode upgrade` does not deliver.
+- **OpenCode:** two npm packages ship `opencode` (`@opencode/cli` 2.x, `opencode-ai` 1.x). The default
+  source is the GitHub release of `anomalyco/opencode` (2026-11-07: v1.19.5), matching `opencode-ai`
+  and `opencode upgrade`. Decision of 2026-11-07, still valid: with npm `@opencode/cli` as the
+  default, 1.x installations would permanently see an "update" to 2.x that `opencode upgrade` does
+  not deliver.
+  Decision of 2026-11-21: `install_windows` sets up `@opencode/cli` (2.x), and such a copy never saw
+  its own updates against the 1.x line (measured: `%APPDATA%\npm\node_modules\@opencode\cli`
+  2.3.2, npm `latest` of `@opencode/cli` 2.3.2, GitHub `anomalyco/opencode` 1.19.6). The catalog field
+  `npm_variants = [{ npm = "@opencode/cli", latest = { npm = "@opencode/cli" } }]` names a second
+  package with its own source. `updates::enrich` checks the resolved program with the npm layouts of
+  `match_npm` (Windows prefix with `node_modules\<package>`, Unix `<prefix>/lib/node_modules`, also
+  through the real path); inside such an install, `latest` and `packages.npm` become the variant's,
+  `packages.pnpm` and `self_update` are dropped, and the plan runs `npm install -g --prefix <prefix>
+  @opencode/cli@latest`. `opencode-ai` installs, the curl script of `opencode.ai/v2`, pnpm and every
+  other install keep the default source. User profiles get the variants only together with the
+  inherited `latest` (same id and program, no `latest` of their own); on a hit, their own
+  `packages.npm`, `packages.pnpm` and `self_update` are replaced as well, and only `update_hint`
+  still overrides the plan.
   > [!question] Unverified
-  > Whether `opencode upgrade` switches from 1.x to the `@opencode/cli` package, and whether both packages can be
-  > installed globally side by side (same program name).
+  > Whether `opencode upgrade` switches from 1.x to the `@opencode/cli` package, whether it updates
+  > a 2.x npm install correctly, and whether both packages can be installed globally side by side
+  > (same program name).
 - **amp:** versions of the form `0.0.<time>-g<hash>` cannot be ordered meaningfully; `compare = "equal"`
   reports an update on any difference.
 - **pwsh in existing profiles.toml files:** the default profiles are only written on first start.

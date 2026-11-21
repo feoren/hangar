@@ -109,6 +109,7 @@ pub fn agent(distro: &str) -> Agent {
         cwd_flag: Some("--cd"),
         capabilities: crate::agent_catalog::Capabilities::default(),
         prompting: crate::agent_catalog::Prompting::default(),
+        npm_variants: Vec::new(),
     }
 }
 

@@ -1377,3 +1377,11 @@ missing versions again up to three times, 65 s apart, because a query made while
 package (OpenCode's `@opencode/cli` replaces `bin/opencode.exe` in its postinstall, after npm has
 written the launcher) found nothing and nothing asked again for the same program list.
 Pages changed: [[agent-workflow-features]], [[0003-program-versions]].
+
+## [2026-11-21] lint | Version source of OpenCode 2.x from npm
+A copy of OpenCode inside a global npm install of `@opencode/cli` (2.x, what the Windows install
+command sets up) checked its updates against the GitHub release of the 1.x line and never saw one.
+The catalog field `npm_variants` gives such a copy the npm source of `@opencode/cli`, and the
+update runs npm instead of `opencode upgrade`; `opencode-ai` and every other install keep the
+GitHub source, so the decision of 2026-11-07 still holds.
+Pages changed: [[updates]].

@@ -38,7 +38,7 @@ Catalog of all wiki pages. Updated on every ingest.
 - [[catalog]]: built-in agent catalog: inclusion rules, name collision risks, verified agent commands per program, bundled icons and their precedence, unverified points (sources: 3, updated: 2026-11-14)
 - [[resume]]: resume_args per agent with evidence, behavior without a previous conversation, limits of --continue (sources: 2, updated: 2026-11-07)
 - [[agent-prompt-shapes]]: what questions and permission dialogs of Claude Code, Codex and Gemini look like on screen, which patterns the queue's question guard checks with their evidence, no bell from Claude Code's permission prompt in Hangar by default (sources: 1, updated: 2026-11-14)
-- [[updates]]: latest and update_hint per agent with evidence, update_hint is executed, OpenCode packages, comparison rules (sources: 2, updated: 2026-11-08)
+- [[updates]]: latest and update_hint per agent with evidence, update_hint is executed, OpenCode packages and npm_variants, comparison rules (sources: 2, updated: 2026-11-21)
 
 ## Concepts
 - [[team-crypto]]: team crypto (step E): device keys and safety numbers, signed membership log bound to team and position, epoch commitments, HPKE wrapping, history links, sealed and signed records, recovery code, threat model (sources: 0, updated: 2026-11-09)

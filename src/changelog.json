@@ -128,6 +128,20 @@
         "ru": "Дистрибутивы WSL теперь показывают свою версию (например, Ubuntu 26.04). После установки, например OpenCode, версия появляется сама.",
         "tr": "WSL dağıtımları artık sürümlerini gösteriyor (örneğin Ubuntu 26.04). OpenCode gibi bir kurulumdan sonra sürüm kendiliğinden görünüyor.",
         "zh": "WSL 发行版现在会显示版本（例如 Ubuntu 26.04）。安装程序（例如 OpenCode）之后，版本会自动显示。"
+      },
+      {
+        "de": "OpenCode 2, per npm als @opencode/cli installiert, meldet seine Updates jetzt und wird mit npm aktualisiert. OpenCode 1 bleibt bei seiner eigenen Reihe.",
+        "en": "OpenCode 2, installed from npm as @opencode/cli, now reports its updates and is updated with npm. OpenCode 1 stays on its own line.",
+        "el": "Το OpenCode 2, εγκατεστημένο από το npm ως @opencode/cli, δείχνει πλέον τις ενημερώσεις του και ενημερώνεται με npm. Το OpenCode 1 μένει στη δική του σειρά.",
+        "es": "OpenCode 2, instalado desde npm como @opencode/cli, ya avisa de sus actualizaciones y se actualiza con npm. OpenCode 1 sigue en su propia línea.",
+        "fr": "OpenCode 2, installé via npm sous @opencode/cli, signale désormais ses mises à jour et se met à jour avec npm. OpenCode 1 reste sur sa propre ligne.",
+        "it": "OpenCode 2, installato da npm come @opencode/cli, ora segnala i suoi aggiornamenti e si aggiorna con npm. OpenCode 1 resta sulla sua linea.",
+        "ja": "npm の @opencode/cli として入れた OpenCode 2 が更新を知らせ、npm で更新されるようになりました。OpenCode 1 は従来どおり自分の系列のままです。",
+        "pl": "OpenCode 2 zainstalowany z npm jako @opencode/cli pokazuje teraz swoje aktualizacje i aktualizuje się przez npm. OpenCode 1 zostaje przy swojej linii.",
+        "pt": "O OpenCode 2, instalado pelo npm como @opencode/cli, agora mostra suas atualizações e é atualizado com o npm. O OpenCode 1 segue na própria linha.",
+        "ru": "OpenCode 2, установленный из npm как @opencode/cli, теперь сообщает об обновлениях и обновляется через npm. OpenCode 1 остаётся на своей линии.",
+        "tr": "npm'den @opencode/cli olarak kurulan OpenCode 2 artık güncellemelerini gösteriyor ve npm ile güncelleniyor. OpenCode 1 kendi sürüm çizgisinde kalıyor.",
+        "zh": "通过 npm 以 @opencode/cli 安装的 OpenCode 2 现在会提示更新，并通过 npm 更新。OpenCode 1 仍保持自己的版本线。"
       }
     ]
   },

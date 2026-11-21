@@ -315,10 +315,13 @@ icon = "Ki"
 homepage = "https://kiro.dev"
 install_unix = "curl -fsSL https://cli.kiro.dev/install | bash"
 
-# Two npm packages provide `opencode`: `@opencode/cli` (2.x) and `opencode-ai` (1.x). The version
-# source is therefore the GitHub release of the official repo anomalyco/opencode (as of 2026-11-07:
-# v1.19.5, matching `opencode-ai` and `opencode upgrade`). With npm `@opencode/cli`, 1.x installs would
-# permanently see an "update" to 2.x that `opencode upgrade` does not deliver (docs/wiki/pages/agents/updates.md).
+# Two npm packages provide `opencode`: `@opencode/cli` (2.x) and `opencode-ai` (1.x). The default
+# version source is the GitHub release of the official repo anomalyco/opencode (as of 2026-11-07:
+# v1.19.5, matching `opencode-ai` and `opencode upgrade`). With npm `@opencode/cli` as the default,
+# 1.x installs would permanently see an "update" to 2.x that `opencode upgrade` does not deliver.
+# A copy inside a global npm install of `@opencode/cli` (what install_windows sets up) takes the
+# npm source of that package from `npm_variants` instead and is updated by npm, without
+# `opencode upgrade` (verified for 1.x only). docs/wiki/pages/agents/updates.md
 [[agent]]
 id = "opencode"
 name = "OpenCode"
@@ -337,6 +340,7 @@ homepage = "https://opencode.ai"
 install_windows = "npm install -g @opencode/cli"
 install_unix = "curl -fsSL https://opencode.ai/v2/install | bash"
 latest = { github = "anomalyco/opencode", tag_prefix = "v" }
+npm_variants = [{ npm = "@opencode/cli", latest = { npm = "@opencode/cli" } }]
 # winget lists SST.opencode and Anomaly.OpenCode; which belongs to this line is open, so neither.
 packages = { npm = "opencode-ai" }
 self_update = { args = ["upgrade"], aware = true }
