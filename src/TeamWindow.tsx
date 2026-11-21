@@ -2,6 +2,7 @@ import { useEffect, useId, useLayoutEffect, useRef, useState, type ReactNode } f
 
 import { accountErrorText, isSignedIn, type Project } from "./account";
 import { AccountStateSection } from "./AccountSettings";
+import { DialogResizeHandles, useDialogSize, type DialogSizeBounds } from "./DialogResize";
 import { useT, type MessageKey } from "./i18n";
 import { CloseIcon } from "./icons";
 import { revealInvisible } from "./invisible";
@@ -49,6 +50,16 @@ const TAB_NAMES: Record<TeamTab, MessageKey> = {
 let lastProject: string | null = null;
 
 /**
+ * Resizable like the Settings dialog. The standard size matches `--large-dialog-width` and
+ * `--large-dialog-height`; the minimum keeps the tabs and a project row readable.
+ */
+const SIZE_BOUNDS: DialogSizeBounds = {
+  storageKey: "hangar.teamWindowSize",
+  standard: { width: 936, height: 672 },
+  min: { width: 560, height: 400 },
+};
+
+/**
  * The Team window: a floating panel over the terminals, not modal. The terminals stay visible and
  * keep running; Tab may leave the panel. It closes on Escape (with the focus inside), its close
  * button and a click outside; the caller then hands the focus back to the terminal.
@@ -66,6 +77,7 @@ export function TeamWindow(props: {
   const titleId = useId();
   const tabsId = useId();
   const panel = useRef<HTMLDivElement>(null);
+  const size = useDialogSize(SIZE_BOUNDS);
   const tabButtons = useRef(new Map<TeamTab, HTMLButtonElement>());
   const snapshot = useAccount();
   const teamStore = useTeam();
@@ -233,7 +245,8 @@ export function TeamWindow(props: {
   return (
     <div
       ref={panel}
-      className="dialog team-window"
+      className="dialog team-window resizable"
+      style={size.style}
       role="dialog"
       aria-modal="false"
       aria-labelledby={titleId}
@@ -312,6 +325,7 @@ export function TeamWindow(props: {
       >
         {body}
       </div>
+      <DialogResizeHandles state={size} />
     </div>
   );
 }
