@@ -85,7 +85,7 @@ export type NoticeSettings = Pick<Settings, NoticeKey>;
 /**
  * Whether holding the dictation key opens the microphone, kept by the backend with the start
  * preferences (mainStore.ts `MainPrefs`): a viewer that could write it could turn the key on, so
- * that the next Ctrl+Shift+Space opens the microphone instead of reaching the program.
+ * that the next press of the dictation key opens the microphone instead of reaching the program.
  */
 export const DICTATION_KEY = "dictationEnabled";
 
@@ -240,9 +240,10 @@ export interface Settings {
    */
   dictationEnabled: boolean;
   /**
-   * Model and language of the dictation. Kept in localStorage: another window that rewrote them
-   * could only pick the other pinned model or language. A model is downloaded only through the
-   * main window's consent box (main-window commands).
+   * Model, language and key of the dictation. Kept in localStorage: another window that rewrote
+   * them could only pick the other pinned model, language or key, and every key still records
+   * only while it is held. A model is downloaded only through the main window's consent box
+   * (main-window commands).
    */
   dictation: DictationPrefs;
 }

@@ -93,7 +93,7 @@ export interface MainPrefs extends FolderPrefs, NoticeSettings {
   budgetWarned: BudgetWarned | null;
   /** The local day ("YYYY-MM-DD") whose summary was last offered (morningReview.ts). */
   morningOfferedDay: string | null;
-  /** Holding Ctrl+Shift+Space dictates (useDictation.ts). */
+  /** Holding the dictation key dictates (useDictation.ts). */
   dictationEnabled: boolean;
 }
 

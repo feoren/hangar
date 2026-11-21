@@ -4,7 +4,7 @@ type: overview
 tags: []
 sources: []
 created: 2026-11-07
-updated: 2026-11-20
+updated: 2026-11-21
 ---
 
 # Overview
@@ -60,4 +60,4 @@ team mode (phase 2), and the external crypto review covering the notes formats.
 Built on whisper.cpp through whisper-rs with cpal capture ([[local-dictation]]); speed and accuracy
 measured on Windows ([[dictation-measurement]]). Open: the live microphone path on all three
 platforms, the macOS audio-input entitlement under hardened runtime, Ctrl+Shift+Space with Asian
-IMEs.
+IMEs, right Ctrl (the default key) on macOS and Linux.

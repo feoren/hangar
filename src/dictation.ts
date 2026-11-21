@@ -1,6 +1,8 @@
 // Local dictation in the window: the backend's state (src-tauri/src/dictation/mod.rs, serde
 // camelCase), the user's choices and the checks on what the backend sends.
 
+import { DEFAULT_DICTATION_KEY, isDictationKey, type DictationKey } from "./shortcuts";
+
 export type DictationModel = "base" | "small";
 export type DictationLanguage = "auto" | "de" | "en";
 
@@ -41,13 +43,15 @@ export interface DictationText {
 }
 
 /**
- * Model and language, stored with the settings in localStorage. Whether the key is on lives with
+ * Model, language and key, stored with the settings in localStorage. Whether the key is on lives with
  * the backend's preferences (`dictationEnabled`, mainStore.ts): another window that rewrote that
  * could make the next hold of the key open the microphone.
  */
 export interface DictationPrefs {
   model: DictationModel;
   language: DictationLanguage;
+  /** The key held to dictate. */
+  key: DictationKey;
 }
 
 /**
@@ -57,6 +61,7 @@ export interface DictationPrefs {
 export const DEFAULT_DICTATION: DictationPrefs = {
   model: "base",
   language: "auto",
+  key: DEFAULT_DICTATION_KEY,
 };
 
 /** Until the backend answered: no download offered, and no "no microphone" either. */
@@ -89,6 +94,8 @@ export function parseDictationPrefs(value: unknown): DictationPrefs {
   return {
     model: isModel(raw.model) ? raw.model : DEFAULT_DICTATION.model,
     language: isLanguage(raw.language) ? raw.language : DEFAULT_DICTATION.language,
+    // Stored before the choice existed, or by a newer Hangar with a key this one lacks.
+    key: isDictationKey(raw.key) ? raw.key : DEFAULT_DICTATION.key,
   };
 }
 
@@ -278,4 +285,46 @@ export async function endStaleRecording(
 ): Promise<void> {
   await take().catch(() => undefined);
   await stop().catch(() => undefined);
+}
+
+/**
+ * Drops the text of a recording whose hold was discarded (right Ctrl turned into Ctrl+C or the
+ * like after the recording started). The backend has no command to cancel a recording; the window
+ * stops it like any other and does not paste what comes out. Holds are numbered by the caller.
+ *
+ * The backend signals a text before the state change that ends its transcription, so a text
+ * signal that arrives while a hold is marked belongs to that hold. The mark goes away when the
+ * state leaves recording and transcribing, when the hold's start failed (nothing will come), or
+ * when the backend accepted a later hold (it records one thing at a time, so the discarded one is
+ * done).
+ */
+export class DiscardGate {
+  private hold: number | null = null;
+
+  discard(hold: number): void {
+    this.hold = hold;
+  }
+
+  /**
+   * The hold's start failed: nothing will come of it. Returns whether that hold was discarded, so
+   * a notice is left out only for it, never for a later hold while an older mark is still set.
+   */
+  failed(hold: number): boolean {
+    if (this.hold !== hold) return false;
+    this.hold = null;
+    return true;
+  }
+
+  started(hold: number): void {
+    if (this.hold !== null && this.hold < hold) this.hold = null;
+  }
+
+  settled(previous: DictationState, next: DictationState): void {
+    if (busySession(previous) !== null && busySession(next) === null) this.hold = null;
+  }
+
+  /** Read when a text signal arrives: whether the texts it announces are dropped. */
+  get dropping(): boolean {
+    return this.hold !== null;
+  }
 }

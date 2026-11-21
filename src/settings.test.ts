@@ -86,7 +86,7 @@ describe("parseSettings", () => {
       sessionGrouping: "project",
       snippets: [{ id: "mine", text: "Fix the build" }],
       dailyBudget: 12.5,
-      dictation: { enabled: true, model: "small", language: "de" },
+      dictation: { enabled: true, model: "small", language: "de", key: "f9" },
     };
     expect(parseSettings(JSON.stringify(stored), "de")).toEqual({
       ...stored,
@@ -108,9 +108,9 @@ describe("parseSettings", () => {
       hangarMd: true,
       warnMultilinePaste: true,
       snippets: defaultSnippets("en"),
-      // The dictation key too; model and language stay in storage.
+      // Whether dictation is on too; model, language and key stay in storage.
       dictationEnabled: false,
-      dictation: { model: "small", language: "de" },
+      dictation: { model: "small", language: "de", key: "f9" },
       looks: { ...stored.looks, working: { ...stored.looks.working, color: "#8cc8ff" } },
     });
   });

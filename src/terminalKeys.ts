@@ -1,7 +1,13 @@
 // What a key press inside the terminal does, before xterm turns it into input for the process.
 // Pure, so the rules for copy and paste are testable without a terminal.
 
-import { focusCycleStep, isDictationChord, matchShortcut } from "./shortcuts";
+import {
+  focusCycleStep,
+  isDictationChord,
+  isDictationKeyEvent,
+  matchShortcut,
+  type DictationKey,
+} from "./shortcuts";
 
 type KeyInfo = Pick<
   KeyboardEvent,
@@ -15,8 +21,9 @@ type KeyInfo = Pick<
 export const AGENT_NEWLINE = "\x1b\r";
 
 /**
- * - `app`: an app shortcut, F6 while `focusCycle` (the notes are open), or Ctrl+Shift+Space while
- *   `dictation` is on; xterm ignores the key, the window listener handles it.
+ * - `app`: an app shortcut, F6 while `focusCycle` (the notes are open), or the dictation key while
+ *   `dictation` names one (`isDictationKeyEvent`); xterm ignores the key, the window listener
+ *   handles it.
  * - `copy`: copy the selection; `clearSelection` for Ctrl+C (Ctrl+Shift+C keeps it, like Windows
  *   Terminal). The default action is suppressed.
  * - `paste`: xterm ignores the key, but the browser's default action stays. It fires the native
@@ -50,11 +57,11 @@ export function terminalKeyAction(
   hasSelection: boolean,
   focusCycle = false,
   agent = false,
-  dictation = false,
+  dictation: DictationKey | null = null,
 ): TerminalKeyAction {
   if (matchShortcut(event)) return { kind: "app" };
   // Held for dictation (keydown, keypress and keyup alike): the program never sees the chord.
-  if (dictation && isDictationChord(event)) return { kind: "app" };
+  if (dictation !== null && isDictationKeyEvent(dictation, event)) return { kind: "app" };
   if (agent && isShiftEnter(event)) {
     return { kind: "newline", send: event.type === "keydown" ? AGENT_NEWLINE : null };
   }

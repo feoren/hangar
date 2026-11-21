@@ -4,6 +4,20 @@
     "date": null,
     "items": [
       {
+        "de": "Diktieren geht jetzt mit einer Taste: Halte die rechte Strg-Taste gedrückt und sprich. Wählbar sind auch F8, F9, F10 oder Strg+Umschalt+Leertaste.",
+        "en": "Dictation now works with a single key: hold the right Ctrl key and speak. In the settings you can also pick F8, F9, F10 or Ctrl+Shift+Space.",
+        "el": "Η υπαγόρευση γίνεται τώρα με ένα μόνο πλήκτρο: κράτα πατημένο το δεξί Ctrl και μίλα. Στις ρυθμίσεις μπορείς να διαλέξεις και F8, F9, F10 ή Ctrl+Shift+Διάστημα.",
+        "es": "Dictar ahora funciona con una sola tecla: mantén pulsado el Ctrl derecho y habla. En los ajustes también puedes elegir F8, F9, F10 o Ctrl+Mayús+Espacio.",
+        "fr": "La dictée marche avec une seule touche : maintiens Ctrl droite et parle. Dans les réglages, tu peux aussi choisir F8, F9, F10 ou Ctrl+Maj+Espace.",
+        "it": "La dettatura ora va con un solo tasto: tieni premuto Ctrl destro e parla. Nelle impostazioni puoi scegliere anche F8, F9, F10 o Ctrl+Maiusc+Spazio.",
+        "ja": "音声入力が 1 つのキーで使えるようになりました。右 Ctrl キーを押したまま話します。設定では F8、F9、F10、Ctrl+Shift+スペース も選べます。",
+        "pl": "Dyktowanie działa teraz jednym klawiszem: przytrzymaj prawy Ctrl i mów. W ustawieniach możesz też wybrać F8, F9, F10 lub Ctrl+Shift+Spacja.",
+        "pt": "Ditar agora funciona com uma única tecla: segure o Ctrl direito e fale. Nas configurações você também pode escolher F8, F9, F10 ou Ctrl+Shift+Espaço.",
+        "ru": "Диктовка теперь работает одной клавишей: удерживай правый Ctrl и говори. В настройках можно выбрать и F8, F9, F10 или Ctrl+Shift+Пробел.",
+        "tr": "Dikte artık tek bir tuşla çalışıyor: sağ Ctrl tuşunu basılı tut ve konuş. Ayarlarda F8, F9, F10 veya Ctrl+Shift+Boşluk da seçebilirsin.",
+        "zh": "现在只用一个键就能听写：按住右 Ctrl 键说话。在设置中也可以选择 F8、F9、F10 或 Ctrl+Shift+空格。"
+      },
+      {
         "de": "Wartende Nachrichten sind einfacher: „Senden“, „Nur einfügen“ und × zum Verwerfen. Arbeitet das Ziel noch, zeigt die Karte das und du kannst abbrechen.",
         "en": "Waiting messages are simpler: “Send”, “Paste only” and × to discard. While the target still works, the card says so and you can cancel.",
         "el": "Τα μηνύματα σε αναμονή είναι πιο απλά: «Αποστολή», «Μόνο επικόλληση» και × για απόρριψη. Όσο ο στόχος δουλεύει, η κάρτα το δείχνει και μπορείς να ακυρώσεις.",

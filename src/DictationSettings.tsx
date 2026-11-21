@@ -1,4 +1,4 @@
-// Settings section "Dictation": on/off, the speech model (download only after consent, with size
+// Settings section "Dictation": on/off and the key, the speech model (download only after consent, with size
 // and source named), the language, and what happens to the audio.
 
 import { useEffect, useRef, useState } from "react";
@@ -15,7 +15,7 @@ import {
 import { formatBytes } from "./format";
 import { useT, type MessageKey } from "./i18n";
 import type { Settings } from "./settings";
-import { DICTATION_SHORTCUT, formatShortcut } from "./shortcuts";
+import { DICTATION_KEYS, dictationKeyName } from "./shortcuts";
 import { useDictationStatus } from "./useDictation";
 
 interface Props {
@@ -105,7 +105,7 @@ export function DictationSettings({ settings, onChange }: Props) {
     const bytes = status.models.find((info) => info.id === model)?.bytes;
     return bytes === undefined ? "" : formatBytes(bytes, language);
   };
-  const shortcut = formatShortcut(DICTATION_SHORTCUT, t);
+  const shortcut = dictationKeyName(prefs.key, t, true);
   // Without an input device a download would only fill the disk: the section says so instead.
   const noMicrophone = !status.microphone;
 
@@ -126,6 +126,26 @@ export function DictationSettings({ settings, onChange }: Props) {
           />
           <span>{t("dictation.enabled")}</span>
         </label>
+        <div className="field">
+          <label htmlFor="dictation-key">{t("dictation.key")}</label>
+          <select
+            id="dictation-key"
+            className="select"
+            value={prefs.key}
+            aria-describedby="dictation-enabled-help"
+            onChange={(event) => {
+              const value = event.currentTarget.value;
+              const next = DICTATION_KEYS.find((entry) => entry === value);
+              if (next !== undefined) change({ key: next });
+            }}
+          >
+            {DICTATION_KEYS.map((entry) => (
+              <option key={entry} value={entry}>
+                {dictationKeyName(entry, t)}
+              </option>
+            ))}
+          </select>
+        </div>
         <p id="dictation-enabled-help" className="muted settings-help">
           {t("dictation.enabledHelp", { shortcut })}
         </p>

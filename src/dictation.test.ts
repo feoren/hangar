@@ -4,6 +4,7 @@ import {
   busySession,
   canStart,
   DEFAULT_DICTATION,
+  DiscardGate,
   endStaleRecording,
   failureAfter,
   LatestOnly,
@@ -22,7 +23,22 @@ import {
 describe("parseDictationPrefs", () => {
   it("takes the fast model by default", () => {
     expect(parseDictationPrefs(undefined)).toEqual(DEFAULT_DICTATION);
-    expect(DEFAULT_DICTATION).toEqual({ model: "base", language: "auto" });
+    expect(DEFAULT_DICTATION).toEqual({ model: "base", language: "auto", key: "controlRight" });
+  });
+
+  it("keeps a known dictation key and falls back to right Ctrl for anything else", () => {
+    for (const key of ["controlRight", "f8", "f9", "f10", "ctrlShiftSpace"]) {
+      expect(parseDictationPrefs({ model: "small", language: "de", key }).key).toBe(key);
+    }
+    // Stored before the choice existed: right Ctrl, the rest unchanged.
+    expect(parseDictationPrefs({ model: "small", language: "de" })).toEqual({
+      model: "small",
+      language: "de",
+      key: "controlRight",
+    });
+    for (const key of ["F8", "f11", "", 8, null, {}, ["f8"]]) {
+      expect(parseDictationPrefs({ model: "small", key }).key).toBe("controlRight");
+    }
   });
 
   it("keeps valid values and replaces invalid ones, never the key", () => {
@@ -30,6 +46,7 @@ describe("parseDictationPrefs", () => {
     expect(parseDictationPrefs({ enabled: true, model: "small", language: "de" })).toEqual({
       model: "small",
       language: "de",
+      key: "controlRight",
     });
     expect(parseDictationPrefs({ enabled: "yes", model: "large", language: "fr" })).toEqual(
       DEFAULT_DICTATION,
@@ -242,5 +259,51 @@ describe("pasteForm", () => {
     expect(pasteForm("  run the tests  ")).toBe("run the tests ");
     expect(pasteForm("   ")).toBe("");
     expect(pasteForm("")).toBe("");
+  });
+});
+
+describe("DiscardGate", () => {
+  const recording = { kind: "recording", session: 1 } as const;
+  const transcribing = { kind: "transcribing", session: 1 } as const;
+  const ready = { kind: "ready" } as const;
+
+  it("drops the texts of a discarded hold until its transcription is over", () => {
+    const gate = new DiscardGate();
+    expect(gate.dropping).toBe(false);
+    gate.discard(1);
+    expect(gate.dropping).toBe(true);
+    gate.settled(recording, transcribing);
+    expect(gate.dropping).toBe(true);
+    gate.settled(transcribing, ready);
+    expect(gate.dropping).toBe(false);
+  });
+
+  it("lets go when the hold's start failed, but not for another hold's failure", () => {
+    const gate = new DiscardGate();
+    gate.discard(2);
+    // A later hold failing while an older mark is set still gets its notice.
+    expect(gate.failed(3)).toBe(false);
+    expect(gate.failed(1)).toBe(false);
+    expect(gate.dropping).toBe(true);
+    expect(gate.failed(2)).toBe(true);
+    expect(gate.dropping).toBe(false);
+  });
+
+  it("lets go once the backend took a later hold, never for the discarded one itself", () => {
+    const gate = new DiscardGate();
+    gate.discard(3);
+    // The discarded hold's own start answering late keeps the mark.
+    gate.started(3);
+    expect(gate.dropping).toBe(true);
+    gate.started(4);
+    expect(gate.dropping).toBe(false);
+  });
+
+  it("keeps the mark on changes that do not end a recording", () => {
+    const gate = new DiscardGate();
+    gate.discard(1);
+    gate.settled(ready, recording);
+    gate.settled(ready, ready);
+    expect(gate.dropping).toBe(true);
   });
 });

@@ -4,7 +4,7 @@ type: synthesis
 tags: [dictation, audio, whisper, privacy, shortcuts]
 sources: ["[[local-dictation-research]]", "[[dictation-measurement]]"]
 created: 2026-11-15
-updated: 2026-11-15
+updated: 2026-11-21
 ---
 
 # Local dictation
@@ -17,32 +17,55 @@ numbers: [[dictation-measurement]].
 Code: `src-tauri/src/dictation/` (`mod.rs` service and states, `audio.rs` capture and audio math,
 `model.rs` models and download, `whisper.rs` recognition), commands in `src-tauri/src/commands.rs`,
 `src/dictation.ts` (types and checks), `src/useDictation.ts` (events and the hold key),
-`src/DictationIndicator.tsx`, `src/DictationSettings.tsx`, `isDictationChord` and `KeyHold` in
-`src/shortcuts.ts`.
+`src/DictationIndicator.tsx`, `src/DictationSettings.tsx`, `DictationKey`, `startsDictation`,
+`isDictationKeyEvent` and `KeyHold` in `src/shortcuts.ts`.
 
 ## Behavior
 
-- Off by default. Settings > Dictation turns it on, picks the model and the language
+- Off by default. Settings > Dictation turns it on, picks the key, the model and the language
   (automatic, German, English). Whether the key is on lives with the backend's main-window
   preferences (`dictationEnabled` in `MainPrefs`, `main_store.rs`), not in localStorage: the panel
   and viewer windows share that storage, and one that turned the key on would make the next
-  Ctrl+Shift+Space open the microphone instead of reaching the program. A Hangar that kept the
+  press of the key open the microphone instead of reaching the program. A Hangar that kept the
   switch in localStorage hands it over once (`legacyDictationEnabled`, `loadMainPrefs`; a
   `main-prefs.json` from before dictation lacks the field and reads as `None`); afterwards the old
-  copy is removed and never read again. Model and language stay in localStorage: rewriting them
-  could only pick the other pinned model or language, and a download still needs the consent box.
+  copy is removed and never read again. Model, language and key stay in localStorage: rewriting them
+  could only pick the other pinned model, language or key, every key records only while it is
+  held, and a download still needs the consent box. The key is parsed like the rest
+  (`parseDictationPrefs`): a stored value this Hangar does not know, or none (settings from before
+  the choice), reads as right Ctrl.
 - **No microphone:** `dictation_status` asks the audio system for its default input device each
   time the window reads the status, never on a state change alone. Without one, the settings
   section says so ("No microphone found. Connect one, then you can dictate here.") in place of the
   download buttons, so nobody downloads a model they cannot use.
-- **Key:** hold Ctrl+Shift+Space (`DICTATION_SHORTCUT`). Ctrl+Space alone stays with the shell
-  (Readline set-mark) and the IME. While dictation is on, the terminal leaves the chord to the app
-  (`terminalKeyAction`, all of keydown, keypress and keyup), so the program never sees it. The hold
-  starts once despite key repeat and ends on the release of Ctrl, Shift or Space, or when the
-  window loses the focus. Released Shift before Space, the held Space keeps repeating as Ctrl+Space
-  (NUL for the program) or as spaces; the terminal swallows repeated Space events from the chord
-  until Space goes up (`dictationTail` in `src/terminalKeys.ts`). A dialog open: the key does nothing. No model installed: the key opens
-  the settings section.
+- **Key:** held, never pressed. Settings > Dictation offers right Ctrl (default, also for
+  settings stored before the choice), F8, F9, F10 and Ctrl+Shift+Space (`DictationKey`,
+  `DICTATION_KEYS`). Every key: the hold starts once despite key repeat and ends on the release of
+  the key, or when the window loses the focus. A dialog open: the key does nothing. No model
+  installed: letting the key go opens the settings section, unless a shortcut or a lost focus ended
+  the hold (`useDictationKey`). The window listens in the capture phase
+  (`useDictationKey`), so it also sees keys the terminal handles and stops.
+  - **Right Ctrl** (`event.code === "ControlRight"`, no Shift, Alt or Meta). A modifier alone sends
+    the program nothing, so the terminal keeps every event of it (`isDictationKeyEvent` is false)
+    and shortcuts typed with it work as before. AltGr on Windows arrives as `ControlLeft` plus
+    `AltRight` and never matches. The recording starts only after `CONTROL_HOLD_DELAY_MS` (300 ms)
+    with no other key, so a tap, or Ctrl+C typed with the right Ctrl, never opens the microphone.
+    Another key, a mouse button or the wheel while it is down makes it that shortcut (`KeyHold`
+    phase `spoiled`): before the start nothing happens, after it the recording is discarded. The
+    backend has no command to cancel a recording, so the window stops it with `dictation_stop` and
+    drops what comes out (`DiscardGate` in `src/dictation.ts`): the backend signals a text before
+    the state change that ends the transcription, so a `dictation-text` signal that arrives while
+    a hold is marked belongs to that hold. The mark goes when the state leaves recording and
+    transcribing, when the hold's start failed, or when the backend accepted a later hold. A pane
+    notice for a failure of a discarded recording is not shown either.
+  - **F8, F9, F10** without a modifier. While dictation is on, the terminal leaves the chosen key
+    to the app (`terminalKeyAction`, all of keydown, keypress and keyup), so the program never sees
+    it; with a modifier (Shift+F9) or with dictation off it goes to the program as before.
+  - **Ctrl+Shift+Space** (`isDictationChord`). Ctrl+Space alone stays with the shell (Readline
+    set-mark) and the IME. The terminal leaves the chord to the app like an F key, and the hold
+    also ends on the release of Ctrl or Shift. Released Shift before Space, the held Space keeps
+    repeating as Ctrl+Space (NUL for the program) or as spaces; the terminal swallows repeated
+    Space events from the chord until Space goes up (`dictationTail` in `src/terminalKeys.ts`).
 - **Target:** the session active on key down, checked by the backend (`UnknownSession`). The text
   goes through the terminal's usual paste path (`pasteText`: control characters stripped,
   bracketed paste when the program asked for it), never with Enter. One trailing space follows
@@ -156,6 +179,10 @@ and linked statically, so their notice ships with Hangar), whisper-rs and whispe
 > No macOS bundle has been built and run yet, so neither the merged Info.plist nor the signed
 > entitlement is checked on a Mac. Whether Windows hands out exact zeros
 > when the microphone privacy switch blocks desktop apps is unverified; the zero check covers that
-> case if it does. Ctrl+Shift+Space against Japanese and Chinese IMEs is untested.
+> case if it does. Ctrl+Shift+Space against Japanese and Chinese IMEs is untested. That AltGr
+> arrives as `ControlLeft` plus `AltRight` in WebView2 follows from Windows sending a left Ctrl
+> before the right Alt for AltGr layouts; it is covered by a unit test of the event shape, not
+> measured in the app. Right Ctrl on macOS (no right Control on many Mac keyboards) and on Linux
+> desktops that bind it (some use it as the Compose key) is untested.
 
 - Linux: cpal through ALSA; not run yet.

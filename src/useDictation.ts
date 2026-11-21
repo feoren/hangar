@@ -1,5 +1,5 @@
 // Dictation in the window: the backend's state, the input level for the recording dot, the hold
-// key (Ctrl+Shift+Space) and pasting the finished text into the session named on key down.
+// key (Settings > Dictation) and pasting the finished text into the session named on key down.
 
 import { listen } from "@tauri-apps/api/event";
 import { useEffect, useRef, useState, useSyncExternalStore } from "react";
@@ -7,6 +7,7 @@ import { useEffect, useRef, useState, useSyncExternalStore } from "react";
 import { api, DICTATION_LEVEL, DICTATION_STATUS, DICTATION_TEXT, errorText } from "./api";
 import {
   canStart,
+  DiscardGate,
   EMPTY_DICTATION_STATUS,
   endStaleRecording,
   failureAfter,
@@ -148,17 +149,22 @@ interface KeyOptions {
 }
 
 /**
- * Holding Ctrl+Shift+Space records, letting go transcribes. Listens on the window while
- * dictation is on; the terminal leaves the chord to the app meanwhile (`terminalKeyAction`).
+ * Holding the dictation key records, letting go transcribes. Listens on the window while
+ * dictation is on, in the capture phase: right Ctrl must also notice the keys and clicks the
+ * terminal or a field handles and stops (Ctrl+C), since those make it a shortcut. The terminal
+ * leaves F8 to F10 and the chord to the app meanwhile (`terminalKeyAction`).
  */
 export function useDictationKey(options: KeyOptions): void {
   const latest = useRef(options);
   useEffect(() => {
     latest.current = options;
   });
+  const gate = useRef(new DiscardGate());
   useBackendEvent(DICTATION_TEXT, () => {
+    // Decided on arrival: the state change that clears the mark comes after this signal.
+    const drop = gate.current.dropping;
     void takeDictationTexts(api.dictationTakeText, (text) => {
-      latest.current.onText(text);
+      if (!drop) latest.current.onText(text);
     });
   });
   // Loaded while a recording ran (reloaded with the key held): no key belongs to it any more,
@@ -168,59 +174,105 @@ export function useDictationKey(options: KeyOptions): void {
   }, []);
 
   // A failure that shows only after the start (a blocked microphone, a failed recognition)
-  // arrives as a state change; its notice goes to the pane the recording was for.
+  // arrives as a state change; its notice goes to the pane the recording was for, unless the
+  // recording was discarded.
   const previous = useRef<DictationState>(options.status.state);
   const state = options.status.state;
   useEffect(() => {
     const failed = failureAfter(previous.current, state);
+    const dropped = gate.current.dropping;
+    gate.current.settled(previous.current, state);
     previous.current = state;
-    if (failed !== null) latest.current.onProblem(failed.failure, failed.session);
+    if (failed !== null && !dropped) latest.current.onProblem(failed.failure, failed.session);
   }, [state]);
 
   const enabled = options.enabled;
+  const key = options.prefs.key;
   useEffect(() => {
     if (!enabled) return;
+    const discards = gate.current;
     // Stop waits for the start: a quick tap must not leave the microphone open because the stop
     // reached the backend before the start did.
     let started: Promise<unknown> = Promise.resolve();
-    const hold = new KeyHold(
-      () => {
-        const { prefs, status, target, blocked, onSetup, onProblem } = latest.current;
+    let holds = 0;
+    /** The hold whose start went to the backend, `null` when its press did nothing. */
+    let recording: number | null = null;
+    /** No model yet: the settings open when this hold ends, unless a shortcut spoiled it. */
+    let setupOnEnd = false;
+    const stop = () => {
+      void started.then(() => api.dictationStop()).catch(() => undefined);
+    };
+    const hold = new KeyHold(key, {
+      onStart: () => {
+        const { prefs, status, target, blocked, onProblem } = latest.current;
+        holds += 1;
+        recording = null;
+        setupOnEnd = false;
         const session = target();
         if (session === null || blocked()) return;
+        // On release, not now: right Ctrl held a little long before Ctrl+C must not open them.
         if (status.state.kind === "notInstalled") {
-          onSetup();
+          setupOnEnd = true;
           return;
         }
         if (!canStart(status.state)) return;
-        started = api
-          .dictationStart(session, prefs.model, prefs.language)
-          .catch((error: unknown) => {
-            onProblem(problemOf(error), session);
-          });
+        const current = holds;
+        recording = current;
+        started = api.dictationStart(session, prefs.model, prefs.language).then(
+          () => {
+            discards.started(current);
+          },
+          (error: unknown) => {
+            if (recording === current) recording = null;
+            const dropped = discards.failed(current);
+            // Discarded meanwhile: the person typed a shortcut, a notice would only confuse.
+            if (!dropped) onProblem(problemOf(error), session);
+          },
+        );
       },
-      () => {
-        void started.then(() => api.dictationStop()).catch(() => undefined);
+      onEnd: () => {
+        if (setupOnEnd) {
+          setupOnEnd = false;
+          latest.current.onSetup();
+        }
+        stop();
       },
-    );
+      onDiscard: () => {
+        setupOnEnd = false;
+        if (recording === null) return;
+        discards.discard(recording);
+        stop();
+      },
+    });
     const onKeyDown = (event: KeyboardEvent) => {
       if (hold.keydown(event)) event.preventDefault();
     };
     const onKeyUp = (event: KeyboardEvent) => {
       if (hold.keyup(event)) event.preventDefault();
     };
+    const onPointer = () => {
+      hold.pointer();
+    };
+    // Focus gone or the hook torn down: no key went up, so the settings stay closed.
     const onBlur = () => {
+      setupOnEnd = false;
       hold.release();
     };
-    window.addEventListener("keydown", onKeyDown);
-    window.addEventListener("keyup", onKeyUp);
+    const capture = { capture: true } as const;
+    window.addEventListener("keydown", onKeyDown, capture);
+    window.addEventListener("keyup", onKeyUp, capture);
+    window.addEventListener("pointerdown", onPointer, capture);
+    window.addEventListener("wheel", onPointer, { capture: true, passive: true });
     window.addEventListener("blur", onBlur);
     return () => {
-      window.removeEventListener("keydown", onKeyDown);
-      window.removeEventListener("keyup", onKeyUp);
+      window.removeEventListener("keydown", onKeyDown, capture);
+      window.removeEventListener("keyup", onKeyUp, capture);
+      window.removeEventListener("pointerdown", onPointer, capture);
+      window.removeEventListener("wheel", onPointer, capture);
       window.removeEventListener("blur", onBlur);
-      // Turned off while held: the microphone closes.
+      // Turned off or another key chosen while held: the microphone closes.
+      setupOnEnd = false;
       hold.release();
     };
-  }, [enabled]);
+  }, [enabled, key]);
 }

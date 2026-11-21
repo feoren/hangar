@@ -1325,3 +1325,11 @@ Pages changed: [[0014-session-links]], [[0012-cross-project-messages]].
 A bare Enter, or arrows and Enter, on an agent's dialog no longer starts a link group's budget
 again; only an Enter that sends printable text the person typed does (`ownLineKey` in
 `src/links.ts`). Pages changed: [[0014-session-links]].
+
+## [2026-11-21] lint | Dictation with a single key
+Settings > Dictation picks the key: right Ctrl (default, also for stored settings without a key),
+F8, F9, F10 or Ctrl+Shift+Space. Right Ctrl records after 300 ms with no other key; a shortcut
+typed with it (another key, a click, the wheel) leaves no text, and a recording already running is
+stopped and its text dropped in the window (`DiscardGate`), since the backend has no cancel
+command. F keys belong to the app while dictation is on. Pages changed: [[local-dictation]],
+[[overview]], index.

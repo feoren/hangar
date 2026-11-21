@@ -387,7 +387,7 @@ import { Splitter } from "./Splitter";
 import { badgeKind, TaskbarBadge } from "./taskbarBadge";
 import { TaskbarFlasher } from "./taskbarFlash";
 import { trayLabels, TrayState } from "./tray";
-import { SessionTerminal, setDictationKeyActive, setFocusCycleActive, terminals } from "./terminal";
+import { SessionTerminal, setDictationKey, setFocusCycleActive, terminals } from "./terminal";
 import { busySession, pasteForm } from "./dictation";
 import { DictationIndicator, type IndicatorMode } from "./DictationIndicator";
 import { useDictationKey, useDictationStatus, type DictationProblem } from "./useDictation";
@@ -1988,7 +1988,7 @@ export function App() {
     setDialog("settings");
   }, []);
 
-  // Dictation: hold Ctrl+Shift+Space in a session, speak, let go; the text goes into the session
+  // Dictation: hold the dictation key in a session, speak, let go; the text goes into the session
   // that was active on key down, through the same paste path as dropped files (no Enter).
   const dictationStatus = useDictationStatus(settings.dictation.model);
   const [dictationProblem, setDictationProblem] = useState<{
@@ -1996,8 +1996,8 @@ export function App() {
     problem: DictationProblem;
   } | null>(null);
   useEffect(() => {
-    setDictationKeyActive(settings.dictationEnabled);
-  }, [settings.dictationEnabled]);
+    setDictationKey(settings.dictationEnabled ? settings.dictation.key : null);
+  }, [settings.dictationEnabled, settings.dictation.key]);
   useEffect(() => {
     if (dictationProblem === null) return;
     const timer = window.setTimeout(() => {

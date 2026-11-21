@@ -57,6 +57,7 @@ import {
   type WrappedLine,
 } from "./terminalClick";
 import { claudeInputBlock, isRuleRow } from "./promptBlock";
+import type { DictationKey } from "./shortcuts";
 import { dictationTail, terminalKeyAction } from "./terminalKeys";
 import { TerminalLinks, type LinkRequest } from "./terminalLinkProvider";
 import { cellHidden, linkTexts, type LinkTexts } from "./terminalLinkWord";
@@ -1270,7 +1271,7 @@ export class SessionTerminal {
 
   /** `false` means xterm does not handle the key. Ctrl+C without a selection goes to the process. */
   private handleKey(event: KeyboardEvent): boolean {
-    const tail = dictationTail(dictationTailArmed, event, dictationKeyActive);
+    const tail = dictationTail(dictationTailArmed, event, dictationKey === "ctrlShiftSpace");
     dictationTailArmed = tail.armed;
     if (tail.swallow) {
       event.preventDefault();
@@ -1281,7 +1282,7 @@ export class SessionTerminal {
       this.term.hasSelection(),
       focusCycleActive,
       this.shellKind() === "agent",
-      dictationKeyActive,
+      dictationKey,
     );
     switch (action.kind) {
       case "app":
@@ -1334,13 +1335,13 @@ export function setFocusCycleActive(active: boolean): void {
   focusCycleActive = active;
 }
 
-/** Dictation is on (App): Ctrl+Shift+Space belongs to the app, not to the program. */
-let dictationKeyActive = false;
+/** The dictation key while dictation is on (App), `null` while off: it belongs to the app. */
+let dictationKey: DictationKey | null = null;
 /** Space is still down after a dictation hold (`dictationTail`); shared, the focus may move. */
 let dictationTailArmed = false;
 
-export function setDictationKeyActive(active: boolean): void {
-  dictationKeyActive = active;
+export function setDictationKey(key: DictationKey | null): void {
+  dictationKey = key;
 }
 
 /** Registry of all terminal instances. Deliberately not in React state (not serializable). */

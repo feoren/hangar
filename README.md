@@ -58,9 +58,9 @@ your own accounts, on your own machine. The desktop app is open source under the
   sending it. Your last prompt stays visible above an agent's terminal; a click jumps to the line
   you sent it from. Web addresses and existing files and folders in the output open with one click;
   with Shift held, each folder of a path opens on its own.
-- **Dictation on your own computer.** Hold Ctrl+Shift+Space, speak and let go: the text lands in the
-  prompt of the active session. Speech is recognized locally, nothing is sent anywhere. Turn it on
-  under _Settings > Dictation_.
+- **Dictation on your own computer.** Hold the right Ctrl key, speak and let go: the text lands in
+  the prompt of the active session. Speech is recognized locally, nothing is sent anywhere. Turn it
+  on and pick another key (F8, F9, F10 or Ctrl+Shift+Space) under _Settings > Dictation_.
 - **One instruction file for all agents.** Write your rules once in HANGAR.md and Hangar hands them
   to every agent that accepts extra instructions (Claude Code, Codex CLI, Aider), without touching
   your repository. An agent started in a fresh worktree first checks for new upstream commits and

@@ -140,11 +140,44 @@ export function ignoresRepeat(action: AppAction): boolean {
   );
 }
 
+/** The key held for dictation, chosen in Settings > Dictation. */
+export type DictationKey = "controlRight" | "f8" | "f9" | "f10" | "ctrlShiftSpace";
+
+/** In the order the settings list them. */
+export const DICTATION_KEYS: readonly DictationKey[] = [
+  "controlRight",
+  "f8",
+  "f9",
+  "f10",
+  "ctrlShiftSpace",
+];
+
 /**
- * Dictation: hold Ctrl+Shift+Space, speak, let go. Space keeps both modifiers free of letters,
- * and shells and agent CLIs bind no Ctrl+Shift+Space (without Shift, Ctrl+Space is set-mark in
- * Readline and the IME switch on Windows, so it stays with them). Any event type: keydown,
- * the browser's keypress and keyup of Space all belong to the app while dictation is on.
+ * Right Ctrl: a single key, and shells and agent CLIs never see a modifier pressed alone. Ctrl+C
+ * and friends typed with it keep working (`KeyHold`).
+ */
+export const DEFAULT_DICTATION_KEY: DictationKey = "controlRight";
+
+export function isDictationKey(value: unknown): value is DictationKey {
+  return DICTATION_KEYS.some((key) => key === value);
+}
+
+/**
+ * Right Ctrl records only after it was held this long with no other key: a tap, or Ctrl+C typed
+ * with the right Ctrl, never opens the microphone.
+ */
+export const CONTROL_HOLD_DELAY_MS = 300;
+
+const FUNCTION_KEYS: Partial<Record<DictationKey, string>> = { f8: "F8", f9: "F9", f10: "F10" };
+
+function noModifier(event: KeyInfo): boolean {
+  return !event.ctrlKey && !event.shiftKey && !event.altKey && !event.metaKey;
+}
+
+/**
+ * Dictation chord: Ctrl+Shift+Space. Space keeps both modifiers free of letters, and shells and
+ * agent CLIs bind no Ctrl+Shift+Space (without Shift, Ctrl+Space is set-mark in Readline and the
+ * IME switch on Windows, so it stays with them).
  */
 export function isDictationChord(event: KeyInfo): boolean {
   return (
@@ -152,51 +185,153 @@ export function isDictationChord(event: KeyInfo): boolean {
   );
 }
 
-/** Releasing any key of the chord ends the hold, so a lost keyup of one never keeps it on. */
-export function endsDictation(event: Pick<KeyboardEvent, "key" | "code">): boolean {
-  return event.code === "Space" || event.key === "Control" || event.key === "Shift";
+/**
+ * The key press that starts a hold of `key`. Right Ctrl goes by its position (`code`): AltGr on
+ * Windows arrives as a left Ctrl plus right Alt, so it never matches, and Shift, Alt or Meta held
+ * along make it some other shortcut. F8 to F10 count only without a modifier.
+ */
+export function startsDictation(key: DictationKey, event: KeyInfo): boolean {
+  if (key === "ctrlShiftSpace") return isDictationChord(event);
+  if (key === "controlRight") {
+    return event.code === "ControlRight" && !event.shiftKey && !event.altKey && !event.metaKey;
+  }
+  return event.code === FUNCTION_KEYS[key] && noModifier(event);
+}
+
+/**
+ * Whether the terminal leaves this event (keydown, keypress or keyup alike) to the app while
+ * dictation is on with `key`, so the program never sees it. Right Ctrl is not taken: alone it
+ * sends the program nothing, and with another key it is that program's shortcut.
+ */
+export function isDictationKeyEvent(key: DictationKey, event: KeyInfo): boolean {
+  return key !== "controlRight" && startsDictation(key, event);
+}
+
+/**
+ * Releasing the key ends the hold; for the chord, releasing any of its keys, so a lost keyup of
+ * one never keeps it on.
+ */
+export function endsDictation(
+  key: DictationKey,
+  event: Pick<KeyboardEvent, "key" | "code">,
+): boolean {
+  if (key === "ctrlShiftSpace") {
+    return event.code === "Space" || event.key === "Control" || event.key === "Shift";
+  }
+  if (key === "controlRight") return event.code === "ControlRight";
+  return event.code === FUNCTION_KEYS[key];
 }
 
 type HoldKey = KeyInfo & Pick<KeyboardEvent, "repeat">;
 
+export interface HoldHandlers {
+  /** The hold began: open the microphone. */
+  onStart: () => void;
+  /** The key went up, or the window lost the focus: close it and write the text. */
+  onEnd: () => void;
+  /** Right Ctrl became part of a shortcut after `onStart`: close it and drop the text. */
+  onDiscard: () => void;
+}
+
 /**
- * Hold semantics for Ctrl+Shift+Space: `onStart` once on the first keydown (repeats ignored),
- * `onEnd` once on the release of Ctrl, Shift or Space, or on `release` (window blur). The
- * methods return whether the event belonged to the hold, so the caller can stop its default.
+ * - `waiting`: right Ctrl is down, not yet for `CONTROL_HOLD_DELAY_MS`.
+ * - `held`: `onStart` ran.
+ * - `spoiled`: right Ctrl is still down, but another key or the mouse made it a shortcut. Nothing
+ *   starts until it goes up.
+ */
+type HoldPhase =
+  | { kind: "idle" }
+  | { kind: "waiting"; timer: ReturnType<typeof setTimeout> }
+  | { kind: "held" }
+  | { kind: "spoiled" };
+
+/**
+ * Hold semantics for the dictation key: `onStart` once per hold (key repeats ignored), `onEnd`
+ * once on its release or on `release` (window blur). Right Ctrl is a modifier, so it starts only
+ * after `CONTROL_HOLD_DELAY_MS` without another key, and another key or a click while it is down
+ * hands it back to that shortcut: before the start nothing happens, after it `onDiscard`. The
+ * methods return whether the event belongs to the hold, so the caller can stop its default; right
+ * Ctrl's own events never do.
  */
 export class KeyHold {
-  private held = false;
+  private phase: HoldPhase = { kind: "idle" };
 
   constructor(
-    private readonly onStart: () => void,
-    private readonly onEnd: () => void,
+    private readonly key: DictationKey,
+    private readonly handlers: HoldHandlers,
   ) {}
 
   get active(): boolean {
-    return this.held;
+    return this.phase.kind === "held";
+  }
+
+  /** Right Ctrl shares its key with shortcuts; the other keys belong to dictation alone. */
+  private get modifier(): boolean {
+    return this.key === "controlRight";
+  }
+
+  private own(event: HoldKey): boolean {
+    return this.modifier ? event.code === "ControlRight" : startsDictation(this.key, event);
   }
 
   keydown(event: HoldKey): boolean {
-    if (!isDictationChord(event)) return false;
-    if (!this.held && !event.repeat) {
-      this.held = true;
-      this.onStart();
+    if (this.phase.kind === "spoiled" && this.own(event) && !event.repeat) {
+      // A fresh press: the release of the spoiled one got lost.
+      this.phase = { kind: "idle" };
     }
-    return true;
+    if (this.phase.kind === "idle") {
+      if (!startsDictation(this.key, event)) return false;
+      if (!event.repeat) this.begin();
+      return !this.modifier;
+    }
+    if (this.own(event)) return !this.modifier;
+    if (this.modifier) this.interrupt();
+    return false;
   }
 
   keyup(event: Pick<KeyboardEvent, "key" | "code">): boolean {
-    if (!this.held || !endsDictation(event)) return false;
-    this.held = false;
-    this.onEnd();
-    return true;
+    if (this.phase.kind === "idle" || !endsDictation(this.key, event)) return false;
+    this.finish();
+    return !this.modifier;
+  }
+
+  /** A mouse button or the wheel: with right Ctrl down, that is Ctrl+click or Ctrl+wheel. */
+  pointer(): void {
+    if (this.modifier) this.interrupt();
   }
 
   /** The window lost the focus: its keyup would never arrive. */
   release(): void {
-    if (!this.held) return;
-    this.held = false;
-    this.onEnd();
+    this.finish();
+  }
+
+  private begin(): void {
+    if (!this.modifier) {
+      this.phase = { kind: "held" };
+      this.handlers.onStart();
+      return;
+    }
+    const timer = setTimeout(() => {
+      if (this.phase.kind !== "waiting") return;
+      this.phase = { kind: "held" };
+      this.handlers.onStart();
+    }, CONTROL_HOLD_DELAY_MS);
+    this.phase = { kind: "waiting", timer };
+  }
+
+  private interrupt(): void {
+    const phase = this.phase;
+    if (phase.kind === "idle" || phase.kind === "spoiled") return;
+    if (phase.kind === "waiting") clearTimeout(phase.timer);
+    this.phase = { kind: "spoiled" };
+    if (phase.kind === "held") this.handlers.onDiscard();
+  }
+
+  private finish(): void {
+    const phase = this.phase;
+    if (phase.kind === "waiting") clearTimeout(phase.timer);
+    this.phase = { kind: "idle" };
+    if (phase.kind === "held") this.handlers.onEnd();
   }
 }
 
@@ -230,6 +365,18 @@ export const SHORTCUT_LABELS: Record<AppAction, Shortcut> = {
 
 /** Held, not pressed: shown as "Hold Ctrl+Shift+Space". */
 export const DICTATION_SHORTCUT: Shortcut = { mods: ["ctrl", "shift"], key: "Space" };
+
+/**
+ * The dictation key's name. `inline` fits the help sentence ("Hold the right Ctrl key and
+ * speak."); otherwise the name as the settings list it.
+ */
+export function dictationKeyName(key: DictationKey, t: Translate, inline = false): string {
+  if (key === "controlRight") {
+    return t(inline ? "dictation.keyRightCtrlInline" : "dictation.keyRightCtrl");
+  }
+  if (key === "ctrlShiftSpace") return formatShortcut(DICTATION_SHORTCUT, t);
+  return FUNCTION_KEYS[key] ?? key;
+}
 
 /** Keys of the shortcut in display order, modifiers in the UI language. */
 export function shortcutKeys(shortcut: Shortcut, t: Translate): string[] {

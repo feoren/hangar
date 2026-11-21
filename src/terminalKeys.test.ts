@@ -154,13 +154,53 @@ describe("terminal keys", () => {
     const chord = { ...key("Space", { ctrl: true, shift: true }), key: " " };
     expect(terminalKeyAction(chord, false)).toEqual({ kind: "terminal" });
     for (const type of ["keydown", "keypress", "keyup"]) {
-      expect(terminalKeyAction({ ...chord, type }, false, false, false, true)).toEqual({
+      expect(terminalKeyAction({ ...chord, type }, false, false, false, "ctrlShiftSpace")).toEqual({
         kind: "app",
       });
     }
     // Ctrl+Space alone stays with the shell (set mark) and the IME.
     const ctrlSpace = { ...key("Space", { ctrl: true }), key: " " };
-    expect(terminalKeyAction(ctrlSpace, false, false, false, true)).toEqual({ kind: "terminal" });
+    expect(terminalKeyAction(ctrlSpace, false, false, false, "ctrlShiftSpace")).toEqual({
+      kind: "terminal",
+    });
+    // Another key chosen: the chord is the program's again.
+    expect(terminalKeyAction(chord, false, false, false, "f8")).toEqual({ kind: "terminal" });
+  });
+
+  it("keeps the chosen function key from the process only while dictation is on", () => {
+    const f9 = { ...key("F9"), key: "F9" };
+    for (const type of ["keydown", "keypress", "keyup"]) {
+      expect(terminalKeyAction({ ...f9, type }, false, false, false, "f9")).toEqual({
+        kind: "app",
+      });
+      // Off, or another key chosen: F9 goes to the program as before.
+      expect(terminalKeyAction({ ...f9, type }, false)).toEqual({ kind: "terminal" });
+      expect(terminalKeyAction({ ...f9, type }, false, false, false, "f10")).toEqual({
+        kind: "terminal",
+      });
+    }
+    // With a modifier it is another key for the program (Shift+F9 in Midnight Commander).
+    expect(
+      terminalKeyAction({ ...key("F9", { shift: true }), key: "F9" }, false, false, false, "f9"),
+    ).toEqual({ kind: "terminal" });
+  });
+
+  it("leaves right Ctrl and every shortcut typed with it to the terminal", () => {
+    const rightCtrl = { ...key("ControlRight", { ctrl: true }), key: "Control" };
+    expect(terminalKeyAction(rightCtrl, false, false, false, "controlRight")).toEqual({
+      kind: "terminal",
+    });
+    // Ctrl+C with the right Ctrl and no selection still interrupts the program.
+    expect(
+      terminalKeyAction(key("KeyC", { ctrl: true }), false, false, false, "controlRight"),
+    ).toEqual({
+      kind: "terminal",
+    });
+    expect(
+      terminalKeyAction(key("KeyV", { ctrl: true }), false, false, false, "controlRight"),
+    ).toEqual({
+      kind: "paste",
+    });
   });
 });
 

@@ -1,12 +1,19 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { createTranslator } from "./i18n";
 import {
+  CONTROL_HOLD_DELAY_MS,
+  DICTATION_KEYS,
   DICTATION_SHORTCUT,
+  dictationKeyName,
   endsDictation,
   focusCycleStep,
   isDictationChord,
+  isDictationKey,
+  isDictationKeyEvent,
   KeyHold,
+  startsDictation,
+  type DictationKey,
   nextFocusZone,
   formatShortcut,
   ignoresRepeat,
@@ -227,6 +234,17 @@ describe("focus cycle", () => {
   });
 });
 
+/** A hold of `dictationKey` that records its calls in order. */
+function recorder(dictationKey: DictationKey) {
+  const calls: string[] = [];
+  const hold = new KeyHold(dictationKey, {
+    onStart: () => calls.push("start"),
+    onEnd: () => calls.push("end"),
+    onDiscard: () => calls.push("discard"),
+  });
+  return { hold, calls };
+}
+
 describe("dictation hold", () => {
   const chord = (repeat = false) => ({ ...key(" ", "Space", { shift: true }), repeat });
 
@@ -238,16 +256,12 @@ describe("dictation hold", () => {
     expect(isDictationChord(key("S", "KeyS", { shift: true }))).toBe(false);
     // Not an app shortcut that fires on press: it only works as a hold.
     expect(matchShortcut(key(" ", "Space", { shift: true }))).toBeNull();
-    expect(endsDictation({ key: "Control", code: "ControlRight" })).toBe(true);
-    expect(endsDictation({ key: "a", code: "KeyA" })).toBe(false);
+    expect(endsDictation("ctrlShiftSpace", { key: "Control", code: "ControlRight" })).toBe(true);
+    expect(endsDictation("ctrlShiftSpace", { key: "a", code: "KeyA" })).toBe(false);
   });
 
   it("starts once despite key repeat and ends on release", () => {
-    const calls: string[] = [];
-    const hold = new KeyHold(
-      () => calls.push("start"),
-      () => calls.push("end"),
-    );
+    const { hold, calls } = recorder("ctrlShiftSpace");
     expect(hold.keydown(chord())).toBe(true);
     expect(hold.keydown(chord(true))).toBe(true);
     expect(hold.keydown(chord(true))).toBe(true);
@@ -265,36 +279,36 @@ describe("dictation hold", () => {
       { key: "Control", code: "ControlLeft" },
       { key: "Shift", code: "ShiftRight" },
     ]) {
-      let ended = 0;
-      const hold = new KeyHold(
-        () => undefined,
-        () => (ended += 1),
-      );
+      const { hold, calls } = recorder("ctrlShiftSpace");
       hold.keydown(chord());
       expect(hold.keyup({ key: "a", code: "KeyA" })).toBe(false);
       expect(hold.keyup(release)).toBe(true);
-      expect(ended).toBe(1);
+      expect(calls).toEqual(["start", "end"]);
     }
-    let ended = 0;
-    const hold = new KeyHold(
-      () => undefined,
-      () => (ended += 1),
-    );
+    const { hold, calls } = recorder("ctrlShiftSpace");
     hold.keydown(chord());
     hold.release();
     hold.release();
-    expect(ended).toBe(1);
+    expect(calls).toEqual(["start", "end"]);
   });
 
   it("does not start from a repeat alone and ignores other keys", () => {
-    let started = 0;
-    const hold = new KeyHold(
-      () => (started += 1),
-      () => undefined,
-    );
+    const { hold, calls } = recorder("ctrlShiftSpace");
     expect(hold.keydown(chord(true))).toBe(true);
     expect(hold.keydown({ ...key("a", "KeyA"), repeat: false })).toBe(false);
-    expect(started).toBe(0);
+    // Typing meanwhile never discards a chord hold: only right Ctrl shares its key.
+    hold.keydown(chord());
+    hold.keydown({ ...key("a", "KeyA"), repeat: false });
+    hold.pointer();
+    expect(calls).toEqual(["start"]);
+  });
+
+  it("knows the keys the settings offer and nothing else", () => {
+    expect(DICTATION_KEYS).toEqual(["controlRight", "f8", "f9", "f10", "ctrlShiftSpace"]);
+    for (const entry of DICTATION_KEYS) expect(isDictationKey(entry)).toBe(true);
+    for (const entry of ["F8", "f11", "ControlRight", "", null, 8]) {
+      expect(isDictationKey(entry)).toBe(false);
+    }
   });
 
   it("names the key in the UI language", () => {
@@ -302,5 +316,189 @@ describe("dictation hold", () => {
       "Strg+Umschalt+Leertaste",
     );
     expect(formatShortcut(DICTATION_SHORTCUT, createTranslator("en"))).toBe("Ctrl+Shift+Space");
+    const de = createTranslator("de");
+    expect(dictationKeyName("controlRight", de)).toBe("Rechte Strg-Taste");
+    expect(dictationKeyName("controlRight", de, true)).toBe("die rechte Strg-Taste");
+    expect(dictationKeyName("f9", de)).toBe("F9");
+    expect(dictationKeyName("ctrlShiftSpace", de)).toBe("Strg+Umschalt+Leertaste");
+    expect(dictationKeyName("controlRight", createTranslator("en"), true)).toBe(
+      "the right Ctrl key",
+    );
+  });
+});
+
+describe("dictation with a function key", () => {
+  const press = (code: string, mods: Parameters<typeof key>[2] = {}, repeat = false) => ({
+    ...key(code, code, { ctrl: false, ...mods }),
+    repeat,
+  });
+
+  it("takes only the chosen F key, and only without a modifier", () => {
+    expect(startsDictation("f8", press("F8"))).toBe(true);
+    expect(startsDictation("f9", press("F9"))).toBe(true);
+    expect(startsDictation("f10", press("F10"))).toBe(true);
+    expect(startsDictation("f8", press("F9"))).toBe(false);
+    expect(startsDictation("f10", press("F1"))).toBe(false);
+    for (const mods of [{ ctrl: true }, { shift: true }, { alt: true }, { meta: true }]) {
+      expect(startsDictation("f8", press("F8", mods))).toBe(false);
+    }
+    // The terminal leaves the chosen key to the app, and only that one.
+    expect(isDictationKeyEvent("f8", press("F8"))).toBe(true);
+    expect(isDictationKeyEvent("f9", press("F8"))).toBe(false);
+  });
+
+  it("records at once while held, once despite repeat, and stops on release", () => {
+    const { hold, calls } = recorder("f9");
+    expect(hold.keydown(press("F9"))).toBe(true);
+    expect(hold.keydown(press("F9", {}, true))).toBe(true);
+    expect(hold.active).toBe(true);
+    // Typing meanwhile neither ends nor discards: F9 belongs to dictation alone.
+    expect(hold.keydown(press("KeyA"))).toBe(false);
+    hold.pointer();
+    expect(hold.keyup({ key: "a", code: "KeyA" })).toBe(false);
+    expect(hold.keyup({ key: "F9", code: "F9" })).toBe(true);
+    expect(calls).toEqual(["start", "end"]);
+  });
+});
+
+describe("dictation with the right Ctrl key", () => {
+  beforeEach(() => {
+    vi.useFakeTimers();
+  });
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  const rightCtrl = (repeat = false) => ({ ...key("Control", "ControlRight"), repeat });
+  const rightCtrlUp = { key: "Control", code: "ControlRight" };
+  const letter = (code: string) => ({ ...key(code.slice(3).toLowerCase(), code), repeat: false });
+
+  it("records after a short hold and transcribes on release", () => {
+    const { hold, calls } = recorder("controlRight");
+    // Never its default: right Ctrl stays a normal key for the page and the terminal.
+    expect(hold.keydown(rightCtrl())).toBe(false);
+    vi.advanceTimersByTime(CONTROL_HOLD_DELAY_MS - 1);
+    expect(calls).toEqual([]);
+    expect(hold.keydown(rightCtrl(true))).toBe(false);
+    vi.advanceTimersByTime(1);
+    expect(calls).toEqual(["start"]);
+    expect(hold.active).toBe(true);
+    // Key repeat while held starts nothing more.
+    hold.keydown(rightCtrl(true));
+    vi.advanceTimersByTime(CONTROL_HOLD_DELAY_MS * 3);
+    expect(hold.keyup(rightCtrlUp)).toBe(false);
+    expect(calls).toEqual(["start", "end"]);
+    expect(hold.active).toBe(false);
+  });
+
+  it("does nothing for a short tap", () => {
+    const { hold, calls } = recorder("controlRight");
+    hold.keydown(rightCtrl());
+    vi.advanceTimersByTime(CONTROL_HOLD_DELAY_MS - 50);
+    hold.keyup(rightCtrlUp);
+    vi.advanceTimersByTime(CONTROL_HOLD_DELAY_MS * 2);
+    expect(calls).toEqual([]);
+  });
+
+  it("leaves Ctrl+C to the shortcut before the recording starts", () => {
+    const { hold, calls } = recorder("controlRight");
+    hold.keydown(rightCtrl());
+    vi.advanceTimersByTime(100);
+    // The C goes on to the terminal or the app as usual.
+    expect(hold.keydown(letter("KeyC"))).toBe(false);
+    vi.advanceTimersByTime(CONTROL_HOLD_DELAY_MS * 3);
+    hold.keydown(rightCtrl(true));
+    vi.advanceTimersByTime(CONTROL_HOLD_DELAY_MS * 3);
+    hold.keyup(rightCtrlUp);
+    expect(calls).toEqual([]);
+  });
+
+  it("discards a running recording when another key follows, and only once", () => {
+    const { hold, calls } = recorder("controlRight");
+    hold.keydown(rightCtrl());
+    vi.advanceTimersByTime(CONTROL_HOLD_DELAY_MS);
+    expect(hold.keydown(letter("KeyV"))).toBe(false);
+    expect(calls).toEqual(["start", "discard"]);
+    expect(hold.active).toBe(false);
+    hold.keydown(letter("KeyV"));
+    hold.keyup(rightCtrlUp);
+    hold.release();
+    expect(calls).toEqual(["start", "discard"]);
+  });
+
+  it("discards on a click or the wheel with right Ctrl down", () => {
+    const first = recorder("controlRight");
+    first.hold.keydown(rightCtrl());
+    vi.advanceTimersByTime(CONTROL_HOLD_DELAY_MS);
+    first.hold.pointer();
+    first.hold.keyup(rightCtrlUp);
+    expect(first.calls).toEqual(["start", "discard"]);
+    // Before the start, a click only keeps it from starting.
+    const second = recorder("controlRight");
+    second.hold.keydown(rightCtrl());
+    second.hold.pointer();
+    vi.advanceTimersByTime(CONTROL_HOLD_DELAY_MS * 2);
+    second.hold.keyup(rightCtrlUp);
+    expect(second.calls).toEqual([]);
+  });
+
+  it("works again on the next press after a shortcut", () => {
+    const { hold, calls } = recorder("controlRight");
+    hold.keydown(rightCtrl());
+    hold.keydown(letter("KeyC"));
+    hold.keyup(rightCtrlUp);
+    hold.keydown(rightCtrl());
+    vi.advanceTimersByTime(CONTROL_HOLD_DELAY_MS);
+    hold.keyup(rightCtrlUp);
+    expect(calls).toEqual(["start", "end"]);
+  });
+
+  it("recovers from a lost release of a spoiled hold on the next fresh press", () => {
+    const { hold, calls } = recorder("controlRight");
+    hold.keydown(rightCtrl());
+    hold.keydown(letter("KeyC"));
+    // The keyup never came; a fresh press (no repeat) starts over.
+    hold.keydown(rightCtrl());
+    vi.advanceTimersByTime(CONTROL_HOLD_DELAY_MS);
+    expect(calls).toEqual(["start"]);
+  });
+
+  it("never starts from AltGr, the left Ctrl, or right Ctrl with another modifier", () => {
+    const { hold, calls } = recorder("controlRight");
+    // AltGr on Windows: a left Ctrl, then the right Alt with Ctrl and Alt set.
+    hold.keydown({ ...key("Control", "ControlLeft"), repeat: false });
+    hold.keydown({ ...key("AltGraph", "AltRight", { alt: true }), repeat: false });
+    vi.advanceTimersByTime(CONTROL_HOLD_DELAY_MS * 2);
+    hold.keyup({ key: "AltGraph", code: "AltRight" });
+    hold.keyup({ key: "Control", code: "ControlLeft" });
+    for (const mods of [{ shift: true }, { alt: true }, { meta: true }]) {
+      expect(startsDictation("controlRight", key("Control", "ControlRight", mods))).toBe(false);
+      hold.keydown({ ...key("Control", "ControlRight", mods), repeat: false });
+      vi.advanceTimersByTime(CONTROL_HOLD_DELAY_MS * 2);
+      hold.keyup(rightCtrlUp);
+    }
+    expect(calls).toEqual([]);
+    // AltGr pressed while right Ctrl records: a shortcut, the recording is dropped.
+    hold.keydown(rightCtrl());
+    vi.advanceTimersByTime(CONTROL_HOLD_DELAY_MS);
+    hold.keydown({ ...key("Control", "ControlLeft"), repeat: false });
+    expect(calls).toEqual(["start", "discard"]);
+  });
+
+  it("ends a running recording on blur and drops a waiting one", () => {
+    const { hold, calls } = recorder("controlRight");
+    hold.keydown(rightCtrl());
+    hold.release();
+    vi.advanceTimersByTime(CONTROL_HOLD_DELAY_MS * 2);
+    expect(calls).toEqual([]);
+    hold.keydown(rightCtrl());
+    vi.advanceTimersByTime(CONTROL_HOLD_DELAY_MS);
+    hold.release();
+    expect(calls).toEqual(["start", "end"]);
+  });
+
+  it("is never taken from the terminal", () => {
+    expect(isDictationKeyEvent("controlRight", key("Control", "ControlRight"))).toBe(false);
+    expect(isDictationKeyEvent("controlRight", key("c", "KeyC"))).toBe(false);
   });
 });

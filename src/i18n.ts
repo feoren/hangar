@@ -1230,6 +1230,9 @@ const de = {
   "dictation.enabled": "Diktieren per Taste einschalten",
   "dictation.enabledHelp":
     "Halte {shortcut} gedrückt und sprich. Beim Loslassen steht der Text im Prompt der aktiven Session, ohne Enter.",
+  "dictation.key": "Taste",
+  "dictation.keyRightCtrl": "Rechte Strg-Taste",
+  "dictation.keyRightCtrlInline": "die rechte Strg-Taste",
   "dictation.privacy":
     "Die Aufnahme verlässt diesen Computer nie: Hangar erkennt die Sprache selbst und speichert weder Ton noch Text.",
   "dictation.model": "Sprachmodell",
@@ -3497,6 +3500,9 @@ const en: Record<MessageKey, string> = {
   "dictation.enabled": "Turn on dictation with a key",
   "dictation.enabledHelp":
     "Hold {shortcut} and speak. When you let go, the text is in the active session's prompt, without Enter.",
+  "dictation.key": "Key",
+  "dictation.keyRightCtrl": "Right Ctrl",
+  "dictation.keyRightCtrlInline": "the right Ctrl key",
   "dictation.privacy":
     "Your audio never leaves this computer: Hangar recognizes speech itself and stores neither audio nor text.",
   "dictation.model": "Speech model",
@@ -5766,6 +5772,9 @@ const el: Record<MessageKey, string> = {
   "dictation.enabled": "Ενεργοποίηση υπαγόρευσης με πλήκτρο",
   "dictation.enabledHelp":
     "Κράτα πατημένο το {shortcut} και μίλα. Μόλις το αφήσεις, το κείμενο μπαίνει στο prompt της ενεργής συνεδρίας, χωρίς Enter.",
+  "dictation.key": "Πλήκτρο",
+  "dictation.keyRightCtrl": "Δεξί Ctrl",
+  "dictation.keyRightCtrlInline": "δεξί Ctrl",
   "dictation.privacy":
     "Ο ήχος δεν φεύγει ποτέ από αυτόν τον υπολογιστή: το Hangar αναγνωρίζει την ομιλία μόνο του και δεν αποθηκεύει ούτε ήχο ούτε κείμενο.",
   "dictation.model": "Μοντέλο ομιλίας",
@@ -8059,6 +8068,9 @@ const es: Record<MessageKey, string> = {
   "dictation.enabled": "Activar el dictado con una tecla",
   "dictation.enabledHelp":
     "Mantén pulsado {shortcut} y habla. Al soltar, el texto queda en el prompt de la sesión activa, sin Enter.",
+  "dictation.key": "Tecla",
+  "dictation.keyRightCtrl": "Ctrl derecho",
+  "dictation.keyRightCtrlInline": "el Ctrl derecho",
   "dictation.privacy":
     "Tu audio nunca sale de este equipo: Hangar reconoce la voz por sí mismo y no guarda ni audio ni texto.",
   "dictation.model": "Modelo de voz",
@@ -10344,6 +10356,9 @@ const fr: Record<MessageKey, string> = {
   "dictation.enabled": "Activer la dictée avec une touche",
   "dictation.enabledHelp":
     "Maintiens {shortcut} et parle. Quand tu relâches, le texte est dans le prompt de la session active, sans Entrée.",
+  "dictation.key": "Touche",
+  "dictation.keyRightCtrl": "Ctrl droite",
+  "dictation.keyRightCtrlInline": "la touche Ctrl droite",
   "dictation.privacy":
     "Ton audio ne quitte jamais cet ordinateur : Hangar reconnaît la parole lui-même et n’enregistre ni son ni texte.",
   "dictation.model": "Modèle vocal",
@@ -12637,6 +12652,9 @@ const it: Record<MessageKey, string> = {
   "dictation.enabled": "Attiva la dettatura con un tasto",
   "dictation.enabledHelp":
     "Tieni premuto {shortcut} e parla. Quando lo rilasci, il testo è nel prompt della sessione attiva, senza Invio.",
+  "dictation.key": "Tasto",
+  "dictation.keyRightCtrl": "Ctrl destro",
+  "dictation.keyRightCtrlInline": "il tasto Ctrl destro",
   "dictation.privacy":
     "Il tuo audio non lascia mai questo computer: Hangar riconosce la voce da solo e non salva né audio né testo.",
   "dictation.model": "Modello vocale",
@@ -14918,6 +14936,9 @@ const ja: Record<MessageKey, string> = {
   "dictation.enabled": "キーによる音声入力を有効にする",
   "dictation.enabledHelp":
     "{shortcut} を押したまま話します。離すと、Enter なしでアクティブなセッションのプロンプトにテキストが入ります。",
+  "dictation.key": "キー",
+  "dictation.keyRightCtrl": "右 Ctrl",
+  "dictation.keyRightCtrlInline": "右 Ctrl キー",
   "dictation.privacy":
     "音声がこのコンピューターの外に出ることはありません。Hangar が自分で音声を認識し、音声もテキストも保存しません。",
   "dictation.model": "音声モデル",
@@ -17184,6 +17205,9 @@ const pl: Record<MessageKey, string> = {
   "dictation.enabled": "Włącz dyktowanie klawiszem",
   "dictation.enabledHelp":
     "Przytrzymaj {shortcut} i mów. Po puszczeniu tekst trafia do promptu aktywnej sesji, bez Enter.",
+  "dictation.key": "Klawisz",
+  "dictation.keyRightCtrl": "Prawy Ctrl",
+  "dictation.keyRightCtrlInline": "prawy Ctrl",
   "dictation.privacy":
     "Twój dźwięk nigdy nie opuszcza tego komputera: Hangar sam rozpoznaje mowę i nie zapisuje ani dźwięku, ani tekstu.",
   "dictation.model": "Model mowy",
@@ -19444,6 +19468,9 @@ const pt: Record<MessageKey, string> = {
   "dictation.enabled": "Ativar o ditado com uma tecla",
   "dictation.enabledHelp":
     "Segure {shortcut} e fale. Ao soltar, o texto fica no prompt da sessão ativa, sem Enter.",
+  "dictation.key": "Tecla",
+  "dictation.keyRightCtrl": "Ctrl direito",
+  "dictation.keyRightCtrlInline": "o Ctrl direito",
   "dictation.privacy":
     "Seu áudio nunca sai deste computador: o Hangar reconhece a fala sozinho e não guarda nem áudio nem texto.",
   "dictation.model": "Modelo de voz",
@@ -21706,6 +21733,9 @@ const ru: Record<MessageKey, string> = {
   "dictation.enabled": "Включить диктовку клавишей",
   "dictation.enabledHelp":
     "Удерживай {shortcut} и говори. Когда отпустишь, текст окажется в промпте активной сессии, без Enter.",
+  "dictation.key": "Клавиша",
+  "dictation.keyRightCtrl": "Правый Ctrl",
+  "dictation.keyRightCtrlInline": "правый Ctrl",
   "dictation.privacy":
     "Звук никогда не покидает этот компьютер: Hangar сам распознаёт речь и не сохраняет ни звук, ни текст.",
   "dictation.model": "Речевая модель",
@@ -23952,7 +23982,10 @@ const tr: Record<MessageKey, string> = {
   "dictation.use": "Tuşla dikte",
   "dictation.enabled": "Tuşla dikteyi aç",
   "dictation.enabledHelp":
-    "{shortcut} tuşlarını basılı tut ve konuş. Bıraktığında metin, Enter olmadan etkin oturumun istemine yazılır.",
+    "{shortcut} tuşunu basılı tut ve konuş. Bıraktığında metin, Enter olmadan etkin oturumun istemine yazılır.",
+  "dictation.key": "Tuş",
+  "dictation.keyRightCtrl": "Sağ Ctrl",
+  "dictation.keyRightCtrlInline": "sağ Ctrl",
   "dictation.privacy":
     "Sesin bu bilgisayardan asla çıkmaz: Hangar konuşmayı kendisi tanır, ne ses ne de metin saklar.",
   "dictation.model": "Konuşma modeli",
@@ -26143,6 +26176,9 @@ const zh: Record<MessageKey, string> = {
   "dictation.enabled": "启用按键语音输入",
   "dictation.enabledHelp":
     "按住 {shortcut} 并说话。松开后，文本会出现在当前会话的提示符中，不会自动回车。",
+  "dictation.key": "按键",
+  "dictation.keyRightCtrl": "右 Ctrl",
+  "dictation.keyRightCtrlInline": "右 Ctrl 键",
   "dictation.privacy": "音频绝不会离开这台电脑：Hangar 自行识别语音，既不保存音频也不保存文本。",
   "dictation.model": "语音模型",
   "dictation.modelBase": "快速",
