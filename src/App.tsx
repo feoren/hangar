@@ -7909,6 +7909,7 @@ export function App() {
             fontSize={layout.fontSize}
             theme={theme}
             update={updater.state}
+            updateCheckedAt={updater.checkedAt}
             version={version}
             programUpdates={programUpdates}
             updateActions={{

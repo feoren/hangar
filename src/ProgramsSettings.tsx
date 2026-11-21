@@ -25,7 +25,6 @@ import {
 import type { ProgramVersions } from "./programs";
 import { ProgramUpdateOffer, type UpdateActions } from "./ProgramUpdateOffer";
 import type { Settings } from "./settings";
-import { formatShortTime } from "./format";
 import type { ProgramUpdateState } from "./useProgramUpdates";
 
 interface Props {
@@ -448,8 +447,6 @@ export function ProgramsSettings(props: Props) {
         </div>
       </section>
 
-      <ProgramUpdatesSection settings={settings} state={programUpdates} onChange={onChange} />
-
       <AvailableList profiles={available} />
 
       <section className="settings-section" aria-labelledby="programs-display">
@@ -486,61 +483,6 @@ export function ProgramsSettings(props: Props) {
         </p>
       </section>
     </>
-  );
-}
-
-/** Switch for checking for program updates, "Check now" and the status. */
-function ProgramUpdatesSection({
-  settings,
-  state,
-  onChange,
-}: {
-  settings: Settings;
-  state: ProgramUpdateState;
-  onChange: (patch: Partial<Settings>) => void;
-}) {
-  const t = useT();
-  const count = [...state.updates.values()].filter((entry) => entry.updateAvailable).length;
-  const status = state.checking
-    ? t("settings.programChecking")
-    : state.error !== null
-      ? t("settings.programCheckFailed", { error: state.error })
-      : state.checkedAt === null
-        ? ""
-        : `${count === 0 ? t("settings.programUpdatesNone") : t("settings.programUpdatesSome", { count })} ${t("settings.programCheckedAt", { time: formatShortTime(new Date(state.checkedAt), settings.language) })}`;
-  return (
-    <section className="settings-section" aria-labelledby="programs-updates">
-      <h4 id="programs-updates" className="settings-subtitle">
-        {t("settings.programUpdates")}
-      </h4>
-      <label className="check">
-        <input
-          type="checkbox"
-          checked={settings.checkProgramUpdates}
-          aria-describedby="program-updates-help"
-          onChange={(event) => {
-            onChange({ checkProgramUpdates: event.currentTarget.checked });
-          }}
-        />
-        <span>{t("settings.checkProgramUpdates")}</span>
-      </label>
-      <p id="program-updates-help" className="muted settings-help">
-        {t("settings.checkProgramUpdatesHelp")}
-      </p>
-      <div className="settings-row">
-        <button
-          type="button"
-          className="secondary-button"
-          disabled={!settings.checkProgramUpdates || state.checking}
-          onClick={state.checkNow}
-        >
-          {t("settings.checkNow")}
-        </button>
-        <span className={state.error !== null ? "muted error-text" : "muted"} role="status">
-          {status}
-        </span>
-      </div>
-    </section>
   );
 }
 

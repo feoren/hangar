@@ -7,14 +7,7 @@ import { CommandGuardSettings } from "./CommandGuardSettings";
 import { Dialog } from "./Dialog";
 import { DialogResizeHandles, useDialogSize, type DialogSizeBounds } from "./DialogResize";
 import { GateRulesSettings } from "./GateRulesSettings";
-import {
-  isLanguage,
-  LANGUAGE_NAMES,
-  LANGUAGES,
-  useT,
-  type MessageKey,
-  type Translate,
-} from "./i18n";
+import { isLanguage, LANGUAGE_NAMES, LANGUAGES, useT, type MessageKey } from "./i18n";
 import { CheckIcon, CloseIcon } from "./icons";
 import { clampFontSize, FONT_SIZE } from "./layout";
 import { profileErrorText } from "./profileFile";
@@ -25,6 +18,7 @@ import { ProgramsSettings } from "./ProgramsSettings";
 import { AttentionSettings } from "./AttentionSettings";
 import { RangeField } from "./RangeField";
 import { RowLayoutField } from "./RowLayoutSettings";
+import { ActionRow, SettingsGroup, SwitchRow } from "./SettingsParts";
 import { treeFlowSupported } from "./treeFlow";
 import { TreeFlowField } from "./TreeFlowSettings";
 import { clampScrollbackLines, SCROLLBACK_LINES, type Settings } from "./settings";
@@ -69,7 +63,7 @@ import {
 import type { ProgramUpdateState } from "./useProgramUpdates";
 import type { UpdateState } from "./useUpdater";
 import { useScrollToTop } from "./useScrollToTop";
-import { displayVersion } from "./version";
+import { hangarUpdateStatus, programUpdateStatus } from "./updateStatus";
 import { VersionText } from "./VersionText";
 
 interface Props {
@@ -83,6 +77,8 @@ interface Props {
   /** Appearance shown right now (the resolved one for "System"), for the terminal preview. */
   theme: Theme;
   update: UpdateState;
+  /** Time of Hangar's last successful update check (ms), `null` before the first. */
+  updateCheckedAt: number | null;
   /** Version of Hangar, `null` until known. */
   version: string | null;
   programUpdates: ProgramUpdateState;
@@ -1195,61 +1191,72 @@ function ProfileFileField({
   );
 }
 
-function UpdatesSection({ settings, onChange, update, version, onCheckUpdates }: Props) {
+/** Hangar's own updates, then the installed programs' (npm, PyPI, GitHub). */
+function UpdatesSection(props: Props) {
+  const { settings, onChange, update, version, onCheckUpdates } = props;
   const t = useT();
   return (
     <>
-      {version !== null && (
-        <p className="settings-version">
-          {/* The placeholder comes last in every language (test in i18n.test.ts). */}
-          {t("settings.installedVersion", { version: "" })}
-          <VersionText version={version} />
-        </p>
-      )}
-      <label className="check">
-        <input
-          type="checkbox"
+      <SettingsGroup title={t("settings.groupHangar")}>
+        <ActionRow
+          label={
+            version === null ? undefined : (
+              <>
+                {/* The placeholder comes last in every language (test in i18n.test.ts). */}
+                {t("settings.installedVersion", { version: "" })}
+                <VersionText version={version} />
+              </>
+            )
+          }
+          status={hangarUpdateStatus(update, props.updateCheckedAt, settings.language, t)}
+          error={update.kind === "error"}
+          action={t("settings.checkNow")}
+          disabled={update.kind === "checking" || update.kind === "installing"}
+          onAction={onCheckUpdates}
+        />
+        <SwitchRow
+          label={t("settings.autoUpdate")}
+          help={t("settings.autoUpdateHelp")}
           checked={settings.autoUpdate}
-          onChange={(event) => {
-            onChange({ autoUpdate: event.currentTarget.checked });
+          onChange={(checked) => {
+            onChange({ autoUpdate: checked });
           }}
         />
-        <span>{t("settings.autoUpdate")}</span>
-      </label>
-      <div className="settings-row">
-        <button
-          type="button"
-          className="secondary-button"
-          disabled={update.kind === "checking" || update.kind === "installing"}
-          onClick={onCheckUpdates}
-        >
-          {t("settings.checkNow")}
-        </button>
-        <span className="muted" role="status">
-          {updateStatus(update, t)}
-        </span>
-      </div>
+      </SettingsGroup>
+      <ProgramUpdatesGroup settings={settings} state={props.programUpdates} onChange={onChange} />
     </>
   );
 }
 
-function updateStatus(state: UpdateState, t: Translate): string {
-  switch (state.kind) {
-    case "idle":
-      return "";
-    case "checking":
-      return t("update.checking");
-    case "current":
-      return t("update.current", { version: displayVersion(state.version, t("version.beta")) });
-    case "available":
-      return t("update.inSidebar", {
-        version: displayVersion(state.update.version, t("version.beta")),
-      });
-    case "installing":
-      return t("update.installing", {
-        version: displayVersion(state.update.version, t("version.beta")),
-      });
-    case "error":
-      return state.message;
-  }
+/** Switch for checking the programs for updates; "Check now" and its result while it is on. */
+function ProgramUpdatesGroup({
+  settings,
+  state,
+  onChange,
+}: {
+  settings: Settings;
+  state: ProgramUpdateState;
+  onChange: (patch: Partial<Settings>) => void;
+}) {
+  const t = useT();
+  return (
+    <SettingsGroup title={t("settings.groupPrograms")}>
+      <SwitchRow
+        label={t("settings.checkProgramUpdates")}
+        help={t("settings.checkProgramUpdatesHelp")}
+        checked={settings.checkProgramUpdates}
+        onChange={(checked) => {
+          onChange({ checkProgramUpdates: checked });
+        }}
+      >
+        <ActionRow
+          status={programUpdateStatus(state, settings.language, t)}
+          error={state.error !== null}
+          action={t("settings.checkNow")}
+          disabled={state.checking}
+          onAction={state.checkNow}
+        />
+      </SwitchRow>
+    </SettingsGroup>
+  );
 }

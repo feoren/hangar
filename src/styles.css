@@ -86,6 +86,10 @@
   --heat-4: color-mix(in srgb, var(--accent) 34%, transparent);
   /* WebKit (macOS, Linux) adds the bundled Cascadia after Consolas (webkit.css). */
   --mono: "Cascadia Mono", "Cascadia Code", Consolas, "DejaVu Sans Mono", monospace;
+  /* Spacing steps of the settings parts: tight, regular, between groups. */
+  --space-1: 8px;
+  --space-2: 16px;
+  --space-3: 24px;
   --sidebar-width: 320px;
   /* Width of the collapsed sidebar; the same value as SIDEBAR_RAIL_WIDTH in layout.ts. */
   --sidebar-rail: 52px;
@@ -4496,10 +4500,6 @@ body.resizing-horizontal * {
   border-radius: 5px;
 }
 
-.settings-version {
-  margin-top: 0;
-}
-
 .dialog .settings-help {
   margin: 4px 0 10px 26px;
   line-height: 1.45;
@@ -5696,11 +5696,159 @@ body.resizing-horizontal * {
   outline-offset: 2px;
 }
 
+/* The settings parts' switch: a larger target, the same look. */
+.switch.switch-large {
+  flex: none;
+  width: 36px;
+  height: 20px;
+  border-radius: 10px;
+}
+
+.switch.switch-large::after {
+  width: 16px;
+  height: 16px;
+}
+
+.switch.switch-large:checked::after {
+  transform: translateX(16px);
+}
+
+.switch:disabled {
+  cursor: default;
+  opacity: 0.5;
+}
+
 @media (prefers-reduced-motion: reduce) {
   .switch,
   .switch::after {
     transition: none;
   }
+}
+
+/* Settings parts (SettingsParts.tsx): titled groups as cards, one setting per line. */
+.setting-group + .setting-group,
+.setting-group + .settings-section,
+.settings-section + .setting-group {
+  margin-top: var(--space-3);
+}
+
+.setting-group-title {
+  margin: 0 0 var(--space-1);
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.dialog .setting-group-desc {
+  margin: 0 0 var(--space-1);
+  line-height: 1.45;
+}
+
+.setting-card {
+  background: var(--panel-raised);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+}
+
+.setting + .setting {
+  border-top: 1px solid var(--border);
+}
+
+/* Text left, control right; in a narrow panel the control wraps below the text. */
+.setting-line {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-1) var(--space-2);
+  min-height: 44px;
+  padding: var(--space-1) var(--space-2);
+  box-sizing: border-box;
+}
+
+label.setting-line {
+  cursor: pointer;
+}
+
+label.setting-line:hover {
+  background: var(--hover);
+}
+
+.setting:first-child > label.setting-line:hover {
+  border-radius: 7px 7px 0 0;
+}
+
+.setting:last-child > label.setting-line:hover {
+  border-radius: 0 0 7px 7px;
+}
+
+.setting:only-child > label.setting-line:hover {
+  border-radius: 7px;
+}
+
+.setting-text {
+  display: flex;
+  flex: 1 1 240px;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.setting-label {
+  overflow-wrap: anywhere;
+}
+
+.setting-help {
+  line-height: 1.45;
+  color: var(--muted);
+}
+
+.setting-help.error-text {
+  color: var(--error);
+}
+
+.setting-control {
+  display: flex;
+  flex: none;
+  align-items: center;
+  gap: var(--space-1);
+}
+
+/* Settings that depend on the one above: indented under a quiet rule, not greyed out. */
+.setting-children {
+  margin: 0 var(--space-2) var(--space-1) var(--space-3);
+  border-left: 2px solid var(--border);
+}
+
+.setting-children > .setting > .setting-line {
+  padding-right: 0;
+}
+
+.setting-children > .setting + .setting {
+  border-top: none;
+}
+
+.setting-advanced {
+  margin-top: var(--space-2);
+}
+
+.setting-advanced > summary {
+  width: fit-content;
+  min-height: 28px;
+  color: var(--muted);
+  cursor: pointer;
+}
+
+.setting-advanced > summary:hover {
+  color: var(--text);
+}
+
+.setting-advanced > summary:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+  border-radius: 4px;
+}
+
+.setting-advanced-body {
+  margin-top: var(--space-1);
 }
 
 .program-actions {

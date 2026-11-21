@@ -21,6 +21,8 @@ const CHECK_INTERVAL_MS = 6 * 60 * 60 * 1000;
 /** `autoCheck`: check regularly in the background (a setting). Manual checks always work. */
 export function useUpdater(currentVersion: string | null, autoCheck: boolean) {
   const [state, setState] = useState<UpdateState>({ kind: "idle" });
+  /** Time of the last successful check (ms), automatic or manual; `null` before that. */
+  const [checkedAt, setCheckedAt] = useState<number | null>(null);
 
   const runCheck = useCallback(
     async (manual: boolean) => {
@@ -29,6 +31,7 @@ export function useUpdater(currentVersion: string | null, autoCheck: boolean) {
       );
       try {
         const update = await check();
+        setCheckedAt(Date.now());
         setState((current) => {
           if (current.kind === "installing") return current;
           if (update) return { kind: "available", update };
@@ -81,5 +84,5 @@ export function useUpdater(currentVersion: string | null, autoCheck: boolean) {
     setState({ kind: "idle" });
   }, []);
 
-  return { state, check: runCheck, install, dismiss };
+  return { state, checkedAt, check: runCheck, install, dismiss };
 }
