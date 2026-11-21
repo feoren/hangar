@@ -7,7 +7,13 @@
 import type { CSSProperties } from "react";
 
 import { useSubAgentLibrary } from "./subAgentLibraryStore";
-import { figureFor, runningFigure, type Figure } from "./subAgentLibrary";
+import {
+  FIGURE_PADDING,
+  figureFor,
+  figureTop,
+  runningFigure,
+  type Figure,
+} from "./subAgentLibrary";
 
 const FILES = import.meta.glob<string>("./assets/sub-agents/*.webp", {
   eager: true,
@@ -21,6 +27,9 @@ const URLS: ReadonlyMap<string, string> = new Map(
     url,
   ]),
 );
+
+/** Inline style plus the head crop's lift, read by `.agent-figure.head img` in styles.css. */
+type FigureStyle = CSSProperties & { "--figure-lift"?: string };
 
 /** Ids of the bundled figure files (kept equal to `BUILTIN_FIGURES` by a test). */
 export const BUNDLED_FIGURES: readonly string[] = [...URLS.keys()].sort();
@@ -44,7 +53,7 @@ interface Props {
 
 export function AgentFigure({ figure, size, crop = "full", label }: Props) {
   const classes = `agent-figure ${crop === "head" ? "head" : "full"}`;
-  const style: CSSProperties =
+  const style: FigureStyle =
     size === undefined
       ? {}
       : { width: crop === "head" ? size : Math.round((size * 2) / 3), height: size };
@@ -65,10 +74,14 @@ export function AgentFigure({ figure, size, crop = "full", label }: Props) {
     );
   }
   const url = figure.kind === "builtin" ? builtinFigureUrl(figure.id) : figure.url;
+  // A wide bundled figure sits lower in its file; the face crop moves it up by the difference.
+  const lift =
+    figure.kind === "builtin" && crop === "head" ? figureTop(figure.id) - FIGURE_PADDING : 0;
+  const lifted: FigureStyle = lift > 0 ? { ...style, "--figure-lift": String(lift) } : style;
   return (
     <span
       className={figure.kind === "image" ? `${classes} custom` : classes}
-      style={style}
+      style={lifted}
       {...a11y}
     >
       {url !== undefined && <img src={url} alt="" draggable={false} />}
