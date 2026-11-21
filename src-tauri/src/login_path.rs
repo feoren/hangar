@@ -522,7 +522,10 @@ mod tests {
             // CI runners and developer machines run as an account with a shell in the user
             // database; a missing entry would yield `None` and leave the choice to `$SHELL`.
             let shell = account_shell().expect("no login shell in the user database");
-            assert!(Path::new(&shell).is_absolute(), "{shell:?}");
+            assert!(
+                Path::new(&shell).is_absolute(),
+                "the login shell is not an absolute path"
+            );
         }
 
         /// zsh is the default shell on macOS: as a login and interactive shell in a session of

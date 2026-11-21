@@ -1299,7 +1299,10 @@ mod tests {
             ]
         );
         let shown = format!("{findings:?} {}", serde_json::to_string(&findings).unwrap());
-        assert!(!shown.contains("Marker1"), "{shown}");
+        assert!(
+            !shown.contains("Marker1"),
+            "the token leaked into the shown findings"
+        );
         assert_eq!(
             added_secrets(b"", Instant::now() + SCAN_TIMEOUT),
             (Vec::new(), true)
