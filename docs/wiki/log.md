@@ -1350,3 +1350,9 @@ Hangar's copy holds reaches Codex CLI only where the name is free, never a proje
 deleting a copy move it aside first and check the moved file. A `sandbox_mode` in a Codex CLI
 agent file does not override the parent's sandbox (Codex CLI documentation), so none is written.
 Pages changed: [[sub-agent-library]], index.
+
+## [2026-11-21] lint | Sub-agent list: sides and views
+
+Settings > Sub-agents splits the list into Hangar's sub-agents and the others with a switch and
+shows them as cards or as a table; one click opens an entry's details. Side and view are kept per
+computer. Pages changed: [[sub-agent-library]].

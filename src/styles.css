@@ -13259,42 +13259,297 @@ body.session-dragging .session-actions {
   outline-offset: -2px;
 }
 
-.sub-agent-list {
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
+/* The list of definitions (SubAgentSettings.tsx, AgentBrowser): a switch between Hangar's and
+   the other sub-agents, the view on the right, then cards or a table. Its width, not the
+   window's, decides which table columns fit. */
+.sub-agent-browser {
   margin: 0 0 12px;
+  container-type: inline-size;
+}
+
+.sub-agent-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 12px;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 10px;
+}
+
+.sub-agent-sides .segment {
+  display: inline-flex;
+  gap: 8px;
+  align-items: center;
+}
+
+.sub-agent-count {
+  min-width: 20px;
+  padding: 0 6px;
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+  line-height: 18px;
+  text-align: center;
+  color: var(--muted);
+  background: var(--count-chip-bg);
+  border-radius: 9px;
+}
+
+.sub-agent-sides .segment:has(input:checked) .sub-agent-count {
+  color: var(--text);
+}
+
+.sub-agent-views .segment {
+  display: grid;
+  place-items: center;
+  padding: 5px 9px;
+}
+
+.dialog .sub-agent-empty {
+  margin: 0 0 12px;
+  padding: 18px 14px;
+  text-align: center;
+  border: 1px dashed var(--border);
+  border-radius: 10px;
+}
+
+/* Cards. The opened entry's details span the whole grid below its card's row: `dense` lets the
+   cards after it fill the rest of that row first. */
+.sub-agent-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(min(190px, 100%), 1fr));
+  grid-auto-flow: row dense;
+  gap: 10px;
+  margin: 0;
   padding: 0;
   list-style: none;
 }
 
-.sub-agent-row {
+.sub-agent-cell {
   display: flex;
-  gap: 12px;
-  align-items: flex-start;
-  padding: 8px;
-  border-radius: 8px;
+  min-width: 0;
 }
 
-.sub-agent-row:hover {
+.sub-agent-cell.wide {
+  grid-column: 1 / -1;
+}
+
+.sub-agent-card {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  gap: 4px;
+  align-items: center;
+  min-width: 0;
+  padding: 14px 12px 12px;
+  text-align: center;
+  background: var(--panel-raised);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  transition:
+    background-color 120ms var(--ease-out),
+    border-color 120ms var(--ease-out);
+}
+
+.sub-agent-card:hover {
   background: var(--hover);
 }
 
-.sub-agent-figure-button {
-  flex: none;
-  padding: 2px;
-  border-radius: 8px;
+.sub-agent-card.open {
+  background: var(--hover);
+  border-color: var(--accent);
 }
 
-.sub-agent-figure-button:focus-visible,
-.figure-choice:focus-visible {
-  outline: 2px solid var(--accent);
-  outline-offset: 1px;
+button.sub-agent-card:focus-visible {
+  outline-offset: 2px;
 }
 
-.sub-agent-text {
-  flex: 1;
+.sub-agent-card .agent-figure {
+  margin-bottom: 6px;
+}
+
+.sub-agent-card-name {
+  max-width: 100%;
+  overflow: hidden;
+  font-weight: 600;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.sub-agent-card-description {
+  display: -webkit-box;
+  overflow: hidden;
+  font-size: 12px;
+  line-height: 1.4;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  line-clamp: 2;
+}
+
+.sub-agent-card-meta {
+  max-width: 100%;
+  margin-top: auto;
+  padding-top: 4px;
+  overflow: hidden;
+  font-size: 11.5px;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+/* Table: one quiet line per entry; secondary columns give way when the list is narrow. */
+.sub-agent-table {
+  width: 100%;
+  font-size: 12.5px;
+  border-collapse: collapse;
+  table-layout: fixed;
+}
+
+.sub-agent-table th,
+.sub-agent-table td {
+  padding: 6px 8px;
+  overflow: hidden;
+  text-align: left;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  vertical-align: middle;
+  border-bottom: 1px solid var(--border);
+}
+
+.sub-agent-table th {
+  padding-block: 4px;
+  font-size: 11.5px;
+  font-weight: 600;
+  color: var(--muted);
+}
+
+.sub-agent-table .col-figure {
+  width: 44px;
+  padding-right: 0;
+}
+
+/* Block level against the line's descender gap; still flex, so an initial stays centered. */
+.sub-agent-table .col-figure .agent-figure {
+  display: flex;
+}
+
+.sub-agent-table .col-name {
+  width: 26%;
+}
+
+.sub-agent-table .col-place {
+  width: 16%;
+}
+
+.sub-agent-table .col-model {
+  width: 13%;
+}
+
+.sub-agent-table .col-toggle {
+  width: 32px;
+  padding-inline: 4px 8px;
+}
+
+.sub-agent-table-row {
+  cursor: pointer;
+}
+
+.sub-agent-table-row:hover > td,
+.sub-agent-table-row.open > td {
+  background: var(--hover);
+}
+
+.sub-agent-table-row.open > td {
+  border-bottom-color: transparent;
+}
+
+.sub-agent-table-name {
+  max-width: 100%;
+  padding: 0;
+  overflow: hidden;
+  font-weight: 600;
+  text-align: left;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.sub-agent-chevron {
+  display: grid;
+  place-items: center;
+  color: var(--muted);
+  transition: transform 150ms var(--ease-out);
+}
+
+.sub-agent-chevron.open {
+  transform: rotate(90deg);
+}
+
+.sub-agent-table .sub-agent-table-details > td {
+  padding: 0 0 10px;
+  overflow: visible;
+  white-space: normal;
+}
+
+/* Columns give way at zero width, not with `display: none`: an opened entry's details span every
+   column (`colSpan`), and columns removed from the other rows would come back there empty and
+   take the name's room. */
+@container (max-width: 640px) {
+  .sub-agent-table .col-place,
+  .sub-agent-table .col-codex {
+    width: 0;
+    padding-inline: 0;
+    visibility: hidden;
+  }
+}
+
+/* Claude Code's model column alone: wide enough for its heading. */
+@container (min-width: 461px) and (max-width: 640px) {
+  .sub-agent-table .col-model:not(.col-codex) {
+    width: 19%;
+  }
+}
+
+@container (max-width: 460px) {
+  .sub-agent-table .col-description,
+  .sub-agent-table .col-model {
+    width: 0;
+    padding-inline: 0;
+    visibility: hidden;
+  }
+
+  .sub-agent-table .col-name {
+    width: auto;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .sub-agent-card,
+  .sub-agent-chevron {
+    transition: none;
+  }
+}
+
+/* An opened entry: name and places, the whole description, models, copies and actions. */
+.sub-agent-details {
+  position: relative;
   min-width: 0;
+  padding: 12px 44px 12px 14px;
+  background: var(--panel-raised);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+}
+
+.sub-agent-cell.wide > .sub-agent-details {
+  flex: 1;
+}
+
+.sub-agent-details-close {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+}
+
+.dialog .sub-agent-details-description {
+  margin: 4px 0 10px;
+  line-height: 1.45;
 }
 
 .sub-agent-head {
@@ -13304,18 +13559,15 @@ body.session-dragging .session-actions {
   align-items: baseline;
 }
 
-.sub-agent-description {
-  display: -webkit-box;
-  margin: 2px 0 4px;
-  overflow: hidden;
-  -webkit-box-orient: vertical;
-  -webkit-line-clamp: 2;
-  line-clamp: 2;
+.figure-choice:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
 }
 
 .sub-agent-actions {
   display: flex;
-  gap: 12px;
+  flex-wrap: wrap;
+  gap: 4px 12px;
 }
 
 .sub-agent-confirm {

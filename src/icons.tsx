@@ -612,3 +612,24 @@ export function LeafIcon(props: IconProps) {
     </Svg>
   );
 }
+
+/** Cards in a grid: four rounded tiles. */
+export function GridIcon(props: IconProps) {
+  return (
+    <Svg {...props}>
+      <rect x="2.5" y="2.5" width="4.5" height="4.5" rx="1" />
+      <rect x="9" y="2.5" width="4.5" height="4.5" rx="1" />
+      <rect x="2.5" y="9" width="4.5" height="4.5" rx="1" />
+      <rect x="9" y="9" width="4.5" height="4.5" rx="1" />
+    </Svg>
+  );
+}
+
+/** One line per entry: a dot and a line, three times. */
+export function RowsIcon(props: IconProps) {
+  return (
+    <Svg {...props}>
+      <path d="M2.75 4h0.5M6 4h7.5M2.75 8h0.5M6 8h7.5M2.75 12h0.5M6 12h7.5" />
+    </Svg>
+  );
+}

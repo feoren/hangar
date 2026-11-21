@@ -32,6 +32,20 @@
         "zh": "现在只有 Hangar 自己的子代理才显示形象。你自己的代理显示其首字母。"
       },
       {
+        "de": "Einstellungen, Sub-Agenten: Ein Schalter trennt Hangars Sub-Agenten von deinen, als Kacheln oder Tabelle. Ein Klick öffnet Modell und Figur.",
+        "en": "Sub-agents in the settings: a switch separates Hangar's sub-agents from the others, shown as cards or as a table. One click opens model and figure.",
+        "el": "Ρυθμίσεις, υπο-πράκτορες: ένας διακόπτης χωρίζει του Hangar από τους δικούς σου, ως κάρτες ή πίνακα. Ένα κλικ ανοίγει μοντέλο και φιγούρα.",
+        "es": "Subagentes en los ajustes: un selector separa los subagentes de Hangar de los tuyos, como tarjetas o como tabla. Un clic abre el modelo y la figura.",
+        "fr": "Sous-agents dans les réglages : un sélecteur sépare les sous-agents de Hangar des tiens, en cartes ou en tableau. Un clic ouvre le modèle et la figure.",
+        "it": "Sotto-agenti nelle impostazioni: un selettore separa i sotto-agenti di Hangar dai tuoi, a schede o a tabella. Un clic apre modello e figura.",
+        "ja": "設定のサブエージェント: 切り替えで Hangar のサブエージェントとその他を分けて、カードか表で表示します。クリックでモデルとフィギュアを開けます。",
+        "pl": "Podagenci w ustawieniach: przełącznik oddziela podagentów Hangara od pozostałych, jako karty lub tabela. Kliknięcie otwiera model i postać.",
+        "pt": "Subagentes nas configurações: um seletor separa os subagentes do Hangar dos seus, como cartões ou como tabela. Um clique abre modelo e figura.",
+        "ru": "Субагенты в настройках: переключатель отделяет субагентов Hangar от остальных, карточками или таблицей. Один щелчок открывает модель и фигурку.",
+        "tr": "Ayarlardaki alt ajanlar: bir anahtar Hangar'ın alt ajanlarını diğerlerinden ayırır, kart ya da tablo olarak. Tek tıkla model ve figür açılır.",
+        "zh": "设置中的子代理：一个开关把 Hangar 的子代理和其他子代理分开，可用卡片或表格显示。点一下即可打开模型和形象。"
+      },
+      {
         "de": "Diktieren geht jetzt mit einer Taste: Halte die rechte Strg-Taste gedrückt und sprich. Wählbar sind auch F8, F9, F10 oder Strg+Umschalt+Leertaste.",
         "en": "Dictation now works with a single key: hold the right Ctrl key and speak. In the settings you can also pick F8, F9, F10 or Ctrl+Shift+Space.",
         "el": "Η υπαγόρευση γίνεται τώρα με ένα μόνο πλήκτρο: κράτα πατημένο το δεξί Ctrl και μίλα. Στις ρυθμίσεις μπορείς να διαλέξεις και F8, F9, F10 ή Ctrl+Shift+Διάστημα.",

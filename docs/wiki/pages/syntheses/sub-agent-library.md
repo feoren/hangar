@@ -18,11 +18,20 @@ only shows the figure of a known definition next to a running sub-agent of that 
 
 - **Definitions:** Markdown files with a frontmatter (`name`, `description`, optional `model`,
   `color`, `tools`) in `~/.claude/agents` (global) and `<project>/.claude/agents` (project).
-- **Settings > Sub-agents:** one row per name with figure, name, description, where it is
-  defined (Global, Project <folder>, "from project <folder>, replaces the global one") and
-  model; for a Hangar agent the whole figure (96 px high) is the button that opens the figure
-  picker, any other row shows its initial without a picker; actions Open
-  (default editor) and Delete (global definitions only, asked inline). The picker names the
+- **Settings > Sub-agents:** a switch with two sides, "From Hangar" (`isHangarAgent`) and
+  "Others" (the user's own and project definitions and own Codex CLI files), each with its
+  count; it starts on Hangar's side while that has entries (`pickSide` in `subAgentView.ts`), and a
+  side clicked stays shown even when empty. An empty side says why (Hangar's: switched off via "Provide Hangar's sub-agents", or none in
+  `~/.claude/agents`). Beside it the view: cards in a grid (whole figure 96 px high, name, two
+  lines of description, place and model) or a table (face 32 px, name, description, place,
+  Claude Code and Codex CLI model; place and Codex column, then description and models give way
+  when the list is narrow, by container query). Side and view are remembered per computer in
+  localStorage (`hangar.subAgentList`). Clicking a card or row opens one entry's details below
+  it (across the whole grid, `grid-auto-flow: dense` keeps the card's row intact): every place
+  it is defined (Global, Project <folder>, "from project <folder>, replaces the global one"),
+  the whole description, the model fields and copies; actions Open (default editor), Change
+  figure (Hangar's agents only, opens the picker) and Delete (global definitions only, asked
+  inline). The picker names the
   built-in figures in words ("Developer 2") and marks only a figure the user chose, not one
   derived from the name. "New sub-agent" takes pasted text or a loaded `.md`
   file and saves it as a global definition.
@@ -373,8 +382,9 @@ repository.
 
 - `subAgentModels.ts`: model rules, options, settings and copies (pure). `SubAgentModelField.tsx`:
   the model field. Settings shows the defaults on top ("Default model for all sub-agents", only
-  installed programs), then one row per name with "Claude Code [model]" and "Codex CLI [model]
-  [effort] · provided", and the user's own Codex CLI definitions with a badge.
+  installed programs), then the list (`subAgentView.ts`: sides, default side, stored view; pure
+  and tested) whose details hold "Claude Code [model]" and "Codex CLI [model] [effort] ·
+  provided", and the user's own Codex CLI definitions with a badge.
 - `subAgentLibrary.ts`: pure checks of the backend's answers, grouping, `defsFor`, default figure.
 - `subAgentLibraryStore.ts`: one shared state; read on start, when the set of folders changes,
   when Settings opens and after a change.

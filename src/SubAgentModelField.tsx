@@ -8,6 +8,7 @@ import { useT, type MessageKey } from "./i18n";
 import {
   claudeOptions,
   effortOptions,
+  modelName,
   OTHER_MODEL,
   validModel,
   type DefProgram,
@@ -20,12 +21,6 @@ const EFFORT_TEXTS: Readonly<Record<string, MessageKey>> = {
   medium: "subAgentLib.effort.medium",
   high: "subAgentLib.effort.high",
   xhigh: "subAgentLib.effort.xhigh",
-};
-
-const ALIAS_NAMES: Readonly<Record<string, string>> = {
-  opus: "Opus",
-  sonnet: "Sonnet",
-  haiku: "Haiku",
 };
 
 export function ModelField({
@@ -65,7 +60,7 @@ function ClaudeField({
     if (option === "") return t("subAgentLib.modelSession");
     if (option === OTHER_MODEL) return t("subAgentLib.modelOther");
     if (option === "fable") return t("subAgentLib.modelFable");
-    return ALIAS_NAMES[option] ?? option;
+    return modelName(option);
   };
   return (
     <span className="model-field">

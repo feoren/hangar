@@ -114,6 +114,18 @@ export function withBundled(settings: SubAgentSettings, on: boolean): SubAgentSe
 /** Value of the Claude model field for "another id", never a model. */
 export const OTHER_MODEL = "\u0000other";
 
+/** How Claude Code's model aliases read in the window; any other id is shown as it is. */
+const MODEL_ALIAS_NAMES: Readonly<Record<string, string>> = {
+  opus: "Opus",
+  sonnet: "Sonnet",
+  haiku: "Haiku",
+};
+
+/** A model id or alias as the window shows it ("sonnet" reads "Sonnet"). */
+export function modelName(model: string): string {
+  return MODEL_ALIAS_NAMES[model] ?? model;
+}
+
 /**
  * The entries of the Claude model field: the session's model, the aliases, a value the file
  * holds that is none of them (shown as it is, so nothing is lost) and "another id".

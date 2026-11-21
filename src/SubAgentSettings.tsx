@@ -4,12 +4,13 @@
 // together), a figure picker below the row whose figure was clicked, and a form for a new
 // definition from pasted text or a loaded file.
 
-import { useEffect, useRef, useState } from "react";
+import { Fragment, useEffect, useRef, useState, type ReactNode } from "react";
 
 import { AgentFigure } from "./AgentFigure";
 import { withExtras } from "./agentStartMenu";
 import { api, errorText } from "./api";
 import { useT, type MessageKey } from "./i18n";
+import { ChevronIcon, CloseIcon, GridIcon, RowsIcon } from "./icons";
 import { folderName } from "./folders";
 import {
   BUILTIN_FIGURES,
@@ -53,6 +54,7 @@ import {
   ownCodexDefs,
   parseSubAgentSettings,
   provides,
+  modelName,
   withBundled,
   withModel,
   withProvide,
@@ -60,6 +62,19 @@ import {
   type ModelChoice,
   type SubAgentSettings,
 } from "./subAgentModels";
+import {
+  AGENT_LIST_VIEWS,
+  AGENT_SIDES,
+  agentItems,
+  loadAgentListPrefs,
+  pickSide,
+  saveAgentListPrefs,
+  splitBySide,
+  type AgentItem,
+  type AgentListPrefs,
+  type AgentListView,
+  type AgentSide,
+} from "./subAgentView";
 
 const PROBLEM_TEXTS: Record<DefProblemKind, MessageKey> = {
   tooLarge: "subAgentLib.problem.tooLarge",
@@ -106,15 +121,43 @@ const PROGRAM_NAMES: Record<DefProgram, string> = { claude: "Claude Code", codex
 export function SubAgentSettings() {
   const t = useT();
   const { library, error } = useSubAgentLibrary();
-  const [picking, setPicking] = useState<string | null>(null);
   const [creating, setCreating] = useState(false);
-  const entries = libraryEntries(library);
-  const ownCodex = ownCodexDefs(library);
+  const [settings, setSettings] = useState<SubAgentSettings | null>(null);
+  const [settingsError, setSettingsError] = useState<string | null>(null);
 
   // Files may have changed outside Hangar since the last look; the copies follow them.
   useEffect(() => {
     void syncLibrary();
   }, []);
+
+  useEffect(() => {
+    let live = true;
+    api
+      .subAgentSettings()
+      .then((value) => {
+        if (live) setSettings(parseSubAgentSettings(value));
+      })
+      .catch((e: unknown) => {
+        if (live) setSettingsError(errorText(e));
+      });
+    return () => {
+      live = false;
+    };
+  }, []);
+
+  const saveSettings = (next: SubAgentSettings) => {
+    if (settings === null) return;
+    setSettingsError(null);
+    const before = settings;
+    setSettings(next);
+    api
+      .saveSubAgentSettings(next)
+      .then(() => syncLibrary())
+      .catch((e: unknown) => {
+        setSettings(before);
+        setSettingsError(errorText(e));
+      });
+  };
 
   return (
     <section className="settings-section sub-agent-settings" aria-labelledby="sub-agents-help">
@@ -122,25 +165,13 @@ export function SubAgentSettings() {
         {t("subAgentLib.intro")}
       </p>
       {error !== null && <p className="muted error-text">{error}</p>}
-      <ModelDefaults library={library} />
-      {entries.length === 0 && ownCodex.length === 0 && !creating && (
-        <p className="muted">{t("subAgentLib.empty")}</p>
-      )}
-      <ul className="sub-agent-list">
-        {entries.map((entry) => (
-          <SubAgentRow
-            key={entry.name}
-            entry={entry}
-            picking={picking === entry.name}
-            onPick={() => {
-              setPicking((current) => (current === entry.name ? null : entry.name));
-            }}
-          />
-        ))}
-        {ownCodex.map((def) => (
-          <CodexRow key={`${def.folder ?? ""}/${def.file}`} def={def} />
-        ))}
-      </ul>
+      <ModelDefaults
+        library={library}
+        settings={settings}
+        message={settingsError}
+        onSave={saveSettings}
+      />
+      <AgentBrowser library={library} bundledOff={settings?.bundledOff === true} />
       {library.problems.length > 0 && (
         <details className="sub-agent-problems">
           <summary className="muted">
@@ -183,45 +214,394 @@ export function SubAgentSettings() {
   );
 }
 
+const SIDE_TEXTS: Record<AgentSide, MessageKey> = {
+  hangar: "subAgentLib.side.hangar",
+  others: "subAgentLib.side.others",
+};
+
+const VIEW_TEXTS: Record<AgentListView, MessageKey> = {
+  grid: "subAgentLib.view.grid",
+  table: "subAgentLib.view.table",
+};
+
+const VIEW_ICONS: Record<AgentListView, ReactNode> = {
+  grid: <GridIcon />,
+  table: <RowsIcon />,
+};
+
+/**
+ * The definitions on two sides of a switch (Hangar's own, every other one) as cards or as a
+ * table. Clicking an entry opens its details below it; one at a time.
+ */
+function AgentBrowser({ library, bundledOff }: { library: Library; bundledOff: boolean }) {
+  const t = useT();
+  const [prefs, setPrefs] = useState<AgentListPrefs>(loadAgentListPrefs);
+  const [openKey, setOpenKey] = useState<string | null>(null);
+  // A side clicked here is shown even when empty, so its empty note can say why; only the side
+  // remembered from last time gives way to one with entries.
+  const [clicked, setClicked] = useState<AgentSide | null>(null);
+  const sides = splitBySide(agentItems(libraryEntries(library), ownCodexDefs(library)));
+  const side =
+    clicked ?? pickSide(prefs.side, { hangar: sides.hangar.length, others: sides.others.length });
+  const items = sides[side];
+
+  const change = (next: AgentListPrefs) => {
+    setPrefs(next);
+    saveAgentListPrefs(next);
+  };
+  const toggle = (key: string) => {
+    setOpenKey((current) => (current === key ? null : key));
+  };
+  const close = () => {
+    setOpenKey(null);
+  };
+
+  return (
+    <div className="sub-agent-browser">
+      <div className="sub-agent-toolbar">
+        <div
+          className="segmented sub-agent-sides"
+          role="radiogroup"
+          aria-label={t("subAgentLib.side")}
+        >
+          {AGENT_SIDES.map((option) => (
+            <label key={option} className="segment">
+              <input
+                type="radio"
+                name="sub-agent-side"
+                value={option}
+                checked={side === option}
+                onChange={() => {
+                  setOpenKey(null);
+                  setClicked(option);
+                  change({ ...prefs, side: option });
+                }}
+              />
+              <span>{t(SIDE_TEXTS[option])}</span>
+              <span className="sub-agent-count">{sides[option].length}</span>
+            </label>
+          ))}
+        </div>
+        <div
+          className="segmented sub-agent-views"
+          role="radiogroup"
+          aria-label={t("subAgentLib.view")}
+        >
+          {AGENT_LIST_VIEWS.map((option) => (
+            <label key={option} className="segment" title={t(VIEW_TEXTS[option])}>
+              <input
+                type="radio"
+                name="sub-agent-view"
+                value={option}
+                checked={prefs.view === option}
+                aria-label={t(VIEW_TEXTS[option])}
+                onChange={() => {
+                  change({ ...prefs, view: option });
+                }}
+              />
+              {VIEW_ICONS[option]}
+            </label>
+          ))}
+        </div>
+      </div>
+      {items.length === 0 ? (
+        <p className="muted sub-agent-empty">
+          {side === "others"
+            ? t("subAgentLib.emptyOthers")
+            : t(bundledOff ? "subAgentLib.emptyHangarOff" : "subAgentLib.emptyHangar")}
+        </p>
+      ) : prefs.view === "grid" ? (
+        <AgentGrid items={items} openKey={openKey} onToggle={toggle} onClose={close} />
+      ) : (
+        <AgentTable items={items} openKey={openKey} onToggle={toggle} onClose={close} />
+      )}
+    </div>
+  );
+}
+
+interface ListProps {
+  items: AgentItem[];
+  openKey: string | null;
+  onToggle: (key: string) => void;
+  onClose: () => void;
+}
+
+/** Id of an entry's details, for `aria-controls`; keys hold characters an id should not. */
+function detailsId(item: AgentItem): string {
+  return `sub-agent-details-${item.key.replace(/[^a-zA-Z0-9_-]/g, "_")}`;
+}
+
+function modelText(model: string | null, t: ReturnType<typeof useT>): string {
+  return model === null ? t("subAgentLib.modelDefault") : modelName(model);
+}
+
+/** What an entry shows in the list: its figure, one short place and its models. */
+function useItemSummary(item: AgentItem) {
+  const t = useT();
+  const { library, figures } = useSubAgentLibrary();
+  if (item.kind === "codex") {
+    const { def } = item;
+    return {
+      figure: initialFigure(def.name, null),
+      description: def.description,
+      place: `${PROGRAM_NAMES.codex} · ${
+        def.folder === null
+          ? t("subAgentLib.global")
+          : t("subAgentLib.project", { folder: folderName(def.folder) })
+      }`,
+      claudeModel: null,
+      codexModel: modelText(def.model, t),
+    };
+  }
+  const { entry } = item;
+  const def = entry.global ?? entry.def;
+  // Copies exist of global definitions only, and only for programs Hangar hands them to.
+  const copy =
+    entry.global === null || !provides(library, "codex")
+      ? undefined
+      : copiesOf(library, entry.name).find((each) => each.scope === "global");
+  return {
+    figure: defFigure(def, library, figures),
+    description: entry.def.description,
+    place:
+      entry.global !== null
+        ? t("subAgentLib.global")
+        : t("subAgentLib.project", { folder: folderName(entry.def.folder ?? "") }),
+    claudeModel: modelText(def.model, t),
+    codexModel: copy === undefined ? null : modelText(copy.model, t),
+  };
+}
+
+function AgentGrid({ items, openKey, onToggle, onClose }: ListProps) {
+  return (
+    <ul className="sub-agent-grid">
+      {items.map((item) => {
+        const open = openKey === item.key;
+        return (
+          <Fragment key={item.key}>
+            <li className="sub-agent-cell">
+              <AgentCard
+                item={item}
+                open={open}
+                onToggle={() => {
+                  onToggle(item.key);
+                }}
+              />
+            </li>
+            {/* Spans the whole grid; `dense` lets the rest of the card's row fill in above it. */}
+            {open && (
+              <li className="sub-agent-cell wide">
+                <AgentDetails item={item} onClose={onClose} />
+              </li>
+            )}
+          </Fragment>
+        );
+      })}
+    </ul>
+  );
+}
+
+function AgentCard({
+  item,
+  open,
+  onToggle,
+}: {
+  item: AgentItem;
+  open: boolean;
+  onToggle: () => void;
+}) {
+  const summary = useItemSummary(item);
+  const model = item.kind === "codex" ? summary.codexModel : summary.claudeModel;
+  return (
+    <button
+      type="button"
+      className={open ? "sub-agent-card open" : "sub-agent-card"}
+      aria-expanded={open}
+      aria-controls={open ? detailsId(item) : undefined}
+      onClick={onToggle}
+    >
+      <AgentFigure figure={summary.figure} size={96} crop="full" />
+      <span className="sub-agent-card-name">{item.name}</span>
+      <span className="sub-agent-card-description">{summary.description}</span>
+      <span className="muted sub-agent-card-meta">
+        {summary.place}
+        {model !== null && ` · ${model}`}
+      </span>
+    </button>
+  );
+}
+
+function AgentTable({ items, openKey, onToggle, onClose }: ListProps) {
+  const t = useT();
+  const { library } = useSubAgentLibrary();
+  // A Codex column only where Codex CLI is installed or one of its own definitions is listed.
+  const codex = library.installed.includes("codex") || items.some((item) => item.kind === "codex");
+  const columns = codex ? 7 : 6;
+  return (
+    <table className="sub-agent-table">
+      <thead>
+        <tr>
+          <th scope="col" className="col-figure">
+            <span className="sr-only">{t("subAgentLib.col.figure")}</span>
+          </th>
+          <th scope="col" className="col-name">
+            {t("subAgentLib.col.name")}
+          </th>
+          <th scope="col" className="col-description">
+            {t("subAgentLib.col.description")}
+          </th>
+          <th scope="col" className="col-place">
+            {t("subAgentLib.col.place")}
+          </th>
+          <th scope="col" className="col-model">
+            {PROGRAM_NAMES.claude}
+          </th>
+          {codex && (
+            <th scope="col" className="col-model col-codex">
+              {PROGRAM_NAMES.codex}
+            </th>
+          )}
+          <th scope="col" className="col-toggle">
+            <span className="sr-only">{t("subAgentLib.col.details")}</span>
+          </th>
+        </tr>
+      </thead>
+      <tbody>
+        {items.map((item) => {
+          const open = openKey === item.key;
+          return (
+            <Fragment key={item.key}>
+              <AgentTableRow
+                item={item}
+                open={open}
+                codex={codex}
+                onToggle={() => {
+                  onToggle(item.key);
+                }}
+              />
+              {open && (
+                <tr className="sub-agent-table-details">
+                  <td colSpan={columns}>
+                    <AgentDetails item={item} onClose={onClose} />
+                  </td>
+                </tr>
+              )}
+            </Fragment>
+          );
+        })}
+      </tbody>
+    </table>
+  );
+}
+
+function AgentTableRow({
+  item,
+  open,
+  codex,
+  onToggle,
+}: {
+  item: AgentItem;
+  open: boolean;
+  codex: boolean;
+  onToggle: () => void;
+}) {
+  const summary = useItemSummary(item);
+  return (
+    // The name's button opens the details for the keyboard; the whole row does for the mouse.
+    <tr className={open ? "sub-agent-table-row open" : "sub-agent-table-row"} onClick={onToggle}>
+      <td className="col-figure">
+        <AgentFigure figure={summary.figure} size={32} crop="head" />
+      </td>
+      <td className="col-name">
+        <button
+          type="button"
+          className="sub-agent-table-name"
+          aria-expanded={open}
+          aria-controls={open ? detailsId(item) : undefined}
+          onClick={(event) => {
+            event.stopPropagation();
+            onToggle();
+          }}
+        >
+          {item.name}
+        </button>
+      </td>
+      <td className="col-description muted" title={summary.description}>
+        {summary.description}
+      </td>
+      <td className="col-place muted">{summary.place}</td>
+      <td className="col-model" title={summary.claudeModel ?? undefined}>
+        {summary.claudeModel ?? ""}
+      </td>
+      {codex && (
+        <td className="col-model col-codex" title={summary.codexModel ?? undefined}>
+          {summary.codexModel ?? ""}
+        </td>
+      )}
+      <td className="col-toggle">
+        <span className={open ? "sub-agent-chevron open" : "sub-agent-chevron"}>
+          <ChevronIcon />
+        </span>
+      </td>
+    </tr>
+  );
+}
+
+/** The opened entry: everything a row used to show, with its fields and actions. */
+function AgentDetails({ item, onClose }: { item: AgentItem; onClose: () => void }) {
+  const t = useT();
+  return (
+    <div
+      id={detailsId(item)}
+      className="sub-agent-details"
+      role="group"
+      aria-label={t("subAgentLib.details", { name: item.name })}
+    >
+      <button
+        type="button"
+        className="icon-button sub-agent-details-close"
+        aria-label={t("common.close")}
+        title={t("common.close")}
+        onClick={() => {
+          // The details go away with the focus in them: it returns to the card or name that
+          // opened them, not to the start of the window.
+          const opener = document.querySelector<HTMLElement>(
+            `[aria-controls="${detailsId(item)}"]`,
+          );
+          onClose();
+          opener?.focus();
+        }}
+      >
+        <CloseIcon />
+      </button>
+      {item.kind === "claude" ? (
+        <ClaudeDetails entry={item.entry} />
+      ) : (
+        <CodexDetails def={item.def} />
+      )}
+    </div>
+  );
+}
+
 /**
  * The default model of every sub-agent per installed program, and whether the user's
  * definitions go to the other programs. Only programs installed here are shown.
  */
-function ModelDefaults({ library }: { library: Library }) {
+function ModelDefaults({
+  library,
+  settings,
+  message,
+  onSave: save,
+}: {
+  library: Library;
+  settings: SubAgentSettings | null;
+  message: string | null;
+  onSave: (next: SubAgentSettings) => void;
+}) {
   const t = useT();
-  const [settings, setSettings] = useState<SubAgentSettings | null>(null);
-  const [message, setMessage] = useState<string | null>(null);
-
-  useEffect(() => {
-    let live = true;
-    api
-      .subAgentSettings()
-      .then((value) => {
-        if (live) setSettings(parseSubAgentSettings(value));
-      })
-      .catch((e: unknown) => {
-        if (live) setMessage(errorText(e));
-      });
-    return () => {
-      live = false;
-    };
-  }, []);
-
   if (settings === null || library.installed.length === 0) {
     return message === null ? null : <p className="muted error-text">{message}</p>;
   }
-  const save = (next: SubAgentSettings) => {
-    setMessage(null);
-    const before = settings;
-    setSettings(next);
-    api
-      .saveSubAgentSettings(next)
-      .then(() => syncLibrary())
-      .catch((e: unknown) => {
-        setSettings(before);
-        setMessage(errorText(e));
-      });
-  };
   const suggestions = codexSuggestions(library, library.codexModels);
   return (
     <div className="sub-agent-defaults" role="group" aria-labelledby="sub-agent-defaults-title">
@@ -396,21 +776,14 @@ function copyText(
   });
 }
 
-function SubAgentRow({
-  entry,
-  picking,
-  onPick,
-}: {
-  entry: LibraryEntry;
-  picking: boolean;
-  onPick: () => void;
-}) {
+/** A Claude Code definition opened: places, models, copies, figure and file actions. */
+function ClaudeDetails({ entry }: { entry: LibraryEntry }) {
   const t = useT();
   const { library, figures } = useSubAgentLibrary();
   const [confirming, setConfirming] = useState(false);
+  const [picking, setPicking] = useState(false);
   const [problem, setProblem] = useState<string | null>(null);
   const models = useModelChange(setProblem);
-  const figure = defFigure(entry.global ?? entry.def, library, figures);
   const places = [
     ...(entry.global === null ? [] : [t("subAgentLib.global")]),
     ...(isFromHangar(library, entry) ? [t("subAgentLib.fromHangar")] : []),
@@ -452,132 +825,124 @@ function SubAgentRow({
   const projectIssues = issues.filter((issue) => issue.scope !== "global");
 
   return (
-    <li className="sub-agent-row">
-      {/* Only Hangar's own agents wear figures, so only they can pick one. */}
-      {isHangarAgent(entry.name) ? (
+    <>
+      <div className="sub-agent-head">
+        <strong className="sub-agent-name">{entry.name}</strong>
+        <span className="muted sub-agent-meta">{places.join(" · ")}</span>
+      </div>
+      <p className="sub-agent-details-description">{entry.def.description}</p>
+      <div className="sub-agent-models">
+        <span className="sub-agent-model">
+          <span className="muted">{PROGRAM_NAMES.claude}</span>
+          <ModelField
+            program="claude"
+            value={{ model: def.model, effort: null }}
+            label={t("subAgentLib.modelOf", { name: entry.name })}
+            onChange={(choice) => {
+              setProblem(null);
+              models.change(
+                "claude",
+                entry.name,
+                def.scope === "global" ? null : def.folder,
+                choice,
+              );
+            }}
+          />
+        </span>
+        {copies !== null && (
+          <span className="sub-agent-model">
+            <span className="muted">{PROGRAM_NAMES.codex}</span>
+            {globalCopy !== undefined && (
+              <ModelField
+                program="codex"
+                value={{ model: globalCopy.model, effort: globalCopy.effort }}
+                suggestions={codexSuggestions(library, library.codexModels)}
+                label={t("subAgentLib.modelIn", {
+                  name: entry.name,
+                  program: PROGRAM_NAMES.codex,
+                })}
+                onChange={(choice) => {
+                  setProblem(null);
+                  models.change("codex", entry.name, null, choice);
+                }}
+              />
+            )}
+            <span className="muted sub-agent-copy">{copyText(globalCopy, globalIssue, t)}</span>
+          </span>
+        )}
+      </div>
+      {projectCopies.map((copy) => (
+        <p key={`${copy.folder ?? ""}/${copy.file}`} className="muted sub-agent-copy">
+          {PROGRAM_NAMES.codex}: {copyText(copy, undefined, t)}
+        </p>
+      ))}
+      {projectIssues.map((issue) => (
+        <p key={`${issue.folder ?? ""}/${issue.file}`} className="muted sub-agent-copy">
+          {PROGRAM_NAMES.codex}: {issueText(issue, t)}
+        </p>
+      ))}
+      {models.question}
+      <div className="sub-agent-actions">
         <button
           type="button"
-          className="sub-agent-figure-button"
-          aria-expanded={picking}
-          aria-label={t("subAgentLib.figureFor", { name: entry.name })}
-          title={t("subAgentLib.figureFor", { name: entry.name })}
-          onClick={onPick}
+          className="link-button"
+          title={t("subAgentLib.openHelp")}
+          onClick={open}
         >
-          <AgentFigure figure={figure} size={96} crop="full" />
+          {t("subAgentLib.open")}
         </button>
-      ) : (
-        <span className="sub-agent-figure-button">
-          <AgentFigure figure={figure} size={96} crop="full" />
-        </span>
-      )}
-      <div className="sub-agent-text">
-        <div className="sub-agent-head">
-          <strong className="sub-agent-name">{entry.name}</strong>
-          <span className="muted sub-agent-meta">{places.join(" · ")}</span>
-        </div>
-        <p className="sub-agent-description" title={entry.def.description}>
-          {entry.def.description}
-        </p>
-        <div className="sub-agent-models">
-          <span className="sub-agent-model">
-            <span className="muted">{PROGRAM_NAMES.claude}</span>
-            <ModelField
-              program="claude"
-              value={{ model: def.model, effort: null }}
-              label={t("subAgentLib.modelOf", { name: entry.name })}
-              onChange={(choice) => {
-                setProblem(null);
-                models.change(
-                  "claude",
-                  entry.name,
-                  def.scope === "global" ? null : def.folder,
-                  choice,
-                );
-              }}
-            />
-          </span>
-          {copies !== null && (
-            <span className="sub-agent-model">
-              <span className="muted">{PROGRAM_NAMES.codex}</span>
-              {globalCopy !== undefined && (
-                <ModelField
-                  program="codex"
-                  value={{ model: globalCopy.model, effort: globalCopy.effort }}
-                  suggestions={codexSuggestions(library, library.codexModels)}
-                  label={t("subAgentLib.modelIn", {
-                    name: entry.name,
-                    program: PROGRAM_NAMES.codex,
-                  })}
-                  onChange={(choice) => {
-                    setProblem(null);
-                    models.change("codex", entry.name, null, choice);
-                  }}
-                />
-              )}
-              <span className="muted sub-agent-copy">{copyText(globalCopy, globalIssue, t)}</span>
-            </span>
-          )}
-        </div>
-        {projectCopies.map((copy) => (
-          <p key={`${copy.folder ?? ""}/${copy.file}`} className="muted sub-agent-copy">
-            {PROGRAM_NAMES.codex}: {copyText(copy, undefined, t)}
-          </p>
-        ))}
-        {projectIssues.map((issue) => (
-          <p key={`${issue.folder ?? ""}/${issue.file}`} className="muted sub-agent-copy">
-            {PROGRAM_NAMES.codex}: {issueText(issue, t)}
-          </p>
-        ))}
-        {models.question}
-        <div className="sub-agent-actions">
+        {/* Only Hangar's own agents wear figures, so only they can pick one. */}
+        {isHangarAgent(entry.name) && (
           <button
             type="button"
             className="link-button"
-            title={t("subAgentLib.openHelp")}
-            onClick={open}
+            aria-expanded={picking}
+            onClick={() => {
+              setPicking((value) => !value);
+            }}
           >
-            {t("subAgentLib.open")}
+            {t("subAgentLib.chooseFigure")}
           </button>
-          {entry.global !== null && !confirming && (
-            <button
-              type="button"
-              className="link-button"
-              onClick={() => {
-                setConfirming(true);
-              }}
-            >
-              {t("subAgentLib.delete")}
-            </button>
-          )}
-        </div>
-        {confirming && (
-          <div className="settings-row sub-agent-confirm" role="group">
-            <span>{t("subAgentLib.deleteConfirm", { name: entry.name })}</span>
-            <button type="button" className="primary-button danger" onClick={remove}>
-              {t("subAgentLib.deleteYes")}
-            </button>
-            <button
-              type="button"
-              className="secondary-button"
-              onClick={() => {
-                setConfirming(false);
-              }}
-            >
-              {t("common.cancel")}
-            </button>
-          </div>
         )}
-        {problem !== null && <p className="muted error-text">{problem}</p>}
-        {picking && isHangarAgent(entry.name) && (
-          <FigurePicker name={entry.name} chosen={figures.get(entry.name)} />
+        {entry.global !== null && !confirming && (
+          <button
+            type="button"
+            className="link-button"
+            onClick={() => {
+              setConfirming(true);
+            }}
+          >
+            {t("subAgentLib.delete")}
+          </button>
         )}
       </div>
-    </li>
+      {confirming && (
+        <div className="settings-row sub-agent-confirm" role="group">
+          <span>{t("subAgentLib.deleteConfirm", { name: entry.name })}</span>
+          <button type="button" className="primary-button danger" onClick={remove}>
+            {t("subAgentLib.deleteYes")}
+          </button>
+          <button
+            type="button"
+            className="secondary-button"
+            onClick={() => {
+              setConfirming(false);
+            }}
+          >
+            {t("common.cancel")}
+          </button>
+        </div>
+      )}
+      {problem !== null && <p className="muted error-text">{problem}</p>}
+      {picking && isHangarAgent(entry.name) && (
+        <FigurePicker name={entry.name} chosen={figures.get(entry.name)} />
+      )}
+    </>
   );
 }
 
 /** A Codex CLI definition of the user's own: its model and effort; it never starts as an agent. */
-function CodexRow({ def }: { def: CodexDef }) {
+function CodexDetails({ def }: { def: CodexDef }) {
   const t = useT();
   const { library } = useSubAgentLibrary();
   const [problem, setProblem] = useState<string | null>(null);
@@ -587,39 +952,33 @@ function CodexRow({ def }: { def: CodexDef }) {
       ? t("subAgentLib.global")
       : t("subAgentLib.project", { folder: folderName(def.folder) });
   return (
-    <li className="sub-agent-row">
-      <span className="sub-agent-figure-button">
-        <AgentFigure figure={initialFigure(def.name, null)} size={96} crop="full" />
-      </span>
-      <div className="sub-agent-text">
-        <div className="sub-agent-head">
-          <strong className="sub-agent-name">{def.name}</strong>
-          <span className="sub-agent-badge">{PROGRAM_NAMES.codex}</span>
-          <span className="muted sub-agent-meta">{place}</span>
-        </div>
-        <p className="sub-agent-description" title={def.description}>
-          {def.description}
-        </p>
-        <div className="sub-agent-models">
-          <span className="sub-agent-model">
-            <ModelField
-              program="codex"
-              value={{ model: def.model, effort: def.effort }}
-              suggestions={codexSuggestions(library, library.codexModels)}
-              label={t("subAgentLib.modelOf", { name: def.name })}
-              onChange={(choice) => {
-                setProblem(null);
-                models.change("codex", def.name, def.folder, choice);
-              }}
-            />
-          </span>
-        </div>
-        {models.question}
-        {problem !== null && <p className="muted error-text">{problem}</p>}
+    <>
+      <div className="sub-agent-head">
+        <strong className="sub-agent-name">{def.name}</strong>
+        <span className="sub-agent-badge">{PROGRAM_NAMES.codex}</span>
+        <span className="muted sub-agent-meta">{place}</span>
       </div>
-    </li>
+      <p className="sub-agent-details-description">{def.description}</p>
+      <div className="sub-agent-models">
+        <span className="sub-agent-model">
+          <ModelField
+            program="codex"
+            value={{ model: def.model, effort: def.effort }}
+            suggestions={codexSuggestions(library, library.codexModels)}
+            label={t("subAgentLib.modelOf", { name: def.name })}
+            onChange={(choice) => {
+              setProblem(null);
+              models.change("codex", def.name, def.folder, choice);
+            }}
+          />
+        </span>
+      </div>
+      {models.question}
+      {problem !== null && <p className="muted error-text">{problem}</p>}
+    </>
   );
 }
+
 /** `chosen`: the figure the user picked; a figure only derived from the name marks none. */
 function FigurePicker({ name, chosen }: { name: string; chosen: FigureView | undefined }) {
   const t = useT();
