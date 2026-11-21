@@ -155,7 +155,7 @@ export function TeamWindow(props: {
     body = (
       <div className="team-window-center">
         <p className="team-window-lead">{t("teamWindow.signInIntro")}</p>
-        <AccountStateSection view={view} titled={false} />
+        <AccountStateSection view={view} />
       </div>
     );
   } else if (projectsError !== null) {

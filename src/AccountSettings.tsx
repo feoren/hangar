@@ -46,7 +46,7 @@ export function AccountSettings() {
         // Nothing while the first status loads; a text only when it failed.
         unavailable && <p className="muted">{t("account.unavailable")}</p>
       ) : (
-        <AccountStateSection view={view} titled />
+        <AccountStateSection view={view} />
       )}
       {view !== null && <ServerField view={view} />}
     </>
@@ -55,12 +55,11 @@ export function AccountSettings() {
 
 /**
  * The sign-in block of a view: sign in, the code to confirm, the signed-in person or what
- * failed. Settings shows it with its heading; the Team window shows it bare, below its own
- * sentence.
+ * failed. Without a heading of its own: Settings already says "Account" above it, and the Team
+ * window puts its own sentence above it.
  */
-export function AccountStateSection({ view, titled }: { view: AccountView; titled: boolean }) {
+export function AccountStateSection({ view }: { view: AccountView }) {
   const t = useT();
-  const titleId = useId();
   const [problem, setProblem] = useState<AccountProblem | null>(null);
   const [busy, setBusy] = useState(false);
   const buttons = useRef(new Map<FocusTarget, HTMLButtonElement>());
@@ -108,14 +107,8 @@ export function AccountStateSection({ view, titled }: { view: AccountView; title
     <section
       ref={section}
       className="settings-section account-state"
-      aria-labelledby={titled ? titleId : undefined}
-      aria-label={titled ? undefined : t("account.title")}
+      aria-label={t("account.title")}
     >
-      {titled && (
-        <h4 id={titleId} className="settings-subtitle">
-          {t("account.title")}
-        </h4>
-      )}
       <StateBlock view={view} busy={busy} run={run} register={register} />
       {problem !== null && (
         <p className="muted error-text" role="alert">

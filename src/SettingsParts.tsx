@@ -406,20 +406,23 @@ export function InlineConfirm({
 }
 
 /**
- * Rarely needed settings, collapsed under "Advanced" until opened. `defaultOpen` opens it when
- * the dialog shows, for a problem in there the user should see.
+ * Rarely needed settings or reference, collapsed under "Advanced" (or `summary`) until opened.
+ * `defaultOpen` opens it when the dialog shows, for a problem in there the user should see.
  */
 export function Advanced({
   defaultOpen = false,
+  summary,
   children,
 }: {
   defaultOpen?: boolean;
+  /** The line to open it by; "Advanced" when left out. */
+  summary?: string;
   children: ReactNode;
 }) {
   const t = useT();
   return (
     <details className="setting-advanced" open={defaultOpen}>
-      <summary>{t("settings.advanced")}</summary>
+      <summary>{summary ?? t("settings.advanced")}</summary>
       <div className="setting-advanced-body">{children}</div>
     </details>
   );

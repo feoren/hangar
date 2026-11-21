@@ -5500,7 +5500,7 @@ body.resizing-horizontal * {
 /* Terminals & agents */
 
 .settings-section + .settings-section {
-  margin-top: 22px;
+  margin-top: var(--space-3);
 }
 
 .settings-subtitle {
@@ -8173,6 +8173,19 @@ label.setting-line:hover {
 .snippet-actions .icon-button:disabled {
   opacity: 0.35;
   cursor: default;
+}
+
+/* Without snippets the list makes way for one sentence, and its button follows right below. */
+.dialog .snippet-empty {
+  margin: var(--space-2) 0 0;
+}
+
+.snippet-empty + .snippet-add {
+  margin-top: var(--space-1);
+}
+
+.dialog .snippet-variables > p {
+  margin: 0;
 }
 
 .secondary-button.with-icon {
@@ -13383,6 +13396,22 @@ body.session-dragging .session-actions {
 
 .dictation-progress {
   width: 120px;
+}
+
+/* The question before a download and the status line span the whole card below its name. */
+.dictation-model > .confirm-box {
+  flex: 1 1 100%;
+  margin: 0;
+}
+
+.dialog .dictation-model-status {
+  flex: 1 1 100%;
+  margin: 0;
+}
+
+/* Empty on the cards it does not concern; it stays in the page (a live region) but takes no room. */
+.dialog .dictation-model-status:empty {
+  margin-top: calc(-1 * var(--space-1));
 }
 
 /* Sub-agent figures (AgentFigure.tsx): a bundled figure, an own image or an initial. They stand

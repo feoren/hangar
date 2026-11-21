@@ -238,4 +238,15 @@ describe("Advanced", () => {
     expect(details?.open).toBe(false);
     expect(details?.querySelector("summary")?.textContent).not.toBe("");
   });
+
+  it("opens by its own line when one is given", () => {
+    render(
+      <Advanced summary="Variables …">
+        <p>Reference</p>
+      </Advanced>,
+    );
+    const details = host.querySelector("details");
+    expect(details?.open).toBe(false);
+    expect(details?.querySelector("summary")?.textContent).toBe("Variables …");
+  });
 });

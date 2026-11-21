@@ -4,6 +4,7 @@ import { AutoGrowTextarea } from "./AutoGrowTextarea";
 import { useT, type MessageKey } from "./i18n";
 import { SNIPPET_VARIABLES, usedVariables, type SnippetVariable } from "./snippetVariables";
 import { ArrowDownIcon, ArrowUpIcon, PlusIcon, TrashIcon } from "./icons";
+import { Advanced } from "./SettingsParts";
 import { formatShortcut, SHORTCUT_LABELS } from "./shortcuts";
 import {
   moveSnippet,
@@ -28,7 +29,8 @@ interface Props {
 
 /**
  * Settings, Snippets: one text field per snippet, saved while typing; move up, move down and
- * delete as small icon buttons. Adding puts the cursor into the new field.
+ * delete as small icon buttons. Adding puts the cursor into the new field. The variables a
+ * snippet may use stay folded below the list until asked for.
  */
 export function SnippetsSettings({ snippets, onChange }: Props) {
   const t = useT();
@@ -65,102 +67,92 @@ export function SnippetsSettings({ snippets, onChange }: Props) {
   };
 
   return (
-    <section className="settings-section" aria-labelledby="snippets-help">
-      <p id="snippets-help" className="muted settings-intro">
+    <>
+      <p className="muted settings-intro">
         {t("snippets.help", { keys: formatShortcut(SHORTCUT_LABELS.launcher, t) })}
       </p>
-      <div className="snippet-variables">
-        <p className="muted">{t("snippets.variables")}</p>
-        <dl>
-          {SNIPPET_VARIABLES.map((name) => (
-            <Fragment key={name}>
-              <dt>
-                <code>{`{{${name}}}`}</code>
-              </dt>
-              <dd className="muted">{t(VARIABLE_HELP[name])}</dd>
-            </Fragment>
-          ))}
-        </dl>
-      </div>
-      {snippets.length === 0 && <p className="muted">{t("snippets.empty")}</p>}
-      <ol className="snippet-list">
-        {snippets.map((snippet, index) => {
-          const label = t("snippets.text", { number: index + 1 });
-          // Not an error: unknown names are sent as written, the hint only catches typos.
-          const unknown = usedVariables(snippet.text).unknown;
-          const hintId = `snippet-unknown-${snippet.id}`;
-          return (
-            <li key={snippet.id} className="snippet-row">
-              <div className="snippet-field">
-                <AutoGrowTextarea
-                  ref={(element) => {
-                    if (element) fields.current.set(snippet.id, element);
-                    else fields.current.delete(snippet.id);
-                  }}
-                  className="text-input snippet-text"
-                  aria-label={label}
-                  aria-describedby={unknown.length > 0 ? hintId : undefined}
-                  rows={2}
-                  maxLength={SNIPPET_MAX_LENGTH}
-                  value={snippet.text}
-                  spellCheck={false}
-                  onChange={(event) => {
-                    update(snippet.id, event.currentTarget.value);
-                  }}
-                />
-                {unknown.length > 0 && (
-                  <p id={hintId} className="muted snippet-unknown">
-                    {t("snippets.unknownHint", {
-                      names: unknown.map((name) => `{{${name}}}`).join(", "),
-                    })}
-                  </p>
-                )}
-              </div>
-              <div className="snippet-actions">
-                <button
-                  type="button"
-                  className="icon-button"
-                  aria-label={`${t("snippets.moveUp")}: ${label}`}
-                  title={t("snippets.moveUp")}
-                  disabled={index === 0}
-                  onClick={() => {
-                    onChange(moveSnippet(snippets, snippet.id, -1));
-                    // At the top the button turns off; the keyboard moves to the text instead.
-                    if (index === 1) setFocusId(snippet.id);
-                  }}
-                >
-                  <ArrowUpIcon />
-                </button>
-                <button
-                  type="button"
-                  className="icon-button"
-                  aria-label={`${t("snippets.moveDown")}: ${label}`}
-                  title={t("snippets.moveDown")}
-                  disabled={index === snippets.length - 1}
-                  onClick={() => {
-                    onChange(moveSnippet(snippets, snippet.id, 1));
-                    if (index === snippets.length - 2) setFocusId(snippet.id);
-                  }}
-                >
-                  <ArrowDownIcon />
-                </button>
-                <button
-                  type="button"
-                  className="icon-button"
-                  aria-label={`${t("snippets.delete")}: ${label}`}
-                  title={t("snippets.delete")}
-                  onClick={() => {
-                    remove(index);
-                  }}
-                >
-                  <TrashIcon />
-                </button>
-              </div>
-            </li>
-          );
-        })}
-      </ol>
-      <div className="settings-row">
+      {snippets.length === 0 ? (
+        <p className="muted snippet-empty">{t("snippets.empty")}</p>
+      ) : (
+        <ol className="snippet-list">
+          {snippets.map((snippet, index) => {
+            const label = t("snippets.text", { number: index + 1 });
+            // Not an error: unknown names are sent as written, the hint only catches typos.
+            const unknown = usedVariables(snippet.text).unknown;
+            const hintId = `snippet-unknown-${snippet.id}`;
+            return (
+              <li key={snippet.id} className="snippet-row">
+                <div className="snippet-field">
+                  <AutoGrowTextarea
+                    ref={(element) => {
+                      if (element) fields.current.set(snippet.id, element);
+                      else fields.current.delete(snippet.id);
+                    }}
+                    className="text-input snippet-text"
+                    aria-label={label}
+                    aria-describedby={unknown.length > 0 ? hintId : undefined}
+                    rows={2}
+                    maxLength={SNIPPET_MAX_LENGTH}
+                    value={snippet.text}
+                    spellCheck={false}
+                    onChange={(event) => {
+                      update(snippet.id, event.currentTarget.value);
+                    }}
+                  />
+                  {unknown.length > 0 && (
+                    <p id={hintId} className="muted snippet-unknown">
+                      {t("snippets.unknownHint", {
+                        names: unknown.map((name) => `{{${name}}}`).join(", "),
+                      })}
+                    </p>
+                  )}
+                </div>
+                <div className="snippet-actions">
+                  <button
+                    type="button"
+                    className="icon-button"
+                    aria-label={`${t("snippets.moveUp")}: ${label}`}
+                    title={t("snippets.moveUp")}
+                    disabled={index === 0}
+                    onClick={() => {
+                      onChange(moveSnippet(snippets, snippet.id, -1));
+                      // At the top the button turns off; the keyboard moves to the text instead.
+                      if (index === 1) setFocusId(snippet.id);
+                    }}
+                  >
+                    <ArrowUpIcon />
+                  </button>
+                  <button
+                    type="button"
+                    className="icon-button"
+                    aria-label={`${t("snippets.moveDown")}: ${label}`}
+                    title={t("snippets.moveDown")}
+                    disabled={index === snippets.length - 1}
+                    onClick={() => {
+                      onChange(moveSnippet(snippets, snippet.id, 1));
+                      if (index === snippets.length - 2) setFocusId(snippet.id);
+                    }}
+                  >
+                    <ArrowDownIcon />
+                  </button>
+                  <button
+                    type="button"
+                    className="icon-button"
+                    aria-label={`${t("snippets.delete")}: ${label}`}
+                    title={t("snippets.delete")}
+                    onClick={() => {
+                      remove(index);
+                    }}
+                  >
+                    <TrashIcon />
+                  </button>
+                </div>
+              </li>
+            );
+          })}
+        </ol>
+      )}
+      <div className="settings-row snippet-add">
         <button
           type="button"
           className="secondary-button with-icon"
@@ -171,6 +163,21 @@ export function SnippetsSettings({ snippets, onChange }: Props) {
           {t("snippets.add")}
         </button>
       </div>
-    </section>
+      <Advanced summary={t("snippets.variables")}>
+        <div className="snippet-variables">
+          <p className="muted">{t("snippets.variablesHelp")}</p>
+          <dl>
+            {SNIPPET_VARIABLES.map((name) => (
+              <Fragment key={name}>
+                <dt>
+                  <code>{`{{${name}}}`}</code>
+                </dt>
+                <dd className="muted">{t(VARIABLE_HELP[name])}</dd>
+              </Fragment>
+            ))}
+          </dl>
+        </div>
+      </Advanced>
+    </>
   );
 }
