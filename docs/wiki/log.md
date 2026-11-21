@@ -1333,3 +1333,7 @@ typed with it (another key, a click, the wheel) leaves no text, and a recording 
 stopped and its text dropped in the window (`DiscardGate`), since the backend has no cancel
 command. F keys belong to the app while dictation is on. Pages changed: [[local-dictation]],
 [[overview]], index.
+
+## [2026-11-21] lint | Dictation key default on the Mac
+Mac keyboards mostly lack a right control key, so the Mac starts with Ctrl+Shift+Space.
+Pages changed: [[local-dictation]].

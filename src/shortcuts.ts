@@ -10,6 +10,7 @@
 // combination. Ctrl+Shift+T also opens something new (a tab) in Windows Terminal.
 
 import type { Translate } from "./i18n";
+import { currentPlatform, type Platform } from "./platform";
 
 export type AppAction =
   | "nextSession"
@@ -154,9 +155,14 @@ export const DICTATION_KEYS: readonly DictationKey[] = [
 
 /**
  * Right Ctrl: a single key, and shells and agent CLIs never see a modifier pressed alone. Ctrl+C
- * and friends typed with it keep working (`KeyHold`).
+ * and friends typed with it keep working (`KeyHold`). Mac keyboards mostly lack a right control
+ * key, so the Mac starts with the chord.
  */
-export const DEFAULT_DICTATION_KEY: DictationKey = "controlRight";
+export function defaultDictationKey(platform: Platform): DictationKey {
+  return platform === "mac" ? "ctrlShiftSpace" : "controlRight";
+}
+
+export const DEFAULT_DICTATION_KEY: DictationKey = defaultDictationKey(currentPlatform());
 
 export function isDictationKey(value: unknown): value is DictationKey {
   return DICTATION_KEYS.some((key) => key === value);

@@ -40,7 +40,8 @@ Code: `src-tauri/src/dictation/` (`mod.rs` service and states, `audio.rs` captur
   download buttons, so nobody downloads a model they cannot use.
 - **Key:** held, never pressed. Settings > Dictation offers right Ctrl (default, also for
   settings stored before the choice), F8, F9, F10 and Ctrl+Shift+Space (`DictationKey`,
-  `DICTATION_KEYS`). Every key: the hold starts once despite key repeat and ends on the release of
+  `DICTATION_KEYS`). On the Mac the default is Ctrl+Shift+Space (`defaultDictationKey`): most Mac
+  keyboards have no right control key. Every key: the hold starts once despite key repeat and ends on the release of
   the key, or when the window loses the focus. A dialog open: the key does nothing. No model
   installed: letting the key go opens the settings section, unless a shortcut or a lost focus ended
   the hold (`useDictationKey`). The window listens in the capture phase

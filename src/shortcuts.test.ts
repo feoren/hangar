@@ -4,6 +4,7 @@ import { createTranslator } from "./i18n";
 import {
   CONTROL_HOLD_DELAY_MS,
   DICTATION_KEYS,
+  defaultDictationKey,
   DICTATION_SHORTCUT,
   dictationKeyName,
   endsDictation,
@@ -301,6 +302,12 @@ describe("dictation hold", () => {
     hold.keydown({ ...key("a", "KeyA"), repeat: false });
     hold.pointer();
     expect(calls).toEqual(["start"]);
+  });
+
+  it("starts with right Ctrl, on the Mac with the chord", () => {
+    expect(defaultDictationKey("windows")).toBe("controlRight");
+    expect(defaultDictationKey("linux")).toBe("controlRight");
+    expect(defaultDictationKey("mac")).toBe("ctrlShiftSpace");
   });
 
   it("knows the keys the settings offer and nothing else", () => {
