@@ -90,6 +90,7 @@ pub fn agent(distro: &str) -> Agent {
             secret_env: Vec::new(),
             icon: Some("WSL".to_owned()),
             // Every entry is the same wsl.exe; its version says nothing about the distribution.
+            // The version shown is the distribution's release instead ([`release`]).
             version_args: Some(Vec::new()),
             resume_args: None,
             session_id_args: None,
@@ -109,6 +110,53 @@ pub fn agent(distro: &str) -> Agent {
         capabilities: crate::agent_catalog::Capabilities::default(),
         prompting: crate::agent_catalog::Prompting::default(),
     }
+}
+
+/// The distribution an entry from [`agent`] starts; `None` for every other entry, including a
+/// user profile that took over a WSL id (its program is the user's own).
+pub fn distro_of(agent: &Agent) -> Option<&str> {
+    if agent.source != Source::Catalog {
+        return None;
+    }
+    let suffix = agent.id().strip_prefix(ID_PREFIX)?;
+    let [flag, name] = agent.profile.args.as_slice() else {
+        return None;
+    };
+    (flag == "-d" && is_valid_name(name) && suffix == name.to_ascii_lowercase())
+        .then_some(name.as_str())
+}
+
+/// A distribution as WSL registered it.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Registered {
+    pub name: String,
+    /// `OsVersion`, the `VERSION_ID` WSL took from the distribution at install.
+    pub os_version: Option<String>,
+}
+
+/// Release of `distro` (`26.04`, `13`, `rolling`) as WSL recorded it at install, without starting
+/// anything: running `cat /etc/os-release` in a stopped distribution would boot it (and the WSL
+/// VM) for one number, which takes seconds and keeps it running afterwards. The recorded value
+/// does not follow an in-place release upgrade, and distributions installed without it (older
+/// Store packages, `wsl --import`) have none.
+pub fn release(distro: &str) -> Option<String> {
+    release_of(&imp::registered(), distro)
+}
+
+/// Shown versions are short and plain; anything else from the registry is not shown.
+const MAX_RELEASE_CHARS: usize = 32;
+
+fn release_of(registered: &[Registered], distro: &str) -> Option<String> {
+    let found = registered
+        .iter()
+        .find(|entry| entry.name.eq_ignore_ascii_case(distro))?;
+    let text = found.os_version.as_deref()?.trim();
+    let plain = !text.is_empty()
+        && text.len() <= MAX_RELEASE_CHARS
+        && text
+            .bytes()
+            .all(|b| b.is_ascii_alphanumeric() || matches!(b, b'.' | b'-' | b'_' | b'+'));
+    plain.then(|| text.to_owned())
 }
 
 pub fn agents(distros: &[String]) -> Vec<Agent> {
@@ -136,6 +184,28 @@ mod imp {
     const TIMEOUT: Duration = Duration::from_secs(5);
     const MAX_OUTPUT: u64 = 64 * 1024;
     const CREATE_NO_WINDOW: u32 = 0x0800_0000;
+    /// One subkey per registered distribution, named by its GUID.
+    const LXSS: &str = r"Software\Microsoft\Windows\CurrentVersion\Lxss";
+
+    /// The distributions registered for this user, read from [`LXSS`]; empty without WSL.
+    pub fn registered() -> Vec<super::Registered> {
+        use crate::install_source::registry::{open, string_value, subkeys};
+        use windows_sys::Win32::System::Registry::HKEY_CURRENT_USER;
+
+        let Some(list) = open(HKEY_CURRENT_USER, LXSS, 0) else {
+            return Vec::new();
+        };
+        subkeys(&list)
+            .iter()
+            .filter_map(|guid| {
+                let key = open(list.0, guid, 0)?;
+                Some(super::Registered {
+                    name: string_value(&key, "DistributionName")?,
+                    os_version: string_value(&key, "OsVersion"),
+                })
+            })
+            .collect()
+    }
 
     pub fn list() -> Vec<String> {
         let program = super::program();
@@ -226,6 +296,10 @@ mod imp {
     pub fn list() -> Vec<String> {
         Vec::new()
     }
+
+    pub fn registered() -> Vec<super::Registered> {
+        Vec::new()
+    }
 }
 
 #[cfg(test)]
@@ -280,6 +354,61 @@ mod tests {
         assert!(found
             .iter()
             .all(|a| !a.id().starts_with("wsl-docker-desktop")));
+    }
+
+    fn registered(name: &str, os_version: Option<&str>) -> Registered {
+        Registered {
+            name: name.to_owned(),
+            os_version: os_version.map(str::to_owned),
+        }
+    }
+
+    #[test]
+    fn only_found_entries_name_their_distribution() {
+        assert_eq!(distro_of(&agent("Ubuntu-24.04")), Some("Ubuntu-24.04"));
+        // A user profile under a WSL id is the user's own program, not this distribution.
+        let mut own = agent("Debian");
+        own.source = Source::User;
+        assert_eq!(distro_of(&own), None);
+        // A catalog entry whose id only looks like one.
+        let mut other = agent("Arch");
+        other.profile.args = vec!["--exec".to_owned(), "Arch".to_owned()];
+        assert_eq!(distro_of(&other), None);
+        let mut renamed = agent("Arch");
+        renamed.profile.id = "wsl-kali".to_owned();
+        assert_eq!(distro_of(&renamed), None);
+    }
+
+    #[test]
+    fn release_comes_from_the_registered_distribution() {
+        // Recorded on Windows 11 Pro 10.0.26300 (WSL 2.7.14.0), 2026-11-21: `wsl --install`
+        // writes `Flavor` and `OsVersion`; Docker Desktop's distribution has neither.
+        let found = [
+            registered("docker-desktop", None),
+            registered("Ubuntu", Some("26.04")),
+            registered("Debian", Some(" 13 ")),
+            registered("Arch", Some("rolling")),
+            registered("Odd", Some("1.0; rm")),
+            registered("Long", Some(&"9".repeat(40))),
+        ];
+        assert_eq!(release_of(&found, "Ubuntu").as_deref(), Some("26.04"));
+        // Distribution names ignore case, as wsl.exe does.
+        assert_eq!(release_of(&found, "ubuntu").as_deref(), Some("26.04"));
+        assert_eq!(release_of(&found, "Debian").as_deref(), Some("13"));
+        assert_eq!(release_of(&found, "Arch").as_deref(), Some("rolling"));
+        assert_eq!(release_of(&found, "docker-desktop"), None);
+        assert_eq!(release_of(&found, "Odd"), None);
+        assert_eq!(release_of(&found, "Long"), None);
+        assert_eq!(release_of(&found, "Missing"), None);
+    }
+
+    /// Reads the real registry; by hand: `cargo test --lib -- --ignored release_on_this_machine`.
+    #[test]
+    #[ignore = "reads this machine's WSL registration"]
+    fn release_on_this_machine() {
+        for entry in imp::registered() {
+            eprintln!("{}: {:?}", entry.name, release(&entry.name));
+        }
     }
 
     #[test]

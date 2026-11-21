@@ -255,6 +255,10 @@ fn cached_version(
     refresh: bool,
     cwd: &Path,
 ) -> Option<String> {
+    // wsl.exe's own version says nothing about the distribution; WSL recorded its release.
+    if let Some(distro) = crate::wsl::distro_of(agent) {
+        return crate::wsl::release(distro);
+    }
     let (key, program) = cache_key(agent, program)?;
     if !refresh {
         if let Some(entry) = cache.get(&key) {
@@ -490,6 +494,23 @@ mod tests {
         assert_eq!(
             runs, 1,
             "a failed probe within its window must not be re-run"
+        );
+    }
+
+    /// A WSL distribution shows the release WSL recorded for it, read without starting wsl.exe
+    /// (the program path here would fail to start). Off Windows both sides are `None`.
+    #[test]
+    fn wsl_entries_show_the_distribution_release() {
+        let distro = crate::wsl::agent("Ubuntu");
+        let cache = VersionCache::default();
+        let found = detect(
+            &[(distro, PathBuf::from("does-not-exist"))],
+            &cache,
+            &std::env::temp_dir(),
+        );
+        assert_eq!(
+            found.get("wsl-ubuntu"),
+            Some(&crate::wsl::release("Ubuntu"))
         );
     }
 

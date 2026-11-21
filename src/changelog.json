@@ -114,6 +114,20 @@
         "ru": "В Linux Hangar теперь выглядит так же, как в Windows: те же шрифты и те же элементы управления.",
         "tr": "Hangar artık Linux'ta da Windows'taki gibi görünüyor: aynı yazı tipleri ve aynı kontroller.",
         "zh": "Hangar 在 Linux 上的外观现在与 Windows 上一样：相同的字体和相同的控件。"
+      },
+      {
+        "de": "WSL-Distributionen zeigen jetzt ihre Version (etwa Ubuntu 26.04). Nach einer Installation, etwa von OpenCode, erscheint die Version von selbst.",
+        "en": "WSL distributions now show their version (such as Ubuntu 26.04). After an install, of OpenCode for example, the version appears by itself.",
+        "el": "Οι διανομές WSL δείχνουν τώρα την έκδοσή τους (π.χ. Ubuntu 26.04). Μετά από εγκατάσταση, π.χ. του OpenCode, η έκδοση εμφανίζεται μόνη της.",
+        "es": "Las distribuciones de WSL ya muestran su versión (como Ubuntu 26.04). Tras instalar algo, como OpenCode, la versión aparece sola.",
+        "fr": "Les distributions WSL affichent leur version (comme Ubuntu 26.04). Après une installation, d'OpenCode par exemple, la version s'affiche seule.",
+        "it": "Le distribuzioni WSL ora mostrano la versione (come Ubuntu 26.04). Dopo un'installazione, per esempio di OpenCode, la versione appare da sola.",
+        "ja": "WSL ディストリビューションにバージョン（Ubuntu 26.04 など）が表示されるようになりました。OpenCode などをインストールした後も、バージョンが自動で表示されます。",
+        "pl": "Dystrybucje WSL pokazują teraz swoją wersję (np. Ubuntu 26.04). Po instalacji, np. OpenCode, wersja pojawia się sama.",
+        "pt": "As distribuições WSL agora mostram a versão (como Ubuntu 26.04). Depois de instalar algo, como o OpenCode, a versão aparece sozinha.",
+        "ru": "Дистрибутивы WSL теперь показывают свою версию (например, Ubuntu 26.04). После установки, например OpenCode, версия появляется сама.",
+        "tr": "WSL dağıtımları artık sürümlerini gösteriyor (örneğin Ubuntu 26.04). OpenCode gibi bir kurulumdan sonra sürüm kendiliğinden görünüyor.",
+        "zh": "WSL 发行版现在会显示版本（例如 Ubuntu 26.04）。安装程序（例如 OpenCode）之后，版本会自动显示。"
       }
     ]
   },

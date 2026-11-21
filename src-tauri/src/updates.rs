@@ -1126,6 +1126,8 @@ mod tests {
         assert!(newer("0.79.9", "1.5.0"));
         assert!(!newer("2.1.319", "2.1.319"));
         assert!(!newer("2.1.320", "2.1.319"));
+        // OpenCode 2.x from npm `@opencode/cli` against the 1.x GitHub releases: no "update".
+        assert!(!newer("2.3.2", "1.19.6"));
         assert!(!newer("7.5.4", "7.5.4"));
         assert!(!newer("unknown", "1.0"));
         assert!(!newer("1.0", ""));

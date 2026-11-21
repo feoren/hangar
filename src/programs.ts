@@ -44,3 +44,26 @@ export function parseIcons(value: unknown): ProgramIcons {
 export function labelWithVersion(name: string, version: string | undefined): string {
   return version ? `${name} · ${version}` : name;
 }
+
+/**
+ * Delay before asking again for missing versions: the backend keeps a failed version query for
+ * 60 s (`NEGATIVE_TTL` in version.rs) and answers from that until it has passed.
+ */
+export const VERSION_RETRY_MS = 65_000;
+
+/** Tries per program list, so a program that never reports a version is not started every minute. */
+export const MAX_VERSION_RETRIES = 3;
+
+/**
+ * Whether to ask again: an installed entry (one id per line of `installedKey`, see profiles.ts)
+ * has no version yet, for example because the query ran while the program was being installed
+ * or updated, and fewer than {@link MAX_VERSION_RETRIES} tries have been made for this list.
+ */
+export function retryVersions(
+  installedKey: string,
+  versions: ProgramVersions,
+  retries: number,
+): boolean {
+  if (retries >= MAX_VERSION_RETRIES || installedKey === "") return false;
+  return installedKey.split("\n").some((id) => !versions.has(id));
+}

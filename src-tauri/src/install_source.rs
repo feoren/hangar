@@ -231,8 +231,9 @@ impl Probe for SystemProbe {
 }
 
 #[cfg(windows)]
-mod registry {
-    //! Reads the uninstall keys of HKLM (both registry views) and HKCU.
+pub(crate) mod registry {
+    //! Reads the uninstall keys of HKLM (both registry views) and HKCU. The key helpers are
+    //! shared with the WSL entries ([`crate::wsl`]).
 
     use std::path::PathBuf;
 
@@ -253,7 +254,7 @@ mod registry {
     }
 
     /// Closes the key on drop.
-    struct Key(HKEY);
+    pub(crate) struct Key(pub(crate) HKEY);
 
     impl Drop for Key {
         fn drop(&mut self) {
@@ -264,7 +265,7 @@ mod registry {
         }
     }
 
-    fn open(parent: HKEY, path: &str, flags: u32) -> Option<Key> {
+    pub(crate) fn open(parent: HKEY, path: &str, flags: u32) -> Option<Key> {
         let path = wide(path);
         let mut key: HKEY = std::ptr::null_mut();
         // SAFETY: `path` is a NUL-terminated UTF-16 string that outlives the call, and `key` is a
@@ -273,7 +274,7 @@ mod registry {
         (status == ERROR_SUCCESS).then_some(Key(key))
     }
 
-    fn string_value(key: &Key, name: &str) -> Option<String> {
+    pub(crate) fn string_value(key: &Key, name: &str) -> Option<String> {
         let name = wide(name);
         let mut kind = 0u32;
         let mut size = 0u32;
@@ -313,7 +314,7 @@ mod registry {
         (!text.is_empty()).then_some(text)
     }
 
-    fn subkeys(key: &Key) -> Vec<String> {
+    pub(crate) fn subkeys(key: &Key) -> Vec<String> {
         let mut names = Vec::new();
         for index in 0..MAX_KEYS {
             let mut buffer = [0u16; 256];

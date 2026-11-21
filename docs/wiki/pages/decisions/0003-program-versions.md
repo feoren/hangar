@@ -6,7 +6,7 @@ superseded_by:
 tags: [agents, version, sidebar]
 sources: []
 created: 2026-11-07
-updated: 2026-11-12
+updated: 2026-11-21
 ---
 
 # ADR 0003: Showing program versions
@@ -65,6 +65,19 @@ Not recorded separately; the reasons above rule out reading file metadata and le
 - Program icons were added in the same step (`src-tauri/src/icon.rs`, command `program_icons`): on
   Windows the file's first icon via `PrivateExtractIconsW` at 32×32, as a PNG data URL; script shims
   and files without an icon of their own yield `null`. About 10 ms cold for 9 entries.
+
+## Amendment (2026-11-21)
+- **WSL distributions:** their entries never start `wsl.exe` for a version (`version_args = []`);
+  `version::cached_version` shows the release WSL recorded for the distribution instead
+  (`OsVersion` under `HKCU\Software\Microsoft\Windows\CurrentVersion\Lxss`, `wsl::release`),
+  only for entries the WSL detection produced (`wsl::distro_of`). Contract and limits:
+  [[agent-workflow-features]], "WSL".
+- **Asking again:** a query made while a program is being installed or updated finds nothing (npm
+  writes the launcher before the package's postinstall puts the binary in place). The window
+  therefore asks again for missing versions of the same program list up to 3 times, 65 s apart
+  (`retryVersions` in `src/programs.ts`, wired in `src/usePrograms.ts`), after the backend's 60 s
+  window for a failed query (`version::NEGATIVE_TTL`) has passed. A new program list starts counting
+  again.
 
 ## Evidence
 - Code and measurements: see Implementation. Per agent support for `--version`: unverified (see Context).

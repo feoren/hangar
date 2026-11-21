@@ -5,7 +5,7 @@ status: accepted
 tags: [notifications, search, split-view, launcher, git, worktree, snippets, themes, profiles, secrets, tray]
 sources: ["[[terminal-font-coverage-measurement]]", "[[session-report-transcripts]]", "[[worktree-remove-missing-measurement]]"]
 created: 2026-11-08
-updated: 2026-11-20
+updated: 2026-11-21
 ---
 
 # Agent workflow features (0.3.0)
@@ -405,8 +405,12 @@ environment, `CREATE_NO_WINDOW`, Job Object, 5 s limit), id `wsl-<distro lowerca
 `%SystemRoot%\System32\wsl.exe -d <distro>` (the same absolute program as detection, never one
 from PATH; the profile list shows that path as `command`), the session's working folder appended as `--cd <folder>`. Docker Desktop's
 internal distributions (`docker-desktop*`) and names outside `[A-Za-z0-9._-]` are left out. The
-entries have `source: "catalog"` (no new source value), `editable: false`, icon `WSL` and no
-version query (`version_args = []`). They come after the catalog; a user profile or catalog entry
+entries have `source: "catalog"` (no new source value), `editable: false`, icon `WSL` and never
+start `wsl.exe` for a version (`version_args = []`, its version says nothing about the
+distribution); the version shown is the distribution's release as WSL recorded it at install
+(`OsVersion` of the distribution's key under `HKCU\Software\Microsoft\Windows\CurrentVersion\Lxss`,
+for example `26.04`), read without booting a stopped distribution; distributions without that value
+show none, and it does not follow an in-place release upgrade. They come after the catalog; a user profile or catalog entry
 with the same id wins. Detection runs on a thread at startup, again on `reload_profiles`, and
 `list_profiles` or a start of a `wsl-` id waits for it if it has not finished; measured
 [[wsl-list-measurement]].
