@@ -9,7 +9,6 @@ import { ArrowDownIcon, ArrowUpIcon, CopyIcon, GripIcon, PlusIcon } from "./icon
 import { ProfileEditor } from "./ProfileEditor";
 import {
   arrangedProfiles,
-  availableProfiles,
   DEFAULT_PROGRAM_PREFS,
   iconChoice,
   iconMode,
@@ -25,6 +24,7 @@ import {
 import type { ProgramVersions } from "./programs";
 import { ProgramUpdateOffer, type UpdateActions } from "./ProgramUpdateOffer";
 import type { Settings } from "./settings";
+import { SettingsGroup, Switch, SwitchRow } from "./SettingsParts";
 import type { ProgramUpdateState } from "./useProgramUpdates";
 
 interface Props {
@@ -59,9 +59,11 @@ const ICON_MODES: readonly { mode: IconMode; label: MessageKey }[] = [
 type FocusTarget = { id: string; button: "up" | "down" };
 
 /**
- * "Terminals & Agents" section: order installed entries (drag by the handle or arrow buttons),
- * show/hide them, pick an icon. Below that, catalog agents that are not installed yet, and the
- * switches for versions and program icons.
+ * "Terminals & Agents" section, first part: order installed entries (drag by the handle, or the
+ * arrow buttons that show on hover and focus), show or hide them, and customize one. Each row has
+ * a single button: its form holds the icon as well as the program's own fields. Below the list,
+ * the switches for versions and program icons. Catalog agents that are not installed yet come
+ * from `AvailableList`, which the dialog places further down.
  */
 export function ProgramsSettings(props: Props) {
   const { settings, profiles, versions, programUpdates, badgeFor, onChange } = props;
@@ -71,7 +73,8 @@ export function ProgramsSettings(props: Props) {
   const shownIds = arranged.map((profile) => profile.id);
   const [announcement, setAnnouncement] = useState("");
   const [resetDone, setResetDone] = useState(false);
-  const [openEditor, setOpenEditor] = useState<string | null>(null);
+  /** Counts resets, so an open icon choice starts over from the stored (default) icon. */
+  const [resets, setResets] = useState(0);
   /** Profile form: an entry's id, "new" for a new program, or `null`. */
   const [openForm, setOpenForm] = useState<string | null>(null);
   const newButton = useRef<HTMLButtonElement>(null);
@@ -160,7 +163,6 @@ export function ProgramsSettings(props: Props) {
   const shown = drag
     ? moveTo(shownIds, [], drag.id, drag.index).flatMap((id) => arranged.filter((p) => p.id === id))
     : arranged;
-  const available = availableProfiles(profiles);
   /** The user's own entries whose program is not found: editable here, or they would vanish. */
   const missing = profiles.filter((profile) => profile.editable === true && !profile.installed);
   const takenIds = profiles.map((profile) => profile.id);
@@ -198,7 +200,8 @@ export function ProgramsSettings(props: Props) {
       </button>
     );
   };
-  const formFor = (profile: Profile) =>
+  /** The form of an entry; installed entries choose their icon at its top. */
+  const formFor = (profile: Profile, withIconChoice: boolean) =>
     openForm === profile.id && (
       <ProfileEditor
         key={profile.id}
@@ -207,20 +210,31 @@ export function ProgramsSettings(props: Props) {
         onProfiles={props.onProfiles}
         onClose={closeForm}
         closeGuardRef={closeGuard}
+        icon={
+          withIconChoice ? (
+            <IconEditor
+              key={resets}
+              id={`icon-editor-${profile.id}`}
+              profile={profile}
+              prefs={prefs}
+              onChange={update}
+            />
+          ) : undefined
+        }
       />
     );
 
   return (
     <>
-      <section className="settings-section" aria-labelledby="programs-installed">
-        <h4 id="programs-installed" className="settings-subtitle">
+      <section className="setting-group" aria-labelledby="programs-installed">
+        <h4 id="programs-installed" className="setting-group-title">
           {t("settings.installedPrograms")}
         </h4>
         {arranged.length === 0 ? (
-          <p className="muted">{t("settings.noInstalled")}</p>
+          <p className="muted setting-group-desc">{t("settings.noInstalled")}</p>
         ) : (
           <>
-            <p id="programs-installed-help" className="muted settings-intro">
+            <p id="programs-installed-help" className="muted setting-group-desc">
               {t("settings.installedHelp")}
             </p>
             {/* Column header for the switches; each switch carries the text itself too (aria-label). */}
@@ -236,8 +250,6 @@ export function ProgramsSettings(props: Props) {
                 const hidden = isHidden(prefs, profile.id);
                 const version = versions.get(profile.id);
                 const programUpdate = programUpdates.updates.get(profile.id);
-                const editorOpen = openEditor === profile.id;
-                const editorId = `icon-editor-${profile.id}`;
                 const className = [
                   "program-item",
                   drag?.id === profile.id ? "dragging" : "",
@@ -284,64 +296,51 @@ export function ProgramsSettings(props: Props) {
                         {version && <span className="program-version">{version}</span>}
                       </span>
                       <span className="program-actions">
-                        <button
-                          type="button"
-                          className="icon-button"
-                          ref={(element) => {
-                            const key = `${profile.id}:up`;
-                            if (element) buttons.current.set(key, element);
-                            else buttons.current.delete(key);
-                          }}
-                          aria-label={t("settings.moveUp", { name: profile.name })}
-                          title={t("settings.moveUp", { name: profile.name })}
-                          disabled={index === 0}
-                          onClick={() => {
-                            moveBy(profile.id, -1);
-                          }}
-                        >
-                          <ArrowUpIcon />
-                        </button>
-                        <button
-                          type="button"
-                          className="icon-button"
-                          ref={(element) => {
-                            const key = `${profile.id}:down`;
-                            if (element) buttons.current.set(key, element);
-                            else buttons.current.delete(key);
-                          }}
-                          aria-label={t("settings.moveDown", { name: profile.name })}
-                          title={t("settings.moveDown", { name: profile.name })}
-                          disabled={index === shown.length - 1}
-                          onClick={() => {
-                            moveBy(profile.id, 1);
-                          }}
-                        >
-                          <ArrowDownIcon />
-                        </button>
-                        <button
-                          type="button"
-                          className={editorOpen ? "chip-button open" : "chip-button"}
-                          aria-expanded={editorOpen}
-                          aria-controls={editorId}
-                          aria-label={t("settings.iconFor", { name: profile.name })}
-                          onClick={() => {
-                            setOpenEditor(editorOpen ? null : profile.id);
-                          }}
-                        >
-                          {t("settings.editIcon")}
-                        </button>
+                        {/* Shown on hover and while the focus is in the row; Tab always reaches them. */}
+                        <span className="program-move">
+                          <button
+                            type="button"
+                            className="icon-button"
+                            ref={(element) => {
+                              const key = `${profile.id}:up`;
+                              if (element) buttons.current.set(key, element);
+                              else buttons.current.delete(key);
+                            }}
+                            aria-label={t("settings.moveUp", { name: profile.name })}
+                            title={t("settings.moveUp", { name: profile.name })}
+                            disabled={index === 0}
+                            onClick={() => {
+                              moveBy(profile.id, -1);
+                            }}
+                          >
+                            <ArrowUpIcon />
+                          </button>
+                          <button
+                            type="button"
+                            className="icon-button"
+                            ref={(element) => {
+                              const key = `${profile.id}:down`;
+                              if (element) buttons.current.set(key, element);
+                              else buttons.current.delete(key);
+                            }}
+                            aria-label={t("settings.moveDown", { name: profile.name })}
+                            title={t("settings.moveDown", { name: profile.name })}
+                            disabled={index === shown.length - 1}
+                            onClick={() => {
+                              moveBy(profile.id, 1);
+                            }}
+                          >
+                            <ArrowDownIcon />
+                          </button>
+                        </span>
                         {formButton(profile)}
                       </span>
                       <span className="program-visible">
-                        <input
-                          type="checkbox"
-                          role="switch"
-                          className="switch"
+                        <Switch
                           checked={!hidden}
-                          aria-label={`${t("settings.showInSidebar")}: ${profile.name}`}
-                          title={`${t("settings.showInSidebar")}: ${profile.name}`}
-                          onChange={(event) => {
-                            update(withHidden(prefs, profile.id, !event.currentTarget.checked));
+                          label={`${t("settings.showInSidebar")}: ${profile.name}`}
+                          onChange={(visible) => {
+                            update(withHidden(prefs, profile.id, !visible));
                           }}
                         />
                       </span>
@@ -363,10 +362,7 @@ export function ProgramsSettings(props: Props) {
                         onCancel={props.updateActions.cancel}
                       />
                     )}
-                    {editorOpen && (
-                      <IconEditor id={editorId} profile={profile} prefs={prefs} onChange={update} />
-                    )}
-                    {formFor(profile)}
+                    {formFor(profile, true)}
                   </li>
                 );
               })}
@@ -397,7 +393,7 @@ export function ProgramsSettings(props: Props) {
                     </span>
                     <span className="program-actions">{formButton(profile)}</span>
                   </div>
-                  {formFor(profile)}
+                  {formFor(profile, false)}
                 </li>
               ))}
             </ul>
@@ -428,14 +424,14 @@ export function ProgramsSettings(props: Props) {
             />
           </div>
         )}
-        <div className="settings-row">
+        <p className="setting-footer">
           <button
             type="button"
-            className="secondary-button"
+            className="link-button"
             aria-describedby="reset-programs-help"
             onClick={() => {
               onChange({ programs: DEFAULT_PROGRAM_PREFS });
-              setOpenEditor(null);
+              setResets((count) => count + 1);
               setResetDone(true);
             }}
           >
@@ -444,44 +440,26 @@ export function ProgramsSettings(props: Props) {
           <span id="reset-programs-help" className="muted" role="status">
             {resetDone ? t("settings.programsResetDone") : t("settings.resetProgramsHelp")}
           </span>
-        </div>
-      </section>
-
-      <AvailableList profiles={available} />
-
-      <section className="settings-section" aria-labelledby="programs-display">
-        <h4 id="programs-display" className="settings-subtitle">
-          {t("settings.display")}
-        </h4>
-        <label className="check">
-          <input
-            type="checkbox"
-            checked={settings.showVersions}
-            aria-describedby="show-versions-help"
-            onChange={(event) => {
-              onChange({ showVersions: event.currentTarget.checked });
-            }}
-          />
-          <span>{t("settings.showVersions")}</span>
-        </label>
-        <p id="show-versions-help" className="muted settings-help">
-          {t("settings.showVersionsHelp")}
-        </p>
-        <label className="check">
-          <input
-            type="checkbox"
-            checked={settings.showIcons}
-            aria-describedby="show-icons-help"
-            onChange={(event) => {
-              onChange({ showIcons: event.currentTarget.checked });
-            }}
-          />
-          <span>{t("settings.showIcons")}</span>
-        </label>
-        <p id="show-icons-help" className="muted settings-help">
-          {t("settings.showIconsHelp")}
         </p>
       </section>
+
+      <SettingsGroup title={t("settings.display")}>
+        <SwitchRow
+          label={t("settings.showVersions")}
+          help={t("settings.showVersionsHelp")}
+          checked={settings.showVersions}
+          onChange={(showVersions) => {
+            onChange({ showVersions });
+          }}
+        />
+        <SwitchRow
+          label={t("settings.showIcons")}
+          checked={settings.showIcons}
+          onChange={(showIcons) => {
+            onChange({ showIcons });
+          }}
+        />
+      </SettingsGroup>
     </>
   );
 }
@@ -646,7 +624,7 @@ function IconEditor({
 }
 
 /** Catalog agents that are not installed, with project page and install command. */
-function AvailableList({ profiles }: { profiles: Profile[] }) {
+export function AvailableList({ profiles }: { profiles: Profile[] }) {
   const t = useT();
   const [feedback, setFeedback] = useState<{ id: string; ok: boolean } | null>(null);
 
@@ -662,15 +640,15 @@ function AvailableList({ profiles }: { profiles: Profile[] }) {
   };
 
   return (
-    <section className="settings-section" aria-labelledby="programs-available">
-      <h4 id="programs-available" className="settings-subtitle">
+    <section className="setting-group" aria-labelledby="programs-available">
+      <h4 id="programs-available" className="setting-group-title">
         {t("settings.available")}
       </h4>
       {profiles.length === 0 ? (
-        <p className="muted">{t("settings.noAvailable")}</p>
+        <p className="muted setting-group-desc">{t("settings.noAvailable")}</p>
       ) : (
         <>
-          <p className="muted settings-intro">{t("settings.availableHelp")}</p>
+          <p className="muted setting-group-desc">{t("settings.availableHelp")}</p>
           <ul className="available-list">
             {profiles.map((profile) => {
               const command = profile.installHint;

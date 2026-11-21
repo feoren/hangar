@@ -5519,6 +5519,7 @@ body.resizing-horizontal * {
   margin: 0;
   padding: 0;
   list-style: none;
+  background: var(--panel-raised);
   border: 1px solid var(--border);
   border-radius: 8px;
 }
@@ -5947,6 +5948,32 @@ label.setting-line:hover {
   flex: none;
   align-items: center;
   gap: 2px;
+}
+
+/* The arrows wait until the pointer or the focus is in the row: invisible, but still in place
+   (no shift) and in the Tab order. Without a hovering pointer (touch) they always show. */
+.program-move {
+  display: flex;
+  gap: 2px;
+  opacity: 0;
+  transition: opacity 120ms ease;
+}
+
+.program-item:hover .program-move,
+.program-item:focus-within .program-move {
+  opacity: 1;
+}
+
+@media (hover: none) {
+  .program-move {
+    opacity: 1;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .program-move {
+    transition: none;
+  }
 }
 
 .icon-button:disabled {
@@ -9309,10 +9336,38 @@ label.setting-line:hover {
   align-items: start;
 }
 
-.profile-grid > label {
+.profile-grid > label,
+.profile-icon > .profile-label {
   padding-top: 5px;
   font-size: 12px;
   color: var(--muted);
+}
+
+/* The icon choice at the top of an entry's form: a row of the form's grid, so its label lines up
+   with the other labels; the form already gives it its spacing. */
+.profile-icon {
+  display: contents;
+}
+
+.profile-icon .icon-editor {
+  padding: 0;
+}
+
+/* At the window's minimum width the field column is narrow: whole choices move to a second line
+   instead of breaking "Eigenes Bild" inside its segment. */
+.profile-icon .segmented {
+  flex-wrap: wrap;
+}
+
+.profile-icon .segment {
+  padding-inline: 10px;
+  white-space: nowrap;
+}
+
+/* The note on saving a copy sits between the icon (applies at once) and the saved fields. */
+.profile-grid > .profile-intro {
+  grid-column: 1 / -1;
+  margin: 4px 0;
 }
 
 .profile-field {

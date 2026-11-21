@@ -21,6 +21,15 @@ export function startOptions(
   };
 }
 
+/** Names of the installed programs that receive HANGAR.md as found on this machine. */
+export function instructionsReached(
+  profiles: readonly Pick<Profile, "name" | "installed" | "instructions">[],
+): string[] {
+  return profiles
+    .filter((profile) => profile.installed && profile.instructions === "yes")
+    .map((profile) => profile.name);
+}
+
 /**
  * Names of the installed programs that take HANGAR.md but cannot get it as found on this machine
  * (an npm cmd.exe launcher such as `codex.cmd`), for the quiet line in Settings; empty when it

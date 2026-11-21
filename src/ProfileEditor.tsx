@@ -1,5 +1,5 @@
 import { open } from "@tauri-apps/plugin-dialog";
-import { useEffect, useId, useRef, useState, type RefObject } from "react";
+import { useEffect, useId, useRef, useState, type ReactNode, type RefObject } from "react";
 
 import { api, errorText, type Profile } from "./api";
 import { useT } from "./i18n";
@@ -33,6 +33,11 @@ interface Props {
    * entry's button). `false`: unsaved secret values; the editor asks first and stays open.
    */
   closeGuardRef?: RefObject<(() => boolean) | null>;
+  /**
+   * The entry's icon choice, shown at the top of the form. It applies at once, like every other
+   * setting, so Enter in it never saves the form.
+   */
+  icon?: ReactNode;
 }
 
 type Status = { kind: "idle" } | { kind: "saved" } | { kind: "error"; message: string };
@@ -44,9 +49,33 @@ type Status = { kind: "idle" } | { kind: "saved" } | { kind: "error"; message: s
  * values never live in React state: they stay in the password fields until saved, then the fields
  * are cleared.
  */
-export function ProfileEditor({ profile, takenIds, onProfiles, onClose, closeGuardRef }: Props) {
+export function ProfileEditor({
+  profile,
+  takenIds,
+  onProfiles,
+  onClose,
+  closeGuardRef,
+  icon,
+}: Props) {
   const t = useT();
   const id = useId();
+  // The first row of the form's grid, so its label shares the column with Name, Command and the
+  // rest (the wrapper only catches Enter and takes no box of its own).
+  const iconRow = icon !== undefined && (
+    <div
+      className="profile-icon"
+      onKeyDown={(event) => {
+        if (event.key === "Enter") event.stopPropagation();
+      }}
+    >
+      <span id={`${id}-icon`} className="profile-label">
+        {t("profile.icon")}
+      </span>
+      <div className="profile-field" role="group" aria-labelledby={`${id}-icon`}>
+        {icon}
+      </div>
+    </div>
+  );
   const [form, setForm] = useState<ProfileForm | null>(() =>
     profile === null
       ? emptyForm("")
@@ -116,7 +145,14 @@ export function ProfileEditor({ profile, takenIds, onProfiles, onClose, closeGua
 
   const ready = form !== null;
   useEffect(() => {
-    if (ready) root.current?.querySelector<HTMLInputElement>("input")?.focus();
+    // The name, not the icon choice above it: the form opens to edit the program.
+    if (ready) {
+      const fields = root.current;
+      (
+        fields?.querySelector<HTMLInputElement>('[data-field="name"]') ??
+        fields?.querySelector("input")
+      )?.focus();
+    }
   }, [ready]);
 
   if (loadError !== null) {
@@ -125,6 +161,7 @@ export function ProfileEditor({ profile, takenIds, onProfiles, onClose, closeGua
         <p className="error-text selectable" role="alert">
           {t("profile.loadFailed", { error: loadError })}
         </p>
+        {iconRow && <div className="profile-grid">{iconRow}</div>}
         <div className="profile-actions">
           <button type="button" className="secondary-button" onClick={onClose}>
             {t("common.close")}
@@ -286,10 +323,11 @@ export function ProfileEditor({ profile, takenIds, onProfiles, onClose, closeGua
         }
       }}
     >
-      {profile !== null && profile.editable !== true && (
-        <p className="muted profile-intro">{t("profile.customizeHelp")}</p>
-      )}
       <div className="profile-grid">
+        {iconRow}
+        {profile !== null && profile.editable !== true && (
+          <p className="muted profile-intro">{t("profile.customizeHelp")}</p>
+        )}
         <label htmlFor={fieldId("name")}>{t("profile.name")}</label>
         <div className="profile-field">
           <input

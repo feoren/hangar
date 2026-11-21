@@ -1,18 +1,18 @@
 import { useEffect, useId, useRef, useState, useSyncExternalStore, type ReactNode } from "react";
 
 import { AccountSettings } from "./AccountSettings";
-import { errorText, type Profile } from "./api";
+import type { Profile } from "./api";
 import { Dialog } from "./Dialog";
 import { DialogResizeHandles, useDialogSize, type DialogSizeBounds } from "./DialogResize";
 import { GeneralSettings } from "./GeneralSettings";
 import { useT, type MessageKey } from "./i18n";
 import { CheckIcon, CloseIcon } from "./icons";
 import { clampFontSize, FONT_SIZE } from "./layout";
-import { profileErrorText } from "./profileFile";
-import type { BadgeLook } from "./programPrefs";
+import { availableProfiles, type BadgeLook } from "./programPrefs";
 import type { ProgramVersions } from "./programs";
 import type { UpdateActions } from "./ProgramUpdateOffer";
-import { ProgramsSettings } from "./ProgramsSettings";
+import { AgentInstructionsGroup, ProgramsAdvanced } from "./ProgramFilesSettings";
+import { AvailableList, ProgramsSettings } from "./ProgramsSettings";
 import { AttentionSettings } from "./AttentionSettings";
 import { RangeField } from "./RangeField";
 import { RowLayoutSetting } from "./RowLayoutSettings";
@@ -32,7 +32,6 @@ import { SecuritySettings } from "./SecuritySettings";
 import { DictationSettings } from "./DictationSettings";
 import { SnippetsSettings } from "./SnippetsSettings";
 import { SubAgentSettings } from "./SubAgentSettings";
-import { instructionsUnavailable } from "./startOptions";
 import {
   nextTabIndex,
   SECTION_NAMES,
@@ -796,160 +795,20 @@ function ProgramsSection(props: Props) {
         onChange={props.onChange}
         onProfiles={props.onProfiles}
       />
-      <AgentInstructionsField
+      <AgentInstructionsGroup
         settings={props.settings}
         profiles={props.profiles}
         onChange={props.onChange}
         onOpen={props.onOpenHangarMd}
       />
-      <ProfileFileField onOpen={props.onOpenProfileFile} onReload={props.onReloadProfiles} />
+      <AvailableList profiles={availableProfiles(props.profiles)} />
+      <ProgramsAdvanced
+        settings={props.settings}
+        onChange={props.onChange}
+        onOpenProfileFile={props.onOpenProfileFile}
+        onReloadProfiles={props.onReloadProfiles}
+      />
     </>
-  );
-}
-
-/** HANGAR.md for every agent, and the upstream check of a fresh worktree session. */
-function AgentInstructionsField({
-  settings,
-  profiles,
-  onChange,
-  onOpen,
-}: Pick<Props, "settings" | "profiles" | "onChange"> & { onOpen: () => Promise<void> }) {
-  const t = useT();
-  const unavailable = instructionsUnavailable(profiles);
-  const [busy, setBusy] = useState(false);
-  const [problem, setProblem] = useState<string | null>(null);
-
-  const open = () => {
-    setBusy(true);
-    setProblem(null);
-    onOpen()
-      .catch((error: unknown) => {
-        setProblem(errorText(error));
-      })
-      .finally(() => {
-        setBusy(false);
-      });
-  };
-
-  return (
-    <section className="settings-section" aria-labelledby="programs-instructions">
-      <h4 id="programs-instructions" className="settings-subtitle">
-        {t("settings.agentInstructions")}
-      </h4>
-      <p id="hangar-md-help" className="muted settings-intro">
-        {t("settings.agentInstructionsHelp")}
-      </p>
-      <label className="check">
-        <input
-          type="checkbox"
-          checked={settings.hangarMd}
-          aria-describedby="hangar-md-help"
-          onChange={(event) => {
-            onChange({ hangarMd: event.currentTarget.checked });
-          }}
-        />
-        <span>{t("settings.hangarMd")}</span>
-      </label>
-      {unavailable.length > 0 && (
-        <p className="muted settings-help">
-          {t("settings.hangarMdUnavailable", { names: unavailable.join(", ") })}
-        </p>
-      )}
-      <div className="settings-row">
-        <button
-          type="button"
-          className="secondary-button"
-          aria-describedby="hangar-md-help"
-          disabled={busy}
-          onClick={open}
-        >
-          {t("settings.openHangarMd")}
-        </button>
-        <span className="muted error-text" role="status">
-          {problem ?? ""}
-        </span>
-      </div>
-      <label className="check">
-        <input
-          type="checkbox"
-          checked={settings.worktreeUpstreamCheck}
-          aria-describedby="worktree-upstream-help"
-          onChange={(event) => {
-            onChange({ worktreeUpstreamCheck: event.currentTarget.checked });
-          }}
-        />
-        <span>{t("settings.worktreeUpstreamCheck")}</span>
-      </label>
-      <p id="worktree-upstream-help" className="muted settings-help">
-        {t("settings.worktreeUpstreamCheckHelp")}
-      </p>
-    </section>
-  );
-}
-
-/** Custom profiles: open profiles.toml and reload it without a restart. */
-function ProfileFileField({
-  onOpen,
-  onReload,
-}: {
-  onOpen: () => Promise<void>;
-  onReload: () => Promise<void>;
-}) {
-  const t = useT();
-  const [busy, setBusy] = useState(false);
-  const [status, setStatus] = useState<{ ok: boolean; text: string } | null>(null);
-
-  const run = (action: () => Promise<void>, done: string | null) => {
-    setBusy(true);
-    setStatus(null);
-    action()
-      .then(() => {
-        if (done !== null) setStatus({ ok: true, text: done });
-      })
-      .catch((error: unknown) => {
-        setStatus({ ok: false, text: profileErrorText(error, t) });
-      })
-      .finally(() => {
-        setBusy(false);
-      });
-  };
-
-  return (
-    <section className="settings-section" aria-labelledby="programs-profile-file">
-      <h4 id="programs-profile-file" className="settings-subtitle">
-        {t("settings.profileFile")}
-      </h4>
-      <p id="profile-file-help" className="muted settings-intro">
-        {t("settings.profileFileHelp")}
-      </p>
-      <div className="settings-row">
-        <button
-          type="button"
-          className="secondary-button"
-          aria-describedby="profile-file-help"
-          disabled={busy}
-          onClick={() => {
-            run(onOpen, null);
-          }}
-        >
-          {t("settings.openProfileFile")}
-        </button>
-        <button
-          type="button"
-          className="secondary-button"
-          aria-describedby="profile-file-help"
-          disabled={busy}
-          onClick={() => {
-            run(onReload, t("settings.profilesReloaded"));
-          }}
-        >
-          {t("settings.reloadProfiles")}
-        </button>
-      </div>
-      <p className={status && !status.ok ? "muted error-text" : "muted"} role="status">
-        {status?.text ?? ""}
-      </p>
-    </section>
   );
 }
 

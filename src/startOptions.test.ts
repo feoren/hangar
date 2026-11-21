@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { instructionsUnavailable, startOptions } from "./startOptions";
+import { instructionsReached, instructionsUnavailable, startOptions } from "./startOptions";
 
 describe("instructionsUnavailable", () => {
   it("names installed programs behind a launcher only", () => {
@@ -14,6 +14,21 @@ describe("instructionsUnavailable", () => {
       ]),
     ).toEqual(["Codex CLI"]);
     expect(instructionsUnavailable([])).toEqual([]);
+  });
+});
+
+describe("instructionsReached", () => {
+  it("names installed programs that receive HANGAR.md only", () => {
+    expect(
+      instructionsReached([
+        { name: "Codex CLI", installed: true, instructions: "launcher" },
+        { name: "Claude Code", installed: true, instructions: "yes" },
+        { name: "Old Gemini", installed: false, instructions: "yes" },
+        { name: "PowerShell", installed: true, instructions: "none" },
+        { name: "Older backend", installed: true },
+      ]),
+    ).toEqual(["Claude Code"]);
+    expect(instructionsReached([])).toEqual([]);
   });
 });
 
