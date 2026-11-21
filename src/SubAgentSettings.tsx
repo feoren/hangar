@@ -1,8 +1,8 @@
 // Settings, Sub-agents: Claude Code's sub-agent definitions with their figures and models, Codex
 // CLI's own definitions, the default model per program and the copies of the user's
-// definitions in other programs. One row per name (global and project files of that name
-// together), a figure picker below the row whose figure was clicked, and a form for a new
-// definition from pasted text or a loaded file.
+// definitions in other programs. The list comes first (what people come here for), with a form
+// for a new definition right below it; the display, the default models and which files Hangar
+// adds follow as groups of settings.
 
 import { Fragment, useEffect, useRef, useState, type ReactNode } from "react";
 
@@ -13,7 +13,7 @@ import { useT, type MessageKey } from "./i18n";
 import { ChevronIcon, CloseIcon, GridIcon, RowsIcon } from "./icons";
 import { folderName } from "./folders";
 import type { Settings as AppSettings } from "./settings";
-import { SettingsGroup, SwitchRow } from "./SettingsParts";
+import { Advanced, SettingRow, SettingsGroup, Switch, SwitchRow } from "./SettingsParts";
 import {
   BUILTIN_FIGURES,
   DEF_TEMPLATE,
@@ -130,6 +130,9 @@ export function SubAgentSettings({
   const t = useT();
   const { library, error } = useSubAgentLibrary();
   const [creating, setCreating] = useState(false);
+  const newButton = useRef<HTMLButtonElement>(null);
+  // The form goes away with the focus in it: it returns to the button that opened it.
+  const returnFocus = useRef(false);
   const [settings, setSettings] = useState<SubAgentSettings | null>(null);
   const [settingsError, setSettingsError] = useState<string | null>(null);
 
@@ -137,6 +140,12 @@ export function SubAgentSettings({
   useEffect(() => {
     void syncLibrary();
   }, []);
+
+  useEffect(() => {
+    if (creating || !returnFocus.current) return;
+    returnFocus.current = false;
+    newButton.current?.focus();
+  }, [creating]);
 
   useEffect(() => {
     let live = true;
@@ -168,11 +177,47 @@ export function SubAgentSettings({
   };
 
   return (
-    <section className="settings-section sub-agent-settings" aria-labelledby="sub-agents-help">
-      <p id="sub-agents-help" className="muted settings-intro">
-        {t("subAgentLib.intro")}
-      </p>
+    <div className="sub-agent-settings">
+      <p className="muted settings-intro">{t("subAgentLib.intro")}</p>
       {error !== null && <p className="muted error-text">{error}</p>}
+      <AgentBrowser library={library} bundledOff={settings?.bundledOff === true} />
+      {library.problems.length > 0 && (
+        <Advanced summary={t("subAgentLib.problems", { count: library.problems.length })}>
+          <ul className="sub-agent-problem-list">
+            {library.problems.map((problem) => (
+              <li
+                key={`${problem.program}/${problem.folder ?? ""}/${problem.file}`}
+                className="muted"
+              >
+                <code>{problem.file}</code>
+                {problem.folder !== null && ` (${folderName(problem.folder)})`}:{" "}
+                {t(PROBLEM_TEXTS[problem.problem])}
+              </li>
+            ))}
+          </ul>
+        </Advanced>
+      )}
+      {creating ? (
+        <NewSubAgent
+          onDone={() => {
+            returnFocus.current = true;
+            setCreating(false);
+          }}
+        />
+      ) : (
+        <div className="settings-row">
+          <button
+            ref={newButton}
+            type="button"
+            className="secondary-button"
+            onClick={() => {
+              setCreating(true);
+            }}
+          >
+            {t("subAgentLib.new")}
+          </button>
+        </div>
+      )}
       <SettingsGroup title={t("settings.groupSubAgentDisplay")}>
         <SwitchRow
           label={t("settings.crewColumn")}
@@ -197,46 +242,7 @@ export function SubAgentSettings({
         message={settingsError}
         onSave={saveSettings}
       />
-      <AgentBrowser library={library} bundledOff={settings?.bundledOff === true} />
-      {library.problems.length > 0 && (
-        <details className="sub-agent-problems">
-          <summary className="muted">
-            {t("subAgentLib.problems", { count: library.problems.length })}
-          </summary>
-          <ul>
-            {library.problems.map((problem) => (
-              <li
-                key={`${problem.program}/${problem.folder ?? ""}/${problem.file}`}
-                className="muted"
-              >
-                <code>{problem.file}</code>
-                {problem.folder !== null && ` (${folderName(problem.folder)})`}:{" "}
-                {t(PROBLEM_TEXTS[problem.problem])}
-              </li>
-            ))}
-          </ul>
-        </details>
-      )}
-      {creating ? (
-        <NewSubAgent
-          onDone={() => {
-            setCreating(false);
-          }}
-        />
-      ) : (
-        <div className="settings-row">
-          <button
-            type="button"
-            className="secondary-button"
-            onClick={() => {
-              setCreating(true);
-            }}
-          >
-            {t("subAgentLib.new")}
-          </button>
-        </div>
-      )}
-    </section>
+    </div>
   );
 }
 
@@ -610,8 +616,8 @@ function AgentDetails({ item, onClose }: { item: AgentItem; onClose: () => void 
 }
 
 /**
- * The default model of every sub-agent per installed program, and whether the user's
- * definitions go to the other programs. Only programs installed here are shown.
+ * The default model of every sub-agent per installed program, and which definitions Hangar adds
+ * to the programs' folders. Only programs installed here are shown.
  */
 function ModelDefaults({
   library,
@@ -630,63 +636,62 @@ function ModelDefaults({
   }
   const suggestions = codexSuggestions(library, library.codexModels);
   return (
-    <div className="sub-agent-defaults" role="group" aria-labelledby="sub-agent-defaults-title">
-      <h4 id="sub-agent-defaults-title" className="settings-subtitle">
-        {t("subAgentLib.defaults")}
-      </h4>
-      {library.installed.map((program) => (
-        <div key={program} className="sub-agent-default">
-          <span className="sub-agent-default-name">{PROGRAM_NAMES[program]}</span>
-          <ModelField
-            program={program}
-            value={settings.models[program] ?? NO_CHOICE}
-            suggestions={program === "codex" ? suggestions : []}
-            label={t("subAgentLib.defaultFor", { program: PROGRAM_NAMES[program] })}
-            onChange={(choice) => {
-              save(withModel(settings, program, choice));
-            }}
+    <>
+      <SettingsGroup title={t("subAgentLib.defaults")} description={t("subAgentLib.defaultsHelp")}>
+        {library.installed.map((program) => (
+          <SettingRow
+            key={program}
+            label={PROGRAM_NAMES[program]}
+            control={() => (
+              <ModelField
+                program={program}
+                value={settings.models[program] ?? NO_CHOICE}
+                suggestions={program === "codex" ? suggestions : []}
+                label={t("subAgentLib.defaultFor", { program: PROGRAM_NAMES[program] })}
+                onChange={(choice) => {
+                  save(withModel(settings, program, choice));
+                }}
+              />
+            )}
           />
-        </div>
-      ))}
-      <p className="muted settings-help">{t("subAgentLib.defaultsHelp")}</p>
-      <div className="sub-agent-provide">
-        <label className="check">
-          <input
-            type="checkbox"
-            checked={!settings.bundledOff}
-            aria-describedby="sub-agent-bundled-help"
-            onChange={(event) => {
-              save(withBundled(settings, event.currentTarget.checked));
-            }}
-          />
-          <span>{t("subAgentLib.provideBundled")}</span>
-        </label>
-        <p id="sub-agent-bundled-help" className="muted settings-help">
-          {t("subAgentLib.provideBundledHelp")}
-        </p>
-      </div>
-      {/* Providing the definitions is no model setting: its own line and help below the models. */}
-      {library.targets.map((target) => (
-        <div key={target.program} className="sub-agent-provide">
-          <label className="check">
-            <input
-              type="checkbox"
-              checked={!settings.provideOff.includes(target.program)}
-              aria-describedby={`sub-agent-provide-help-${target.program}`}
-              onChange={(event) => {
-                save(withProvide(settings, target.program, event.currentTarget.checked));
-              }}
-            />
-            <span>{t("subAgentLib.provide", { program: PROGRAM_NAMES[target.program] })}</span>
-          </label>
-          <p id={`sub-agent-provide-help-${target.program}`} className="muted settings-help">
-            {t("subAgentLib.provideHelp")}
-          </p>
-          <IssueList issues={failures(library, target.program)} />
-        </div>
-      ))}
+        ))}
+      </SettingsGroup>
+      <SettingsGroup title={t("subAgentLib.files")}>
+        <SwitchRow
+          label={t("subAgentLib.provideBundled")}
+          help={t("subAgentLib.provideBundledHelp")}
+          checked={!settings.bundledOff}
+          onChange={(on) => {
+            save(withBundled(settings, on));
+          }}
+        />
+        {library.targets.map((target) => {
+          const issues = failures(library, target.program);
+          // Not a SwitchRow: what the last copy run left alone stays listed even while off.
+          return (
+            <SettingRow
+              key={target.program}
+              label={t("subAgentLib.provide", { program: PROGRAM_NAMES[target.program] })}
+              help={t("subAgentLib.provideHelp")}
+              clickable
+              control={({ labelId, helpId }) => (
+                <Switch
+                  checked={!settings.provideOff.includes(target.program)}
+                  labelledBy={labelId}
+                  describedBy={helpId}
+                  onChange={(on) => {
+                    save(withProvide(settings, target.program, on));
+                  }}
+                />
+              )}
+            >
+              {issues.length > 0 && <IssueList issues={issues} />}
+            </SettingRow>
+          );
+        })}
+      </SettingsGroup>
       {message !== null && <p className="muted error-text">{message}</p>}
-    </div>
+    </>
   );
 }
 
@@ -1099,7 +1104,7 @@ function FigurePicker({ name, chosen }: { name: string; chosen: FigureView | und
           {t("subAgentLib.resetFigure")}
         </button>
       </div>
-      <p className="muted settings-help" role="status">
+      <p className="muted figure-help" role="status">
         {message ?? t("subAgentLib.figureHelp")}
       </p>
     </div>
@@ -1157,87 +1162,87 @@ function NewSubAgent({ onDone }: { onDone: () => void }) {
   };
 
   return (
-    <div className="sub-agent-new">
-      <h4 className="settings-subtitle">{t("subAgentLib.new")}</h4>
-      <p className="muted settings-help">{t("subAgentLib.newHelp")}</p>
-      <textarea
-        ref={field}
-        className="sub-agent-text-field"
-        aria-label={t("subAgentLib.textLabel")}
-        placeholder={DEF_TEMPLATE}
-        spellCheck={false}
-        rows={10}
-        value={text}
-        onChange={(event) => {
-          setText(event.currentTarget.value);
-          setExists(null);
-        }}
-      />
-      {exists !== null ? (
-        <div className="settings-row sub-agent-confirm" role="group">
-          <span>{t("subAgentLib.exists", { name: exists })}</span>
-          <button
-            type="button"
-            className="primary-button danger"
-            onClick={() => {
-              save(true);
-            }}
-          >
-            {t("subAgentLib.replace")}
-          </button>
-          <button
-            type="button"
-            className="secondary-button"
-            onClick={() => {
-              setExists(null);
-            }}
-          >
-            {t("common.cancel")}
-          </button>
-        </div>
-      ) : (
-        <div className="settings-row">
-          <button
-            type="button"
-            className="primary-button"
-            disabled={text.trim() === ""}
-            onClick={() => {
-              save(false);
-            }}
-          >
-            {t("subAgentLib.save")}
-          </button>
-          <button
-            type="button"
-            className="secondary-button"
-            onClick={() => fileInput.current?.click()}
-          >
-            {t("subAgentLib.loadFile")}
-          </button>
-          <input
-            ref={fileInput}
-            type="file"
-            accept=".md,text/markdown,text/plain"
-            className="sr-only"
-            tabIndex={-1}
-            aria-hidden="true"
-            onChange={(event) => {
-              const input = event.currentTarget;
-              void onFile(input.files?.[0]).finally(() => {
-                input.value = "";
-              });
-            }}
-          />
-          <button type="button" className="link-button" onClick={onDone}>
-            {t("common.cancel")}
-          </button>
-        </div>
-      )}
-      {message !== null && (
-        <p className="muted error-text" role="status">
-          {message}
-        </p>
-      )}
-    </div>
+    <SettingsGroup title={t("subAgentLib.new")} description={t("subAgentLib.newHelp")}>
+      <div className="sub-agent-new">
+        <textarea
+          ref={field}
+          className="sub-agent-text-field"
+          aria-label={t("subAgentLib.textLabel")}
+          placeholder={DEF_TEMPLATE}
+          spellCheck={false}
+          rows={10}
+          value={text}
+          onChange={(event) => {
+            setText(event.currentTarget.value);
+            setExists(null);
+          }}
+        />
+        {exists !== null ? (
+          <div className="settings-row sub-agent-confirm" role="group">
+            <span>{t("subAgentLib.exists", { name: exists })}</span>
+            <button
+              type="button"
+              className="primary-button danger"
+              onClick={() => {
+                save(true);
+              }}
+            >
+              {t("subAgentLib.replace")}
+            </button>
+            <button
+              type="button"
+              className="secondary-button"
+              onClick={() => {
+                setExists(null);
+              }}
+            >
+              {t("common.cancel")}
+            </button>
+          </div>
+        ) : (
+          <div className="settings-row">
+            <button
+              type="button"
+              className="primary-button"
+              disabled={text.trim() === ""}
+              onClick={() => {
+                save(false);
+              }}
+            >
+              {t("subAgentLib.save")}
+            </button>
+            <button
+              type="button"
+              className="secondary-button"
+              onClick={() => fileInput.current?.click()}
+            >
+              {t("subAgentLib.loadFile")}
+            </button>
+            <input
+              ref={fileInput}
+              type="file"
+              accept=".md,text/markdown,text/plain"
+              className="sr-only"
+              tabIndex={-1}
+              aria-hidden="true"
+              onChange={(event) => {
+                const input = event.currentTarget;
+                void onFile(input.files?.[0]).finally(() => {
+                  input.value = "";
+                });
+              }}
+            />
+            <button type="button" className="link-button" onClick={onDone}>
+              {t("common.cancel")}
+            </button>
+          </div>
+        )}
+        {message !== null && (
+          <p className="muted error-text" role="status">
+            {message}
+          </p>
+        )}
+      </div>
+    </SettingsGroup>
   );
 }

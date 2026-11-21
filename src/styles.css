@@ -4500,11 +4500,6 @@ body.resizing-horizontal * {
   border-radius: 5px;
 }
 
-.dialog .settings-help {
-  margin: 4px 0 10px 26px;
-  line-height: 1.45;
-}
-
 .settings-group {
   margin: 0;
   padding: 0;
@@ -5499,16 +5494,6 @@ body.resizing-horizontal * {
 
 /* Terminals & agents */
 
-.settings-section + .settings-section {
-  margin-top: var(--space-3);
-}
-
-.settings-subtitle {
-  margin: 0 0 4px;
-  font-size: 13px;
-  font-weight: 600;
-}
-
 .dialog .settings-intro {
   margin: 0 0 10px;
   line-height: 1.45;
@@ -5707,9 +5692,7 @@ body.resizing-horizontal * {
 }
 
 /* Settings parts (SettingsParts.tsx): titled groups as cards, one setting per line. */
-.setting-group + .setting-group,
-.setting-group + .settings-section,
-.settings-section + .setting-group {
+.setting-group + .setting-group {
   margin-top: var(--space-3);
 }
 
@@ -10865,11 +10848,27 @@ body.session-dragging .session-actions {
 }
 
 .dialog .account-help {
-  margin-left: 0;
+  margin: 4px 0 10px;
+  line-height: 1.45;
 }
 
-.account-server summary {
-  cursor: pointer;
+/* The sign-in block as the first line of the account card. */
+.setting > .account-state {
+  padding: var(--space-2);
+}
+
+.setting > .account-state > :last-child {
+  margin-bottom: 0;
+}
+
+.account-state > :first-child,
+.account-waiting > :first-child {
+  margin-top: 0;
+}
+
+.dialog .account-server-help {
+  margin: 0 0 10px;
+  line-height: 1.45;
 }
 
 .account-server-row {
@@ -11740,7 +11739,7 @@ body.session-dragging .session-actions {
   margin: 20px auto 0;
 }
 
-.team-window-center .settings-section {
+.team-window-center .account-state {
   width: 100%;
   margin: 0;
 }
@@ -13935,7 +13934,23 @@ button.sub-agent-card:focus-visible {
   border-color: var(--accent);
 }
 
+/* The list, the new-definition form and the groups below it, evenly spaced. */
+.sub-agent-settings {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+}
+
+.dialog .sub-agent-settings > * {
+  margin-block: 0;
+}
+
+.sub-agent-new {
+  padding: var(--space-2);
+}
+
 .sub-agent-new textarea {
+  box-sizing: border-box;
   width: 100%;
   min-height: 160px;
   font-family: var(--mono);
@@ -13943,49 +13958,7 @@ button.sub-agent-card:focus-visible {
   resize: vertical;
 }
 
-.sub-agent-problems {
-  margin-bottom: 12px;
-}
-
 /* Models (SubAgentModelField.tsx): small fields in one line per program, wrapping when narrow. */
-.sub-agent-settings > .setting-group {
-  margin-bottom: 14px;
-}
-
-.sub-agent-defaults {
-  margin: 0 0 14px;
-  padding: 10px 12px;
-  border: 1px solid var(--border);
-  border-radius: 8px;
-}
-
-.sub-agent-defaults .settings-subtitle {
-  margin-top: 0;
-}
-
-.sub-agent-default {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 6px 12px;
-  align-items: center;
-  margin-bottom: 6px;
-}
-
-.sub-agent-default-name {
-  min-width: 96px;
-  font-weight: 600;
-}
-
-.sub-agent-provide {
-  margin-top: 10px;
-  padding-top: 10px;
-  border-top: 1px solid var(--border);
-}
-
-.sub-agent-provide .settings-help {
-  margin: 4px 0 0;
-}
-
 .sub-agent-models {
   display: flex;
   flex-wrap: wrap;
@@ -14037,9 +14010,20 @@ button.sub-agent-card:focus-visible {
   border-radius: 9px;
 }
 
-.sub-agent-problems ul {
-  margin: 6px 0 0;
+.sub-agent-problem-list {
+  margin: 0;
   padding-left: 18px;
+}
+
+/* What the last copy run left alone, under its switch. */
+.setting-children > .sub-agent-issues {
+  margin: 0;
+  padding: 0 var(--space-1) var(--space-1) calc(var(--space-1) + 18px);
+}
+
+.dialog .figure-help {
+  margin: var(--space-1) 0 0;
+  line-height: 1.45;
 }
 
 .subagent-node .agent-figure {

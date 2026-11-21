@@ -1197,6 +1197,7 @@ const de = {
   "subAgentLib.provide": "Meine Sub-Agenten in {program} bereitstellen",
   "subAgentLib.provideHelp":
     "Hangar legt sie dort als eigene Dateien an. Eine Datei gleichen Namens wird ersetzt und als .bak aufgehoben. Das gilt auch für ungetrackte .codex/agents deiner Projekte.",
+  "subAgentLib.files": "Sub-Agenten bereitstellen",
   "subAgentLib.provideBundled": "Hangars Sub-Agenten bereitstellen",
   "subAgentLib.provideBundledHelp":
     "Hangar legt seine mitgelieferten Sub-Agenten in ~/.claude/agents an, wo noch keiner dieses Namens ist. Deine eigenen und bearbeiteten Dateien bleiben unberührt.",
@@ -3494,6 +3495,7 @@ const en: Record<MessageKey, string> = {
   "subAgentLib.provide": "Provide my sub-agents in {program}",
   "subAgentLib.provideHelp":
     "Hangar adds them there as files of its own. A file of the same name is replaced and kept as .bak. This also applies to untracked .codex/agents in your projects.",
+  "subAgentLib.files": "Provide sub-agents",
   "subAgentLib.provideBundled": "Provide Hangar's sub-agents",
   "subAgentLib.provideBundledHelp":
     "Hangar adds its bundled sub-agents to ~/.claude/agents where none of that name exists. Your own files and the ones you edited stay untouched.",
@@ -5793,6 +5795,7 @@ const el: Record<MessageKey, string> = {
   "subAgentLib.provide": "Διάθεση των υπο-πρακτόρων μου στο {program}",
   "subAgentLib.provideHelp":
     "Το Hangar τους προσθέτει εκεί ως δικά του αρχεία. Ένα αρχείο με το ίδιο όνομα αντικαθίσταται και φυλάσσεται ως .bak. Ισχύει και για μη παρακολουθούμενα .codex/agents των έργων σου.",
+  "subAgentLib.files": "Διάθεση υπο-πρακτόρων",
   "subAgentLib.provideBundled": "Διάθεση των υπο-πρακτόρων του Hangar",
   "subAgentLib.provideBundledHelp":
     "Το Hangar προσθέτει τους υπο-πράκτορες που φέρνει μαζί του στο ~/.claude/agents, όπου δεν υπάρχει κανένας με αυτό το όνομα. Τα δικά σου αρχεία και όσα επεξεργάστηκες μένουν ανέγγιχτα.",
@@ -8118,6 +8121,7 @@ const es: Record<MessageKey, string> = {
   "subAgentLib.provide": "Ofrecer mis subagentes en {program}",
   "subAgentLib.provideHelp":
     "Hangar los añade allí como archivos propios. Un archivo con el mismo nombre se reemplaza y se guarda como .bak. También vale para .codex/agents sin seguimiento en tus proyectos.",
+  "subAgentLib.files": "Ofrecer subagentes",
   "subAgentLib.provideBundled": "Ofrecer los subagentes de Hangar",
   "subAgentLib.provideBundledHelp":
     "Hangar añade sus subagentes incluidos a ~/.claude/agents donde no exista ninguno con ese nombre. Tus propios archivos y los que editaste no se tocan.",
@@ -10434,6 +10438,7 @@ const fr: Record<MessageKey, string> = {
   "subAgentLib.provide": "Proposer mes sous-agents dans {program}",
   "subAgentLib.provideHelp":
     "Hangar les y ajoute comme ses propres fichiers. Un fichier du même nom est remplacé et gardé en .bak. Cela vaut aussi pour les .codex/agents non suivis de tes projets.",
+  "subAgentLib.files": "Proposer des sous-agents",
   "subAgentLib.provideBundled": "Proposer les sous-agents de Hangar",
   "subAgentLib.provideBundledHelp":
     "Hangar ajoute ses sous-agents fournis dans ~/.claude/agents là où aucun de ce nom n’existe. Tes propres fichiers et ceux que tu as modifiés restent intacts.",
@@ -12756,6 +12761,7 @@ const it: Record<MessageKey, string> = {
   "subAgentLib.provide": "Offri i miei sotto-agenti in {program}",
   "subAgentLib.provideHelp":
     "Hangar li aggiunge lì come file propri. Un file con lo stesso nome viene sostituito e conservato come .bak. Vale anche per i .codex/agents non tracciati dei tuoi progetti.",
+  "subAgentLib.files": "Offri sotto-agenti",
   "subAgentLib.provideBundled": "Offri i sotto-agenti di Hangar",
   "subAgentLib.provideBundledHelp":
     "Hangar aggiunge i suoi sotto-agenti inclusi in ~/.claude/agents dove non ne esiste uno con quel nome. I tuoi file e quelli che hai modificato restano intatti.",
@@ -15069,6 +15075,7 @@ const ja: Record<MessageKey, string> = {
   "subAgentLib.provide": "自分のサブエージェントを {program} で使えるようにする",
   "subAgentLib.provideHelp":
     "Hangar はそこに独自のファイルとして追加します。同じ名前のファイルは置き換え、.bak として保存します。 プロジェクト内の Git 管理外の .codex/agents にも適用されます。",
+  "subAgentLib.files": "サブエージェントを使えるようにする",
   "subAgentLib.provideBundled": "Hangar のサブエージェントを使えるようにする",
   "subAgentLib.provideBundledHelp":
     "Hangar は同じ名前のものがない場合に、付属のサブエージェントを ~/.claude/agents に追加します。自分のファイルや編集したファイルには触れません。",
@@ -17364,6 +17371,7 @@ const pl: Record<MessageKey, string> = {
   "subAgentLib.provide": "Udostępnij moich podagentów w {program}",
   "subAgentLib.provideHelp":
     "Hangar dodaje ich tam jako własne pliki. Plik o tej samej nazwie zostaje zastąpiony i zachowany jako .bak. Dotyczy to też nieśledzonych .codex/agents w twoich projektach.",
+  "subAgentLib.files": "Udostępnij podagentów",
   "subAgentLib.provideBundled": "Udostępnij podagentów Hangara",
   "subAgentLib.provideBundledHelp":
     "Hangar dodaje dołączonych podagentów do ~/.claude/agents tam, gdzie nie ma żadnego o tej nazwie. Twoje własne i edytowane pliki pozostają nietknięte.",
@@ -19654,6 +19662,7 @@ const pt: Record<MessageKey, string> = {
   "subAgentLib.provide": "Disponibilizar meus subagentes no {program}",
   "subAgentLib.provideHelp":
     "O Hangar os adiciona lá como arquivos próprios. Um arquivo com o mesmo nome é substituído e guardado como .bak. Vale também para .codex/agents não rastreados dos seus projetos.",
+  "subAgentLib.files": "Disponibilizar subagentes",
   "subAgentLib.provideBundled": "Disponibilizar os subagentes do Hangar",
   "subAgentLib.provideBundledHelp":
     "O Hangar adiciona seus subagentes incluídos em ~/.claude/agents onde não existe nenhum com esse nome. Seus próprios arquivos e os que você editou ficam intactos.",
@@ -21945,6 +21954,7 @@ const ru: Record<MessageKey, string> = {
   "subAgentLib.provide": "Предоставить моих субагентов в {program}",
   "subAgentLib.provideHelp":
     "Hangar добавляет их туда как свои файлы. Файл с тем же именем заменяется и сохраняется как .bak. Это касается и неотслеживаемых .codex/agents в твоих проектах.",
+  "subAgentLib.files": "Предоставить субагентов",
   "subAgentLib.provideBundled": "Предоставить субагентов Hangar",
   "subAgentLib.provideBundledHelp":
     "Hangar добавляет своих встроенных субагентов в ~/.claude/agents, если там нет субагента с таким именем. Твои собственные и изменённые файлы остаются нетронутыми.",
@@ -24221,6 +24231,7 @@ const tr: Record<MessageKey, string> = {
   "subAgentLib.provide": "Alt ajanlarımı {program} içinde sun",
   "subAgentLib.provideHelp":
     "Hangar onları oraya kendi dosyaları olarak ekler. Aynı adlı bir dosya değiştirilir ve .bak olarak saklanır. Bu, projelerindeki izlenmeyen .codex/agents için de geçerlidir.",
+  "subAgentLib.files": "Alt ajanları sun",
   "subAgentLib.provideBundled": "Hangar'ın alt ajanlarını sun",
   "subAgentLib.provideBundledHelp":
     "Hangar, birlikte gelen alt ajanlarını aynı adda bir ajan yoksa ~/.claude/agents içine ekler. Kendi dosyaların ve düzenlediklerin olduğu gibi kalır.",
@@ -26441,6 +26452,7 @@ const zh: Record<MessageKey, string> = {
   "subAgentLib.provide": "在 {program} 中提供我的子代理",
   "subAgentLib.provideHelp":
     "Hangar 会在那里添加自己的文件。同名文件会被替换，并保存为 .bak。这也适用于你项目中未被跟踪的 .codex/agents。",
+  "subAgentLib.files": "提供子代理",
   "subAgentLib.provideBundled": "提供 Hangar 的子代理",
   "subAgentLib.provideBundledHelp":
     "如果 ~/.claude/agents 中没有同名的子代理，Hangar 会把自带的子代理添加进去。你自己的文件和你编辑过的文件不会被改动。",

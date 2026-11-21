@@ -146,20 +146,23 @@ export function WideRow({
 
 /**
  * A rarely changed setting behind one line: a click on it opens `children` below, a second click
- * closes them again. Closed when the dialog opens, so the page stays short.
+ * closes them again. Closed when the dialog opens, so the page stays short; `defaultOpen` opens
+ * it instead when its current value is not the usual one.
  */
 export function DisclosureRow({
   label,
   help,
+  defaultOpen = false,
   children,
 }: {
   label: ReactNode;
   /** One line about the current state, shown while closed and open. */
   help?: ReactNode;
+  defaultOpen?: boolean;
   children: ReactNode;
 }) {
   const id = useId();
-  const [open, setOpen] = useState(false);
+  const [open, setOpen] = useState(defaultOpen);
   return (
     <div className="setting">
       <button

@@ -17,6 +17,7 @@ import {
 import { writeClipboard } from "./clipboard";
 import { useT } from "./i18n";
 import { CheckIcon, CloseIcon } from "./icons";
+import { DisclosureRow, SettingsGroup } from "./SettingsParts";
 import {
   checkForServer,
   checkProblemText,
@@ -32,33 +33,56 @@ type Register = (target: FocusTarget) => (element: HTMLButtonElement | null) => 
 
 /**
  * Settings, Account: sign in with the device flow (a code to confirm in the browser), the
- * signed-in person, sign out, and the server address for self-hosting. Everything else (tokens,
- * requests, opening pages) happens in the backend.
+ * signed-in person, sign out, and the server address for self-hosting, all in one card. The
+ * server address stays folded behind one line, since almost everyone uses the official service.
+ * Everything else (tokens, requests, opening pages) happens in the backend.
  */
 
 export function AccountSettings() {
   const t = useT();
   const { view, unavailable } = useAccount();
+  if (view === null) {
+    // No card while the first status loads; a text only when it failed.
+    return (
+      <>
+        <p className="muted setting-group-desc">{t("account.intro")}</p>
+        {unavailable && <p className="muted">{t("account.unavailable")}</p>}
+      </>
+    );
+  }
   return (
-    <>
-      <p className="muted settings-intro">{t("account.intro")}</p>
-      {view === null ? (
-        // Nothing while the first status loads; a text only when it failed.
-        unavailable && <p className="muted">{t("account.unavailable")}</p>
-      ) : (
-        <AccountStateSection view={view} />
-      )}
-      {view !== null && <ServerField view={view} />}
-    </>
+    <SettingsGroup description={t("account.intro")}>
+      <div className="setting">
+        <AccountStateSection view={view} showServer={false} />
+      </div>
+      <DisclosureRow
+        label={t("account.server")}
+        help={
+          view.official
+            ? t("account.serverOfficial")
+            : t("account.serverName", { host: serverHost(view.baseUrl) })
+        }
+        defaultOpen={!view.official}
+      >
+        <ServerField view={view} />
+      </DisclosureRow>
+    </SettingsGroup>
   );
 }
 
 /**
  * The sign-in block of a view: sign in, the code to confirm, the signed-in person or what
  * failed. Without a heading of its own: Settings already says "Account" above it, and the Team
- * window puts its own sentence above it.
+ * window puts its own sentence above it. `showServer` names an own server next to "Sign in"; Settings
+ * leaves it out, since its server line right below already names it.
  */
-export function AccountStateSection({ view }: { view: AccountView }) {
+export function AccountStateSection({
+  view,
+  showServer = true,
+}: {
+  view: AccountView;
+  showServer?: boolean;
+}) {
   const t = useT();
   const [problem, setProblem] = useState<AccountProblem | null>(null);
   const [busy, setBusy] = useState(false);
@@ -104,12 +128,8 @@ export function AccountStateSection({ view }: { view: AccountView }) {
   };
 
   return (
-    <section
-      ref={section}
-      className="settings-section account-state"
-      aria-label={t("account.title")}
-    >
-      <StateBlock view={view} busy={busy} run={run} register={register} />
+    <section ref={section} className="account-state" aria-label={t("account.title")}>
+      <StateBlock view={view} showServer={showServer} busy={busy} run={run} register={register} />
       {problem !== null && (
         <p className="muted error-text" role="alert">
           {accountErrorText(problem, t)}
@@ -122,11 +142,13 @@ export function AccountStateSection({ view }: { view: AccountView }) {
 
 function StateBlock({
   view,
+  showServer,
   busy,
   run,
   register,
 }: {
   view: AccountView;
+  showServer: boolean;
   busy: boolean;
   run: (action: () => Promise<AccountProblem | null>) => void;
   register: Register;
@@ -178,7 +200,7 @@ function StateBlock({
             >
               {t("account.signIn")}
             </button>
-            {!view.official && (
+            {showServer && !view.official && (
               <span className="muted">
                 {t("account.serverName", { host: serverHost(view.baseUrl) })}
               </span>
@@ -221,7 +243,7 @@ function StateBlock({
               {t("account.signOut")}
             </button>
           </div>
-          <p className="muted settings-help account-help">
+          <p className="muted account-help">
             {t("account.signOutHelp")} {devices}
           </p>
         </>
@@ -330,7 +352,7 @@ function WaitingBlock({
   );
 }
 
-/** Server address for self-hosting, folded away: almost everyone uses the official service. */
+/** Server address for self-hosting, with the guide, and the connection test for an own server. */
 function ServerField({ view }: { view: AccountView }) {
   const t = useT();
   const [text, setText] = useState(view.official ? "" : view.baseUrl);
@@ -380,9 +402,8 @@ function ServerField({ view }: { view: AccountView }) {
   };
 
   return (
-    <details className="settings-section account-server" open={!view.official}>
-      <summary className="settings-subtitle">{t("account.server")}</summary>
-      <p id="account-server-help" className="muted settings-intro">
+    <div className="account-server">
+      <p id="account-server-help" className="muted account-server-help">
         {t("account.serverHelp")}{" "}
         <button
           type="button"
@@ -450,7 +471,7 @@ function ServerField({ view }: { view: AccountView }) {
       </p>
       {!view.official && (
         <>
-          <p className="muted settings-help account-help">{t("account.serverData")}</p>
+          <p className="muted account-help">{t("account.serverData")}</p>
           <div className="settings-row">
             <button
               type="button"
@@ -466,7 +487,7 @@ function ServerField({ view }: { view: AccountView }) {
           </div>
         </>
       )}
-    </details>
+    </div>
   );
 }
 

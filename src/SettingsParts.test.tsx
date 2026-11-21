@@ -186,6 +186,21 @@ describe("DisclosureRow", () => {
     });
     expect(host.querySelector(".probe-child")).toBeNull();
   });
+
+  it("starts open when asked to, and closes on a click", () => {
+    render(
+      <DisclosureRow label="Server" help="example.com" defaultOpen>
+        <p className="probe-child">Address</p>
+      </DisclosureRow>,
+    );
+    const toggle = host.querySelector<HTMLButtonElement>("button[aria-expanded]");
+    expect(toggle?.getAttribute("aria-expanded")).toBe("true");
+    expect(host.querySelector(".probe-child")?.textContent).toBe("Address");
+    act(() => {
+      toggle?.click();
+    });
+    expect(host.querySelector(".probe-child")).toBeNull();
+  });
 });
 
 describe("SettingsGroup", () => {
