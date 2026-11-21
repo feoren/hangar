@@ -1356,3 +1356,14 @@ Pages changed: [[sub-agent-library]], index.
 Settings > Sub-agents splits the list into Hangar's sub-agents and the others with a switch and
 shows them as cards or as a table; one click opens an entry's details. Side and view are kept per
 computer. Pages changed: [[sub-agent-library]].
+
+## [2026-11-21] lint | Three more bundled sub-agents
+Hangar now ships fifteen sub-agent definitions: `hangar-finance` (bookkeeping, tax preparation,
+pricing, liquidity; never files or pays), `hangar-contracts` (contract review and drafting,
+licenses, insurance; never signs or sends) and `hangar-sysadmin` (Windows, macOS and Linux
+workstations and servers; read-only diagnosis first, every change with a rollback). Their default
+figures are fixed by name, because the name hash would have repeated another agent's figure;
+`hangar-n8n` and `hangar-comfyui` (unreleased so far) get fixed figures for the same reason, and a
+test keeps every bundled agent's default figure distinct. `hangar-manager` names and reviews all
+bundled roles.
+Pages changed: [[sub-agent-library]].

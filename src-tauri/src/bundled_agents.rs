@@ -36,10 +36,12 @@ macro_rules! bundled {
 
 /// Every bundled definition. Embedded so nothing is read from the installation folder at run
 /// time; a test keeps each file parsable and its `name` equal to its file name.
-pub const BUNDLED: [Bundled; 12] = bundled!(
+pub const BUNDLED: [Bundled; 15] = bundled!(
     "hangar-backend",
     "hangar-comfyui",
+    "hangar-contracts",
     "hangar-developer",
+    "hangar-finance",
     "hangar-frontend",
     "hangar-manager",
     "hangar-marketing",
@@ -48,12 +50,13 @@ pub const BUNDLED: [Bundled; 12] = bundled!(
     "hangar-sales",
     "hangar-security",
     "hangar-social-media",
+    "hangar-sysadmin",
     "hangar-tester",
 );
 
 /// The manifest's file name in the local app data folder.
 pub const MANIFEST_FILE: &str = "bundled-agents.json";
-/// Largest manifest read; twelve entries take about a KiB.
+/// Largest manifest read; fifteen entries take about a KiB.
 const MAX_MANIFEST_BYTES: usize = 64 * 1024;
 
 /// What Hangar knows of one bundled name.
