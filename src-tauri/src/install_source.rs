@@ -231,8 +231,9 @@ impl Probe for SystemProbe {
 }
 
 #[cfg(windows)]
-mod registry {
-    //! Reads the uninstall keys of HKLM (both registry views) and HKCU.
+pub(crate) mod registry {
+    //! Reads the uninstall keys of HKLM (both registry views) and HKCU. The key helpers are
+    //! shared with the WSL entries ([`crate::wsl`]).
 
     use std::path::PathBuf;
 
@@ -253,7 +254,7 @@ mod registry {
     }
 
     /// Closes the key on drop.
-    struct Key(HKEY);
+    pub(crate) struct Key(pub(crate) HKEY);
 
     impl Drop for Key {
         fn drop(&mut self) {
@@ -264,7 +265,7 @@ mod registry {
         }
     }
 
-    fn open(parent: HKEY, path: &str, flags: u32) -> Option<Key> {
+    pub(crate) fn open(parent: HKEY, path: &str, flags: u32) -> Option<Key> {
         let path = wide(path);
         let mut key: HKEY = std::ptr::null_mut();
         // SAFETY: `path` is a NUL-terminated UTF-16 string that outlives the call, and `key` is a
@@ -273,7 +274,7 @@ mod registry {
         (status == ERROR_SUCCESS).then_some(Key(key))
     }
 
-    fn string_value(key: &Key, name: &str) -> Option<String> {
+    pub(crate) fn string_value(key: &Key, name: &str) -> Option<String> {
         let name = wide(name);
         let mut kind = 0u32;
         let mut size = 0u32;
@@ -313,7 +314,7 @@ mod registry {
         (!text.is_empty()).then_some(text)
     }
 
-    fn subkeys(key: &Key) -> Vec<String> {
+    pub(crate) fn subkeys(key: &Key) -> Vec<String> {
         let mut names = Vec::new();
         for index in 0..MAX_KEYS {
             let mut buffer = [0u16; 256];
@@ -777,6 +778,21 @@ fn split_at_segment(path: &Path, marker: &str) -> Option<(PathBuf, String)> {
         _ => return None,
     };
     Some((root, next))
+}
+
+/// Whether `program` is the command of a global npm install of `package`, by the layouts
+/// [`match_npm`] knows (also through the real path, as in [`detect`]).
+pub fn in_npm_package(program: &Path, package: &str, probe: &dyn Probe) -> bool {
+    let packages = Packages {
+        npm: Some(package.to_owned()),
+        ..Packages::default()
+    };
+    let real = probe
+        .canonical(program)
+        .map(|p| PathBuf::from(key_path(&p)))
+        .unwrap_or_else(|| program.to_path_buf());
+    let paths = [program, real.as_path()];
+    match_npm(&paths, &packages, probe, &Locations::new(probe)).is_some()
 }
 
 fn match_npm(
@@ -2601,6 +2617,105 @@ mod tests {
         let plan = plan_for(&profile_with(None, None), &a, &probe);
         assert_eq!(plan.warnings, [Warning::SecondCopy]);
         assert_eq!(plan.copies.len(), 2);
+    }
+
+    /// The built-in OpenCode entry after [`crate::updates::enrich`] for `program`: the item the
+    /// update check builds and the update plan.
+    fn opencode_for(program: &Path, probe: &TreeProbe) -> (crate::updates::Item, UpdatePlan) {
+        let entry = crate::agent_catalog::builtin()
+            .unwrap()
+            .into_iter()
+            .find(|a| a.id == "opencode")
+            .unwrap();
+        let mut agent = crate::agent_catalog::Agent::from_catalog(entry);
+        crate::updates::enrich(&mut agent, program, probe);
+        let installed = [(agent.clone(), program.to_path_buf())];
+        let item = crate::updates::items(&installed, &HashMap::new(), &HashSet::new(), probe)
+            .pop()
+            .unwrap();
+        let plan = plan(
+            &PlanInput {
+                profile: &agent.profile,
+                install_hint: agent.install_hint.as_deref(),
+                program: Some(program),
+                candidates: &agent.candidates,
+            },
+            probe,
+        );
+        (item, plan)
+    }
+
+    /// `opencode` and `npm` in a global npm prefix holding `package`.
+    fn npm_opencode(root: &Path, package: &str) -> (PathBuf, PathBuf, PathBuf) {
+        let prefix = root.join("home/AppData/Roaming/npm");
+        let (shim, npm, modules) = if cfg!(windows) {
+            (
+                touch(&prefix.join("opencode.cmd")),
+                touch(&prefix.join("npm.cmd")),
+                prefix.join("node_modules"),
+            )
+        } else {
+            (
+                touch(&prefix.join("bin/opencode")),
+                touch(&prefix.join("bin/npm")),
+                prefix.join("lib/node_modules"),
+            )
+        };
+        fs::create_dir_all(modules.join(package)).unwrap();
+        (prefix, shim, npm)
+    }
+
+    #[test]
+    fn opencode_2_from_npm_checks_and_installs_its_own_package() {
+        let t = TempDir::new("source-opencode-2");
+        let (prefix, shim, npm) = npm_opencode(t.path(), "@opencode/cli");
+        let probe = TreeProbe::new(t.path()).path(&[shim.parent().unwrap().to_path_buf()]);
+        assert!(in_npm_package(&shim, "@opencode/cli", &probe));
+        assert!(!in_npm_package(&shim, "opencode-ai", &probe));
+
+        let (item, plan) = opencode_for(&shim, &probe);
+        assert_eq!(item.source.cache_key(), "npm:@opencode/cli");
+        assert_eq!(plan.installer, Some(Installer::Npm));
+        let Action::Run { program, args } = &plan.action else {
+            panic!("{plan:?}")
+        };
+        // npm itself, not `opencode upgrade`: that one was verified for the 1.x line only.
+        assert_eq!(key(Path::new(program)), key(&npm));
+        assert_eq!(
+            args,
+            &[
+                "install".to_owned(),
+                "-g".into(),
+                "--prefix".into(),
+                prefix.to_string_lossy().into_owned(),
+                "@opencode/cli@latest".into()
+            ]
+        );
+    }
+
+    #[test]
+    fn opencode_1_from_npm_keeps_the_github_source() {
+        // Decision of 2026-11-07: a 1.x install must never see the 2.x line as an update.
+        let t = TempDir::new("source-opencode-1");
+        let (_, shim, _) = npm_opencode(t.path(), "opencode-ai");
+        let probe = TreeProbe::new(t.path()).path(&[shim.parent().unwrap().to_path_buf()]);
+        let (item, plan) = opencode_for(&shim, &probe);
+        assert_eq!(item.source.cache_key(), "github:anomalyco/opencode:v");
+        let Action::Run { program, args } = &plan.action else {
+            panic!("{plan:?}")
+        };
+        assert_eq!(key(Path::new(program)), key(&shim));
+        assert_eq!(args, &["upgrade".to_owned()]);
+    }
+
+    #[test]
+    fn opencode_from_an_unknown_install_keeps_the_github_source() {
+        // The curl script of opencode.ai/v2 puts the program into the home folder.
+        let t = TempDir::new("source-opencode-native");
+        let program = touch(&t.path().join("home/.opencode/bin").join(exe("opencode")));
+        let probe = TreeProbe::new(t.path()).path(&[program.parent().unwrap().to_path_buf()]);
+        let (item, _) = opencode_for(&program, &probe);
+        assert_eq!(item.source.cache_key(), "github:anomalyco/opencode:v");
     }
 
     #[test]

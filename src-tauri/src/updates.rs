@@ -266,6 +266,26 @@ impl Latest {
     }
 }
 
+/// Entry of the catalog field `npm_variants`, such as
+/// `{ npm = "@opencode/cli", latest = { npm = "@opencode/cli" } }`: a second npm package that
+/// ships the same command on another version line. A copy that lives in a global npm install of
+/// `npm` takes `latest` and this package instead of the entry's own (see [`enrich`]).
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct NpmVariant {
+    pub npm: String,
+    pub latest: Latest,
+}
+
+impl NpmVariant {
+    pub fn validate(&self) -> Result<(), &'static str> {
+        if !npm_name_ok(&self.npm) {
+            return Err("npm_variants: invalid npm package name");
+        }
+        self.latest.validate()
+    }
+}
+
 impl Source {
     pub fn url(&self) -> String {
         match self {
@@ -393,8 +413,25 @@ pub fn builtin_for_program(program: &Path, probe: &dyn Probe) -> Option<(Latest,
     ))
 }
 
-/// Adds the built-in source of [`builtin_for_program`] to an entry that has none of its own.
+/// Picks the version source that fits the resolved `program`. A copy inside a global npm install
+/// of one of the entry's [`NpmVariant`]s takes that variant's `latest` and npm package; the
+/// entry's `self_update` is dropped with them, as it was verified for the default line only. An
+/// entry without a source of its own gets the built-in one of [`builtin_for_program`].
 pub fn enrich(agent: &mut Agent, program: &Path, probe: &dyn Probe) {
+    let variant = agent
+        .npm_variants
+        .iter()
+        .find(|variant| install_source::in_npm_package(program, &variant.npm, probe))
+        .cloned();
+    if let Some(variant) = variant {
+        agent.profile.latest = Some(variant.latest);
+        let packages = agent.profile.packages.get_or_insert_with(Packages::default);
+        packages.npm = Some(variant.npm);
+        // A pnpm name of the default line would name the wrong package.
+        packages.pnpm = None;
+        agent.profile.self_update = None;
+        return;
+    }
     if agent.profile.latest.is_some() {
         return;
     }
@@ -1126,6 +1163,8 @@ mod tests {
         assert!(newer("0.79.9", "1.5.0"));
         assert!(!newer("2.1.319", "2.1.319"));
         assert!(!newer("2.1.320", "2.1.319"));
+        // OpenCode 2.x from npm `@opencode/cli` against the 1.x GitHub releases: no "update".
+        assert!(!newer("2.3.2", "1.19.6"));
         assert!(!newer("7.5.4", "7.5.4"));
         assert!(!newer("unknown", "1.0"));
         assert!(!newer("1.0", ""));
@@ -1260,6 +1299,7 @@ mod tests {
             resume_id_args: None,
             sub_agents: Some(crate::subagents::SubAgentKind::Claude),
             latest: None,
+            npm_variants: Vec::new(),
             update_hint,
             packages: None,
             self_update: None,

@@ -1,13 +1,15 @@
 // Versions and icons of the installed programs. Both queries are slow and optional: errors stay
 // silent (the display is simply missing then), and when switched off nothing is queried at all.
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 
 import { api } from "./api";
 import {
   NO_PROGRAM_INFO,
   parseIcons,
   parseVersions,
+  retryVersions,
+  VERSION_RETRY_MS,
   type ProgramIcons,
   type ProgramVersions,
 } from "./programs";
@@ -23,7 +25,8 @@ export interface ProgramInfo {
 
 /**
  * `installedKey` (see profiles.ts) triggers a new query as soon as the set of installed programs
- * changes. Until the new response arrives, the old details stay in place.
+ * changes. Until the new response arrives, the old details stay in place. An installed program
+ * without a version is asked again a few times, a minute apart (see `retryVersions`).
  */
 export function usePrograms(
   installedKey: string,
@@ -46,6 +49,20 @@ export function usePrograms(
   const refreshVersions = useCallback(() => {
     setRevision((current) => current + 1);
   }, []);
+  /** Tries made for the missing versions of one program list. */
+  const retries = useRef({ key: "", count: 0 });
+  useEffect(() => {
+    if (!showVersions || versions.settledKey !== installedKey) return;
+    if (retries.current.key !== installedKey) retries.current = { key: installedKey, count: 0 };
+    if (!retryVersions(installedKey, versions.map, retries.current.count)) return;
+    const timer = window.setTimeout(() => {
+      retries.current.count += 1;
+      setRevision((current) => current + 1);
+    }, VERSION_RETRY_MS);
+    return () => {
+      window.clearTimeout(timer);
+    };
+  }, [showVersions, installedKey, versions.map, versions.settledKey]);
   return {
     versions: versions.map,
     icons: icons.map,

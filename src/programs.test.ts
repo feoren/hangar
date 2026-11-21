@@ -1,6 +1,13 @@
 import { describe, expect, it } from "vitest";
 
-import { labelWithVersion, parseIcons, parseVersions } from "./programs";
+import {
+  MAX_VERSION_RETRIES,
+  VERSION_RETRY_MS,
+  labelWithVersion,
+  parseIcons,
+  parseVersions,
+  retryVersions,
+} from "./programs";
 
 const PNG = "data:image/png;base64,iVBORw0KGgo=";
 
@@ -51,5 +58,37 @@ describe("labelWithVersion", () => {
 
   it("shows only the name without a version", () => {
     expect(labelWithVersion("PowerShell 7", undefined)).toBe("PowerShell 7");
+  });
+});
+
+describe("retryVersions", () => {
+  const installed = ["claude", "opencode", "wsl-ubuntu"].join("\n");
+
+  it("asks again while an installed program has no version yet", () => {
+    // A query during an install (npm swaps the package, the launcher's binary is not there yet)
+    // finds nothing; the next one a minute later finds the version.
+    const versions = new Map([["claude", "2.1.330"]]);
+    expect(retryVersions(installed, versions, 0)).toBe(true);
+    expect(retryVersions(installed, versions, MAX_VERSION_RETRIES - 1)).toBe(true);
+  });
+
+  it("stops after a few tries, so a program without a version is not started every minute", () => {
+    expect(retryVersions(installed, new Map(), MAX_VERSION_RETRIES)).toBe(false);
+  });
+
+  it("does nothing once every installed program has a version", () => {
+    const versions = new Map([
+      ["claude", "2.1.330"],
+      ["opencode", "2.3.2"],
+      ["wsl-ubuntu", "26.04"],
+      ["gone", "1.0"],
+    ]);
+    expect(retryVersions(installed, versions, 0)).toBe(false);
+    expect(retryVersions("", new Map(), 0)).toBe(false);
+  });
+
+  it("waits until the backend forgot the failed query", () => {
+    // version.rs keeps a failed query for 60 s (NEGATIVE_TTL); asking earlier finds it again.
+    expect(VERSION_RETRY_MS).toBeGreaterThan(60_000);
   });
 });

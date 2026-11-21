@@ -16,7 +16,7 @@ use crate::instructions::StartPrompts;
 use crate::profile::Profile;
 use crate::resolve::resolve_all;
 use crate::resolve::resolve_program;
-use crate::updates::{builtin_for_command, Latest, PlatformHint};
+use crate::updates::{builtin_for_command, Latest, NpmVariant, PlatformHint};
 
 pub const BUILTIN: &str = include_str!("agent_catalog.toml");
 
@@ -56,6 +56,10 @@ pub struct CatalogAgent {
     /// Source of the newest version (see [`Latest`]).
     #[serde(default)]
     pub latest: Option<Latest>,
+    /// Other npm packages that ship the same command with their own version source (see
+    /// [`NpmVariant`]).
+    #[serde(default)]
+    pub npm_variants: Vec<NpmVariant>,
     /// Update command per platform; an override of the detected update (see [`crate::install_source::plan`]).
     #[serde(default)]
     pub update_hint: Option<PlatformHint>,
@@ -420,6 +424,14 @@ pub fn parse(source: &str) -> Result<Vec<CatalogAgent>, CatalogError> {
         if let Some(Err(problem)) = update_fields.into_iter().flatten().find(Result::is_err) {
             return Err(invalid(problem));
         }
+        if let Some(Err(problem)) = agent
+            .npm_variants
+            .iter()
+            .map(NpmVariant::validate)
+            .find(Result::is_err)
+        {
+            return Err(invalid(problem));
+        }
         if let Err(problem) = crate::profile::check_id_args(
             agent.session_id_args.as_deref(),
             agent.resume_id_args.as_deref(),
@@ -499,6 +511,9 @@ pub struct Agent {
     pub capabilities: Capabilities,
     /// From the catalog, inherited like `capabilities`.
     pub prompting: Prompting,
+    /// From the catalog; a user profile inherits them along with `latest` (see [`merge`]).
+    /// [`crate::updates::enrich`] applies the one that fits the resolved program.
+    pub npm_variants: Vec<NpmVariant>,
 }
 
 impl Agent {
@@ -520,6 +535,7 @@ impl Agent {
             cwd_flag: None,
             capabilities: Capabilities::default(),
             prompting: Prompting::default(),
+            npm_variants: Vec::new(),
         }
     }
 
@@ -564,6 +580,7 @@ impl Agent {
                 agent_args: agent.agent_args,
                 agent_program: agent.agent_program,
             },
+            npm_variants: agent.npm_variants,
         }
     }
 
@@ -748,6 +765,8 @@ pub fn merge_all(user: Vec<Profile>, catalog: Vec<CatalogAgent>, found: Vec<Agen
                         .profile
                         .latest
                         .clone_from(&from_catalog.profile.latest);
+                    // The variants replace that source, so they come only with it.
+                    agent.npm_variants.clone_from(&from_catalog.npm_variants);
                     if agent.profile.update_hint.is_none() {
                         agent
                             .profile
@@ -845,6 +864,7 @@ mod tests {
             resume_id_args: None,
             sub_agents: None,
             latest: None,
+            npm_variants: Vec::new(),
             update_hint: None,
             packages: None,
             self_update: None,
@@ -1070,8 +1090,52 @@ homepage='https://example.org'
         assert!(merged[0].profile.latest.is_some());
         assert!(merged[0].profile.packages.is_some());
         assert!(merged[0].profile.self_update.is_some());
-        let merged = merge(vec![user("claude", "my-claude")], agents);
+        let merged = merge(vec![user("claude", "my-claude")], agents.clone());
         assert!(merged[0].profile.latest.is_none());
+
+        // OpenCode 2.x from npm `@opencode/cli` has its own source; the default stays the 1.x
+        // line (decision of 2026-11-07).
+        let opencode = agents.iter().find(|a| a.id == "opencode").unwrap();
+        let variants: Vec<(&str, String)> = opencode
+            .npm_variants
+            .iter()
+            .map(|v| (v.npm.as_str(), v.latest.source().unwrap().cache_key()))
+            .collect();
+        assert_eq!(
+            variants,
+            [("@opencode/cli", "npm:@opencode/cli".to_owned())]
+        );
+        let only_opencode = agents
+            .iter()
+            .all(|a| a.id == "opencode" || a.npm_variants.is_empty());
+        assert!(only_opencode);
+        // The variants come with the inherited source, never to a profile with a source or a
+        // program of its own.
+        let merged = merge(vec![user("opencode", "opencode")], agents.clone());
+        assert_eq!(merged[0].npm_variants, opencode.npm_variants);
+        let merged = merge(vec![user("opencode", "my-opencode")], agents.clone());
+        assert!(merged[0].npm_variants.is_empty());
+        let mut own = user("opencode", "opencode");
+        own.latest = opencode.latest.clone();
+        let merged = merge(vec![own], agents);
+        assert!(merged[0].npm_variants.is_empty());
+    }
+
+    #[test]
+    fn npm_variants_are_validated() {
+        let entry = |variants: &str| {
+            format!("[[agent]]\nid='x'\nname='X'\ncommands=['x']\nnpm_variants = [{variants}]\n")
+        };
+        assert!(parse(&entry("{ npm = '@x/cli', latest = { npm = '@x/cli' } }")).is_ok());
+        for bad in [
+            "{ npm = '-x', latest = { npm = 'x' } }",
+            "{ npm = 'x', latest = { npm = 'x', pypi = 'x' } }",
+            "{ npm = 'x', latest = { npm = 'x', tag_prefix = 'v' } }",
+            "{ npm = 'x', latest = { npm = 'x' }, winget = 'X.X' }",
+            "{ npm = 'x' }",
+        ] {
+            assert!(parse(&entry(bad)).is_err(), "{bad}");
+        }
     }
 
     #[test]
@@ -1104,6 +1168,13 @@ homepage='https://example.org'
         ] {
             assert_eq!(npm(id).as_deref(), Some(package), "{id}");
         }
+        // The npm package of OpenCode 2.x replaces `opencode-ai` only for a copy installed from it.
+        let variant_packages: Vec<&str> = by_id("opencode")
+            .npm_variants
+            .iter()
+            .map(|v| v.npm.as_str())
+            .collect();
+        assert_eq!(variant_packages, ["@opencode/cli"]);
         for (id, package) in [
             ("claude", "Anthropic.ClaudeCode"),
             ("codex", "OpenAI.Codex"),
