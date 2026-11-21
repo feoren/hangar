@@ -393,9 +393,8 @@ const de = {
   "handover.notes": "Projektnotizen:",
   "handover.instruction":
     "Bitte fasse zuerst zusammen, was du aus diesem Stand verstehst, und sieh dir die geänderten Dateien an. Frag nach, bevor du größere Änderungen machst.",
-  "settings.claims": "Überschneidungen zwischen Sessions erkennen",
-  "settings.claimsHelp":
-    "Hangar schaut, welche Dateien die Agenten ändern, und warnt, wenn zwei deiner Sessions dieselbe Datei oder dieselben Zeilen bearbeiten. Alles bleibt auf diesem Rechner, Dateiinhalte liest Hangar dafür nicht.",
+  "settings.claims": "Warnen, wenn zwei Sessions dieselbe Datei ändern",
+  "settings.claimsHelp": "Alles bleibt auf diesem Rechner, Dateiinhalte liest Hangar dafür nicht.",
   "gate.label": "Entscheidung nötig",
   "gate.title": "{session} will {path} ändern",
   "gate.also": "Wird gerade auch von {others} geändert",
@@ -410,11 +409,9 @@ const de = {
   "gate.announce": "{title} wartet auf deine Entscheidung",
   "status.gate": "braucht deine Entscheidung",
   "status.permission": "wartet auf deine Freigabe",
-  "settings.gate":
-    "Agenten anhalten, bevor sie eine Datei bearbeiten, die eine andere Session ändert",
+  "settings.gate": "Agent anhalten, bis du entscheidest",
   "settings.gateHelp":
-    "Der Agent wartet dann, bis du hier entscheidest. Gilt für Team-Sessions, die du startest, während das an ist, nicht in WSL. Das stimmt deine Sessions ab und ist kein Schutz: Änderungen über das Terminal werden nicht angehalten, und kann Hangar nicht antworten, läuft die Änderung weiter.",
-  "settings.gateNeedsClaims": "Braucht „{setting}“.",
+    "Für ab jetzt gestartete Team-Sessions, nicht in WSL. Kein Schutz: Änderungen über das Terminal laufen weiter, ebenso, wenn Hangar nicht antwortet.",
   "gate.noEndpoint":
     "Änderungen werden in dieser Session nicht angehalten: Hangar konnte seinen lokalen Hook-Endpunkt nicht starten.",
   "gate.launcher":
@@ -488,6 +485,7 @@ const de = {
   "settings.title": "Einstellungen",
   "settings.sections": "Bereiche",
   "settings.general": "Allgemein",
+  "settings.security": "Sicherheit",
   "settings.language": "Sprache",
   "settings.languageHelp": "Gilt sofort für die ganze Oberfläche.",
   "settings.attention": "Aufmerksamkeit",
@@ -636,6 +634,9 @@ const de = {
   "settings.groupHangar": "Hangar",
   "settings.groupPrograms": "Programme",
   "settings.advanced": "Erweitert",
+  "settings.groupOnClose": "Beim Schließen",
+  "settings.groupPerformance": "Leistung und Kosten",
+  "settings.groupSubAgentDisplay": "Anzeige",
 
   "color.cream": "Creme",
   "color.amber": "Bernstein",
@@ -758,13 +759,12 @@ const de = {
   "notes.tooLarge": "Die Notiz ist zu groß zum Speichern (höchstens 1 MiB).",
   "notes.invalidTitle":
     "Der Titel darf nicht leer sein, keine Zeilenumbrüche enthalten und höchstens 200 Zeichen lang sein.",
-  "settings.sessions": "Sessions",
-  "settings.restoreSessions": "Sessions beim Beenden merken",
+  "settings.restoreSessions": "Sessions beim nächsten Start wiederherstellen",
   "settings.restoreSessionsHelp":
-    "Beim nächsten Start sind deine Sessions mit ihrem Verlauf wieder da. Agenten setzen ihre letzte Unterhaltung fort, wo das geht. Der Verlauf liegt unverschlüsselt in deinem Benutzerprofil.",
+    "Mit Verlauf, und Agenten setzen ihre Unterhaltung fort, wo das geht. Der Verlauf liegt unverschlüsselt auf diesem Rechner und kann Passwörter enthalten. Ausschalten löscht den gespeicherten Verlauf.",
   "settings.scrollbackLines": "Verlauf je Session",
   "settings.lines": "{count} Zeilen",
-  "settings.clearScrollbacks": "Gespeicherte Verläufe löschen",
+  "settings.clearScrollbacks": "Verläufe löschen …",
   "settings.clearScrollbacksHelp": "Die Sessions bleiben, nur ihr gemerkter Verlauf wird gelöscht.",
   "settings.clearScrollbacksDone": "Gespeicherte Verläufe gelöscht.",
   "settings.clearConfirm":
@@ -807,7 +807,6 @@ const de = {
   "notify.waiting": "{title} wartet auf dich",
   "session.outlier":
     "Ausreißer: hält seit einer Weile einen ganzen Kern beschäftigt oder braucht viel Speicher",
-  "settings.resources": "Ressourcen",
   "settings.showResources": "CPU, Speicher und GPU zeigen",
   "settings.showResourcesHelp":
     "Eine Zeile über Neue Session zeigt die Last der ganzen Maschine. Ruht die Maus auf einer Session, nennt die Vorschau ihren Anteil, für das Programm und alles, was es startet. Ein Zeichen markiert Ausreißer: 30 Sekunden lang ein ganzer Kern oder mehr als 4 GB Speicher.",
@@ -875,9 +874,9 @@ const de = {
   "settings.notifyDesktop": "Benachrichtigung zeigen, wenn eine Session wartet",
   "settings.notifyDesktopHelp":
     "Nur wenn Hangar im Hintergrund ist. Ein Klick darauf öffnet die Session.",
-  "settings.keepInTray": "Im Infobereich weiterlaufen, wenn du das Fenster schließt",
+  "settings.keepInTray": "Im Infobereich weiterlaufen",
   "settings.keepInTrayHelp":
-    "Deine Sessions laufen dann weiter. Zum Beenden klickst du das Symbol mit der rechten Maustaste an.",
+    "Schließen versteckt nur das Fenster. Beenden mit Rechtsklick auf das Symbol.",
   "tray.open": "Hangar öffnen",
   "tray.tooltipWaiting": "Hangar · wartend: {count}",
   "close.confirm": "{name} läuft noch. Beenden und schließen?",
@@ -907,9 +906,9 @@ const de = {
     "Ein Pfad mit Zeilenumbruch, Steuerzeichen oder unsichtbaren Zeichen wurde ausgelassen.",
   "send.blocked":
     "Nicht gesendet an {sessions}: Der Text hat mehrere Zeilen oder unsichtbare Zeichen, und das Programm dort würde jede Zeile sofort ausführen.",
-  "settings.warnMultilinePaste": "Vor mehrzeiligem Einfügen warnen",
+  "settings.warnMultilinePaste": "Vor riskantem Einfügen fragen",
   "settings.warnMultilinePasteHelp":
-    "Strg+V und Umschalt+Einfg fragen nach, bevor mehrere Zeilen in ein Programm gehen, das jede Zeile sofort ausführt, oder bevor Text mit unsichtbaren Zeichen eingefügt wird. Bei einem vermuteten Schlüssel fragen sie immer.",
+    "Bei mehreren Zeilen, die sofort laufen würden, oder unsichtbaren Zeichen. Bei vermuteten Schlüsseln fragt Hangar immer.",
   "paste.runsLines": "{name} führt jede Zeile sofort aus, sobald sie ankommt.",
   "paste.hidden": "Der Text enthält unsichtbare Zeichen. Er könnte anders laufen, als er aussieht.",
   "paste.secret": "Der Text enthält vermutlich einen geheimen Schlüssel ({kinds}).",
@@ -924,8 +923,6 @@ const de = {
   "secret.secretFile": "Datei, die meist Geheimnisse enthält",
   "secret.unknown": "Art nicht erkennbar",
   "paste.imageFailed": "Das Bild aus der Zwischenablage ließ sich nicht einfügen.",
-  "settings.scrollbackSecrets":
-    "Darin steht alles, was im Terminal zu sehen war, auch Passwörter oder Tokens. Lösch den Verlauf, wenn er so etwas enthält.",
   "sidebar.projectFolder": "Projektordner",
   "notes.deleted": "„{title}“ gelöscht.",
   "notes.undo": "Rückgängig",
@@ -2209,7 +2206,7 @@ const de = {
   "gate.commandRuleName": "Befehlsregel {id}",
   "settings.commandGuard": "Vor gefährlichen Befehlen fragen",
   "settings.commandGuardHelp":
-    "In Team-Sessions mit {programs} fragt Hangar, bevor der Agent einen Befehl ausführt, der zu einer deiner Regeln passt, etwa ein Force-Push, ein hartes Zurücksetzen oder Löschen außerhalb des Projekts. Ein Sicherheitsnetz, keine Sandbox: Ein Befehl, der verschleiert, was er tut, kann durchrutschen.",
+    "Fragt in Team-Sessions mit {programs}, etwa vor Force-Push oder Löschen außerhalb des Projekts. Ein Sicherheitsnetz, keine Sandbox.",
   "settings.commandGuardFile": "Regeln: {file}",
   "settings.commandGuardDefaults":
     "Die Regeldatei ließ sich nicht lesen, deshalb gelten die mitgelieferten Regeln.",
@@ -2219,7 +2216,6 @@ const de = {
   "settings.gateRules": "Gemerkte Antworten",
   "settings.gateRulesHelp":
     "Antworten, die du mit „Für dieses Projekt merken“ gegeben hast. Jede gilt nur in ihrem Projekt; „Nie“ geht vor „Immer“.",
-  "settings.gateRulesEmpty": "Noch keine gemerkten Antworten.",
   "settings.gateRuleAllow": "Immer",
   "settings.gateRuleDeny": "Nie",
   "settings.gateRuleDelete": "Antwort für {path} löschen",
@@ -2702,9 +2698,9 @@ const en: Record<MessageKey, string> = {
   "handover.notes": "Project notes:",
   "handover.instruction":
     "Please first summarize what you understand from this state and look at the changed files. Ask before making larger changes.",
-  "settings.claims": "Detect overlaps between sessions",
+  "settings.claims": "Warn when two sessions change the same file",
   "settings.claimsHelp":
-    "Hangar watches which files the agents change and warns when two of your sessions edit the same file or the same lines. Everything stays on this computer; Hangar reads no file contents for this.",
+    "Everything stays on this computer, and Hangar does not read file contents for this.",
   "gate.label": "Decision needed",
   "gate.title": "{session} wants to change {path}",
   "gate.also": "Also being changed by {others}",
@@ -2719,10 +2715,9 @@ const en: Record<MessageKey, string> = {
   "gate.announce": "{title} is waiting for your decision",
   "status.gate": "needs your decision",
   "status.permission": "waits for your approval",
-  "settings.gate": "Pause agents before editing a file another session is changing",
+  "settings.gate": "Pause the agent until you decide",
   "settings.gateHelp":
-    "The agent then waits until you decide here. Applies to team sessions you start while this is on, not inside WSL. This coordinates your sessions and is no protection: changes made through the terminal are not held, and if Hangar cannot answer, the change goes ahead.",
-  "settings.gateNeedsClaims": 'Needs "{setting}".',
+    "For team sessions started from now on, not in WSL. This is no protection: changes through the terminal go ahead, as do changes when Hangar does not answer.",
   "gate.noEndpoint":
     "Edits are not paused in this session: Hangar could not start its local hook endpoint.",
   "gate.launcher":
@@ -2795,6 +2790,7 @@ const en: Record<MessageKey, string> = {
   "settings.title": "Settings",
   "settings.sections": "Sections",
   "settings.general": "General",
+  "settings.security": "Security",
   "settings.language": "Language",
   "settings.languageHelp": "Applies to the whole interface right away.",
   "settings.attention": "Attention",
@@ -2942,6 +2938,9 @@ const en: Record<MessageKey, string> = {
   "settings.groupHangar": "Hangar",
   "settings.groupPrograms": "Programs",
   "settings.advanced": "Advanced",
+  "settings.groupOnClose": "When closing",
+  "settings.groupPerformance": "Performance and costs",
+  "settings.groupSubAgentDisplay": "Display",
 
   "color.cream": "Cream",
   "color.amber": "Amber",
@@ -3061,13 +3060,12 @@ const en: Record<MessageKey, string> = {
   "notes.tooLarge": "The note is too large to save (1 MiB at most).",
   "notes.invalidTitle":
     "The title must not be empty, must not contain line breaks and can have at most 200 characters.",
-  "settings.sessions": "Sessions",
-  "settings.restoreSessions": "Remember sessions on quit",
+  "settings.restoreSessions": "Restore sessions on next start",
   "settings.restoreSessionsHelp":
-    "Your sessions come back with their history the next time you start. Agents resume their last conversation where possible. The history is stored unencrypted in your user profile.",
+    "With their history, and agents continue their conversation where possible. The history is stored unencrypted on this computer and can contain passwords. Turning this off deletes the saved history.",
   "settings.scrollbackLines": "History per session",
   "settings.lines": "{count} lines",
-  "settings.clearScrollbacks": "Delete saved history",
+  "settings.clearScrollbacks": "Delete histories …",
   "settings.clearScrollbacksHelp": "Your sessions stay, only their saved history is deleted.",
   "settings.clearScrollbacksDone": "Saved history deleted.",
   "settings.clearConfirm": "Delete the saved history of all sessions? This cannot be undone.",
@@ -3109,7 +3107,6 @@ const en: Record<MessageKey, string> = {
   "session.runtime": "running for {duration}",
   "notify.waiting": "{title} is waiting for you",
   "session.outlier": "Outlier: has kept a whole core busy for a while or uses a lot of memory",
-  "settings.resources": "Resources",
   "settings.showResources": "Show CPU, memory and GPU",
   "settings.showResourcesHelp":
     "A row above New session shows the load of the whole machine. Resting the mouse on a session shows its share in the peek, for the program and everything it starts. A mark flags outliers: a whole core for 30 seconds or more than 4 GB of memory.",
@@ -3175,8 +3172,8 @@ const en: Record<MessageKey, string> = {
   "settings.notifyDesktop": "Show a notification when a session is waiting",
   "settings.notifyDesktopHelp":
     "Only while Hangar is in the background. Click it to open the session.",
-  "settings.keepInTray": "Keep running in the notification area when you close the window",
-  "settings.keepInTrayHelp": "Your sessions keep running. To quit, right-click the icon.",
+  "settings.keepInTray": "Keep running in the notification area",
+  "settings.keepInTrayHelp": "Closing only hides the window. To quit, right-click the icon.",
   "tray.open": "Open Hangar",
   "tray.tooltipWaiting": "Hangar · waiting: {count}",
   "close.confirm": "{name} is still running. Stop and close?",
@@ -3204,9 +3201,9 @@ const en: Record<MessageKey, string> = {
     "A path with a line break, a control character or an invisible character was left out.",
   "send.blocked":
     "Not sent to {sessions}: the text has several lines or hidden characters, and the program there would run each line at once.",
-  "settings.warnMultilinePaste": "Warn before pasting several lines",
+  "settings.warnMultilinePaste": "Ask before a risky paste",
   "settings.warnMultilinePasteHelp":
-    "Ctrl+V and Shift+Insert ask first before several lines go into a program that runs each line at once, or before text with hidden characters is pasted. With a suspected secret key they always ask.",
+    "For several lines that would run at once, or invisible characters. For suspected keys, Hangar always asks.",
   "paste.runsLines": "{name} runs each line as soon as it arrives.",
   "paste.hidden": "The text contains hidden characters. It may run differently than it reads.",
   "paste.secret": "The text probably contains a secret key ({kinds}).",
@@ -3221,8 +3218,6 @@ const en: Record<MessageKey, string> = {
   "secret.secretFile": "file that usually holds secrets",
   "secret.unknown": "kind not known",
   "paste.imageFailed": "The image on the clipboard could not be pasted.",
-  "settings.scrollbackSecrets":
-    "It contains everything that was shown in the terminal, including passwords or tokens. Clear the history if it holds anything like that.",
   "sidebar.projectFolder": "Project folder",
   "notes.deleted": "“{title}” deleted.",
   "notes.undo": "Undo",
@@ -4485,7 +4480,7 @@ const en: Record<MessageKey, string> = {
   "gate.commandRuleName": "command rule {id}",
   "settings.commandGuard": "Ask before dangerous commands",
   "settings.commandGuardHelp":
-    "In team sessions with {programs}, Hangar asks before the agent runs a command that matches one of your rules, such as a force push, a hard reset or deleting outside the project. A safety net, not a sandbox: a command written to hide what it does can get through.",
+    "Asks in team sessions with {programs}, for example before a force push or deleting outside the project. A safety net, not a sandbox.",
   "settings.commandGuardFile": "Rules: {file}",
   "settings.commandGuardDefaults": "The rules file could not be read, so the built-in rules apply.",
   "settings.commandGuardProblems": "Problems in the rules file",
@@ -4494,7 +4489,6 @@ const en: Record<MessageKey, string> = {
   "settings.gateRules": "Remembered answers",
   "settings.gateRulesHelp":
     "Answers you gave with “Remember for this project”. Each applies only in its project; “Never” wins over “Always”.",
-  "settings.gateRulesEmpty": "No remembered answers yet.",
   "settings.gateRuleAllow": "Always",
   "settings.gateRuleDeny": "Never",
   "settings.gateRuleDelete": "Delete the answer for {path}",
@@ -4977,9 +4971,9 @@ const el: Record<MessageKey, string> = {
   "handover.notes": "Σημειώσεις έργου:",
   "handover.instruction":
     "Σύνοψε πρώτα τι καταλαβαίνεις από αυτή την κατάσταση και δες τα αλλαγμένα αρχεία. Ρώτα πριν κάνεις μεγαλύτερες αλλαγές.",
-  "settings.claims": "Εντοπισμός επικαλύψεων μεταξύ συνεδριών",
+  "settings.claims": "Προειδοποίηση όταν δύο συνεδρίες αλλάζουν το ίδιο αρχείο",
   "settings.claimsHelp":
-    "Το Hangar βλέπει ποια αρχεία αλλάζουν οι πράκτορες και σε προειδοποιεί όταν δύο συνεδρίες σου επεξεργάζονται το ίδιο αρχείο ή τις ίδιες γραμμές. Όλα μένουν σε αυτόν τον υπολογιστή· το Hangar δεν διαβάζει περιεχόμενα αρχείων γι' αυτό.",
+    "Όλα μένουν σε αυτόν τον υπολογιστή και το Hangar δεν διαβάζει γι' αυτό περιεχόμενα αρχείων.",
   "gate.label": "Χρειάζεται απόφαση",
   "gate.title": "Το {session} θέλει να αλλάξει το {path}",
   "gate.also": "Το αλλάζει επίσης το {others}",
@@ -4994,10 +4988,9 @@ const el: Record<MessageKey, string> = {
   "gate.announce": "Το {title} περιμένει την απόφασή σου",
   "status.gate": "θέλει την απόφασή σου",
   "status.permission": "περιμένει την έγκρισή σου",
-  "settings.gate": "Παύση πρακτόρων πριν αλλάξουν αρχείο που αλλάζει άλλη συνεδρία",
+  "settings.gate": "Παύση του πράκτορα μέχρι να αποφασίσεις",
   "settings.gateHelp":
-    "Ο agent τότε περιμένει μέχρι να αποφασίσεις εδώ. Ισχύει για ομαδικές συνεδρίες που ξεκινάς όσο είναι ενεργό, όχι μέσα σε WSL. Συντονίζει τις συνεδρίες σου και δεν είναι προστασία: αλλαγές μέσω του τερματικού δεν σταματούν, και αν το Hangar δεν μπορεί να απαντήσει, η αλλαγή γίνεται.",
-  "settings.gateNeedsClaims": "Χρειάζεται το «{setting}».",
+    "Για συνεδρίες ομάδας που ξεκινούν από τώρα, όχι σε WSL. Δεν είναι προστασία: οι αλλαγές μέσω του τερματικού συνεχίζονται, όπως και όταν το Hangar δεν απαντά.",
   "gate.noEndpoint":
     "Οι αλλαγές δεν σταματούν σε αυτή τη συνεδρία: το Hangar δεν μπόρεσε να ξεκινήσει το τοπικό σημείο για hooks.",
   "gate.launcher":
@@ -5072,6 +5065,7 @@ const el: Record<MessageKey, string> = {
   "settings.title": "Ρυθμίσεις",
   "settings.sections": "Ενότητες",
   "settings.general": "Γενικά",
+  "settings.security": "Ασφάλεια",
   "settings.language": "Γλώσσα",
   "settings.languageHelp": "Ισχύει αμέσως για όλη τη διεπαφή.",
   "settings.attention": "Ειδοποίηση",
@@ -5221,6 +5215,9 @@ const el: Record<MessageKey, string> = {
   "settings.groupHangar": "Hangar",
   "settings.groupPrograms": "Προγράμματα",
   "settings.advanced": "Για προχωρημένους",
+  "settings.groupOnClose": "Στο κλείσιμο",
+  "settings.groupPerformance": "Απόδοση και κόστος",
+  "settings.groupSubAgentDisplay": "Εμφάνιση",
 
   "color.cream": "Κρεμ",
   "color.amber": "Κεχριμπαρί",
@@ -5345,13 +5342,12 @@ const el: Record<MessageKey, string> = {
   "notes.tooLarge": "Η σημείωση είναι πολύ μεγάλη για αποθήκευση (έως 1 MiB).",
   "notes.invalidTitle":
     "Ο τίτλος δεν μπορεί να είναι κενός, να έχει αλλαγές γραμμής ή πάνω από 200 χαρακτήρες.",
-  "settings.sessions": "Συνεδρίες",
-  "settings.restoreSessions": "Απομνημόνευση συνεδριών στο κλείσιμο",
+  "settings.restoreSessions": "Επαναφορά συνεδριών στην επόμενη εκκίνηση",
   "settings.restoreSessionsHelp":
-    "Στην επόμενη εκκίνηση οι συνεδρίες σου επιστρέφουν με το ιστορικό τους. Οι πράκτορες συνεχίζουν την τελευταία συζήτηση όπου γίνεται. Το ιστορικό αποθηκεύεται χωρίς κρυπτογράφηση στο προφίλ χρήστη σου.",
+    "Με το ιστορικό τους, και οι πράκτορες συνεχίζουν τη συζήτησή τους όπου γίνεται. Το ιστορικό αποθηκεύεται χωρίς κρυπτογράφηση σε αυτόν τον υπολογιστή και μπορεί να περιέχει κωδικούς πρόσβασης. Η απενεργοποίηση διαγράφει το αποθηκευμένο ιστορικό.",
   "settings.scrollbackLines": "Ιστορικό ανά συνεδρία",
   "settings.lines": "{count} γραμμές",
-  "settings.clearScrollbacks": "Διαγραφή αποθηκευμένου ιστορικού",
+  "settings.clearScrollbacks": "Διαγραφή ιστορικού…",
   "settings.clearScrollbacksHelp":
     "Οι συνεδρίες μένουν, διαγράφεται μόνο το αποθηκευμένο ιστορικό τους.",
   "settings.clearScrollbacksDone": "Το αποθηκευμένο ιστορικό διαγράφηκε.",
@@ -5396,7 +5392,6 @@ const el: Record<MessageKey, string> = {
   "notify.waiting": "Το {title} σε περιμένει",
   "session.outlier":
     "Ακραία τιμή: απασχολεί εδώ και λίγο έναν ολόκληρο πυρήνα ή χρησιμοποιεί πολλή μνήμη",
-  "settings.resources": "Πόροι",
   "settings.showResources": "Εμφάνιση CPU, μνήμης και GPU",
   "settings.showResourcesHelp":
     "Μια γραμμή πάνω από τη Νέα συνεδρία δείχνει το φορτίο ολόκληρου του μηχανήματος. Αν αφήσεις το ποντίκι σε μια συνεδρία, η προεπισκόπηση δείχνει το μερίδιό της, για το πρόγραμμα και ό,τι ξεκινά. Ένα σημάδι δείχνει τις ακραίες τιμές: ολόκληρος πυρήνας για 30 δευτερόλεπτα ή πάνω από 4 GB μνήμης.",
@@ -5463,9 +5458,9 @@ const el: Record<MessageKey, string> = {
   "settings.notifyDesktop": "Εμφάνιση ειδοποίησης όταν μια συνεδρία περιμένει",
   "settings.notifyDesktopHelp":
     "Μόνο όταν το Hangar είναι στο παρασκήνιο. Κάνε κλικ για να ανοίξεις τη συνεδρία.",
-  "settings.keepInTray": "Συνέχιση στην περιοχή ειδοποιήσεων όταν κλείνεις το παράθυρο",
+  "settings.keepInTray": "Συνέχιση στην περιοχή ειδοποιήσεων",
   "settings.keepInTrayHelp":
-    "Οι συνεδρίες σου συνεχίζουν να εκτελούνται. Για έξοδο, κάνε δεξί κλικ στο εικονίδιο.",
+    "Το κλείσιμο κρύβει μόνο το παράθυρο. Για έξοδο, κάνε δεξί κλικ στο εικονίδιο.",
   "tray.open": "Άνοιγμα Hangar",
   "tray.tooltipWaiting": "Hangar · σε αναμονή: {count}",
   "close.confirm": "Το {name} εκτελείται ακόμη. Τερματισμός και κλείσιμο;",
@@ -5496,9 +5491,9 @@ const el: Record<MessageKey, string> = {
     "Παραλείφθηκε μια διαδρομή με αλλαγή γραμμής, χαρακτήρα ελέγχου ή αόρατο χαρακτήρα.",
   "send.blocked":
     "Δεν στάλθηκε σε {sessions}: το κείμενο έχει πολλές γραμμές ή αόρατους χαρακτήρες και το πρόγραμμα εκεί θα εκτελούσε κάθε γραμμή αμέσως.",
-  "settings.warnMultilinePaste": "Προειδοποίηση πριν από επικόλληση πολλών γραμμών",
+  "settings.warnMultilinePaste": "Ερώτηση πριν από επικίνδυνη επικόλληση",
   "settings.warnMultilinePasteHelp":
-    "Τα Ctrl+V και Shift+Insert ρωτούν πρώτα, πριν πάνε πολλές γραμμές σε πρόγραμμα που εκτελεί κάθε γραμμή αμέσως ή πριν επικολληθεί κείμενο με αόρατους χαρακτήρες. Όταν υπάρχει πιθανό μυστικό κλειδί, ρωτούν πάντα.",
+    "Για πολλές γραμμές που θα εκτελούνταν αμέσως ή αόρατους χαρακτήρες. Για πιθανά κλειδιά, το Hangar ρωτά πάντα.",
   "paste.runsLines": "Το {name} εκτελεί κάθε γραμμή μόλις φτάσει.",
   "paste.hidden":
     "Το κείμενο περιέχει κρυφούς χαρακτήρες. Μπορεί να εκτελεστεί διαφορετικά από ό,τι φαίνεται.",
@@ -5514,8 +5509,6 @@ const el: Record<MessageKey, string> = {
   "secret.secretFile": "αρχείο που συνήθως περιέχει μυστικά",
   "secret.unknown": "άγνωστο είδος",
   "paste.imageFailed": "Η εικόνα από το πρόχειρο δεν μπόρεσε να επικολληθεί.",
-  "settings.scrollbackSecrets":
-    "Περιέχει ό,τι εμφανίστηκε στο τερματικό, ακόμη και κωδικούς πρόσβασης ή tokens. Διάγραψε το ιστορικό αν περιέχει κάτι τέτοιο.",
   "sidebar.projectFolder": "Φάκελος έργου",
   "notes.deleted": "Το «{title}» διαγράφηκε.",
   "notes.undo": "Αναίρεση",
@@ -6812,7 +6805,7 @@ const el: Record<MessageKey, string> = {
   "gate.commandRuleName": "κανόνας εντολών {id}",
   "settings.commandGuard": "Ερώτηση πριν από επικίνδυνες εντολές",
   "settings.commandGuardHelp":
-    "Στις συνεδρίες ομάδας με {programs}, το Hangar ρωτά πριν ο πράκτορας εκτελέσει μια εντολή που ταιριάζει με έναν από τους κανόνες σου, όπως ένα force push, ένα σκληρό reset ή διαγραφή έξω από το έργο. Δίχτυ ασφαλείας, όχι sandbox: μια εντολή γραμμένη ώστε να κρύβει τι κάνει μπορεί να περάσει.",
+    "Ρωτά στις συνεδρίες ομάδας με {programs}, για παράδειγμα πριν από force push ή διαγραφή έξω από το έργο. Δίχτυ ασφαλείας, όχι sandbox.",
   "settings.commandGuardFile": "Κανόνες: {file}",
   "settings.commandGuardDefaults":
     "Το αρχείο κανόνων δεν διαβάστηκε, γι' αυτό ισχύουν οι ενσωματωμένοι κανόνες.",
@@ -6822,7 +6815,6 @@ const el: Record<MessageKey, string> = {
   "settings.gateRules": "Αποθηκευμένες απαντήσεις",
   "settings.gateRulesHelp":
     "Απαντήσεις που έδωσες με «Θυμήσου για αυτό το έργο». Η καθεμία ισχύει μόνο στο έργο της· το «Ποτέ» υπερισχύει του «Πάντα».",
-  "settings.gateRulesEmpty": "Δεν υπάρχουν ακόμη αποθηκευμένες απαντήσεις.",
   "settings.gateRuleAllow": "Πάντα",
   "settings.gateRuleDeny": "Ποτέ",
   "settings.gateRuleDelete": "Διαγραφή της απάντησης για {path}",
@@ -7309,9 +7301,9 @@ const es: Record<MessageKey, string> = {
   "handover.notes": "Notas del proyecto:",
   "handover.instruction":
     "Primero resume lo que entiendes de este estado y revisa los archivos cambiados. Pregunta antes de hacer cambios grandes.",
-  "settings.claims": "Detectar coincidencias entre sesiones",
+  "settings.claims": "Avisar cuando dos sesiones cambian el mismo archivo",
   "settings.claimsHelp":
-    "Hangar mira qué archivos cambian los agentes y te avisa cuando dos de tus sesiones editan el mismo archivo o las mismas líneas. Todo queda en este equipo; Hangar no lee el contenido de los archivos para esto.",
+    "Todo se queda en este equipo y Hangar no lee el contenido de los archivos para ello.",
   "gate.label": "Hace falta una decisión",
   "gate.title": "{session} quiere cambiar {path}",
   "gate.also": "También lo está cambiando {others}",
@@ -7326,10 +7318,9 @@ const es: Record<MessageKey, string> = {
   "gate.announce": "{title} espera tu decisión",
   "status.gate": "necesita tu decisión",
   "status.permission": "espera tu aprobación",
-  "settings.gate": "Pausar a los agentes antes de editar un archivo que otra sesión está cambiando",
+  "settings.gate": "Pausar al agente hasta que decidas",
   "settings.gateHelp":
-    "El agente espera entonces a que decidas aquí. Se aplica a las sesiones de equipo que inicies mientras esté activado, no dentro de WSL. Coordina tus sesiones y no es una protección: los cambios desde el terminal no se detienen y, si Hangar no puede responder, el cambio sigue adelante.",
-  "settings.gateNeedsClaims": "Necesita «{setting}».",
+    "Para sesiones de equipo iniciadas a partir de ahora, no en WSL. No es una protección: los cambios desde el terminal siguen adelante, igual que si Hangar no responde.",
   "gate.noEndpoint":
     "En esta sesión los cambios no se detienen: Hangar no pudo iniciar su punto de conexión local para hooks.",
   "gate.launcher":
@@ -7404,6 +7395,7 @@ const es: Record<MessageKey, string> = {
   "settings.title": "Configuración",
   "settings.sections": "Secciones",
   "settings.general": "General",
+  "settings.security": "Seguridad",
   "settings.language": "Idioma",
   "settings.languageHelp": "Se aplica al instante a toda la interfaz.",
   "settings.attention": "Avisos",
@@ -7552,6 +7544,9 @@ const es: Record<MessageKey, string> = {
   "settings.groupHangar": "Hangar",
   "settings.groupPrograms": "Programas",
   "settings.advanced": "Avanzado",
+  "settings.groupOnClose": "Al cerrar",
+  "settings.groupPerformance": "Rendimiento y costes",
+  "settings.groupSubAgentDisplay": "Visualización",
 
   "color.cream": "Crema",
   "color.amber": "Ámbar",
@@ -7673,13 +7668,12 @@ const es: Record<MessageKey, string> = {
   "notes.tooLarge": "La nota es demasiado grande para guardarla (1 MiB como máximo).",
   "notes.invalidTitle":
     "El título no puede estar vacío, ni tener saltos de línea, ni superar 200 caracteres.",
-  "settings.sessions": "Sesiones",
-  "settings.restoreSessions": "Recordar sesiones al salir",
+  "settings.restoreSessions": "Restaurar sesiones en el próximo inicio",
   "settings.restoreSessionsHelp":
-    "La próxima vez que inicies, tus sesiones vuelven con su historial. Los agentes continúan su última conversación cuando es posible. El historial se guarda sin cifrar en tu perfil de usuario.",
+    "Con su historial, y los agentes siguen su conversación donde se puede. El historial se guarda sin cifrar en este equipo y puede contener contraseñas. Al desactivarlo se borra el historial guardado.",
   "settings.scrollbackLines": "Historial por sesión",
   "settings.lines": "{count} líneas",
-  "settings.clearScrollbacks": "Borrar historial guardado",
+  "settings.clearScrollbacks": "Borrar historial…",
   "settings.clearScrollbacksHelp": "Las sesiones se quedan, solo se borra su historial guardado.",
   "settings.clearScrollbacksDone": "Historial guardado borrado.",
   "settings.clearConfirm":
@@ -7722,7 +7716,6 @@ const es: Record<MessageKey, string> = {
   "session.runtime": "en ejecución desde hace {duration}",
   "notify.waiting": "{title} te está esperando",
   "session.outlier": "Valor atípico: lleva un rato ocupando un núcleo entero o usa mucha memoria",
-  "settings.resources": "Recursos",
   "settings.showResources": "Mostrar CPU, memoria y GPU",
   "settings.showResourcesHelp":
     "Una fila sobre Nueva sesión muestra la carga de toda la máquina. Al dejar el ratón sobre una sesión, la vista previa muestra su parte, para el programa y todo lo que inicia. Una marca señala valores atípicos: un núcleo entero durante 30 segundos o más de 4 GB de memoria.",
@@ -7789,9 +7782,9 @@ const es: Record<MessageKey, string> = {
   "settings.notifyDesktop": "Mostrar una notificación cuando una sesión espera",
   "settings.notifyDesktopHelp":
     "Solo cuando Hangar está en segundo plano. Haz clic en ella para abrir la sesión.",
-  "settings.keepInTray": "Seguir en el área de notificación al cerrar la ventana",
+  "settings.keepInTray": "Seguir en el área de notificación",
   "settings.keepInTrayHelp":
-    "Tus sesiones siguen en marcha. Para salir, haz clic derecho en el icono.",
+    "Cerrar solo oculta la ventana. Para salir, haz clic derecho en el icono.",
   "tray.open": "Abrir Hangar",
   "tray.tooltipWaiting": "Hangar · en espera: {count}",
   "close.confirm": "{name} sigue en ejecución. ¿Detener y cerrar?",
@@ -7819,9 +7812,9 @@ const es: Record<MessageKey, string> = {
     "Se omitió una ruta con un salto de línea, un carácter de control o un carácter invisible.",
   "send.blocked":
     "No se envió a {sessions}: el texto tiene varias líneas o caracteres ocultos, y el programa de allí ejecutaría cada línea al instante.",
-  "settings.warnMultilinePaste": "Avisar antes de pegar varias líneas",
+  "settings.warnMultilinePaste": "Preguntar antes de un pegado arriesgado",
   "settings.warnMultilinePasteHelp":
-    "Ctrl+V y Mayús+Insert preguntan antes de que varias líneas vayan a un programa que ejecuta cada línea al instante, o antes de pegar texto con caracteres ocultos. Si parece haber una clave secreta, siempre preguntan.",
+    "Con varias líneas que se ejecutarían al instante o caracteres invisibles. Con posibles claves, Hangar pregunta siempre.",
   "paste.runsLines": "{name} ejecuta cada línea en cuanto llega.",
   "paste.hidden":
     "El texto contiene caracteres ocultos. Podría ejecutarse de forma distinta a como se lee.",
@@ -7837,8 +7830,6 @@ const es: Record<MessageKey, string> = {
   "secret.secretFile": "archivo que suele contener secretos",
   "secret.unknown": "tipo desconocido",
   "paste.imageFailed": "No se pudo pegar la imagen del portapapeles.",
-  "settings.scrollbackSecrets":
-    "Contiene todo lo que se mostró en la terminal, incluidas contraseñas o tokens. Borra el historial si contiene algo así.",
   "sidebar.projectFolder": "Carpeta del proyecto",
   "notes.deleted": "«{title}» eliminada.",
   "notes.undo": "Deshacer",
@@ -9124,7 +9115,7 @@ const es: Record<MessageKey, string> = {
   "gate.commandRuleName": "regla de comandos {id}",
   "settings.commandGuard": "Preguntar antes de comandos peligrosos",
   "settings.commandGuardHelp":
-    "En las sesiones de equipo con {programs}, Hangar pregunta antes de que el agente ejecute un comando que coincide con una de tus reglas, como un push forzado, un reset duro o borrar fuera del proyecto. Es una red de seguridad, no un entorno aislado: un comando escrito para ocultar lo que hace puede pasar.",
+    "Pregunta en las sesiones de equipo con {programs}, por ejemplo antes de un push forzado o de borrar fuera del proyecto. Una red de seguridad, no un entorno aislado.",
   "settings.commandGuardFile": "Reglas: {file}",
   "settings.commandGuardDefaults":
     "No se pudo leer el archivo de reglas, así que se aplican las reglas incluidas.",
@@ -9134,7 +9125,6 @@ const es: Record<MessageKey, string> = {
   "settings.gateRules": "Respuestas recordadas",
   "settings.gateRulesHelp":
     "Respuestas que diste con «Recordar para este proyecto». Cada una vale solo en su proyecto; «Nunca» gana a «Siempre».",
-  "settings.gateRulesEmpty": "Aún no hay respuestas recordadas.",
   "settings.gateRuleAllow": "Siempre",
   "settings.gateRuleDeny": "Nunca",
   "settings.gateRuleDelete": "Borrar la respuesta para {path}",
@@ -9615,9 +9605,9 @@ const fr: Record<MessageKey, string> = {
   "handover.notes": "Notes du projet :",
   "handover.instruction":
     "Résume d'abord ce que tu comprends de cet état et regarde les fichiers modifiés. Demande avant de faire de gros changements.",
-  "settings.claims": "Détecter les chevauchements entre sessions",
+  "settings.claims": "Avertir quand deux sessions modifient le même fichier",
   "settings.claimsHelp":
-    "Hangar regarde quels fichiers les agents modifient et te prévient quand deux de tes sessions modifient le même fichier ou les mêmes lignes. Tout reste sur cet ordinateur ; Hangar ne lit aucun contenu de fichier pour cela.",
+    "Tout reste sur cet ordinateur, et Hangar ne lit pas le contenu des fichiers pour cela.",
   "gate.label": "Décision requise",
   "gate.title": "{session} veut modifier {path}",
   "gate.also": "Aussi en cours de modification par {others}",
@@ -9632,11 +9622,9 @@ const fr: Record<MessageKey, string> = {
   "gate.announce": "{title} attend ta décision",
   "status.gate": "attend ta décision",
   "status.permission": "attend ton autorisation",
-  "settings.gate":
-    "Mettre les agents en pause avant de modifier un fichier qu'une autre session modifie",
+  "settings.gate": "Mettre l’agent en pause jusqu’à ta décision",
   "settings.gateHelp":
-    "L'agent attend alors que tu décides ici. S'applique aux sessions d'équipe lancées pendant que c'est activé, pas dans WSL. Cela coordonne tes sessions et n'est pas une protection : les modifications via le terminal ne sont pas retenues et, si Hangar ne peut pas répondre, la modification a lieu.",
-  "settings.gateNeedsClaims": "Nécessite « {setting} ».",
+    "Pour les sessions d’équipe lancées à partir de maintenant, pas dans WSL. Ce n’est pas une protection : les modifications via le terminal passent, de même si Hangar ne répond pas.",
   "gate.noEndpoint":
     "Les modifications ne sont pas retenues dans cette session : Hangar n'a pas pu démarrer son point d'accès local pour les hooks.",
   "gate.launcher":
@@ -9711,6 +9699,7 @@ const fr: Record<MessageKey, string> = {
   "settings.title": "Paramètres",
   "settings.sections": "Sections",
   "settings.general": "Général",
+  "settings.security": "Sécurité",
   "settings.language": "Langue",
   "settings.languageHelp": "S'applique immédiatement à toute l'interface.",
   "settings.attention": "Mise en évidence",
@@ -9859,6 +9848,9 @@ const fr: Record<MessageKey, string> = {
   "settings.groupHangar": "Hangar",
   "settings.groupPrograms": "Programmes",
   "settings.advanced": "Avancé",
+  "settings.groupOnClose": "À la fermeture",
+  "settings.groupPerformance": "Performances et coûts",
+  "settings.groupSubAgentDisplay": "Affichage",
 
   "color.cream": "Crème",
   "color.amber": "Ambre",
@@ -9981,13 +9973,12 @@ const fr: Record<MessageKey, string> = {
   "notes.tooLarge": "La note est trop grande pour être enregistrée (1 Mio au maximum).",
   "notes.invalidTitle":
     "Le titre ne doit pas être vide, ni contenir de saut de ligne, ni dépasser 200 caractères.",
-  "settings.sessions": "Sessions",
-  "settings.restoreSessions": "Mémoriser les sessions en quittant",
+  "settings.restoreSessions": "Restaurer les sessions au prochain démarrage",
   "settings.restoreSessionsHelp":
-    "Au prochain démarrage, tes sessions reviennent avec leur historique. Les agents reprennent leur dernière conversation quand c’est possible. L’historique est stocké sans chiffrement dans ton profil utilisateur.",
+    "Avec leur historique, et les agents reprennent leur conversation quand c’est possible. L’historique est stocké non chiffré sur cet ordinateur et peut contenir des mots de passe. Désactiver supprime l’historique enregistré.",
   "settings.scrollbackLines": "Historique par session",
   "settings.lines": "{count} lignes",
-  "settings.clearScrollbacks": "Supprimer l’historique enregistré",
+  "settings.clearScrollbacks": "Supprimer l’historique…",
   "settings.clearScrollbacksHelp":
     "Les sessions restent, seul leur historique enregistré est supprimé.",
   "settings.clearScrollbacksDone": "Historique enregistré supprimé.",
@@ -10032,7 +10023,6 @@ const fr: Record<MessageKey, string> = {
   "notify.waiting": "{title} t’attend",
   "session.outlier":
     "Valeur aberrante : occupe un cœur entier depuis un moment ou utilise beaucoup de mémoire",
-  "settings.resources": "Ressources",
   "settings.showResources": "Afficher CPU, mémoire et GPU",
   "settings.showResourcesHelp":
     "Une ligne au-dessus de Nouvelle session montre la charge de toute la machine. En laissant la souris sur une session, l’aperçu montre sa part, pour le programme et tout ce qu’il lance. Un signe marque les valeurs aberrantes : un cœur entier pendant 30 secondes ou plus de 4 Go de mémoire.",
@@ -10100,9 +10090,9 @@ const fr: Record<MessageKey, string> = {
   "settings.notifyDesktop": "Afficher une notification quand une session attend",
   "settings.notifyDesktopHelp":
     "Seulement si Hangar est en arrière-plan. Clique dessus pour ouvrir la session.",
-  "settings.keepInTray": "Rester dans la zone de notification quand tu fermes la fenêtre",
+  "settings.keepInTray": "Rester dans la zone de notification",
   "settings.keepInTrayHelp":
-    "Tes sessions continuent de tourner. Pour quitter, fais un clic droit sur l’icône.",
+    "Fermer masque seulement la fenêtre. Pour quitter, fais un clic droit sur l’icône.",
   "tray.open": "Ouvrir Hangar",
   "tray.tooltipWaiting": "Hangar · en attente : {count}",
   "close.confirm": "{name} est encore actif. Arrêter et fermer ?",
@@ -10131,9 +10121,9 @@ const fr: Record<MessageKey, string> = {
     "Un chemin contenant un saut de ligne, un caractère de contrôle ou un caractère invisible a été ignoré.",
   "send.blocked":
     "Non envoyé à {sessions} : le texte a plusieurs lignes ou des caractères invisibles, et le programme là-bas exécuterait chaque ligne aussitôt.",
-  "settings.warnMultilinePaste": "Avertir avant de coller plusieurs lignes",
+  "settings.warnMultilinePaste": "Demander avant un collage risqué",
   "settings.warnMultilinePasteHelp":
-    "Ctrl+V et Maj+Inser demandent d’abord avant que plusieurs lignes aillent dans un programme qui exécute chaque ligne aussitôt, ou avant de coller un texte avec des caractères invisibles. En cas de clé secrète probable, ils demandent toujours.",
+    "Pour plusieurs lignes qui s’exécuteraient aussitôt ou des caractères invisibles. Pour une clé présumée, Hangar demande toujours.",
   "paste.runsLines": "{name} exécute chaque ligne dès qu'elle arrive.",
   "paste.hidden":
     "Le texte contient des caractères cachés. Il pourrait s'exécuter autrement qu'il ne se lit.",
@@ -10149,8 +10139,6 @@ const fr: Record<MessageKey, string> = {
   "secret.secretFile": "fichier qui contient souvent des secrets",
   "secret.unknown": "type inconnu",
   "paste.imageFailed": "Impossible de coller l'image du presse-papiers.",
-  "settings.scrollbackSecrets":
-    "Il contient tout ce qui s’est affiché dans le terminal, y compris des mots de passe ou des jetons. Efface l’historique s’il contient ce genre de chose.",
   "sidebar.projectFolder": "Dossier du projet",
   "notes.deleted": "« {title} » supprimée.",
   "notes.undo": "Annuler",
@@ -11450,7 +11438,7 @@ const fr: Record<MessageKey, string> = {
   "gate.commandRuleName": "règle de commande {id}",
   "settings.commandGuard": "Demander avant les commandes dangereuses",
   "settings.commandGuardHelp":
-    "Dans les sessions d'équipe avec {programs}, Hangar demande avant que l'agent exécute une commande qui correspond à l'une de tes règles, comme un push forcé, un reset dur ou une suppression hors du projet. C'est un filet de sécurité, pas un bac à sable : une commande écrite pour cacher ce qu'elle fait peut passer.",
+    "Demande dans les sessions d’équipe avec {programs}, par exemple avant un push forcé ou une suppression hors du projet. Un filet de sécurité, pas un bac à sable.",
   "settings.commandGuardFile": "Règles : {file}",
   "settings.commandGuardDefaults":
     "Le fichier de règles n'a pas pu être lu, les règles fournies s'appliquent donc.",
@@ -11460,7 +11448,6 @@ const fr: Record<MessageKey, string> = {
   "settings.gateRules": "Réponses retenues",
   "settings.gateRulesHelp":
     "Les réponses données avec « Retenir pour ce projet ». Chacune ne vaut que dans son projet ; « Jamais » l'emporte sur « Toujours ».",
-  "settings.gateRulesEmpty": "Aucune réponse retenue pour l'instant.",
   "settings.gateRuleAllow": "Toujours",
   "settings.gateRuleDeny": "Jamais",
   "settings.gateRuleDelete": "Supprimer la réponse pour {path}",
@@ -11945,9 +11932,9 @@ const it: Record<MessageKey, string> = {
   "handover.notes": "Note del progetto:",
   "handover.instruction":
     "Prima riassumi cosa capisci da questo stato e guarda i file modificati. Chiedi prima di fare modifiche importanti.",
-  "settings.claims": "Rileva sovrapposizioni tra sessioni",
+  "settings.claims": "Avvisa quando due sessioni modificano lo stesso file",
   "settings.claimsHelp":
-    "Hangar guarda quali file cambiano gli agenti e ti avvisa quando due tue sessioni modificano lo stesso file o le stesse righe. Tutto resta su questo computer; Hangar non legge il contenuto dei file per farlo.",
+    "Tutto resta su questo computer e Hangar non legge il contenuto dei file per farlo.",
   "gate.label": "Serve una decisione",
   "gate.title": "{session} vuole modificare {path}",
   "gate.also": "Lo sta modificando anche {others}",
@@ -11962,11 +11949,9 @@ const it: Record<MessageKey, string> = {
   "gate.announce": "{title} attende la tua decisione",
   "status.gate": "attende la tua decisione",
   "status.permission": "attende la tua approvazione",
-  "settings.gate":
-    "Metti in pausa gli agenti prima di modificare un file che un'altra sessione sta cambiando",
+  "settings.gate": "Metti in pausa l’agente finché non decidi",
   "settings.gateHelp":
-    "L'agente aspetta finché decidi qui. Vale per le sessioni di team avviate mentre è attivo, non dentro WSL. Coordina le tue sessioni e non è una protezione: le modifiche dal terminale non vengono fermate e, se Hangar non può rispondere, la modifica va avanti.",
-  "settings.gateNeedsClaims": "Richiede «{setting}».",
+    "Per le sessioni di team avviate da ora in poi, non in WSL. Non è una protezione: le modifiche dal terminale proseguono, così come quando Hangar non risponde.",
   "gate.noEndpoint":
     "In questa sessione le modifiche non vengono fermate: Hangar non è riuscito ad avviare il suo endpoint locale per gli hook.",
   "gate.launcher":
@@ -12040,6 +12025,7 @@ const it: Record<MessageKey, string> = {
   "settings.title": "Impostazioni",
   "settings.sections": "Sezioni",
   "settings.general": "Generale",
+  "settings.security": "Sicurezza",
   "settings.language": "Lingua",
   "settings.languageHelp": "Si applica subito a tutta l'interfaccia.",
   "settings.attention": "Avvisi",
@@ -12189,6 +12175,9 @@ const it: Record<MessageKey, string> = {
   "settings.groupHangar": "Hangar",
   "settings.groupPrograms": "Programmi",
   "settings.advanced": "Avanzate",
+  "settings.groupOnClose": "Alla chiusura",
+  "settings.groupPerformance": "Prestazioni e costi",
+  "settings.groupSubAgentDisplay": "Visualizzazione",
 
   "color.cream": "Crema",
   "color.amber": "Ambra",
@@ -12309,13 +12298,12 @@ const it: Record<MessageKey, string> = {
   "notes.tooLarge": "La nota è troppo grande per essere salvata (al massimo 1 MiB).",
   "notes.invalidTitle":
     "Il titolo non può essere vuoto, contenere a capo o superare 200 caratteri.",
-  "settings.sessions": "Sessioni",
-  "settings.restoreSessions": "Ricorda le sessioni all’uscita",
+  "settings.restoreSessions": "Ripristina le sessioni al prossimo avvio",
   "settings.restoreSessionsHelp":
-    "Al prossimo avvio le tue sessioni tornano con la loro cronologia. Gli agenti riprendono l’ultima conversazione dove possibile. La cronologia è salvata senza crittografia nel tuo profilo utente.",
+    "Con la loro cronologia, e gli agenti riprendono la conversazione dove possibile. La cronologia è salvata senza cifratura su questo computer e può contenere password. Disattivando si elimina la cronologia salvata.",
   "settings.scrollbackLines": "Cronologia per sessione",
   "settings.lines": "{count} righe",
-  "settings.clearScrollbacks": "Elimina la cronologia salvata",
+  "settings.clearScrollbacks": "Elimina la cronologia…",
   "settings.clearScrollbacksHelp":
     "Le sessioni restano, viene eliminata solo la cronologia salvata.",
   "settings.clearScrollbacksDone": "Cronologia salvata eliminata.",
@@ -12358,7 +12346,6 @@ const it: Record<MessageKey, string> = {
   "session.runtime": "in esecuzione da {duration}",
   "notify.waiting": "{title} ti sta aspettando",
   "session.outlier": "Anomalia: tiene occupato un intero core da un po' o usa molta memoria",
-  "settings.resources": "Risorse",
   "settings.showResources": "Mostra CPU, memoria e GPU",
   "settings.showResourcesHelp":
     "Una riga sopra Nuova sessione mostra il carico dell'intera macchina. Lasciando il mouse su una sessione, l'anteprima ne mostra la quota, per il programma e tutto ciò che avvia. Un segno indica le anomalie: un intero core per 30 secondi o più di 4 GB di memoria.",
@@ -12425,9 +12412,9 @@ const it: Record<MessageKey, string> = {
   "settings.notifyDesktop": "Mostra una notifica quando una sessione è in attesa",
   "settings.notifyDesktopHelp":
     "Solo quando Hangar è in background. Fai clic per aprire la sessione.",
-  "settings.keepInTray": "Resta nell’area di notifica quando chiudi la finestra",
+  "settings.keepInTray": "Resta nell’area di notifica",
   "settings.keepInTrayHelp":
-    "Le tue sessioni continuano a funzionare. Per uscire, fai clic destro sull’icona.",
+    "Chiudere nasconde solo la finestra. Per uscire, fai clic destro sull’icona.",
   "tray.open": "Apri Hangar",
   "tray.tooltipWaiting": "Hangar · in attesa: {count}",
   "close.confirm": "{name} è ancora attivo. Terminare e chiudere?",
@@ -12456,9 +12443,9 @@ const it: Record<MessageKey, string> = {
     "Un percorso con un a capo, un carattere di controllo o un carattere invisibile è stato escluso.",
   "send.blocked":
     "Non inviato a {sessions}: il testo ha più righe o caratteri invisibili, e il programma lì eseguirebbe subito ogni riga.",
-  "settings.warnMultilinePaste": "Avvisa prima di incollare più righe",
+  "settings.warnMultilinePaste": "Chiedi prima di un incollaggio rischioso",
   "settings.warnMultilinePasteHelp":
-    "Ctrl+V e Maiusc+Ins chiedono prima che più righe vadano in un programma che esegue subito ogni riga, o prima di incollare testo con caratteri invisibili. Se sembra esserci una chiave segreta, chiedono sempre.",
+    "Con più righe che verrebbero eseguite subito o caratteri invisibili. Con possibili chiavi, Hangar chiede sempre.",
   "paste.runsLines": "{name} esegue ogni riga appena arriva.",
   "paste.hidden":
     "Il testo contiene caratteri nascosti. Potrebbe essere eseguito diversamente da come si legge.",
@@ -12474,8 +12461,6 @@ const it: Record<MessageKey, string> = {
   "secret.secretFile": "file che di solito contiene segreti",
   "secret.unknown": "tipo sconosciuto",
   "paste.imageFailed": "Impossibile incollare l'immagine dagli appunti.",
-  "settings.scrollbackSecrets":
-    "Contiene tutto ciò che è apparso nel terminale, comprese password o token. Cancella la cronologia se contiene qualcosa del genere.",
   "sidebar.projectFolder": "Cartella del progetto",
   "notes.deleted": "«{title}» eliminata.",
   "notes.undo": "Annulla",
@@ -13762,7 +13747,7 @@ const it: Record<MessageKey, string> = {
   "gate.commandRuleName": "regola dei comandi {id}",
   "settings.commandGuard": "Chiedi prima dei comandi pericolosi",
   "settings.commandGuardHelp":
-    "Nelle sessioni di team con {programs}, Hangar chiede prima che l'agente esegua un comando che corrisponde a una delle tue regole, come un push forzato, un reset hard o un'eliminazione fuori dal progetto. È una rete di sicurezza, non una sandbox: un comando scritto per nascondere ciò che fa può passare.",
+    "Chiede nelle sessioni di team con {programs}, ad esempio prima di un push forzato o di un’eliminazione fuori dal progetto. Una rete di sicurezza, non una sandbox.",
   "settings.commandGuardFile": "Regole: {file}",
   "settings.commandGuardDefaults":
     "Non è stato possibile leggere il file delle regole, quindi valgono le regole incluse.",
@@ -13772,7 +13757,6 @@ const it: Record<MessageKey, string> = {
   "settings.gateRules": "Risposte ricordate",
   "settings.gateRulesHelp":
     "Le risposte date con «Ricorda per questo progetto». Ognuna vale solo nel suo progetto; «Mai» prevale su «Sempre».",
-  "settings.gateRulesEmpty": "Ancora nessuna risposta ricordata.",
   "settings.gateRuleAllow": "Sempre",
   "settings.gateRuleDeny": "Mai",
   "settings.gateRuleDelete": "Elimina la risposta per {path}",
@@ -14264,9 +14248,9 @@ const ja: Record<MessageKey, string> = {
   "handover.notes": "プロジェクトのメモ:",
   "handover.instruction":
     "まず、この状態から理解した内容をまとめ、変更されたファイルを確認してください。大きな変更の前には確認を取ってください。",
-  "settings.claims": "セッション間の重なりを検出",
+  "settings.claims": "2 つのセッションが同じファイルを変更したら警告する",
   "settings.claimsHelp":
-    "エージェントが変更するファイルを Hangar が確認し、2 つのセッションが同じファイルや同じ行を編集すると知らせます。すべてこのコンピューター内で行われ、ファイルの内容は読み取りません。",
+    "すべてこのコンピューター内にとどまり、Hangar はそのためにファイルの内容を読みません。",
   "gate.label": "判断が必要です",
   "gate.title": "{session} が {path} を変更しようとしています",
   "gate.also": "{others} もこのファイルを変更中です",
@@ -14281,10 +14265,9 @@ const ja: Record<MessageKey, string> = {
   "gate.announce": "{title} があなたの判断を待っています",
   "status.gate": "判断待ち",
   "status.permission": "承認待ち",
-  "settings.gate": "別のセッションが変更中のファイルを編集する前にエージェントを一時停止",
+  "settings.gate": "判断するまでエージェントを一時停止",
   "settings.gateHelp":
-    "エージェントはここで判断するまで待ちます。オンの間に開始したチームセッションに適用されます（WSL 内は対象外）。セッション間の調整であり、保護ではありません。ターミナル経由の変更は止まらず、Hangar が応答できない場合は変更が実行されます。",
-  "settings.gateNeedsClaims": "「{setting}」が必要です。",
+    "今後開始するチームセッションのみ、WSL を除きます。保護ではありません。ターミナル経由の変更や、Hangar が応答しないときの変更はそのまま進みます。",
   "gate.noEndpoint":
     "このセッションでは変更は一時停止されません。Hangar がローカルのフック用エンドポイントを開始できませんでした。",
   "gate.launcher":
@@ -14357,6 +14340,7 @@ const ja: Record<MessageKey, string> = {
   "settings.title": "設定",
   "settings.sections": "セクション",
   "settings.general": "全般",
+  "settings.security": "セキュリティ",
   "settings.language": "言語",
   "settings.languageHelp": "インターフェース全体にすぐ反映されます。",
   "settings.attention": "通知",
@@ -14504,6 +14488,9 @@ const ja: Record<MessageKey, string> = {
   "settings.groupHangar": "Hangar",
   "settings.groupPrograms": "プログラム",
   "settings.advanced": "詳細設定",
+  "settings.groupOnClose": "閉じるとき",
+  "settings.groupPerformance": "パフォーマンスとコスト",
+  "settings.groupSubAgentDisplay": "表示",
 
   "color.cream": "クリーム",
   "color.amber": "アンバー",
@@ -14624,13 +14611,12 @@ const ja: Record<MessageKey, string> = {
   "notes.saveFailed": "メモを保存できませんでした: {error}",
   "notes.tooLarge": "メモが大きすぎて保存できません (最大 1 MiB)。",
   "notes.invalidTitle": "タイトルは空にできず、改行を含めず、200 文字以内にしてください。",
-  "settings.sessions": "セッション",
-  "settings.restoreSessions": "終了時にセッションを記憶する",
+  "settings.restoreSessions": "次回起動時にセッションを復元する",
   "settings.restoreSessionsHelp":
-    "次回の起動時に、セッションが履歴とともに戻ります。エージェントは可能な場合、最後の会話を再開します。履歴は暗号化されずにユーザープロファイルに保存されます。",
+    "履歴も含み、可能な場合はエージェントが会話を続けます。履歴はこのコンピューターに暗号化されずに保存され、パスワードを含むことがあります。オフにすると保存された履歴は削除されます。",
   "settings.scrollbackLines": "セッションごとの履歴",
   "settings.lines": "{count} 行",
-  "settings.clearScrollbacks": "保存した履歴を削除",
+  "settings.clearScrollbacks": "履歴を削除…",
   "settings.clearScrollbacksHelp": "セッションはそのままで、保存した履歴だけが削除されます。",
   "settings.clearScrollbacksDone": "保存した履歴を削除しました。",
   "settings.clearConfirm": "すべてのセッションの保存した履歴を削除しますか? 元に戻せません。",
@@ -14672,7 +14658,6 @@ const ja: Record<MessageKey, string> = {
   "session.runtime": "実行時間 {duration}",
   "notify.waiting": "{title} が待機しています",
   "session.outlier": "外れ値: しばらく CPU コア 1 つ分を使い続けているか、メモリを多く使っています",
-  "settings.resources": "リソース",
   "settings.showResources": "CPU、メモリ、GPU を表示",
   "settings.showResourcesHelp":
     "新しいセッションの上の 1 行に、マシン全体の負荷を表示します。セッションにマウスを置くと、プレビューにそのプログラムと起動したものすべての使用量が出ます。外れ値には印が付きます: 30 秒間コア 1 つ分を使い続けるか、メモリが 4 GB を超えた場合です。",
@@ -14739,8 +14724,9 @@ const ja: Record<MessageKey, string> = {
   "settings.notifyDesktop": "セッションが待機中のときに通知を表示",
   "settings.notifyDesktopHelp":
     "Hangar がバックグラウンドのときのみ。クリックするとセッションを開きます。",
-  "settings.keepInTray": "ウィンドウを閉じても通知領域で実行を続ける",
-  "settings.keepInTrayHelp": "セッションは実行を続けます。終了するにはアイコンを右クリックします。",
+  "settings.keepInTray": "通知領域で実行を続ける",
+  "settings.keepInTrayHelp":
+    "閉じてもウィンドウが隠れるだけです。終了するにはアイコンを右クリックします。",
   "tray.open": "Hangar を開く",
   "tray.tooltipWaiting": "Hangar · 待機中: {count}",
   "close.confirm": "{name} はまだ実行中です。終了して閉じますか？",
@@ -14767,9 +14753,9 @@ const ja: Record<MessageKey, string> = {
   "paste.dropSkipped": "改行、制御文字、または見えない文字を含むパスを除外しました。",
   "send.blocked":
     "{sessions} には送信しませんでした: テキストに複数の行または見えない文字があり、そこのプログラムは各行をすぐに実行してしまいます。",
-  "settings.warnMultilinePaste": "複数行を貼り付ける前に警告する",
+  "settings.warnMultilinePaste": "危険な貼り付けの前に確認する",
   "settings.warnMultilinePasteHelp":
-    "Ctrl+V と Shift+Insert は、各行をすぐに実行するプログラムに複数行を送る前や、見えない文字を含むテキストを貼り付ける前に確認します。秘密鍵が含まれていそうな場合は常に確認します。",
+    "すぐに実行されてしまう複数行や見えない文字がある場合です。キーらしきものがあるときは、Hangar は常に確認します。",
   "paste.runsLines": "{name} は届いた行をすぐに 1 行ずつ実行します。",
   "paste.hidden":
     "テキストに見えない文字が含まれています。見た目と違う動作をする可能性があります。",
@@ -14785,8 +14771,6 @@ const ja: Record<MessageKey, string> = {
   "secret.secretFile": "秘密情報を含むことが多いファイル",
   "secret.unknown": "種類不明",
   "paste.imageFailed": "クリップボードの画像を貼り付けられませんでした。",
-  "settings.scrollbackSecrets":
-    "ターミナルに表示された内容がすべて含まれ、パスワードやトークンも含まれる場合があります。そのような内容がある場合は履歴を削除してください。",
   "sidebar.projectFolder": "プロジェクトフォルダー",
   "notes.deleted": "「{title}」を削除しました。",
   "notes.undo": "元に戻す",
@@ -16070,7 +16054,7 @@ const ja: Record<MessageKey, string> = {
   "gate.commandRuleName": "コマンドルール {id}",
   "settings.commandGuard": "危険なコマンドの前に確認する",
   "settings.commandGuardHelp":
-    "{programs} のチームセッションでは、エージェントがあなたのルールに一致するコマンド (force push、hard reset、プロジェクト外での削除など) を実行する前に Hangar が確認します。これは安全網であり、サンドボックスではありません。動作を隠すように書かれたコマンドは通り抜けることがあります。",
+    "{programs} のチームセッションで、force push やプロジェクト外での削除などの前に確認します。安全網であり、サンドボックスではありません。",
   "settings.commandGuardFile": "ルール: {file}",
   "settings.commandGuardDefaults":
     "ルールファイルを読み込めなかったため、組み込みのルールが適用されます。",
@@ -16080,7 +16064,6 @@ const ja: Record<MessageKey, string> = {
   "settings.gateRules": "記憶した回答",
   "settings.gateRulesHelp":
     "「このプロジェクトで記憶」で選んだ回答です。それぞれのプロジェクト内でのみ有効で、「拒否」が「許可」より優先されます。",
-  "settings.gateRulesEmpty": "記憶した回答はまだありません。",
   "settings.gateRuleAllow": "常に許可",
   "settings.gateRuleDeny": "常に拒否",
   "settings.gateRuleDelete": "{path} の回答を削除",
@@ -16560,9 +16543,9 @@ const pl: Record<MessageKey, string> = {
   "handover.notes": "Notatki projektu:",
   "handover.instruction":
     "Najpierw podsumuj, co rozumiesz z tego stanu, i przejrzyj zmienione pliki. Zapytaj, zanim wprowadzisz większe zmiany.",
-  "settings.claims": "Wykrywaj nakładanie się sesji",
+  "settings.claims": "Ostrzegaj, gdy dwie sesje zmieniają ten sam plik",
   "settings.claimsHelp":
-    "Hangar sprawdza, które pliki zmieniają agenci, i ostrzega, gdy dwie twoje sesje edytują ten sam plik lub te same wiersze. Wszystko zostaje na tym komputerze; Hangar nie czyta przy tym zawartości plików.",
+    "Wszystko zostaje na tym komputerze, a Hangar nie czyta przy tym zawartości plików.",
   "gate.label": "Potrzebna decyzja",
   "gate.title": "{session} chce zmienić {path}",
   "gate.also": "Zmienia go też {others}",
@@ -16577,10 +16560,9 @@ const pl: Record<MessageKey, string> = {
   "gate.announce": "{title} czeka na twoją decyzję",
   "status.gate": "czeka na twoją decyzję",
   "status.permission": "czeka na twoją zgodę",
-  "settings.gate": "Wstrzymuj agentów przed edycją pliku, który zmienia inna sesja",
+  "settings.gate": "Wstrzymaj agenta, aż zdecydujesz",
   "settings.gateHelp":
-    "Agent czeka wtedy, aż zdecydujesz tutaj. Dotyczy sesji zespołowych uruchomionych, gdy to jest włączone, nie w WSL. To koordynuje twoje sesje i nie jest ochroną: zmiany przez terminal nie są wstrzymywane, a gdy Hangar nie może odpowiedzieć, zmiana zostaje wykonana.",
-  "settings.gateNeedsClaims": "Wymaga opcji „{setting}”.",
+    "Dla sesji zespołowych uruchomionych od teraz, nie w WSL. To nie jest ochrona: zmiany przez terminal przechodzą, tak samo gdy Hangar nie odpowiada.",
   "gate.noEndpoint":
     "W tej sesji zmiany nie są wstrzymywane: Hangar nie mógł uruchomić lokalnego punktu dla hooków.",
   "gate.launcher":
@@ -16653,6 +16635,7 @@ const pl: Record<MessageKey, string> = {
   "settings.title": "Ustawienia",
   "settings.sections": "Sekcje",
   "settings.general": "Ogólne",
+  "settings.security": "Bezpieczeństwo",
   "settings.language": "Język",
   "settings.languageHelp": "Działa od razu w całym interfejsie.",
   "settings.attention": "Sygnalizacja",
@@ -16801,6 +16784,9 @@ const pl: Record<MessageKey, string> = {
   "settings.groupHangar": "Hangar",
   "settings.groupPrograms": "Programy",
   "settings.advanced": "Zaawansowane",
+  "settings.groupOnClose": "Przy zamykaniu",
+  "settings.groupPerformance": "Wydajność i koszty",
+  "settings.groupSubAgentDisplay": "Wyświetlanie",
 
   "color.cream": "Kremowy",
   "color.amber": "Bursztynowy",
@@ -16921,13 +16907,12 @@ const pl: Record<MessageKey, string> = {
   "notes.tooLarge": "Notatka jest za duża, by ją zapisać (najwyżej 1 MiB).",
   "notes.invalidTitle":
     "Tytuł nie może być pusty, zawierać podziałów wiersza ani mieć więcej niż 200 znaków.",
-  "settings.sessions": "Sesje",
-  "settings.restoreSessions": "Zapamiętuj sesje przy zamykaniu",
+  "settings.restoreSessions": "Przywracaj sesje przy następnym uruchomieniu",
   "settings.restoreSessionsHelp":
-    "Przy następnym uruchomieniu twoje sesje wrócą z historią. Agenci wznowią ostatnią rozmowę, jeśli to możliwe. Historia jest zapisywana bez szyfrowania w twoim profilu użytkownika.",
+    "Z historią, a agenci kontynuują rozmowę, gdzie to możliwe. Historia jest zapisana bez szyfrowania na tym komputerze i może zawierać hasła. Wyłączenie usuwa zapisaną historię.",
   "settings.scrollbackLines": "Historia na sesję",
   "settings.lines": "Wiersze: {count}",
-  "settings.clearScrollbacks": "Usuń zapisaną historię",
+  "settings.clearScrollbacks": "Usuń historię…",
   "settings.clearScrollbacksHelp": "Sesje zostają, usuwana jest tylko ich zapisana historia.",
   "settings.clearScrollbacksDone": "Zapisana historia usunięta.",
   "settings.clearConfirm": "Usunąć zapisaną historię wszystkich sesji? Tego nie da się cofnąć.",
@@ -16968,7 +16953,6 @@ const pl: Record<MessageKey, string> = {
   "session.runtime": "działa od {duration}",
   "notify.waiting": "{title}: czeka na ciebie",
   "session.outlier": "Odstający: od dłuższej chwili zajmuje cały rdzeń lub zużywa dużo pamięci",
-  "settings.resources": "Zasoby",
   "settings.showResources": "Pokazuj CPU, pamięć i GPU",
   "settings.showResourcesHelp":
     "Wiersz nad Nowa sesja pokazuje obciążenie całej maszyny. Gdy kursor spocznie na sesji, podgląd pokazuje jej udział, dla programu i wszystkiego, co uruchamia. Znak oznacza sesje odstające: cały rdzeń przez 30 sekund lub ponad 4 GB pamięci.",
@@ -17033,9 +17017,9 @@ const pl: Record<MessageKey, string> = {
   "notify.finished": "{title}: zakończono",
   "settings.notifyDesktop": "Pokazuj powiadomienie, gdy sesja czeka",
   "settings.notifyDesktopHelp": "Tylko gdy Hangar działa w tle. Kliknij je, aby otworzyć sesję.",
-  "settings.keepInTray": "Działaj dalej w obszarze powiadomień po zamknięciu okna",
+  "settings.keepInTray": "Działaj dalej w obszarze powiadomień",
   "settings.keepInTrayHelp":
-    "Twoje sesje działają dalej. Aby zakończyć, kliknij ikonę prawym przyciskiem.",
+    "Zamknięcie tylko ukrywa okno. Aby zakończyć, kliknij ikonę prawym przyciskiem.",
   "tray.open": "Otwórz Hangar",
   "tray.tooltipWaiting": "Hangar · czekające: {count}",
   "close.confirm": "{name} nadal działa. Zatrzymać i zamknąć?",
@@ -17065,9 +17049,9 @@ const pl: Record<MessageKey, string> = {
     "Pominięto ścieżkę z podziałem wiersza, znakiem sterującym lub niewidocznym znakiem.",
   "send.blocked":
     "Nie wysłano do {sessions}: tekst ma kilka wierszy lub niewidoczne znaki, a tamten program wykonałby każdy wiersz od razu.",
-  "settings.warnMultilinePaste": "Ostrzegaj przed wklejeniem kilku wierszy",
+  "settings.warnMultilinePaste": "Pytaj przed ryzykownym wklejeniem",
   "settings.warnMultilinePasteHelp":
-    "Ctrl+V i Shift+Insert pytają najpierw, zanim kilka wierszy trafi do programu, który wykonuje każdy wiersz od razu, albo zanim zostanie wklejony tekst z niewidocznymi znakami. Przy prawdopodobnym tajnym kluczu pytają zawsze.",
+    "Przy kilku wierszach, które od razu by się wykonały, lub niewidocznych znakach. Przy podejrzanych kluczach Hangar pyta zawsze.",
   "paste.runsLines": "{name} wykonuje każdy wiersz, gdy tylko dotrze.",
   "paste.hidden": "Tekst zawiera ukryte znaki. Może działać inaczej, niż wygląda.",
   "paste.secret": "Tekst prawdopodobnie zawiera tajny klucz ({kinds}).",
@@ -17082,8 +17066,6 @@ const pl: Record<MessageKey, string> = {
   "secret.secretFile": "plik, który zwykle zawiera sekrety",
   "secret.unknown": "rodzaj nieznany",
   "paste.imageFailed": "Nie udało się wkleić obrazu ze schowka.",
-  "settings.scrollbackSecrets":
-    "Zawiera wszystko, co było widać w terminalu, także hasła lub tokeny. Usuń historię, jeśli zawiera coś takiego.",
   "sidebar.projectFolder": "Folder projektu",
   "notes.deleted": "Usunięto „{title}”.",
   "notes.undo": "Cofnij",
@@ -18352,7 +18334,7 @@ const pl: Record<MessageKey, string> = {
   "gate.commandRuleName": "reguła poleceń {id}",
   "settings.commandGuard": "Pytaj przed niebezpiecznymi poleceniami",
   "settings.commandGuardHelp":
-    "W sesjach zespołowych z {programs} Hangar pyta, zanim agent uruchomi polecenie pasujące do jednej z twoich reguł, na przykład wymuszony push, twardy reset albo usuwanie poza projektem. To siatka bezpieczeństwa, nie piaskownica: polecenie napisane tak, by ukryć, co robi, może przejść.",
+    "Pyta w sesjach zespołowych z {programs}, na przykład przed wymuszonym pushem albo usuwaniem poza projektem. Siatka bezpieczeństwa, nie piaskownica.",
   "settings.commandGuardFile": "Reguły: {file}",
   "settings.commandGuardDefaults":
     "Nie udało się odczytać pliku reguł, więc obowiązują reguły wbudowane.",
@@ -18362,7 +18344,6 @@ const pl: Record<MessageKey, string> = {
   "settings.gateRules": "Zapamiętane odpowiedzi",
   "settings.gateRulesHelp":
     "Odpowiedzi udzielone przez „Zapamiętaj dla tego projektu”. Każda działa tylko w swoim projekcie; „Nigdy” ma pierwszeństwo przed „Zawsze”.",
-  "settings.gateRulesEmpty": "Brak zapamiętanych odpowiedzi.",
   "settings.gateRuleAllow": "Zawsze",
   "settings.gateRuleDeny": "Nigdy",
   "settings.gateRuleDelete": "Usuń odpowiedź dla {path}",
@@ -18843,9 +18824,9 @@ const pt: Record<MessageKey, string> = {
   "handover.notes": "Notas do projeto:",
   "handover.instruction":
     "Primeiro resuma o que você entende deste estado e veja os arquivos alterados. Pergunte antes de fazer mudanças maiores.",
-  "settings.claims": "Detectar sobreposições entre sessões",
+  "settings.claims": "Avisar quando duas sessões alteram o mesmo arquivo",
   "settings.claimsHelp":
-    "O Hangar observa quais arquivos os agentes alteram e avisa quando duas sessões suas editam o mesmo arquivo ou as mesmas linhas. Tudo fica neste computador; o Hangar não lê o conteúdo dos arquivos para isso.",
+    "Tudo fica neste computador, e o Hangar não lê o conteúdo dos arquivos para isso.",
   "gate.label": "Decisão necessária",
   "gate.title": "{session} quer alterar {path}",
   "gate.also": "Também está sendo alterado por {others}",
@@ -18860,10 +18841,9 @@ const pt: Record<MessageKey, string> = {
   "gate.announce": "{title} aguarda sua decisão",
   "status.gate": "aguarda sua decisão",
   "status.permission": "aguarda sua aprovação",
-  "settings.gate": "Pausar agentes antes de editar um arquivo que outra sessão está alterando",
+  "settings.gate": "Pausar o agente até você decidir",
   "settings.gateHelp":
-    "O agente então espera até você decidir aqui. Vale para sessões de equipe iniciadas enquanto isto estiver ativado, não dentro do WSL. Isto coordena suas sessões e não é uma proteção: alterações pelo terminal não são retidas e, se o Hangar não puder responder, a alteração segue adiante.",
-  "settings.gateNeedsClaims": 'Requer "{setting}".',
+    "Para sessões de equipe iniciadas a partir de agora, não no WSL. Não é uma proteção: mudanças pelo terminal seguem, assim como quando o Hangar não responde.",
   "gate.noEndpoint":
     "Nesta sessão as alterações não são pausadas: o Hangar não conseguiu iniciar seu endpoint local de hooks.",
   "gate.launcher":
@@ -18937,6 +18917,7 @@ const pt: Record<MessageKey, string> = {
   "settings.title": "Configurações",
   "settings.sections": "Seções",
   "settings.general": "Geral",
+  "settings.security": "Segurança",
   "settings.language": "Idioma",
   "settings.languageHelp": "Vale imediatamente para toda a interface.",
   "settings.attention": "Avisos",
@@ -19085,6 +19066,9 @@ const pt: Record<MessageKey, string> = {
   "settings.groupHangar": "Hangar",
   "settings.groupPrograms": "Programas",
   "settings.advanced": "Avançado",
+  "settings.groupOnClose": "Ao fechar",
+  "settings.groupPerformance": "Desempenho e custos",
+  "settings.groupSubAgentDisplay": "Exibição",
 
   "color.cream": "Creme",
   "color.amber": "Âmbar",
@@ -19206,13 +19190,12 @@ const pt: Record<MessageKey, string> = {
   "notes.tooLarge": "A nota é grande demais para salvar (no máximo 1 MiB).",
   "notes.invalidTitle":
     "O título não pode ficar vazio, ter quebras de linha nem passar de 200 caracteres.",
-  "settings.sessions": "Sessões",
-  "settings.restoreSessions": "Lembrar sessões ao sair",
+  "settings.restoreSessions": "Restaurar sessões na próxima inicialização",
   "settings.restoreSessionsHelp":
-    "Na próxima vez que você iniciar, suas sessões voltam com o histórico. Os agentes continuam a última conversa quando possível. O histórico fica sem criptografia no seu perfil de usuário.",
+    "Com o histórico, e os agentes continuam a conversa quando possível. O histórico fica sem criptografia neste computador e pode conter senhas. Desativar apaga o histórico salvo.",
   "settings.scrollbackLines": "Histórico por sessão",
   "settings.lines": "{count} linhas",
-  "settings.clearScrollbacks": "Apagar histórico salvo",
+  "settings.clearScrollbacks": "Apagar histórico…",
   "settings.clearScrollbacksHelp": "As sessões ficam, só o histórico salvo é apagado.",
   "settings.clearScrollbacksDone": "Histórico salvo apagado.",
   "settings.clearConfirm": "Apagar o histórico salvo de todas as sessões? Não dá para desfazer.",
@@ -19253,7 +19236,6 @@ const pt: Record<MessageKey, string> = {
   "session.runtime": "em execução há {duration}",
   "notify.waiting": "{title} está esperando por você",
   "session.outlier": "Fora do padrão: ocupa um núcleo inteiro há algum tempo ou usa muita memória",
-  "settings.resources": "Recursos",
   "settings.showResources": "Mostrar CPU, memória e GPU",
   "settings.showResourcesHelp":
     "Uma linha acima de Nova sessão mostra a carga da máquina inteira. Ao deixar o mouse sobre uma sessão, a prévia mostra a parte dela, para o programa e tudo o que ele inicia. Uma marca aponta sessões fora do padrão: um núcleo inteiro por 30 segundos ou mais de 4 GB de memória.",
@@ -19319,9 +19301,9 @@ const pt: Record<MessageKey, string> = {
   "settings.notifyDesktop": "Mostrar uma notificação quando uma sessão estiver esperando",
   "settings.notifyDesktopHelp":
     "Só quando o Hangar está em segundo plano. Clique nela para abrir a sessão.",
-  "settings.keepInTray": "Continuar na área de notificação ao fechar a janela",
+  "settings.keepInTray": "Continuar na área de notificação",
   "settings.keepInTrayHelp":
-    "Suas sessões continuam rodando. Para sair, clique com o botão direito no ícone.",
+    "Fechar só esconde a janela. Para sair, clique com o botão direito no ícone.",
   "tray.open": "Abrir o Hangar",
   "tray.tooltipWaiting": "Hangar · esperando: {count}",
   "close.confirm": "{name} ainda está em execução. Parar e fechar?",
@@ -19350,9 +19332,9 @@ const pt: Record<MessageKey, string> = {
     "Um caminho com quebra de linha, caractere de controle ou caractere invisível foi deixado de fora.",
   "send.blocked":
     "Não enviado para {sessions}: o texto tem várias linhas ou caracteres ocultos, e o programa ali executaria cada linha na hora.",
-  "settings.warnMultilinePaste": "Avisar antes de colar várias linhas",
+  "settings.warnMultilinePaste": "Perguntar antes de uma colagem arriscada",
   "settings.warnMultilinePasteHelp":
-    "Ctrl+V e Shift+Insert perguntam antes que várias linhas vão para um programa que executa cada linha na hora, ou antes de colar texto com caracteres ocultos. Se parecer haver uma chave secreta, sempre perguntam.",
+    "Com várias linhas que rodariam na hora ou caracteres invisíveis. Com possíveis chaves, o Hangar sempre pergunta.",
   "paste.runsLines": "{name} executa cada linha assim que ela chega.",
   "paste.hidden":
     "O texto contém caracteres ocultos. Ele pode ser executado de forma diferente do que parece.",
@@ -19368,8 +19350,6 @@ const pt: Record<MessageKey, string> = {
   "secret.secretFile": "arquivo que costuma conter segredos",
   "secret.unknown": "tipo desconhecido",
   "paste.imageFailed": "Não foi possível colar a imagem da área de transferência.",
-  "settings.scrollbackSecrets":
-    "Ele contém tudo o que apareceu no terminal, inclusive senhas ou tokens. Apague o histórico se ele tiver algo assim.",
   "sidebar.projectFolder": "Pasta do projeto",
   "notes.deleted": "“{title}” excluída.",
   "notes.undo": "Desfazer",
@@ -20651,7 +20631,7 @@ const pt: Record<MessageKey, string> = {
   "gate.commandRuleName": "regra de comandos {id}",
   "settings.commandGuard": "Perguntar antes de comandos perigosos",
   "settings.commandGuardHelp":
-    "Nas sessões de equipe com {programs}, o Hangar pergunta antes que o agente execute um comando que corresponde a uma das suas regras, como um push forçado, um reset hard ou uma exclusão fora do projeto. É uma rede de segurança, não um sandbox: um comando escrito para esconder o que faz pode passar.",
+    "Pergunta nas sessões de equipe com {programs}, por exemplo antes de um push forçado ou de uma exclusão fora do projeto. Uma rede de segurança, não um sandbox.",
   "settings.commandGuardFile": "Regras: {file}",
   "settings.commandGuardDefaults":
     "Não foi possível ler o arquivo de regras, então valem as regras incluídas.",
@@ -20661,7 +20641,6 @@ const pt: Record<MessageKey, string> = {
   "settings.gateRules": "Respostas lembradas",
   "settings.gateRulesHelp":
     "Respostas que você deu com “Lembrar para este projeto”. Cada uma vale só no seu projeto; “Nunca” vence “Sempre”.",
-  "settings.gateRulesEmpty": "Ainda não há respostas lembradas.",
   "settings.gateRuleAllow": "Sempre",
   "settings.gateRuleDeny": "Nunca",
   "settings.gateRuleDelete": "Excluir a resposta para {path}",
@@ -21138,9 +21117,9 @@ const ru: Record<MessageKey, string> = {
   "handover.notes": "Заметки проекта:",
   "handover.instruction":
     "Сначала кратко опиши, что ты понимаешь из этого состояния, и посмотри изменённые файлы. Спроси, прежде чем делать крупные изменения.",
-  "settings.claims": "Находить пересечения между сессиями",
+  "settings.claims": "Предупреждать, когда две сессии меняют один файл",
   "settings.claimsHelp":
-    "Hangar следит, какие файлы меняют агенты, и предупреждает, когда две твои сессии правят один файл или одни строки. Всё остаётся на этом компьютере; содержимое файлов Hangar для этого не читает.",
+    "Всё остаётся на этом компьютере, а содержимое файлов Hangar для этого не читает.",
   "gate.label": "Нужно решение",
   "gate.title": "{session} хочет изменить {path}",
   "gate.also": "Его также меняет {others}",
@@ -21155,10 +21134,9 @@ const ru: Record<MessageKey, string> = {
   "gate.announce": "{title} ждёт твоего решения",
   "status.gate": "ждёт твоего решения",
   "status.permission": "ждёт твоего разрешения",
-  "settings.gate": "Останавливать агентов перед правкой файла, который меняет другая сессия",
+  "settings.gate": "Останавливать агента, пока ты не решишь",
   "settings.gateHelp":
-    "Тогда агент ждёт, пока ты решишь здесь. Действует для командных сессий, запущенных, пока это включено, но не внутри WSL. Это согласует твои сессии и не является защитой: изменения через терминал не задерживаются, а если Hangar не может ответить, изменение выполняется.",
-  "settings.gateNeedsClaims": "Нужна опция «{setting}».",
+    "Для командных сессий, запущенных с этого момента, не в WSL. Это не защита: изменения через терминал проходят, как и в случае, если Hangar не отвечает.",
   "gate.noEndpoint":
     "В этой сессии изменения не приостанавливаются: Hangar не смог запустить локальную точку для хуков.",
   "gate.launcher":
@@ -21232,6 +21210,7 @@ const ru: Record<MessageKey, string> = {
   "settings.title": "Настройки",
   "settings.sections": "Разделы",
   "settings.general": "Общие",
+  "settings.security": "Безопасность",
   "settings.language": "Язык",
   "settings.languageHelp": "Применяется сразу ко всему интерфейсу.",
   "settings.attention": "Оповещения",
@@ -21380,6 +21359,9 @@ const ru: Record<MessageKey, string> = {
   "settings.groupHangar": "Hangar",
   "settings.groupPrograms": "Программы",
   "settings.advanced": "Дополнительно",
+  "settings.groupOnClose": "При закрытии",
+  "settings.groupPerformance": "Производительность и расходы",
+  "settings.groupSubAgentDisplay": "Отображение",
 
   "color.cream": "Кремовый",
   "color.amber": "Янтарный",
@@ -21499,13 +21481,12 @@ const ru: Record<MessageKey, string> = {
   "notes.tooLarge": "Заметка слишком большая для сохранения (не больше 1 МиБ).",
   "notes.invalidTitle":
     "Название не может быть пустым, содержать переносы строк или быть длиннее 200 символов.",
-  "settings.sessions": "Сеансы",
-  "settings.restoreSessions": "Запоминать сеансы при выходе",
+  "settings.restoreSessions": "Восстанавливать сессии при следующем запуске",
   "settings.restoreSessionsHelp":
-    "При следующем запуске твои сеансы вернутся вместе с историей. Агенты продолжат последний разговор, где это возможно. История хранится без шифрования в твоём профиле пользователя.",
+    "С историей, а агенты продолжают разговор, где это возможно. История хранится на этом компьютере без шифрования и может содержать пароли. Выключение удаляет сохранённую историю.",
   "settings.scrollbackLines": "История на сеанс",
   "settings.lines": "Строк: {count}",
-  "settings.clearScrollbacks": "Удалить сохранённую историю",
+  "settings.clearScrollbacks": "Удалить историю…",
   "settings.clearScrollbacksHelp": "Сеансы остаются, удаляется только их сохранённая история.",
   "settings.clearScrollbacksDone": "Сохранённая история удалена.",
   "settings.clearConfirm": "Удалить сохранённую историю всех сеансов? Это нельзя отменить.",
@@ -21546,7 +21527,6 @@ const ru: Record<MessageKey, string> = {
   "session.runtime": "время работы: {duration}",
   "notify.waiting": "{title}: ждёт тебя",
   "session.outlier": "Выброс: уже какое-то время занимает целое ядро или тратит много памяти",
-  "settings.resources": "Ресурсы",
   "settings.showResources": "Показывать CPU, память и GPU",
   "settings.showResourcesHelp":
     "Строка над «Новым сеансом» показывает нагрузку всей машины. Если задержать мышь на сессии, превью покажет её долю, для программы и всего, что она запускает. Значок отмечает выбросы: целое ядро в течение 30 секунд или больше 4 ГБ памяти.",
@@ -21611,9 +21591,9 @@ const ru: Record<MessageKey, string> = {
   "notify.finished": "{title}: завершено",
   "settings.notifyDesktop": "Показывать уведомление, когда сессия ждёт",
   "settings.notifyDesktopHelp": "Только когда Hangar в фоне. Нажми на него, чтобы открыть сессию.",
-  "settings.keepInTray": "Продолжать работу в области уведомлений после закрытия окна",
+  "settings.keepInTray": "Работать в области уведомлений",
   "settings.keepInTrayHelp":
-    "Твои сессии продолжают работать. Чтобы выйти, щёлкни значок правой кнопкой.",
+    "Закрытие только прячет окно. Чтобы выйти, щёлкни значок правой кнопкой.",
   "tray.open": "Открыть Hangar",
   "tray.tooltipWaiting": "Hangar · ждут: {count}",
   "close.confirm": "{name} ещё работает. Остановить и закрыть?",
@@ -21640,9 +21620,9 @@ const ru: Record<MessageKey, string> = {
   "paste.dropSkipped": "Путь с переводом строки, управляющим или невидимым символом пропущен.",
   "send.blocked":
     "Не отправлено в {sessions}: в тексте несколько строк или невидимые символы, а программа там выполнила бы каждую строку сразу.",
-  "settings.warnMultilinePaste": "Предупреждать перед вставкой нескольких строк",
+  "settings.warnMultilinePaste": "Спрашивать перед рискованной вставкой",
   "settings.warnMultilinePasteHelp":
-    "Ctrl+V и Shift+Insert сначала спрашивают, прежде чем несколько строк попадут в программу, которая сразу выполняет каждую строку, или прежде чем вставить текст с невидимыми символами. Если похоже на секретный ключ, они спрашивают всегда.",
+    "При нескольких строках, которые сразу бы выполнились, или невидимых символах. Если текст похож на ключ, Hangar спрашивает всегда.",
   "paste.runsLines": "{name} выполняет каждую строку сразу, как только она приходит.",
   "paste.hidden": "В тексте есть скрытые символы. Он может выполниться не так, как выглядит.",
   "paste.secret": "Похоже, текст содержит секретный ключ ({kinds}).",
@@ -21657,8 +21637,6 @@ const ru: Record<MessageKey, string> = {
   "secret.secretFile": "файл, в котором обычно хранятся секреты",
   "secret.unknown": "тип неизвестен",
   "paste.imageFailed": "Не удалось вставить изображение из буфера обмена.",
-  "settings.scrollbackSecrets":
-    "В ней есть всё, что было видно в терминале, в том числе пароли или токены. Удали историю, если в ней есть что-то такое.",
   "sidebar.projectFolder": "Папка проекта",
   "notes.deleted": "«{title}» удалена.",
   "notes.undo": "Отменить",
@@ -22927,7 +22905,7 @@ const ru: Record<MessageKey, string> = {
   "gate.commandRuleName": "правило команд {id}",
   "settings.commandGuard": "Спрашивать перед опасными командами",
   "settings.commandGuardHelp":
-    "В командных сессиях с {programs} Hangar спрашивает, прежде чем агент выполнит команду, подходящую под одно из твоих правил, например force push, жёсткий reset или удаление за пределами проекта. Это страховка, а не песочница: команда, написанная так, чтобы скрыть, что она делает, может пройти.",
+    "Спрашивает в командных сессиях с {programs}, например перед force push или удалением за пределами проекта. Страховка, а не песочница.",
   "settings.commandGuardFile": "Правила: {file}",
   "settings.commandGuardDefaults":
     "Не удалось прочитать файл правил, поэтому действуют встроенные правила.",
@@ -22937,7 +22915,6 @@ const ru: Record<MessageKey, string> = {
   "settings.gateRules": "Запомненные ответы",
   "settings.gateRulesHelp":
     "Ответы, данные через «Запомнить для этого проекта». Каждый действует только в своём проекте; «Никогда» важнее «Всегда».",
-  "settings.gateRulesEmpty": "Запомненных ответов пока нет.",
   "settings.gateRuleAllow": "Всегда",
   "settings.gateRuleDeny": "Никогда",
   "settings.gateRuleDelete": "Удалить ответ для {path}",
@@ -23413,9 +23390,9 @@ const tr: Record<MessageKey, string> = {
   "handover.notes": "Proje notları:",
   "handover.instruction":
     "Önce bu durumdan ne anladığını özetle ve değişen dosyalara bak. Büyük değişiklikler yapmadan önce sor.",
-  "settings.claims": "Oturumlar arasındaki çakışmaları algıla",
+  "settings.claims": "İki oturum aynı dosyayı değiştirince uyar",
   "settings.claimsHelp":
-    "Hangar ajanların hangi dosyaları değiştirdiğine bakar ve iki oturumun aynı dosyayı ya da aynı satırları düzenlediğinde seni uyarır. Her şey bu bilgisayarda kalır; Hangar bunun için dosya içeriği okumaz.",
+    "Her şey bu bilgisayarda kalır, Hangar bunun için dosya içeriklerini okumaz.",
   "gate.label": "Karar gerekiyor",
   "gate.title": "{session}, {path} dosyasını değiştirmek istiyor",
   "gate.also": "{others} da bu dosyayı değiştiriyor",
@@ -23430,10 +23407,9 @@ const tr: Record<MessageKey, string> = {
   "gate.announce": "{title} kararını bekliyor",
   "status.gate": "kararını bekliyor",
   "status.permission": "onayını bekliyor",
-  "settings.gate": "Başka bir oturumun değiştirdiği dosyayı düzenlemeden önce ajanları duraklat",
+  "settings.gate": "Sen karar verene kadar ajanı durdur",
   "settings.gateHelp":
-    "Agent o zaman sen burada karar verene kadar bekler. Bu açıkken başlattığın ekip oturumları için geçerlidir, WSL içinde değil. Bu, oturumlarını eşgüdümler ve bir koruma değildir: terminal üzerinden yapılan değişiklikler durdurulmaz ve Hangar yanıt veremezse değişiklik yapılır.",
-  "settings.gateNeedsClaims": '"{setting}" gerekir.',
+    "Bundan sonra başlatılan ekip oturumları için, WSL'de değil. Koruma değildir: terminal üzerinden yapılan değişiklikler ve Hangar yanıt vermediğinde yapılanlar devam eder.",
   "gate.noEndpoint":
     "Bu oturumda değişiklikler duraklatılmıyor: Hangar yerel hook uç noktasını başlatamadı.",
   "gate.launcher":
@@ -23507,6 +23483,7 @@ const tr: Record<MessageKey, string> = {
   "settings.title": "Ayarlar",
   "settings.sections": "Bölümler",
   "settings.general": "Genel",
+  "settings.security": "Güvenlik",
   "settings.language": "Dil",
   "settings.languageHelp": "Tüm arayüze hemen uygulanır.",
   "settings.attention": "Uyarılar",
@@ -23655,6 +23632,9 @@ const tr: Record<MessageKey, string> = {
   "settings.groupHangar": "Hangar",
   "settings.groupPrograms": "Programlar",
   "settings.advanced": "Gelişmiş",
+  "settings.groupOnClose": "Kapatırken",
+  "settings.groupPerformance": "Performans ve maliyet",
+  "settings.groupSubAgentDisplay": "Görünüm",
 
   "color.cream": "Krem",
   "color.amber": "Kehribar",
@@ -23773,13 +23753,12 @@ const tr: Record<MessageKey, string> = {
   "notes.saveFailed": "Not kaydedilmedi: {error}",
   "notes.tooLarge": "Not kaydetmek için çok büyük (en fazla 1 MiB).",
   "notes.invalidTitle": "Başlık boş olamaz, satır sonu içeremez ve en fazla 200 karakter olabilir.",
-  "settings.sessions": "Oturumlar",
-  "settings.restoreSessions": "Çıkarken oturumları hatırla",
+  "settings.restoreSessions": "Oturumları bir sonraki açılışta geri yükle",
   "settings.restoreSessionsHelp":
-    "Bir sonraki açılışta oturumların geçmişleriyle geri gelir. Ajanlar mümkün olduğunda son konuşmalarına devam eder. Geçmiş, kullanıcı profilinde şifrelenmeden saklanır.",
+    "Geçmişleriyle birlikte; ajanlar mümkün olduğunda sohbetlerine devam eder. Geçmiş bu bilgisayarda şifrelenmeden durur ve parola içerebilir. Kapatmak kayıtlı geçmişi siler.",
   "settings.scrollbackLines": "Oturum başına geçmiş",
   "settings.lines": "{count} satır",
-  "settings.clearScrollbacks": "Kayıtlı geçmişi sil",
+  "settings.clearScrollbacks": "Geçmişi sil…",
   "settings.clearScrollbacksHelp": "Oturumlar kalır, yalnızca kayıtlı geçmişleri silinir.",
   "settings.clearScrollbacksDone": "Kayıtlı geçmiş silindi.",
   "settings.clearConfirm": "Tüm oturumların kayıtlı geçmişi silinsin mi? Bu geri alınamaz.",
@@ -23821,7 +23800,6 @@ const tr: Record<MessageKey, string> = {
   "notify.waiting": "{title} seni bekliyor",
   "session.outlier":
     "Aykırı değer: bir süredir tam bir çekirdeği meşgul ediyor veya çok bellek kullanıyor",
-  "settings.resources": "Kaynaklar",
   "settings.showResources": "CPU, bellek ve GPU göster",
   "settings.showResourcesHelp":
     "Yeni oturum’un üstündeki satır tüm makinenin yükünü gösterir. Fareyi bir oturumun üzerinde tutunca önizleme, program ve başlattığı her şey için onun payını gösterir. Bir işaret aykırı değerleri gösterir: 30 saniye boyunca tam bir çekirdek veya 4 GB üzeri bellek.",
@@ -23886,8 +23864,8 @@ const tr: Record<MessageKey, string> = {
   "notify.finished": "{title} sona erdi",
   "settings.notifyDesktop": "Bir oturum beklerken bildirim göster",
   "settings.notifyDesktopHelp": "Yalnızca Hangar arka plandayken. Oturumu açmak için tıkla.",
-  "settings.keepInTray": "Pencereyi kapattığında bildirim alanında çalışmaya devam et",
-  "settings.keepInTrayHelp": "Oturumların çalışmaya devam eder. Çıkmak için simgeye sağ tıkla.",
+  "settings.keepInTray": "Bildirim alanında çalışmaya devam et",
+  "settings.keepInTrayHelp": "Kapatmak yalnızca pencereyi gizler. Çıkmak için simgeye sağ tıkla.",
   "tray.open": "Hangar'ı aç",
   "tray.tooltipWaiting": "Hangar · bekleyen: {count}",
   "close.confirm": "{name} hâlâ çalışıyor. Durdurup kapatalım mı?",
@@ -23915,9 +23893,9 @@ const tr: Record<MessageKey, string> = {
     "Satır sonu, denetim karakteri veya görünmez karakter içeren bir yol atlandı.",
   "send.blocked":
     "{sessions} oturumuna gönderilmedi: metinde birden çok satır veya görünmez karakter var ve oradaki program her satırı hemen çalıştırırdı.",
-  "settings.warnMultilinePaste": "Birden çok satır yapıştırmadan önce uyar",
+  "settings.warnMultilinePaste": "Riskli yapıştırmadan önce sor",
   "settings.warnMultilinePasteHelp":
-    "Ctrl+V ve Shift+Insert, birden çok satır her satırı hemen çalıştıran bir programa gitmeden ya da görünmez karakterli metin yapıştırılmadan önce sorar. Gizli bir anahtar varmış gibi görünüyorsa her zaman sorarlar.",
+    "Hemen çalışacak birden çok satırda veya görünmez karakterlerde. Anahtar olabilecek metinde Hangar her zaman sorar.",
   "paste.runsLines": "{name} her satırı gelir gelmez çalıştırır.",
   "paste.hidden": "Metin gizli karakterler içeriyor. Göründüğünden farklı çalışabilir.",
   "paste.secret": "Metin büyük olasılıkla gizli bir anahtar içeriyor ({kinds}).",
@@ -23932,8 +23910,6 @@ const tr: Record<MessageKey, string> = {
   "secret.secretFile": "genellikle gizli bilgi içeren dosya",
   "secret.unknown": "türü bilinmiyor",
   "paste.imageFailed": "Panodaki görüntü yapıştırılamadı.",
-  "settings.scrollbackSecrets":
-    "Terminalde görünen her şeyi, parolalar ve token’lar dahil, içerir. Böyle bir şey varsa geçmişi sil.",
   "sidebar.projectFolder": "Proje klasörü",
   "notes.deleted": "“{title}” silindi.",
   "notes.undo": "Geri al",
@@ -25196,7 +25172,7 @@ const tr: Record<MessageKey, string> = {
   "gate.commandRuleName": "komut kuralı {id}",
   "settings.commandGuard": "Tehlikeli komutlardan önce sor",
   "settings.commandGuardHelp":
-    "{programs} ile ekip oturumlarında Hangar, ajan kurallarından birine uyan bir komutu çalıştırmadan önce sorar; örneğin zorla push, sert reset veya proje dışında silme. Bu bir güvenlik ağıdır, sanal alan değildir: ne yaptığını gizleyecek şekilde yazılmış bir komut geçebilir.",
+    "{programs} ile ekip oturumlarında sorar; örneğin zorla push veya proje dışında silme öncesinde. Bir güvenlik ağı, sanal alan değil.",
   "settings.commandGuardFile": "Kurallar: {file}",
   "settings.commandGuardDefaults": "Kural dosyası okunamadı, bu yüzden yerleşik kurallar geçerli.",
   "settings.commandGuardProblems": "Kural dosyasındaki sorunlar",
@@ -25205,7 +25181,6 @@ const tr: Record<MessageKey, string> = {
   "settings.gateRules": "Hatırlanan yanıtlar",
   "settings.gateRulesHelp":
     "“Bu proje için hatırla” ile verdiğin yanıtlar. Her biri yalnızca kendi projesinde geçerli; “Asla”, “Her zaman”dan önce gelir.",
-  "settings.gateRulesEmpty": "Henüz hatırlanan yanıt yok.",
   "settings.gateRuleAllow": "Her zaman",
   "settings.gateRuleDeny": "Asla",
   "settings.gateRuleDelete": "{path} için yanıtı sil",
@@ -25665,9 +25640,8 @@ const zh: Record<MessageKey, string> = {
   "handover.notes": "项目笔记：",
   "handover.instruction":
     "请先总结你对当前状态的理解，并查看已更改的文件。进行较大改动前请先确认。",
-  "settings.claims": "检测会话之间的重叠",
-  "settings.claimsHelp":
-    "Hangar 会查看代理修改了哪些文件，并在你的两个会话编辑同一文件或相同的行时提醒你。一切都留在这台电脑上，Hangar 不会为此读取文件内容。",
+  "settings.claims": "两个会话修改同一文件时发出警告",
+  "settings.claimsHelp": "所有数据都留在这台电脑上，Hangar 不会为此读取文件内容。",
   "gate.label": "需要你决定",
   "gate.title": "{session} 想要修改 {path}",
   "gate.also": "{others} 也在修改此文件",
@@ -25682,10 +25656,9 @@ const zh: Record<MessageKey, string> = {
   "gate.announce": "{title} 正在等待你的决定",
   "status.gate": "等待你的决定",
   "status.permission": "等待你的批准",
-  "settings.gate": "在代理编辑另一个会话正在修改的文件前暂停",
+  "settings.gate": "暂停代理，直到你做出决定",
   "settings.gateHelp":
-    "代理会等你在这里做出决定。适用于开启期间启动的团队会话，WSL 中的除外。这只是协调你的会话，并非保护：通过终端进行的修改不会被拦下，Hangar 无法回应时修改会照常进行。",
-  "settings.gateNeedsClaims": "需要开启“{setting}”。",
+    "仅限此后启动的团队会话，不适用于 WSL。这不是保护：通过终端的修改会照常进行，Hangar 没有响应时也是如此。",
   "gate.noEndpoint": "此会话中的修改不会暂停：Hangar 无法启动本地钩子端点。",
   "gate.launcher": "此会话中的修改不会暂停：Hangar 数据文件夹的路径包含 cmd.exe 会解释的字符。",
   "gate.profileSettings":
@@ -25754,6 +25727,7 @@ const zh: Record<MessageKey, string> = {
   "settings.title": "设置",
   "settings.sections": "分区",
   "settings.general": "常规",
+  "settings.security": "安全",
   "settings.language": "语言",
   "settings.languageHelp": "立即应用于整个界面。",
   "settings.attention": "提醒",
@@ -25895,6 +25869,9 @@ const zh: Record<MessageKey, string> = {
   "settings.groupHangar": "Hangar",
   "settings.groupPrograms": "程序",
   "settings.advanced": "高级",
+  "settings.groupOnClose": "关闭时",
+  "settings.groupPerformance": "性能与费用",
+  "settings.groupSubAgentDisplay": "显示",
 
   "color.cream": "奶油色",
   "color.amber": "琥珀色",
@@ -26010,13 +25987,12 @@ const zh: Record<MessageKey, string> = {
   "notes.saveFailed": "笔记未保存：{error}",
   "notes.tooLarge": "笔记太大，无法保存（最多 1 MiB）。",
   "notes.invalidTitle": "标题不能为空，不能包含换行，且不能超过 200 个字符。",
-  "settings.sessions": "会话",
-  "settings.restoreSessions": "退出时记住会话",
+  "settings.restoreSessions": "下次启动时恢复会话",
   "settings.restoreSessionsHelp":
-    "下次启动时，会话会连同历史记录一起恢复。代理会尽可能继续上次的对话。历史记录未加密，保存在用户配置文件中。",
+    "包括历史记录，代理会在可行时继续之前的对话。历史记录以未加密形式保存在这台电脑上，可能包含密码。关闭后会删除已保存的历史记录。",
   "settings.scrollbackLines": "每个会话的历史记录",
   "settings.lines": "{count} 行",
-  "settings.clearScrollbacks": "删除已保存的历史记录",
+  "settings.clearScrollbacks": "删除历史记录…",
   "settings.clearScrollbacksHelp": "会话会保留，只删除已保存的历史记录。",
   "settings.clearScrollbacksDone": "已删除保存的历史记录。",
   "settings.clearConfirm": "删除所有会话已保存的历史记录？此操作无法撤销。",
@@ -26057,7 +26033,6 @@ const zh: Record<MessageKey, string> = {
   "session.runtime": "已运行 {duration}",
   "notify.waiting": "{title} 正在等你",
   "session.outlier": "异常: 一段时间以来占满一个完整的 CPU 核心，或占用大量内存",
-  "settings.resources": "资源",
   "settings.showResources": "显示 CPU、内存和 GPU",
   "settings.showResourcesHelp":
     "“新建会话”上方的一行显示整台机器的负载。鼠标停在会话上时，预览会显示它的占用，包括程序及其启动的所有进程。异常会带有标记: 30 秒内占满一个完整核心，或内存超过 4 GB。",
@@ -26120,8 +26095,8 @@ const zh: Record<MessageKey, string> = {
   "notify.finished": "{title} 已结束",
   "settings.notifyDesktop": "会话等待时显示通知",
   "settings.notifyDesktopHelp": "仅当 Hangar 在后台时。点击通知即可打开该会话。",
-  "settings.keepInTray": "关闭窗口后在通知区域继续运行",
-  "settings.keepInTrayHelp": "会话会继续运行。要退出，请右键单击该图标。",
+  "settings.keepInTray": "在通知区域继续运行",
+  "settings.keepInTrayHelp": "关闭只会隐藏窗口。要退出，请右键单击该图标。",
   "tray.open": "打开 Hangar",
   "tray.tooltipWaiting": "Hangar · 等待中：{count}",
   "close.confirm": "{name} 仍在运行。要结束并关闭吗？",
@@ -26145,9 +26120,9 @@ const zh: Record<MessageKey, string> = {
   "link.open": "打开",
   "paste.dropSkipped": "已跳过一个含有换行符、控制字符或不可见字符的路径。",
   "send.blocked": "未发送到 {sessions}:文本有多行或隐藏字符,那里的程序会立即执行每一行。",
-  "settings.warnMultilinePaste": "粘贴多行前发出警告",
+  "settings.warnMultilinePaste": "风险粘贴前询问",
   "settings.warnMultilinePasteHelp":
-    "在多行文本进入会立即执行每一行的程序之前,或在粘贴含隐藏字符的文本之前,Ctrl+V 和 Shift+Insert 会先询问。看起来含有密钥时始终会询问。",
+    "适用于会立即运行的多行内容或不可见字符。遇到疑似密钥时，Hangar 总会询问。",
   "paste.runsLines": "{name} 会在每一行到达时立即执行。",
   "paste.hidden": "文本包含隐藏字符，实际执行的内容可能与看到的不同。",
   "paste.secret": "文本可能包含密钥（{kinds}）。",
@@ -26162,8 +26137,6 @@ const zh: Record<MessageKey, string> = {
   "secret.secretFile": "通常含有机密的文件",
   "secret.unknown": "类型未知",
   "paste.imageFailed": "无法粘贴剪贴板中的图片。",
-  "settings.scrollbackSecrets":
-    "其中包含终端中显示过的所有内容，也包括密码或令牌。如果有这类内容，请清除历史记录。",
   "sidebar.projectFolder": "项目文件夹",
   "notes.deleted": "已删除“{title}”。",
   "notes.undo": "撤销",
@@ -27349,7 +27322,7 @@ const zh: Record<MessageKey, string> = {
   "gate.commandRuleName": "命令规则 {id}",
   "settings.commandGuard": "运行危险命令前询问",
   "settings.commandGuardHelp":
-    "在 {programs} 的团队会话中，代理运行与你的某条规则匹配的命令（例如强制推送、硬重置或删除项目之外的内容）之前，Hangar 会先询问。这是安全网，不是沙箱：刻意隐藏其行为的命令可能会漏过。",
+    "在 {programs} 的团队会话中询问，例如强制推送或删除项目之外的内容之前。这是安全网，不是沙箱。",
   "settings.commandGuardFile": "规则：{file}",
   "settings.commandGuardDefaults": "无法读取规则文件，因此使用内置规则。",
   "settings.commandGuardProblems": "规则文件中的问题",
@@ -27358,7 +27331,6 @@ const zh: Record<MessageKey, string> = {
   "settings.gateRules": "已记住的回答",
   "settings.gateRulesHelp":
     "通过“为此项目记住”给出的回答。每个回答只在其项目中有效；“拒绝”优先于“允许”。",
-  "settings.gateRulesEmpty": "还没有已记住的回答。",
   "settings.gateRuleAllow": "始终允许",
   "settings.gateRuleDeny": "始终拒绝",
   "settings.gateRuleDelete": "删除 {path} 的回答",

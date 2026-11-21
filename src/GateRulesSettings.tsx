@@ -23,14 +23,12 @@ function timeOf(at: number, language: string): string {
   );
 }
 
-/**
- * The gate's remembered answers (gate_rules.rs) under the gate setting: each rule with its project,
- * a delete button, and what the rules answered lately. Shows nothing while there is neither a rule
- * nor an automatic answer, so the setting stays compact until the card's "Remember for this
- * project" was used once.
- */
-export function GateRulesSettings(props: { language: string }) {
-  const t = useT();
+/** The gate's remembered answers (gate_rules.rs) and what they answered lately, kept current. */
+export function useGateRules(): {
+  rules: GateRule[];
+  log: RuleAnswer[];
+  remove: (rule: GateRule) => void;
+} {
   const [rules, setRules] = useState<GateRule[]>([]);
   const [log, setLog] = useState<RuleAnswer[]>([]);
 
@@ -71,8 +69,6 @@ export function GateRulesSettings(props: { language: string }) {
     };
   }, [refresh]);
 
-  if (rules.length === 0 && log.length === 0) return null;
-
   const remove = (rule: GateRule) => {
     setRules((current) => current.filter((entry) => entry.id !== rule.id));
     api
@@ -81,61 +77,72 @@ export function GateRulesSettings(props: { language: string }) {
       .finally(refresh);
   };
 
+  return { rules, log, remove };
+}
+
+/** Each remembered answer with its project and a delete button. */
+export function GateRuleList({
+  rules,
+  label,
+  onRemove,
+}: {
+  rules: readonly GateRule[];
+  label: string;
+  onRemove: (rule: GateRule) => void;
+}) {
+  const t = useT();
   return (
-    <div className="field">
-      <span id="gate-rules-title">{t("settings.gateRules")}</span>
-      <p className="muted settings-help">
-        {rules.length === 0 ? t("settings.gateRulesEmpty") : t("settings.gateRulesHelp")}
-      </p>
-      {rules.length > 0 && (
-        <ul className="gate-rule-list" aria-labelledby="gate-rules-title">
-          {rules.map((rule) => {
-            const path = rulePathLabel(rule.path, rule.scope, t);
-            return (
-              <li key={rule.id} className="gate-rule-item">
-                <span className={`gate-rule-effect ${rule.effect}`}>
-                  {t(rule.effect === "allow" ? "settings.gateRuleAllow" : "settings.gateRuleDeny")}
-                </span>
-                <span className="gate-rule-path selectable" title={path}>
-                  {path}
-                </span>
-                <span className="gate-rule-project">{revealInvisible(rule.projectName)}</span>
-                <button
-                  type="button"
-                  className="icon-button"
-                  aria-label={t("settings.gateRuleDelete", { path })}
-                  title={t("settings.gateRuleDelete", { path })}
-                  onClick={() => {
-                    remove(rule);
-                  }}
-                >
-                  <TrashIcon />
-                </button>
-              </li>
-            );
-          })}
-        </ul>
-      )}
-      {log.length > 0 && (
-        <>
-          <span id="gate-log-title" className="muted">
-            {t("settings.gateLog")}
-          </span>
-          <ul className="gate-log" aria-labelledby="gate-log-title">
-            {log.slice(0, SHOWN_LOG).map((entry) => {
-              const text = `${entry.session}: ${ruleAnswerText(entry, t)}`;
-              return (
-                <li key={entry.id} className="gate-log-item">
-                  <span className="gate-log-time">{timeOf(entry.at, props.language)}</span>
-                  <span className="gate-log-text selectable" title={text}>
-                    {text}
-                  </span>
-                </li>
-              );
-            })}
-          </ul>
-        </>
-      )}
+    <ul className="gate-rule-list" aria-label={label}>
+      {rules.map((rule) => {
+        const path = rulePathLabel(rule.path, rule.scope, t);
+        return (
+          <li key={rule.id} className="gate-rule-item">
+            <span className={`gate-rule-effect ${rule.effect}`}>
+              {t(rule.effect === "allow" ? "settings.gateRuleAllow" : "settings.gateRuleDeny")}
+            </span>
+            <span className="gate-rule-path selectable" title={path}>
+              {path}
+            </span>
+            <span className="gate-rule-project">{revealInvisible(rule.projectName)}</span>
+            <button
+              type="button"
+              className="icon-button"
+              aria-label={t("settings.gateRuleDelete", { path })}
+              title={t("settings.gateRuleDelete", { path })}
+              onClick={() => {
+                onRemove(rule);
+              }}
+            >
+              <TrashIcon />
+            </button>
+          </li>
+        );
+      })}
+    </ul>
+  );
+}
+
+/** What the remembered answers answered lately, newest first. */
+export function GateLog({ log, language }: { log: readonly RuleAnswer[]; language: string }) {
+  const t = useT();
+  return (
+    <div className="gate-log-block">
+      <span id="gate-log-title" className="muted">
+        {t("settings.gateLog")}
+      </span>
+      <ul className="gate-log" aria-labelledby="gate-log-title">
+        {log.slice(0, SHOWN_LOG).map((entry) => {
+          const text = `${entry.session}: ${ruleAnswerText(entry, t)}`;
+          return (
+            <li key={entry.id} className="gate-log-item">
+              <span className="gate-log-time">{timeOf(entry.at, language)}</span>
+              <span className="gate-log-text selectable" title={text}>
+                {text}
+              </span>
+            </li>
+          );
+        })}
+      </ul>
     </div>
   );
 }

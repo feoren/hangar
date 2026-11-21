@@ -5,9 +5,6 @@ import { AttentionSettings } from "./AttentionSettings";
 import { createTranslator, I18nContext } from "./i18n";
 import { defaultSettings } from "./settings";
 
-// A machine on battery, so the power saving switch and its GPU wording show as well.
-vi.mock("./usePower", () => ({ usePowerState: () => "battery" }));
-
 const WINDOWS = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Edg/140";
 const LINUX = "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/605.1.15 (KHTML, like Gecko)";
 const MAC = "Mozilla/5.0 (Macintosh; Intel Mac OS X 14_0) AppleWebKit/605.1.15";
@@ -31,57 +28,17 @@ describe("AttentionSettings per platform", () => {
     ["Windows", WINDOWS],
     ["Linux", LINUX],
     ["macOS", MAC],
-  ])("offers desktop notifications and the GPU on %s", (_name, userAgent) => {
-    const t = createTranslator("en");
+  ])("offers desktop notifications on %s", (_name, userAgent) => {
     const html = render(userAgent);
     expect(html).toContain('id="notify-desktop-help"');
-    expect(html).toContain(t("settings.showResources"));
-    expect(html).toContain(t("settings.powerSavingHelp"));
-  });
-});
-
-describe("AttentionSettings for the budget and the morning summary", () => {
-  afterEach(() => {
-    vi.unstubAllGlobals();
   });
 
-  function renderWith(changes: Partial<ReturnType<typeof defaultSettings>>): string {
-    vi.stubGlobal("navigator", { userAgent: WINDOWS });
+  it("leaves resources, budget and the morning summary to General", () => {
     const t = createTranslator("en");
-    return renderToStaticMarkup(
-      <I18nContext.Provider value={t}>
-        <AttentionSettings
-          settings={{ ...defaultSettings("en"), ...changes }}
-          theme="dark"
-          onChange={() => undefined}
-        />
-      </I18nContext.Provider>,
-    );
-  }
-
-  it("offers the early warning only with a budget, at 80 % unless chosen otherwise", () => {
-    expect(renderWith({ dailyBudget: null })).not.toContain('id="budget-early"');
-    const html = renderWith({ dailyBudget: 10 });
-    expect(html).toContain('id="budget-early"');
-    expect(html).toMatch(/<option value="80" selected="">/);
-    expect(renderWith({ dailyBudget: 10, budgetEarlyPercent: null })).toMatch(
-      /<option value="off" selected="">/,
-    );
-  });
-
-  it("lists a stored share that is not one of the choices, so it never reads as off", () => {
-    const html = renderWith({ dailyBudget: 10, budgetEarlyPercent: 65 });
-    expect(html).toMatch(/<option value="65" selected="">/);
-  });
-
-  it("offers the morning summary in a group of its own, on by default", () => {
-    const t = createTranslator("en");
-    const html = renderWith({});
-    expect(html).toContain(`<legend class="settings-subhead">${t("review.title")}</legend>`);
-    expect(html).toMatch(/aria-describedby="morning-review-help" checked=""/);
-    expect(renderWith({ morningReview: false })).not.toMatch(
-      /aria-describedby="morning-review-help" checked=""/,
-    );
+    const html = render(WINDOWS);
+    expect(html).not.toContain(t("settings.showResources"));
+    expect(html).not.toContain('id="daily-budget"');
+    expect(html).not.toContain(t("morning.setting"));
   });
 });
 

@@ -4,6 +4,7 @@ import type { MessageKey } from "./i18n";
 
 export const SETTINGS_SECTIONS = [
   "general",
+  "security",
   "appearance",
   "attention",
   "programs",
@@ -19,6 +20,7 @@ export type SettingsSection = (typeof SETTINGS_SECTIONS)[number];
 /** Name of each section, for the tab list and quick access. */
 export const SECTION_NAMES: Record<SettingsSection, MessageKey> = {
   general: "settings.general",
+  security: "settings.security",
   appearance: "settings.appearance",
   attention: "settings.attention",
   programs: "settings.programs",

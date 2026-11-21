@@ -23,8 +23,9 @@ describe("nextTabIndex", () => {
 });
 
 describe("SETTINGS_SECTIONS", () => {
-  it("starts with General and contains every section once", () => {
+  it("starts with General, then Security, and contains every section once", () => {
     expect(SETTINGS_SECTIONS[0]).toBe("general");
+    expect(SETTINGS_SECTIONS[1]).toBe("security");
     expect(new Set(SETTINGS_SECTIONS).size).toBe(SETTINGS_SECTIONS.length);
   });
 });

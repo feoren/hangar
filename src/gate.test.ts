@@ -504,6 +504,7 @@ describe("gateHint", () => {
   it("promises no protection in the setting's help", () => {
     const help = t("settings.gateHelp");
     expect(help).toContain("no protection");
+    expect(help).toContain("terminal");
     expect(help).toContain("WSL");
   });
 });

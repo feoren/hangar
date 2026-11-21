@@ -20,7 +20,7 @@ export interface ClipboardPasteTarget {
   imagePasteInFlight: boolean;
   /** Whether the program in the session has turned on bracketed paste right now. */
   bracketedPaste: () => boolean;
-  /** The setting "Warn before pasting several lines"; off pastes everything at once. */
+  /** The setting "Ask before a risky paste"; off, only a suspected key still asks. */
   warnsBeforePaste: () => boolean;
   /** Asks the user; resolves to whether the text goes in after all. */
   confirmPaste: (warning: PasteWarning) => Promise<boolean>;

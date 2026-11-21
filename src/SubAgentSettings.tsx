@@ -12,6 +12,8 @@ import { api, errorText } from "./api";
 import { useT, type MessageKey } from "./i18n";
 import { ChevronIcon, CloseIcon, GridIcon, RowsIcon } from "./icons";
 import { folderName } from "./folders";
+import type { Settings as AppSettings } from "./settings";
+import { SettingsGroup, SwitchRow } from "./SettingsParts";
 import {
   BUILTIN_FIGURES,
   DEF_TEMPLATE,
@@ -118,7 +120,13 @@ function readFile(file: File, as: "text" | "base64"): Promise<string> {
 
 const PROGRAM_NAMES: Record<DefProgram, string> = { claude: "Claude Code", codex: "Codex CLI" };
 
-export function SubAgentSettings() {
+export function SubAgentSettings({
+  settings: appSettings,
+  onChange,
+}: {
+  settings: AppSettings;
+  onChange: (patch: Partial<AppSettings>) => void;
+}) {
   const t = useT();
   const { library, error } = useSubAgentLibrary();
   const [creating, setCreating] = useState(false);
@@ -165,6 +173,24 @@ export function SubAgentSettings() {
         {t("subAgentLib.intro")}
       </p>
       {error !== null && <p className="muted error-text">{error}</p>}
+      <SettingsGroup title={t("settings.groupSubAgentDisplay")}>
+        <SwitchRow
+          label={t("settings.crewColumn")}
+          help={t("settings.crewColumnHelp")}
+          checked={appSettings.crewColumn}
+          onChange={(crewColumn) => {
+            onChange({ crewColumn });
+          }}
+        />
+        <SwitchRow
+          label={t("settings.subAgentExcerpts")}
+          help={t("settings.subAgentExcerptsHelp")}
+          checked={appSettings.subAgentExcerpts}
+          onChange={(subAgentExcerpts) => {
+            onChange({ subAgentExcerpts });
+          }}
+        />
+      </SettingsGroup>
       <ModelDefaults
         library={library}
         settings={settings}

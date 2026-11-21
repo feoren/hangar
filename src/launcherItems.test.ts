@@ -143,6 +143,7 @@ describe("quick access beyond sessions", () => {
     const settings = items.filter((item) => item.section === "settings");
     expect(settings.map((item) => item.key)).toEqual([
       "settings:general",
+      "settings:security",
       "settings:appearance",
       "settings:attention",
       "settings:programs",
@@ -153,7 +154,7 @@ describe("quick access beyond sessions", () => {
       "settings:updates",
     ]);
     settings[1]?.run();
-    expect(openSettings).toHaveBeenCalledWith("appearance");
+    expect(openSettings).toHaveBeenCalledWith("security");
   });
 
   it("turns working menu entries into commands, once each", () => {

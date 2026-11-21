@@ -5822,8 +5822,40 @@ label.setting-line:hover {
   padding-right: 0;
 }
 
+/* A second level already sits inside the first one's right edge: keep every control in one column. */
+.setting-children .setting-children {
+  margin-right: 0;
+}
+
+/* A list in a row never pushes past the card in a narrow panel. */
+.setting-control {
+  max-width: 100%;
+}
+
+.setting-control > .select {
+  width: 220px;
+  min-width: 0;
+  max-width: 100%;
+}
+
 .setting-children > .setting + .setting {
   border-top: none;
+}
+
+/* A slider or a question inside a setting's dependent part spans the line. */
+.setting-line > .range-field {
+  flex: 1 1 240px;
+  margin-top: 0;
+}
+
+.setting > .confirm-box {
+  margin: var(--space-1) var(--space-2);
+}
+
+/* A list in a card (remembered answers) gets the card's inner spacing. */
+.setting-card > .gate-rule-list {
+  margin: 0;
+  padding: var(--space-1) var(--space-2);
 }
 
 .setting-advanced {
@@ -10438,9 +10470,20 @@ body.session-dragging .session-actions {
   }
 }
 
-/* The command guard's rules file and what in it could not be read, under its setting. */
-#command-guard-help p {
+/* The command guard's rules file and what in it could not be read, under "Advanced". */
+.dialog .command-guard-details p {
   margin: 0;
+}
+
+.command-guard-details {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  color: var(--muted);
+}
+
+.gate-log-block {
+  margin-top: var(--space-2);
 }
 
 .command-guard-file {
@@ -12992,8 +13035,10 @@ body.session-dragging .session-actions {
   font-size: 12px;
 }
 
-.budget-field .text-input {
+.budget-input,
+.setting-control > .budget-select {
   width: 10em;
+  min-width: 0;
 }
 
 /* --- Cost on the row, group cost, morning summary (costs.ts, morningReview.ts) ---
@@ -13010,10 +13055,6 @@ body.session-dragging .session-actions {
   margin: 8px 0 0;
   font-size: 12.5px;
   font-variant-numeric: tabular-nums;
-}
-
-.budget-early-field .select {
-  width: 10em;
 }
 
 .dialog.morning-review {
@@ -13761,6 +13802,10 @@ button.sub-agent-card:focus-visible {
 }
 
 /* Models (SubAgentModelField.tsx): small fields in one line per program, wrapping when narrow. */
+.sub-agent-settings > .setting-group {
+  margin-bottom: 14px;
+}
+
 .sub-agent-defaults {
   margin: 0 0 14px;
   padding: 10px 12px;

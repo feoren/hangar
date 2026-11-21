@@ -2,12 +2,10 @@ import { useEffect, useRef, useState, useSyncExternalStore, type ReactNode } fro
 
 import { AccountSettings } from "./AccountSettings";
 import { errorText, type Profile } from "./api";
-
-import { CommandGuardSettings } from "./CommandGuardSettings";
 import { Dialog } from "./Dialog";
 import { DialogResizeHandles, useDialogSize, type DialogSizeBounds } from "./DialogResize";
-import { GateRulesSettings } from "./GateRulesSettings";
-import { isLanguage, LANGUAGE_NAMES, LANGUAGES, useT, type MessageKey } from "./i18n";
+import { GeneralSettings } from "./GeneralSettings";
+import { useT, type MessageKey } from "./i18n";
 import { CheckIcon, CloseIcon } from "./icons";
 import { clampFontSize, FONT_SIZE } from "./layout";
 import { profileErrorText } from "./profileFile";
@@ -21,7 +19,8 @@ import { RowLayoutField } from "./RowLayoutSettings";
 import { ActionRow, SettingsGroup, SwitchRow } from "./SettingsParts";
 import { treeFlowSupported } from "./treeFlow";
 import { TreeFlowField } from "./TreeFlowSettings";
-import { clampScrollbackLines, SCROLLBACK_LINES, type Settings } from "./settings";
+import type { Settings } from "./settings";
+import { SecuritySettings } from "./SecuritySettings";
 import { DictationSettings } from "./DictationSettings";
 import { SnippetsSettings } from "./SnippetsSettings";
 import { SubAgentSettings } from "./SubAgentSettings";
@@ -194,8 +193,8 @@ const SIZE_BOUNDS: DialogSizeBounds = {
 
 /**
  * Sections as vertical tabs on the left (WAI-ARIA Tabs, automatic activation), content on the
- * right. Every change takes effect immediately and is saved right away; there is no Save
- * button.
+ * right. Every change takes effect immediately and is saved right away, so there is neither a
+ * Save button nor a second Close button: the X in the header closes, as does Escape.
  */
 export function SettingsDialog(props: Props) {
   const t = useT();
@@ -293,11 +292,6 @@ export function SettingsDialog(props: Props) {
         </div>
       </div>
 
-      <div className="dialog-actions">
-        <button type="button" className="primary-button" onClick={props.onClose}>
-          {t("common.close")}
-        </button>
-      </div>
       <DialogResizeHandles state={size} />
     </Dialog>
   );
@@ -306,7 +300,15 @@ export function SettingsDialog(props: Props) {
 function SectionContent(props: Props & { section: SettingsSection }) {
   switch (props.section) {
     case "general":
-      return <GeneralSection {...props} />;
+      return (
+        <GeneralSettings
+          settings={props.settings}
+          onChange={props.onChange}
+          onClearScrollbacks={props.onClearScrollbacks}
+        />
+      );
+    case "security":
+      return <SecuritySettings settings={props.settings} onChange={props.onChange} />;
     case "appearance":
       return <AppearanceSection {...props} />;
     case "attention":
@@ -314,7 +316,7 @@ function SectionContent(props: Props & { section: SettingsSection }) {
     case "programs":
       return <ProgramsSection {...props} />;
     case "subAgents":
-      return <SubAgentSettings />;
+      return <SubAgentSettings settings={props.settings} onChange={props.onChange} />;
     case "snippets":
       return (
         <SnippetsSettings
@@ -331,252 +333,6 @@ function SectionContent(props: Props & { section: SettingsSection }) {
     case "updates":
       return <UpdatesSection {...props} />;
   }
-}
-
-function GeneralSection(props: Props) {
-  const { settings, onChange } = props;
-  return (
-    <>
-      <LanguageField settings={settings} onChange={onChange} />
-      <SessionsField {...props} />
-    </>
-  );
-}
-
-function LanguageField({ settings, onChange }: Pick<Props, "settings" | "onChange">) {
-  const t = useT();
-  return (
-    <div className="field">
-      <label htmlFor="settings-language">{t("settings.language")}</label>
-      {/* A list instead of buttons: more languages are coming. */}
-      <select
-        id="settings-language"
-        className="select"
-        value={settings.language}
-        aria-describedby="settings-language-help"
-        onChange={(event) => {
-          const language = event.currentTarget.value;
-          if (isLanguage(language)) onChange({ language });
-        }}
-      >
-        {LANGUAGES.map((language) => (
-          <option key={language} value={language} lang={language}>
-            {LANGUAGE_NAMES[language]}
-          </option>
-        ))}
-      </select>
-      <p id="settings-language-help" className="muted">
-        {t("settings.languageHelp")}
-      </p>
-    </div>
-  );
-}
-
-/** Remember sessions on exit, scrollback length, delete saved scrollback. */
-function SessionsField({ settings, onChange, onClearScrollbacks }: Props) {
-  const t = useT();
-  const [confirming, setConfirming] = useState(false);
-  const [status, setStatus] = useState<{ ok: boolean; text: string } | null>(null);
-  const cancelButton = useRef<HTMLButtonElement>(null);
-  const clearButton = useRef<HTMLButtonElement>(null);
-
-  useEffect(() => {
-    if (confirming) cancelButton.current?.focus();
-  }, [confirming]);
-
-  const clear = () => {
-    setConfirming(false);
-    onClearScrollbacks()
-      .then(() => {
-        setStatus({ ok: true, text: t("settings.clearScrollbacksDone") });
-      })
-      .catch((error: unknown) => {
-        setStatus({ ok: false, text: errorText(error) });
-      })
-      .finally(() => {
-        clearButton.current?.focus();
-      });
-  };
-
-  return (
-    <section className="settings-section" aria-labelledby="settings-sessions">
-      <h4 id="settings-sessions" className="settings-subtitle">
-        {t("settings.sessions")}
-      </h4>
-      <label className="check">
-        <input
-          type="checkbox"
-          checked={settings.keepInTray}
-          aria-describedby="keep-in-tray-help"
-          onChange={(event) => {
-            onChange({ keepInTray: event.currentTarget.checked });
-          }}
-        />
-        <span>{t("settings.keepInTray")}</span>
-      </label>
-      <p id="keep-in-tray-help" className="muted settings-help">
-        {t("settings.keepInTrayHelp")}
-      </p>
-      <label className="check">
-        <input
-          type="checkbox"
-          checked={settings.restoreSessions}
-          aria-describedby="restore-sessions-help"
-          onChange={(event) => {
-            onChange({ restoreSessions: event.currentTarget.checked });
-          }}
-        />
-        <span>{t("settings.restoreSessions")}</span>
-      </label>
-      <p id="restore-sessions-help" className="muted settings-help">
-        {t("settings.restoreSessionsHelp")}
-      </p>
-      <p className="muted settings-help">{t("settings.scrollbackSecrets")}</p>
-      <fieldset className="settings-group" disabled={!settings.restoreSessions}>
-        <legend className="sr-only">{t("settings.scrollbackLines")}</legend>
-        <RangeField
-          id="scrollback-lines"
-          label={t("settings.scrollbackLines")}
-          value={settings.scrollbackLines}
-          min={SCROLLBACK_LINES.min}
-          max={SCROLLBACK_LINES.max}
-          step={SCROLLBACK_LINES.step}
-          display={t("settings.lines", {
-            count: settings.scrollbackLines.toLocaleString(settings.language),
-          })}
-          onChange={(value) => {
-            onChange({ scrollbackLines: clampScrollbackLines(value) });
-          }}
-        />
-      </fieldset>
-      {confirming ? (
-        <div className="confirm-box" role="group" aria-labelledby="clear-confirm-text">
-          <p id="clear-confirm-text">{t("settings.clearConfirm")}</p>
-          <div className="settings-row">
-            <button type="button" className="primary-button danger" onClick={clear}>
-              {t("settings.clearYes")}
-            </button>
-            <button
-              ref={cancelButton}
-              type="button"
-              className="secondary-button"
-              onClick={() => {
-                setConfirming(false);
-                clearButton.current?.focus();
-              }}
-            >
-              {t("common.cancel")}
-            </button>
-          </div>
-        </div>
-      ) : (
-        <div className="settings-row">
-          <button
-            ref={clearButton}
-            type="button"
-            className="secondary-button"
-            aria-describedby="clear-scrollbacks-help"
-            onClick={() => {
-              setStatus(null);
-              setConfirming(true);
-            }}
-          >
-            {t("settings.clearScrollbacks")}
-          </button>
-          <span
-            id="clear-scrollbacks-help"
-            className={status && !status.ok ? "muted error-text" : "muted"}
-            role="status"
-          >
-            {status ? status.text : t("settings.clearScrollbacksHelp")}
-          </span>
-        </div>
-      )}
-      <label className="check">
-        <input
-          type="checkbox"
-          checked={settings.warnMultilinePaste}
-          aria-describedby="warn-multiline-paste-help"
-          onChange={(event) => {
-            onChange({ warnMultilinePaste: event.currentTarget.checked });
-          }}
-        />
-        <span>{t("settings.warnMultilinePaste")}</span>
-      </label>
-      <p id="warn-multiline-paste-help" className="muted settings-help">
-        {t("settings.warnMultilinePasteHelp")}
-      </p>
-      <label className="check">
-        <input
-          type="checkbox"
-          checked={settings.subAgentExcerpts}
-          aria-describedby="sub-agent-excerpts-help"
-          onChange={(event) => {
-            onChange({ subAgentExcerpts: event.currentTarget.checked });
-          }}
-        />
-        <span>{t("settings.subAgentExcerpts")}</span>
-      </label>
-      <p id="sub-agent-excerpts-help" className="muted settings-help">
-        {t("settings.subAgentExcerptsHelp")}
-      </p>
-      <label className="check">
-        <input
-          type="checkbox"
-          checked={settings.crewColumn}
-          aria-describedby="crew-column-help"
-          onChange={(event) => {
-            onChange({ crewColumn: event.currentTarget.checked });
-          }}
-        />
-        <span>{t("settings.crewColumn")}</span>
-      </label>
-      <p id="crew-column-help" className="muted settings-help">
-        {t("settings.crewColumnHelp")}
-      </p>
-      <label className="check">
-        <input
-          type="checkbox"
-          checked={settings.claimsEnabled}
-          aria-describedby="claims-help"
-          onChange={(event) => {
-            onChange({ claimsEnabled: event.currentTarget.checked });
-          }}
-        />
-        <span>{t("settings.claims")}</span>
-      </label>
-      <p id="claims-help" className="muted settings-help">
-        {t("settings.claimsHelp")}
-      </p>
-      {/* The gate only knows about overlaps the claims found: without them it stays off. */}
-      <label className={settings.claimsEnabled ? "check" : "check disabled"}>
-        <input
-          type="checkbox"
-          checked={settings.gateEnabled && settings.claimsEnabled}
-          disabled={!settings.claimsEnabled}
-          aria-describedby="gate-help"
-          onChange={(event) => {
-            onChange({ gateEnabled: event.currentTarget.checked });
-          }}
-        />
-        <span>{t("settings.gate")}</span>
-      </label>
-      <p id="gate-help" className="muted settings-help">
-        {t("settings.gateHelp")}
-        {!settings.claimsEnabled && (
-          <> {t("settings.gateNeedsClaims", { setting: t("settings.claims") })}</>
-        )}
-      </p>
-      <CommandGuardSettings
-        enabled={settings.commandGuardEnabled}
-        available={settings.gateEnabled && settings.claimsEnabled}
-        onChange={(enabled) => {
-          onChange({ commandGuardEnabled: enabled });
-        }}
-      />
-      <GateRulesSettings language={settings.language} />
-    </section>
-  );
 }
 
 function AppearanceSection(props: Props) {

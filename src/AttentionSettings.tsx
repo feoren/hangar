@@ -1,13 +1,9 @@
-import { useState } from "react";
-
 import { Badge } from "./Badge";
 import { playChime } from "./chimeAudio";
-import { budgetFromInput, EARLY_PERCENTS, parseEarlyPercent } from "./costs";
 import { DOT_ANIMATIONS, dotAnimationClass, type DotAnimation } from "./dotAnimation";
 import { badgeColor } from "./format";
 import { useT, type MessageKey } from "./i18n";
 import { PhonePushSettings } from "./PhonePushSettings";
-import { powerKnown } from "./power";
 import { formatClockTime, parseClockTime, type QuietHours } from "./quietHours";
 import { RangeField } from "./RangeField";
 import { edgeClass } from "./sessionChip";
@@ -43,7 +39,6 @@ import { clampWaitMinutes, WAIT_MINUTES } from "./waitHint";
 import { StatusChip } from "./StatusChip";
 import type { BadgeLook } from "./programPrefs";
 import type { Theme } from "./theme";
-import { usePowerState } from "./usePower";
 
 interface Props {
   settings: Settings;
@@ -99,12 +94,10 @@ const LOOKS_WITHOUT_ATTENTION: readonly LookState[] = ["idle", "failed"];
 
 /**
  * Settings section "Attention": one card per session state (color, live preview, pulse), then the
- * ways Hangar tells you about a waiting session, the push to the phone and the sessions'
- * resources.
+ * ways Hangar tells you about a waiting session and the push to the phone.
  */
 export function AttentionSettings({ settings, theme, onChange }: Props) {
   const t = useT();
-  const power = usePowerState();
   const enabled = settings.attentionEnabled;
   return (
     <>
@@ -123,7 +116,7 @@ export function AttentionSettings({ settings, theme, onChange }: Props) {
         {t("settings.attentionHelp")}
       </p>
 
-      <h3 className="settings-subhead">{t("look.heading")}</h3>
+      <h4 className="settings-subhead">{t("look.heading")}</h4>
       <div className="look-cards">
         {LOOK_STATES.map((state) => (
           <LookCard
@@ -248,155 +241,7 @@ export function AttentionSettings({ settings, theme, onChange }: Props) {
 
       {/* The pushes follow the waiting states, which only exist with attention on. */}
       <PhonePushSettings disabled={!enabled} />
-
-      <fieldset className="settings-group">
-        <legend className="settings-subhead">{t("settings.resources")}</legend>
-        <CheckField
-          id="show-resources"
-          checked={settings.showResources}
-          label={t("settings.showResources")}
-          help={t("settings.showResourcesHelp")}
-          onChange={(showResources) => {
-            onChange({ showResources });
-          }}
-        />
-        {/* Only where the backend can tell battery from AC (only offer what works). */}
-        {powerKnown(power) && (
-          <CheckField
-            id="power-saving"
-            checked={settings.powerSaving}
-            label={t("settings.powerSaving")}
-            help={t("settings.powerSavingHelp")}
-            onChange={(powerSaving) => {
-              onChange({ powerSaving });
-            }}
-          />
-        )}
-        <BudgetField
-          value={settings.dailyBudget}
-          onChange={(dailyBudget) => {
-            onChange({ dailyBudget });
-          }}
-        />
-        {/* Only with a budget: without one there is nothing to warn early about. */}
-        {settings.dailyBudget !== null && (
-          <EarlyWarningField
-            value={settings.budgetEarlyPercent}
-            onChange={(budgetEarlyPercent) => {
-              onChange({ budgetEarlyPercent });
-            }}
-          />
-        )}
-      </fieldset>
-
-      {/* Its own group: the morning summary is about the work log, not about resources, and it
-          does not depend on the attention switch above. */}
-      <fieldset className="settings-group">
-        <legend className="settings-subhead">{t("review.title")}</legend>
-        <CheckField
-          id="morning-review"
-          checked={settings.morningReview}
-          label={t("morning.setting")}
-          help={t("morning.settingHelp")}
-          onChange={(morningReview) => {
-            onChange({ morningReview });
-          }}
-        />
-      </fieldset>
     </>
-  );
-}
-
-/**
- * Daily budget in dollars: taken when the field loses focus or Enter is pressed; an empty field
- * means no budget, an invalid entry goes back to the saved value.
- */
-function BudgetField({
-  value,
-  onChange,
-}: {
-  value: number | null;
-  onChange: (value: number | null) => void;
-}) {
-  const t = useT();
-  const [text, setText] = useState(value === null ? "" : String(value));
-  const commit = () => {
-    const parsed = budgetFromInput(text);
-    if (parsed === null && text.trim() !== "") {
-      setText(value === null ? "" : String(value));
-      return;
-    }
-    setText(parsed === null ? "" : String(parsed));
-    if (parsed !== value) onChange(parsed);
-  };
-  return (
-    <div className="field budget-field">
-      <label htmlFor="daily-budget">{t("costs.budget")}</label>
-      <input
-        id="daily-budget"
-        type="text"
-        inputMode="decimal"
-        className="text-input"
-        autoComplete="off"
-        spellCheck={false}
-        placeholder={t("costs.budgetNone")}
-        value={text}
-        aria-describedby="daily-budget-help"
-        onChange={(event) => {
-          setText(event.currentTarget.value);
-        }}
-        onBlur={commit}
-        onKeyDown={(event) => {
-          if (event.key === "Enter") commit();
-        }}
-      />
-      <p id="daily-budget-help" className="muted settings-help">
-        {t("costs.budgetHelp")}
-      </p>
-    </div>
-  );
-}
-
-/**
- * The early budget warning: off, or a share of the budget. A stored share that is not one of the
- * choices (the backend takes any from 1 to 99) is listed as well, so it never reads as off.
- */
-function EarlyWarningField({
-  value,
-  onChange,
-}: {
-  value: number | null;
-  onChange: (value: number | null) => void;
-}) {
-  const t = useT();
-  const choices: readonly number[] =
-    value === null || EARLY_PERCENTS.some((choice) => choice === value)
-      ? EARLY_PERCENTS
-      : [...EARLY_PERCENTS, value].sort((a, b) => a - b);
-  return (
-    <div className="field budget-early-field">
-      <label htmlFor="budget-early">{t("costs.earlyWarning")}</label>
-      <select
-        id="budget-early"
-        className="select"
-        value={value === null ? "off" : String(value)}
-        aria-describedby="budget-early-help"
-        onChange={(event) => {
-          const picked = event.currentTarget.value;
-          onChange(parseEarlyPercent(Number(picked)));
-        }}
-      >
-        <option value="off">{t("costs.earlyOff")}</option>
-        {choices.map((choice) => (
-          <option key={choice} value={String(choice)}>
-            {t("settings.percent", { count: choice })}
-          </option>
-        ))}
-      </select>
-      <p id="budget-early-help" className="muted settings-help">
-        {t("costs.earlyHelp")}
-      </p>
-    </div>
   );
 }
 

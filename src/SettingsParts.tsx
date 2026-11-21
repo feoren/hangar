@@ -2,7 +2,7 @@
 // switch for on/off, a segmented choice, a button with its status, an inline question and a
 // collapsed "Advanced" part. Sections build on these so every page reads and behaves the same.
 
-import { useEffect, useId, useRef, type ReactNode } from "react";
+import { useEffect, useId, useRef, type ReactNode, type Ref } from "react";
 
 import { useT } from "./i18n";
 
@@ -152,6 +152,7 @@ export function ActionRow({
   error = false,
   action,
   disabled = false,
+  buttonRef,
   onAction,
 }: {
   /** Name of the line; without it the status takes its place and describes the button. */
@@ -160,6 +161,8 @@ export function ActionRow({
   error?: boolean;
   action: string;
   disabled?: boolean;
+  /** For giving the focus back to the button after a question in its place. */
+  buttonRef?: Ref<HTMLButtonElement>;
   onAction: () => void;
 }) {
   const id = useId();
@@ -186,6 +189,7 @@ export function ActionRow({
         </span>
         <span className="setting-control">
           <button
+            ref={buttonRef}
             type="button"
             className="secondary-button"
             disabled={disabled}
@@ -246,17 +250,28 @@ export function SegmentedField<T extends string>({
   );
 }
 
-/** A titled group of settings in a framed card, with an optional one-line description. */
+/**
+ * A titled group of settings in a framed card, with an optional one-line description. Without a
+ * title it is a plain card, for the settings a section opens with.
+ */
 export function SettingsGroup({
   title,
   description,
   children,
 }: {
-  title: string;
+  title?: string;
   description?: ReactNode;
   children: ReactNode;
 }) {
   const id = useId();
+  if (title === undefined) {
+    return (
+      <div className="setting-group">
+        {description !== undefined && <p className="muted setting-group-desc">{description}</p>}
+        <div className="setting-card">{children}</div>
+      </div>
+    );
+  }
   return (
     <section className="setting-group" aria-labelledby={`${id}-title`}>
       <h4 id={`${id}-title`} className="setting-group-title">
@@ -310,11 +325,20 @@ export function InlineConfirm({
   );
 }
 
-/** Rarely needed settings, collapsed under "Advanced" until opened. */
-export function Advanced({ children }: { children: ReactNode }) {
+/**
+ * Rarely needed settings, collapsed under "Advanced" until opened. `defaultOpen` opens it when
+ * the dialog shows, for a problem in there the user should see.
+ */
+export function Advanced({
+  defaultOpen = false,
+  children,
+}: {
+  defaultOpen?: boolean;
+  children: ReactNode;
+}) {
   const t = useT();
   return (
-    <details className="setting-advanced">
+    <details className="setting-advanced" open={defaultOpen}>
       <summary>{t("settings.advanced")}</summary>
       <div className="setting-advanced-body">{children}</div>
     </details>
