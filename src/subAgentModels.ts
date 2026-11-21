@@ -41,9 +41,15 @@ export interface SubAgentSettings {
   models: Partial<Record<DefProgram, ModelChoice>>;
   /** Programs that get no copies of the user's definitions. */
   provideOff: DefProgram[];
+  /** Hangar's bundled sub-agents are not placed in `~/.claude/agents`. */
+  bundledOff: boolean;
 }
 
-export const DEFAULT_SETTINGS: SubAgentSettings = { models: {}, provideOff: [] };
+export const DEFAULT_SETTINGS: SubAgentSettings = {
+  models: {},
+  provideOff: [],
+  bundledOff: false,
+};
 
 function field(value: object, name: string): unknown {
   return name in value ? Reflect.get(value, name) : undefined;
@@ -73,7 +79,7 @@ export function parseSubAgentSettings(value: unknown): SubAgentSettings {
   }
   const off = field(value, "provideOff");
   const provideOff = Array.isArray(off) ? DEF_PROGRAMS.filter((p) => off.includes(p)) : [];
-  return { models, provideOff };
+  return { models, provideOff, bundledOff: field(value, "bundledOff") === true };
 }
 
 /** `settings` with the default of `program` set; an empty choice removes it. */
@@ -98,6 +104,11 @@ export function withProvide(
 ): SubAgentSettings {
   const rest = settings.provideOff.filter((entry) => entry !== program);
   return { ...settings, provideOff: on ? rest : [...rest, program] };
+}
+
+/** `settings` with Hangar's bundled sub-agents on or off. */
+export function withBundled(settings: SubAgentSettings, on: boolean): SubAgentSettings {
+  return { ...settings, bundledOff: !on };
 }
 
 /** Value of the Claude model field for "another id", never a model. */

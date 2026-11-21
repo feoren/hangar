@@ -19,6 +19,7 @@ import {
   parseSubAgentSettings,
   provides,
   validModel,
+  withBundled,
   withModel,
   withProvide,
   DEFAULT_SETTINGS,
@@ -115,6 +116,7 @@ describe("settings", () => {
     expect(parsed).toEqual({
       models: { claude: { model: "sonnet", effort: null } },
       provideOff: ["codex"],
+      bundledOff: false,
     });
     const cleared = withModel(parsed, "claude", { model: null, effort: null });
     expect(cleared.models).toEqual({});
@@ -122,6 +124,15 @@ describe("settings", () => {
     expect(codex.models.codex).toEqual({ model: "o3", effort: "high" });
     expect(withProvide(parsed, "codex", true).provideOff).toEqual([]);
     expect(withProvide(DEFAULT_SETTINGS, "codex", false).provideOff).toEqual(["codex"]);
+  });
+
+  it("switch Hangar's bundled sub-agents, on by default", () => {
+    expect(DEFAULT_SETTINGS.bundledOff).toBe(false);
+    expect(parseSubAgentSettings({ bundledOff: true }).bundledOff).toBe(true);
+    expect(parseSubAgentSettings({ bundledOff: "yes" }).bundledOff).toBe(false);
+    const off = withBundled(DEFAULT_SETTINGS, false);
+    expect(off.bundledOff).toBe(true);
+    expect(withBundled(off, true)).toEqual(DEFAULT_SETTINGS);
   });
 });
 

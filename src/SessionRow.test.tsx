@@ -351,12 +351,12 @@ describe("the builder", () => {
 });
 
 describe("a session running as a sub-agent", () => {
-  const session = { subAgent: "backend", cwd: "C:\\src\\hangar" };
+  const session = { subAgent: "hangar-backend", cwd: "C:\\src\\hangar" };
 
   it("shows the figure with the program's badge on its corner in the avatar form", () => {
     const html = row(presetLayout("avatar"), { session, programName: "Claude Code" });
     expect(html).toMatch(
-      /class="session-avatar"[^>]*><span class="session-figure full" title="Claude Code as backend" data-agent="backend"><span class="agent-figure full"/,
+      /class="session-avatar"[^>]*><span class="session-figure full" title="Claude Code as hangar-backend" data-agent="hangar-backend"><span class="agent-figure full"/,
     );
     expect(html).toMatch(/class="figure-corner" aria-hidden="true"><span class="badge"[^>]*>C</);
   });

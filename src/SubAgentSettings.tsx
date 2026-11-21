@@ -14,10 +14,13 @@ import { folderName } from "./folders";
 import {
   BUILTIN_FIGURES,
   DEF_TEMPLATE,
+  defFigure,
   figureErrorCode,
   FIGURE_TYPES,
-  figureFor,
   figureName,
+  initialFigure,
+  isFromHangar,
+  isHangarAgent,
   libraryEntries,
   MAX_DEF_BYTES,
   MAX_FIGURE_BYTES,
@@ -50,6 +53,7 @@ import {
   ownCodexDefs,
   parseSubAgentSettings,
   provides,
+  withBundled,
   withModel,
   withProvide,
   type DefProgram,
@@ -239,6 +243,22 @@ function ModelDefaults({ library }: { library: Library }) {
         </div>
       ))}
       <p className="muted settings-help">{t("subAgentLib.defaultsHelp")}</p>
+      <div className="sub-agent-provide">
+        <label className="check">
+          <input
+            type="checkbox"
+            checked={!settings.bundledOff}
+            aria-describedby="sub-agent-bundled-help"
+            onChange={(event) => {
+              save(withBundled(settings, event.currentTarget.checked));
+            }}
+          />
+          <span>{t("subAgentLib.provideBundled")}</span>
+        </label>
+        <p id="sub-agent-bundled-help" className="muted settings-help">
+          {t("subAgentLib.provideBundledHelp")}
+        </p>
+      </div>
       {/* Providing the definitions is no model setting: its own line and help below the models. */}
       {library.targets.map((target) => (
         <div key={target.program} className="sub-agent-provide">
@@ -390,9 +410,10 @@ function SubAgentRow({
   const [confirming, setConfirming] = useState(false);
   const [problem, setProblem] = useState<string | null>(null);
   const models = useModelChange(setProblem);
-  const figure = figureFor(entry.name, entry.def.color, figures);
+  const figure = defFigure(entry.global ?? entry.def, library, figures);
   const places = [
     ...(entry.global === null ? [] : [t("subAgentLib.global")]),
+    ...(isFromHangar(library, entry) ? [t("subAgentLib.fromHangar")] : []),
     // A project file of a global name replaces the global one in that project: said so.
     ...entry.projects.map((def) =>
       withExtras(
@@ -432,16 +453,23 @@ function SubAgentRow({
 
   return (
     <li className="sub-agent-row">
-      <button
-        type="button"
-        className="sub-agent-figure-button"
-        aria-expanded={picking}
-        aria-label={t("subAgentLib.figureFor", { name: entry.name })}
-        title={t("subAgentLib.figureFor", { name: entry.name })}
-        onClick={onPick}
-      >
-        <AgentFigure figure={figure} size={96} crop="full" />
-      </button>
+      {/* Only Hangar's own agents wear figures, so only they can pick one. */}
+      {isHangarAgent(entry.name) ? (
+        <button
+          type="button"
+          className="sub-agent-figure-button"
+          aria-expanded={picking}
+          aria-label={t("subAgentLib.figureFor", { name: entry.name })}
+          title={t("subAgentLib.figureFor", { name: entry.name })}
+          onClick={onPick}
+        >
+          <AgentFigure figure={figure} size={96} crop="full" />
+        </button>
+      ) : (
+        <span className="sub-agent-figure-button">
+          <AgentFigure figure={figure} size={96} crop="full" />
+        </span>
+      )}
       <div className="sub-agent-text">
         <div className="sub-agent-head">
           <strong className="sub-agent-name">{entry.name}</strong>
@@ -540,7 +568,9 @@ function SubAgentRow({
           </div>
         )}
         {problem !== null && <p className="muted error-text">{problem}</p>}
-        {picking && <FigurePicker name={entry.name} chosen={figures.get(entry.name)} />}
+        {picking && isHangarAgent(entry.name) && (
+          <FigurePicker name={entry.name} chosen={figures.get(entry.name)} />
+        )}
       </div>
     </li>
   );
@@ -549,7 +579,7 @@ function SubAgentRow({
 /** A Codex CLI definition of the user's own: its model and effort; it never starts as an agent. */
 function CodexRow({ def }: { def: CodexDef }) {
   const t = useT();
-  const { library, figures } = useSubAgentLibrary();
+  const { library } = useSubAgentLibrary();
   const [problem, setProblem] = useState<string | null>(null);
   const models = useModelChange(setProblem);
   const place =
@@ -559,7 +589,7 @@ function CodexRow({ def }: { def: CodexDef }) {
   return (
     <li className="sub-agent-row">
       <span className="sub-agent-figure-button">
-        <AgentFigure figure={figureFor(def.name, null, figures)} size={96} crop="full" />
+        <AgentFigure figure={initialFigure(def.name, null)} size={96} crop="full" />
       </span>
       <div className="sub-agent-text">
         <div className="sub-agent-head">

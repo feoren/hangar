@@ -19,6 +19,9 @@ import {
   figureErrorCode,
   figureFor,
   isFigureDataUrl,
+  isFromHangar,
+  isHangarAgent,
+  initialFigure,
   libraryEntries,
   parseDefError,
   parseFigures,
@@ -74,44 +77,69 @@ describe("figures", () => {
     expect(ids).toEqual([...BUILTIN_FIGURES]);
   });
 
-  it("default to the role in the name, then the color, then a fixed pick", () => {
-    expect(defaultFigure("backend", null)).toEqual({ kind: "builtin", id: "backend-01" });
-    expect(defaultFigure("code-reviewer", "red")).toEqual({ kind: "builtin", id: "manager-01" });
-    expect(defaultFigure("qa-bot", null)).toEqual({ kind: "builtin", id: "tester-01" });
-    expect(defaultFigure("marketing", "orange")).toEqual({ kind: "builtin", id: "marketing-01" });
-    expect(defaultFigure("sales", null)).toEqual({ kind: "builtin", id: "sales-01" });
-    expect(defaultFigure("social-media", "pink")).toEqual({
+  it("default to the role after Hangar's prefix, else a fixed pick", () => {
+    expect(defaultFigure("hangar-backend", null)).toEqual({ kind: "builtin", id: "backend-01" });
+    expect(defaultFigure("hangar-tester", "red")).toEqual({ kind: "builtin", id: "tester-01" });
+    expect(defaultFigure("hangar-marketing", "orange")).toEqual({
+      kind: "builtin",
+      id: "marketing-01",
+    });
+    expect(defaultFigure("hangar-sales", null)).toEqual({ kind: "builtin", id: "sales-01" });
+    expect(defaultFigure("hangar-social-media", "pink")).toEqual({
       kind: "builtin",
       id: "social-media-01",
     });
-    expect(defaultFigure("writer", "purple")).toEqual({
-      kind: "initial",
-      letter: "W",
-      color: "#8b5cc8",
-    });
-    const picked = defaultFigure("writer", null);
+    // No role word: a bundled figure picked from the name, whatever the color says.
+    const picked = defaultFigure("hangar-n8n", "orange");
     expect(picked.kind).toBe("builtin");
-    expect(defaultFigure("writer", null)).toEqual(picked);
-    expect(defaultFigure("writer", "no-such-color")).toEqual(picked);
+    expect(defaultFigure("hangar-n8n", null)).toEqual(picked);
+    expect(defaultFigure("hangar-comfyui", "purple").kind).toBe("builtin");
+  });
+
+  it("are Hangar's own: every other agent shows its initial", () => {
+    expect(isHangarAgent("hangar-tester")).toBe(true);
+    expect(isHangarAgent("hangar-")).toBe(false);
+    expect(isHangarAgent("hangar")).toBe(false);
+    expect(isHangarAgent("my-hangar-tester")).toBe(false);
+    // A role word no longer earns a figure outside Hangar's agents.
+    expect(defaultFigure("backend", null)).toEqual(initialFigure("backend", null));
+    expect(defaultFigure("code-reviewer", "red")).toEqual({
+      kind: "initial",
+      letter: "C",
+      color: "#d9534f",
+    });
+    expect(defaultFigure("Explore", null)).toMatchObject({ kind: "initial", letter: "E" });
+    // Without a known color the name picks one, the same every time.
+    expect(initialFigure("writer", null)).toEqual(initialFigure("writer", "no-such-color"));
+    // A choice stored for such a name is ignored, not shown.
+    const chosen = parseFigures({
+      backend: { kind: "builtin", id: "tester-01" },
+      writer: { kind: "image", dataUrl: "data:image/gif;base64,R0lGODlh" },
+    });
+    expect(figureFor("backend", "green", chosen)).toEqual(initialFigure("backend", "green"));
+    expect(figureFor("writer", null, chosen).kind).toBe("initial");
   });
 
   it("keep a name's figure when new figures are bundled", () => {
-    // Pinned from the first figure set: new bundled figures must not move it.
-    expect(defaultFigure("writer", null)).toEqual({ kind: "builtin", id: "manager-02" });
+    // Pinned: new bundled figures must not move it.
+    expect(defaultFigure("hangar-n8n", null)).toEqual({ kind: "builtin", id: "researcher-01" });
     for (const id of NAME_FIGURES) expect(BUILTIN_FIGURES).toContain(id);
   });
 
   it("take the chosen one first", () => {
     const chosen = parseFigures({
-      backend: { kind: "builtin", id: "tester-01" },
-      tester: { kind: "image", dataUrl: "data:image/gif;base64,R0lGODlh" },
+      "hangar-backend": { kind: "builtin", id: "tester-01" },
+      "hangar-tester": { kind: "image", dataUrl: "data:image/gif;base64,R0lGODlh" },
     });
-    expect(figureFor("backend", null, chosen)).toEqual({ kind: "builtin", id: "tester-01" });
-    expect(figureFor("tester", null, chosen)).toEqual({
+    expect(figureFor("hangar-backend", null, chosen)).toEqual({ kind: "builtin", id: "tester-01" });
+    expect(figureFor("hangar-tester", null, chosen)).toEqual({
       kind: "image",
       url: "data:image/gif;base64,R0lGODlh",
     });
-    expect(figureFor("manager", null, chosen)).toEqual({ kind: "builtin", id: "manager-01" });
+    expect(figureFor("hangar-manager", null, chosen)).toEqual({
+      kind: "builtin",
+      id: "manager-01",
+    });
   });
 
   it("drop what the backend would never send", () => {
@@ -194,11 +222,30 @@ describe("the listing", () => {
   });
 });
 
+describe("Hangar's bundled definitions", () => {
+  it("are named only for an unchanged global copy", () => {
+    const parsed = parseLibrary({
+      defs: [def("backend"), def("tester"), def("manager", { scope: "project", folder: PROJECT })],
+      problems: [],
+      bundled: ["backend", "manager", "Bad Name", 7],
+    });
+    expect(parsed?.bundled).toEqual(["backend", "manager"]);
+    const library = parsed ?? EMPTY_LIBRARY;
+    const marked = libraryEntries(library)
+      .filter((entry) => isFromHangar(library, entry))
+      .map((entry) => entry.name);
+    // A project file of a bundled name is the repository's, never Hangar's.
+    expect(marked).toEqual(["backend"]);
+    // An older backend sends no list: nothing is marked.
+    expect(parseLibrary({ defs: [], problems: [] })?.bundled).toEqual([]);
+  });
+});
+
 describe("project definitions that override a global one", () => {
-  const chosen = parseFigures({ backend: { kind: "builtin", id: "security-02" } });
-  const global = def("backend");
-  const project = def("backend", { scope: "project", folder: PROJECT, color: "green" });
-  const onlyProject = def("reviewer", { scope: "project", folder: PROJECT });
+  const chosen = parseFigures({ "hangar-backend": { kind: "builtin", id: "security-02" } });
+  const global = def("hangar-backend");
+  const project = def("hangar-backend", { scope: "project", folder: PROJECT, color: "green" });
+  const onlyProject = def("hangar-reviewer", { scope: "project", folder: PROJECT });
   const library: Library = { ...EMPTY_LIBRARY, defs: [global, project, onlyProject] };
 
   it("never wear the global figure", () => {
@@ -208,33 +255,44 @@ describe("project definitions that override a global one", () => {
     expect(defFigure(global, library, chosen)).toEqual({ kind: "builtin", id: "security-02" });
     expect(defFigure(project, library, chosen)).toEqual({
       kind: "initial",
-      letter: "B",
+      letter: "H",
       color: NEUTRAL_FIGURE_COLOR,
     });
-    expect(defFigure(onlyProject, library, chosen)).toEqual({
-      kind: "builtin",
-      id: "manager-01",
-    });
+    // A project's own definition is the repository's: no figure, even under Hangar's prefix.
+    expect(defFigure(onlyProject, library, chosen)).toEqual(initialFigure("hangar-reviewer", null));
+  });
+
+  it("give the user's own and a project's agents no figure, whatever is stored", () => {
+    const own = def("writer", { color: "blue" });
+    const stored = parseFigures({ writer: { kind: "builtin", id: "tester-01" } });
+    const lib: Library = { ...EMPTY_LIBRARY, defs: [own] };
+    expect(defFigure(own, lib, stored)).toEqual({ kind: "initial", letter: "W", color: "#3b82d6" });
+    expect(sessionFigure(lib, stored, "writer", PROJECT).figure.kind).toBe("initial");
+    expect(runningFigure(lib, stored, "writer", null)?.kind).toBe("initial");
   });
 
   it("wear the global figure when they are the same agent (equal fingerprint)", () => {
-    const same = def("backend", { fingerprint: "a1" });
-    const copy = def("backend", { scope: "project", folder: PROJECT, fingerprint: "a1" });
-    const changed = def("backend", { scope: "project", folder: "C:\\other", fingerprint: "b2" });
+    const same = def("hangar-backend", { fingerprint: "a1" });
+    const copy = def("hangar-backend", { scope: "project", folder: PROJECT, fingerprint: "a1" });
+    const changed = def("hangar-backend", {
+      scope: "project",
+      folder: "C:\\other",
+      fingerprint: "b2",
+    });
     const lib: Library = { ...EMPTY_LIBRARY, defs: [same, copy, changed] };
     expect(overridesGlobal(lib, copy)).toBe(false);
     expect(defFigure(copy, lib, chosen)).toEqual({ kind: "builtin", id: "security-02" });
     expect(overridesGlobal(lib, changed)).toBe(true);
     // Without a fingerprint on either side nothing proves they are the same.
-    const unknown = def("backend", { scope: "project", folder: PROJECT });
+    const unknown = def("hangar-backend", { scope: "project", folder: PROJECT });
     expect(overridesGlobal({ ...EMPTY_LIBRARY, defs: [same, unknown] }, unknown)).toBe(true);
   });
 
   it("read the fingerprint from the backend's listing", () => {
     const listed = parseLibrary({
       defs: [
-        { ...def("backend"), fingerprint: "ab12" },
-        { ...def("tester"), fingerprint: 7 },
+        { ...def("hangar-backend"), fingerprint: "ab12" },
+        { ...def("hangar-tester"), fingerprint: 7 },
       ],
       problems: [],
     });
@@ -242,13 +300,13 @@ describe("project definitions that override a global one", () => {
   });
 
   it("decide a session's figure by its folder", () => {
-    const here = sessionFigure(library, chosen, "backend", PROJECT);
+    const here = sessionFigure(library, chosen, "hangar-backend", PROJECT);
     expect(here.figure.kind).toBe("initial");
     expect(here.project).toBe(PROJECT);
-    const elsewhere = sessionFigure(library, chosen, "backend", "C:\\src\\other");
+    const elsewhere = sessionFigure(library, chosen, "hangar-backend", "C:\\src\\other");
     expect(elsewhere).toEqual({ figure: { kind: "builtin", id: "security-02" }, project: null });
     // A name no listed definition has keeps its own figure.
-    expect(sessionFigure(library, chosen, "tester", PROJECT)).toEqual({
+    expect(sessionFigure(library, chosen, "hangar-tester", PROJECT)).toEqual({
       figure: { kind: "builtin", id: "tester-01" },
       project: null,
     });
@@ -291,33 +349,33 @@ describe("runningFigure", () => {
   const library: Library = {
     ...EMPTY_LIBRARY,
     defs: [
-      def("backend", { scope: "project", folder: PROJECT, file: "backend.md" }),
-      def("backend"),
+      def("hangar-backend", { scope: "project", folder: PROJECT, file: "hangar-backend.md" }),
+      def("hangar-backend"),
     ],
     problems: [],
   };
-  const chosen = new Map([["backend", { kind: "builtin" as const, id: "backend-01" }]]);
+  const chosen = new Map([["hangar-backend", { kind: "builtin" as const, id: "backend-01" }]]);
 
   it("wears the chosen figure in a project that does not override the name", () => {
     // Regression: a project override elsewhere turned every session's figure neutral.
-    expect(runningFigure(library, chosen, "backend", OTHER)).toEqual({
+    expect(runningFigure(library, chosen, "hangar-backend", OTHER)).toEqual({
       kind: "builtin",
       id: "backend-01",
     });
   });
 
   it("stays neutral in the project that overrides the name", () => {
-    expect(runningFigure(library, chosen, "backend", PROJECT)).toEqual({
+    expect(runningFigure(library, chosen, "hangar-backend", PROJECT)).toEqual({
       kind: "initial",
-      letter: "B",
+      letter: "H",
       color: NEUTRAL_FIGURE_COLOR,
     });
   });
 
   it("stays neutral without a folder while any project overrides the name", () => {
-    expect(runningFigure(library, chosen, "backend", null)).toEqual({
+    expect(runningFigure(library, chosen, "hangar-backend", null)).toEqual({
       kind: "initial",
-      letter: "B",
+      letter: "H",
       color: NEUTRAL_FIGURE_COLOR,
     });
   });

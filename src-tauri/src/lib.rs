@@ -14,6 +14,7 @@ pub mod arena;
 pub mod avatar;
 pub mod batch;
 pub mod bounded_output;
+pub mod bundled_agents;
 pub mod child_env;
 pub mod civil;
 pub mod claims;
@@ -422,13 +423,20 @@ pub fn run() -> tauri::Result<()> {
                 .chain(&prefs.recent)
                 .map(std::path::PathBuf::from)
                 .collect();
+            let bundled_store = main_store.clone();
             std::thread::spawn(move || {
                 let manager = provision.state::<SessionManager>();
+                let installed = manager.installed_programs();
+                // Hangar's own sub-agents first: the copies below take them along.
+                bundled_agents::provide_for(manager.home(), &installed, &bundled_store);
+                let bundled =
+                    bundled_agents::unchanged(manager.home(), &bundled_store.bundled_manifest());
                 agent_provision::sync_installed(
                     manager.home(),
                     &start_places,
-                    &manager.installed_programs(),
+                    &installed,
                     &sub_agents.provide_off,
+                    &bundled,
                 );
             });
             app.manage(main_store);

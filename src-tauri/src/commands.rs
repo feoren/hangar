@@ -16,6 +16,7 @@ use crate::agent_figures::{FigureError, FigureInput, FigureStore, FigureView};
 use crate::agent_models::{DefProgram, ModelChoice};
 use crate::agent_provision;
 use crate::arena::{self, ArenaError};
+use crate::bundled_agents;
 use crate::claims::ClaimsSnapshot;
 use crate::claims_service::ClaimsService;
 use crate::clipboard_image;
@@ -885,6 +886,8 @@ pub struct LibraryView {
     codex_models: Vec<String>,
     /// What the newest copy runs left alone, and why.
     sync_issues: Vec<agent_provision::Issue>,
+    /// Global definitions that are Hangar's unchanged bundled copies.
+    bundled: Vec<String>,
 }
 
 /// The global sub-agent definitions and those of the named project folders (at most 32,
@@ -899,8 +902,10 @@ pub async fn sub_agent_library(
     let installed = manager.installed_programs();
     let off = store.inner().clone();
     defs_blocking(manager, move |home| {
+        let bundled = bundled_agents::unchanged(home, &off.bundled_manifest());
         let off = off.load_sub_agents().provide_off;
         Ok(LibraryView {
+            bundled,
             library: agent_defs::library(home, &folders),
             targets: agent_provision::targets(&installed, &off),
             codex_models: codex_agents::main_model(home).into_iter().collect(),
@@ -954,15 +959,18 @@ pub async fn sync_sub_agents(
     .await
 }
 
-/// One run for every installed target, with its issues.
+/// Hangar's bundled definitions brought up to date first, as they are copied on like the
+/// user's; then one run for every installed target, with its issues.
 fn sync_all(
     home: &std::path::Path,
     folders: &[PathBuf],
     installed: &[DefProgram],
     store: &MainStore,
 ) -> Vec<agent_provision::Issue> {
+    bundled_agents::provide_for(home, installed, store);
     let off = store.load_sub_agents().provide_off;
-    agent_provision::sync_installed(home, folders, installed, &off)
+    let bundled = bundled_agents::unchanged(home, &store.bundled_manifest());
+    agent_provision::sync_installed(home, folders, installed, &off, &bundled)
         .into_iter()
         .flat_map(|summary| summary.issues)
         .collect()
