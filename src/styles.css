@@ -4653,71 +4653,54 @@ body.resizing-horizontal * {
   color: var(--muted);
 }
 
-/* Chime volume with its preview button at the end of the slider's line. */
-.chime-row {
-  display: flex;
-  align-items: flex-end;
-  gap: 12px;
-  margin: 2px 0 0 26px;
+/* Notifications (AttentionSettings.tsx): the volume slider with its preview button in one line,
+   quiet hours as two times side by side. */
+.chime-line > .range-field {
+  flex: 1 1 200px;
+  margin-top: 0;
 }
 
-/* Quiet hours: two times side by side, indented like the help text under their checkbox. */
-.quiet-hours-row {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 16px;
-  margin: -4px 0 10px 26px;
+.quiet-hours-line {
+  gap: var(--space-1) var(--space-2);
 }
 
 .quiet-hours-time {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: var(--space-1);
 }
 
-.quiet-hours-time:has(input:disabled) {
-  opacity: 0.55;
+.quiet-hours-empty {
+  flex-basis: 100%;
 }
 
-/* Push to the phone (PhonePushSettings.tsx): full-width address, a secret with its remove link,
-   the events in one row and the two buttons with their status. */
-.push-settings .push-url,
-.push-secret-row {
-  width: 100%;
-  max-width: 420px;
-}
-
-.push-secret-row {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-}
-
-.push-secret-row .text-input {
-  flex: 1;
-  min-width: 0;
-}
-
-.push-events {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 4px 18px;
-}
-
-.push-actions {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 10px;
-  margin-bottom: 8px;
-}
-
-.chime-row .range-field {
-  flex: 1;
+/* A slider with its help below, filling the line. */
+.setting-text > .range-field {
   margin-top: 0;
 }
 
-/* Label and value fade with the slider, like the disabled preview button next to it. */
+/* Push to the phone (PhonePushSettings.tsx): an input with its link next to or below it. */
+.push-field {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 4px var(--space-1);
+  max-width: 100%;
+}
+
+.push-input {
+  width: 260px;
+  min-width: 0;
+  max-width: 100%;
+}
+
+.push-url-field {
+  flex-direction: column;
+  align-items: flex-end;
+}
+
+/* Label and value fade with a disabled slider. */
 .range-field:has(input:disabled) {
   opacity: 0.55;
 }
@@ -5076,7 +5059,6 @@ body.resizing-horizontal * {
 }
 
 .attention-preview {
-  margin-top: 12px;
   padding: 4px;
   background: var(--panel);
   border: 1px solid var(--border);
@@ -5088,8 +5070,6 @@ body.resizing-horizontal * {
   margin: 0;
 }
 
-/* Attention settings: one card per session state. Color on the left, the live preview next to
-   it, pulse strength and duration below. */
 .settings-subhead {
   padding: 0;
   margin: 18px 0 8px;
@@ -5097,97 +5077,113 @@ body.resizing-horizontal * {
   font-weight: 600;
 }
 
-.look-cards {
-  display: grid;
-  gap: 10px;
+/* Colors and pulse: one line per state (its color, name and a live preview); a click opens the
+   state's editor below. The preview is the real row, so every choice shows at once. */
+/* Doubled class: `.setting-line` comes later and would let the chevron wrap onto its own line. */
+.setting-line.look-row {
+  width: 100%;
+  font: inherit;
+  color: inherit;
+  text-align: left;
+  flex-wrap: nowrap;
 }
 
-.look-card {
+.look-row:hover {
+  background: var(--hover);
+}
+
+.look-card:first-child > .look-row:hover {
+  border-radius: 7px 7px 0 0;
+}
+
+.look-card:last-child > .look-row:hover {
+  border-radius: 0 0 7px 7px;
+}
+
+.look-card:only-child > .look-row:hover {
+  border-radius: 7px;
+}
+
+.look-dot {
+  flex: none;
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--text) 18%, transparent);
+}
+
+/* In a narrow panel the preview gives way, never the state's name. */
+.look-row-name {
+  flex: 1 0 auto;
+  overflow-wrap: normal;
+}
+
+.look-row .look-preview {
+  flex: 0 1 220px;
   min-width: 0;
-  margin: 0;
-  padding: 10px 12px 12px;
-  border: 1px solid var(--border);
-  border-radius: 10px;
+  overflow: hidden;
 }
 
-.look-card:disabled {
-  opacity: 0.5;
+.look-chevron {
+  display: grid;
+  flex: none;
+  place-items: center;
+  color: var(--muted);
+  transition: transform 150ms var(--ease-out);
 }
 
-.look-card-head {
+.look-chevron.open {
+  transform: rotate(90deg);
+}
+
+.look-editor {
   display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  padding: var(--space-1) 0 var(--space-2) var(--space-2);
+}
+
+.look-field {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 6px;
+}
+
+.look-field-label {
+  color: var(--muted);
+}
+
+.look-color {
+  display: flex;
+  flex-wrap: wrap;
   align-items: center;
-  justify-content: space-between;
-  gap: 8px;
-  min-height: 26px;
+  gap: 4px var(--space-1);
 }
 
-.look-card-title {
-  font-weight: 600;
-}
-
-.look-card-head .link-button:disabled {
-  visibility: hidden;
-}
-
-.look-card-main {
-  display: grid;
-  grid-template-columns: auto minmax(0, 1fr);
-  align-items: center;
-  gap: 16px;
-  margin-top: 6px;
-}
-
-.look-swatches {
-  display: grid;
-  grid-template-columns: repeat(4, 30px);
-  gap: 2px 4px;
+.look-color .swatches {
+  flex-wrap: wrap;
+  gap: 4px;
 }
 
 .look-color-name {
-  display: block;
-  margin: 4px 0 0 4px;
   font-size: 12px;
 }
 
-.attention-preview.look-preview {
+.look-duration {
+  align-self: stretch;
+  max-width: 360px;
+}
+
+.look-duration .range-field {
   margin-top: 0;
 }
 
-.look-pulse {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: flex-end;
-  gap: 10px 20px;
-  margin-top: 12px;
-}
-
-.look-pulse-strength {
-  display: flex;
-  flex-direction: column;
-  align-items: flex-start;
-  gap: 6px;
-}
-
-.look-pulse .segment {
+.look-field .segment {
   padding: 4px 11px;
 }
 
-.look-pulse .range-field {
-  flex: 1 1 160px;
-  margin-top: 0;
-}
-
-/* How the working dots move: each option shows its own motion next to its name. */
 .look-dots {
-  display: flex;
-  flex-direction: column;
-  align-items: flex-start;
-  gap: 6px;
-  margin-top: 12px;
-}
-
-.look-dots .segmented {
   flex-wrap: wrap;
 }
 
@@ -5202,20 +5198,9 @@ body.resizing-horizontal * {
   height: 16px;
 }
 
-.look-card:disabled .look-preview .session {
-  --edge: color-mix(in srgb, var(--muted) 40%, transparent);
-  animation: none;
-  box-shadow: none;
-  background-color: transparent;
-}
-
-.attention-notices {
-  margin-top: 4px;
-}
-
-@media (max-width: 620px) {
-  .look-card-main {
-    grid-template-columns: minmax(0, 1fr);
+@media (prefers-reduced-motion: reduce) {
+  .look-chevron {
+    transition: none;
   }
 }
 

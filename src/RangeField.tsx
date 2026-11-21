@@ -9,6 +9,7 @@ export function RangeField({
   max,
   step = 1,
   disabled = false,
+  describedBy,
   display,
   onChange,
 }: {
@@ -19,6 +20,8 @@ export function RangeField({
   max: number;
   step?: number;
   disabled?: boolean;
+  /** Id of a help text that describes the slider. */
+  describedBy?: string | undefined;
   display: string;
   onChange: (value: number) => void;
 }) {
@@ -35,6 +38,7 @@ export function RangeField({
         disabled={disabled}
         style={rangeFillStyle(value, min, max)}
         aria-valuetext={display}
+        aria-describedby={describedBy}
         onChange={(event) => {
           onChange(Number(event.currentTarget.value));
         }}

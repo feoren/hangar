@@ -1,11 +1,17 @@
 // Settings group "To your phone" (phonePush.ts): the service, its address or keys, the events and
 // a test push. The backend owns the settings and keeps the token and keys in the keychain; the
 // form only learns whether each one is stored and never shows a stored value.
+//
+// Unlike the switches elsewhere, this group saves with a button: an address and its token, or the
+// two Pushover keys, only make sense together, the backend refuses an incomplete or weak setup, and
+// every save writes the keychain. Saving on each keystroke would store half-typed secrets and
+// report errors while the user is still typing.
 
 import { useEffect, useState } from "react";
 
 import { api } from "./api";
 import { useT, type MessageKey } from "./i18n";
+import { SegmentedField, SettingRow, SettingsGroup, SwitchRow } from "./SettingsParts";
 import {
   DEFAULT_PUSH_VIEW,
   isNtfyUrl,
@@ -58,7 +64,7 @@ const NO_REMOVALS: Record<SecretField, boolean> = {
 
 type Status = { kind: "saved" | "sent" } | { kind: "error"; text: MessageKey } | null;
 
-export function PhonePushSettings({ disabled }: { disabled: boolean }) {
+export function PhonePushSettings() {
   const t = useT();
   const [view, setView] = useState<PushView>(DEFAULT_PUSH_VIEW);
   const [provider, setProvider] = useState<PushProvider>("off");
@@ -162,207 +168,199 @@ export function PhonePushSettings({ disabled }: { disabled: boolean }) {
     }
   };
 
-  const secretField = (field: SecretField, stored: boolean) => {
-    const id = `push-${field}`;
+  const secretRow = (field: SecretField, stored: boolean) => {
     const kept = stored && !removed[field];
+    // The token row also says when a new server needs the token again.
+    const again = field === "ntfyToken" && tokenAgain;
     return (
-      <div className="field push-secret">
-        <label htmlFor={id}>{t(SECRET_NAMES[field])}</label>
-        <div className="push-secret-row">
-          <input
-            id={id}
-            type="password"
-            className="text-input"
-            autoComplete="off"
-            spellCheck={false}
-            value={secrets[field]}
-            aria-describedby={kept ? `${id}-help` : undefined}
-            onChange={(event) => {
-              const value = event.currentTarget.value;
-              setSecrets((current) => ({ ...current, [field]: value }));
-              if (value !== "") setRemoved((current) => ({ ...current, [field]: false }));
-            }}
-          />
-          {kept && (
-            <button
-              type="button"
-              className="link-button"
-              onClick={() => {
-                setRemoved((current) => ({ ...current, [field]: true }));
-                setSecrets((current) => ({ ...current, [field]: "" }));
+      <SettingRow
+        key={field}
+        label={t(SECRET_NAMES[field])}
+        help={again ? t("push.tokenAgain") : kept ? t("push.secretStored") : undefined}
+        helpIsError={again}
+        helpIsStatus={field === "ntfyToken"}
+        control={({ labelId, helpId }) => (
+          <span className="push-field">
+            <input
+              id={`push-${field}`}
+              type="password"
+              className="text-input push-input"
+              autoComplete="off"
+              spellCheck={false}
+              value={secrets[field]}
+              aria-labelledby={labelId}
+              aria-describedby={helpId}
+              aria-invalid={again || undefined}
+              onChange={(event) => {
+                const value = event.currentTarget.value;
+                setSecrets((current) => ({ ...current, [field]: value }));
+                if (value !== "") setRemoved((current) => ({ ...current, [field]: false }));
               }}
-            >
-              {t("push.secretRemove")}
-            </button>
-          )}
-        </div>
-        {kept && (
-          <p id={`${id}-help`} className="muted settings-help">
-            {t("push.secretStored")}
-          </p>
+            />
+            {kept && (
+              <button
+                type="button"
+                className="link-button"
+                onClick={() => {
+                  setRemoved((current) => ({ ...current, [field]: true }));
+                  setSecrets((current) => ({ ...current, [field]: "" }));
+                }}
+              >
+                {t("push.secretRemove")}
+              </button>
+            )}
+          </span>
         )}
-      </div>
+      />
     );
   };
 
-  return (
-    <fieldset className="settings-group push-settings" disabled={disabled}>
-      <legend className="settings-subhead">{t("push.heading")}</legend>
-      <p className="muted settings-help">{t("push.help")}</p>
+  // A success is old news once the form changes again; an error stays until the next attempt.
+  const shown = status?.kind === "error" || !dirty ? status : null;
+  const statusText =
+    shown === null
+      ? dirty
+        ? t("push.unsaved")
+        : ""
+      : shown.kind === "error"
+        ? t(shown.text)
+        : t(shown.kind === "saved" ? "push.saved" : "push.testSent");
 
-      <div className="field">
-        <span id="push-provider">{t("push.provider")}</span>
-        <div className="segmented" role="radiogroup" aria-labelledby="push-provider">
-          {PUSH_PROVIDERS.map((option) => (
-            <label key={option} className="segment">
-              <input
-                type="radio"
-                name="push-provider"
-                value={option}
-                checked={provider === option}
-                onChange={() => {
-                  setProvider(option);
-                  setStatus(null);
-                }}
-              />
-              <span>{t(PROVIDER_NAMES[option])}</span>
-            </label>
-          ))}
-        </div>
-      </div>
+  return (
+    <SettingsGroup title={t("push.heading")} description={t("push.help")}>
+      <SegmentedField
+        label={t("push.provider")}
+        value={provider}
+        options={PUSH_PROVIDERS.map((option) => ({
+          value: option,
+          label: t(PROVIDER_NAMES[option]),
+        }))}
+        onChange={(option) => {
+          setProvider(option);
+          setStatus(null);
+        }}
+      />
 
       {provider === "ntfy" && (
         <>
-          <div className="field">
-            <label htmlFor="push-ntfy-url">{t("push.ntfyUrl")}</label>
-            <input
-              id="push-ntfy-url"
-              type="url"
-              className="text-input push-url"
-              spellCheck={false}
-              autoComplete="off"
-              placeholder={t("push.ntfyUrlPlaceholder")}
-              value={ntfyUrl}
-              aria-invalid={urlInvalid}
-              aria-describedby="push-ntfy-url-help"
-              onChange={(event) => {
-                setNtfyUrl(event.currentTarget.value);
-              }}
-            />
-            <p
-              id="push-ntfy-url-help"
-              className={urlInvalid || weakTopic ? "muted error-text" : "muted"}
-            >
-              {t(
-                urlInvalid
-                  ? "push.error.invalidUrl"
-                  : weakTopic
-                    ? "push.error.weakTopic"
-                    : keptUrl
-                      ? "push.ntfyUrlStored"
-                      : "push.ntfyUrlHelp",
-              )}
-            </p>
-            <button
-              type="button"
-              className="link-button"
-              onClick={() => {
-                setNtfyUrl(withTopic(ntfyUrl, randomTopic()));
-              }}
-            >
-              {t("push.randomTopic")}
-            </button>
-          </div>
-          {secretField("ntfyToken", view.ntfyToken)}
-          {tokenAgain && (
-            <p className="muted error-text push-token-again" role="status">
-              {t("push.tokenAgain")}
-            </p>
-          )}
+          <SettingRow
+            label={t("push.ntfyUrl")}
+            help={t(
+              urlInvalid
+                ? "push.error.invalidUrl"
+                : weakTopic
+                  ? "push.error.weakTopic"
+                  : keptUrl
+                    ? "push.ntfyUrlStored"
+                    : "push.ntfyUrlHelp",
+            )}
+            helpIsError={urlInvalid || weakTopic}
+            control={({ labelId, helpId }) => (
+              <span className="push-field push-url-field">
+                <input
+                  id="push-ntfy-url"
+                  type="url"
+                  className="text-input push-input"
+                  spellCheck={false}
+                  autoComplete="off"
+                  placeholder={t("push.ntfyUrlPlaceholder")}
+                  value={ntfyUrl}
+                  aria-labelledby={labelId}
+                  aria-describedby={helpId}
+                  aria-invalid={urlInvalid || weakTopic || undefined}
+                  onChange={(event) => {
+                    setNtfyUrl(event.currentTarget.value);
+                  }}
+                />
+                <button
+                  type="button"
+                  className="link-button"
+                  onClick={() => {
+                    setNtfyUrl(withTopic(ntfyUrl, randomTopic()));
+                  }}
+                >
+                  {t("push.randomTopic")}
+                </button>
+              </span>
+            )}
+          />
+          {secretRow("ntfyToken", view.ntfyToken)}
         </>
       )}
 
       {provider === "pushover" && (
         <>
-          {secretField("pushoverUser", view.pushoverUser)}
-          {secretField("pushoverToken", view.pushoverToken)}
+          {secretRow("pushoverUser", view.pushoverUser)}
+          {secretRow("pushoverToken", view.pushoverToken)}
         </>
       )}
 
       {provider !== "off" && (
-        <div className="field">
-          <label className="check">
-            <input
-              type="checkbox"
-              checked={includeTitle}
-              aria-describedby="push-include-title-help"
-              onChange={(event) => {
-                setIncludeTitle(event.currentTarget.checked);
+        <>
+          {PUSH_EVENTS.map((event) => (
+            <SwitchRow
+              key={event}
+              label={t(EVENT_NAMES[event])}
+              checked={events[event]}
+              onChange={(checked) => {
+                setEvents((current) => ({ ...current, [event]: checked }));
               }}
             />
-            <span>{t("push.includeTitle")}</span>
-          </label>
-          <p id="push-include-title-help" className="muted settings-help">
-            {t("push.includeTitleHelp")}
-          </p>
-        </div>
+          ))}
+          <SwitchRow
+            label={t("push.includeTitle")}
+            help={t("push.includeTitleHelp")}
+            checked={includeTitle}
+            onChange={setIncludeTitle}
+          />
+        </>
       )}
 
-      {provider !== "off" && (
-        <div className="field">
-          <span id="push-events">{t("push.events")}</span>
-          <div className="push-events" role="group" aria-labelledby="push-events">
-            {PUSH_EVENTS.map((event) => (
-              <label key={event} className="check">
-                <input
-                  type="checkbox"
-                  checked={events[event]}
-                  onChange={(change) => {
-                    const checked = change.currentTarget.checked;
-                    setEvents((current) => ({ ...current, [event]: checked }));
-                  }}
-                />
-                <span>{t(EVENT_NAMES[event])}</span>
-              </label>
-            ))}
-          </div>
+      <div className="setting">
+        <div className="setting-line">
+          <span className="setting-text">
+            {/* Always mounted: a live region that appears together with its text is often not
+                read. */}
+            <span
+              className={status?.kind === "error" ? "setting-help error-text" : "setting-help"}
+              role="status"
+            >
+              {statusText}
+            </span>
+          </span>
+          <span className="setting-control">
+            {provider !== "off" && (
+              <button
+                type="button"
+                className="secondary-button"
+                disabled={blocked}
+                aria-disabled={busy || undefined}
+                onClick={() => {
+                  run(sendTest);
+                }}
+              >
+                {t("push.test")}
+              </button>
+            )}
+            {/* With the push off and nothing changed there is nothing to save. */}
+            {(provider !== "off" || dirty) && (
+              <button
+                type="button"
+                className="primary-button"
+                disabled={!dirty || blocked}
+                aria-disabled={busy || undefined}
+                onClick={() => {
+                  run(async () => {
+                    await save();
+                  });
+                }}
+              >
+                {t("push.save")}
+              </button>
+            )}
+          </span>
         </div>
-      )}
-
-      <div className="push-actions">
-        <button
-          type="button"
-          className="secondary-button"
-          disabled={!dirty || blocked}
-          aria-disabled={busy || undefined}
-          onClick={() => {
-            run(async () => {
-              await save();
-            });
-          }}
-        >
-          {t("push.save")}
-        </button>
-        <button
-          type="button"
-          className="secondary-button"
-          disabled={provider === "off" || blocked}
-          aria-disabled={busy || undefined}
-          onClick={() => {
-            run(sendTest);
-          }}
-        >
-          {t("push.test")}
-        </button>
-        {/* Always mounted: a live region that appears together with its text is often not read. */}
-        <span className={status?.kind === "error" ? "muted error-text" : "muted"} role="status">
-          {status === null
-            ? ""
-            : status.kind === "error"
-              ? t(status.text)
-              : t(status.kind === "saved" ? "push.saved" : "push.testSent")}
-        </span>
       </div>
-    </fieldset>
+    </SettingsGroup>
   );
 }

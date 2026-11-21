@@ -72,6 +72,7 @@ UI texts in `src/i18n.ts` are translated per language and are not bound by this 
 | Bereich „Allgemein“                             | General area                      | notes without a folder                                                               |
 | Papierkorb                                      | trash                             |                                                                                      |
 | Aufmerksamkeit, Aufmerksamkeits-Puls            | attention, attention pulse        |                                                                                      |
+| Benachrichtigungen (Einstellungen)              | Notifications (settings section)  | `AttentionSettings.tsx`; section id stays `attention`                                |
 | wartet (auf dich)                               | waiting (for you)                 |                                                                                      |
 | Aussehen je Status                              | state look                        | color, pulse strength and duration per state, `stateLook.ts`                         |
 | Pause (Session läuft, ruhig)                    | pause                             | UI name of the `idle` state of a running session                                     |
@@ -189,7 +190,7 @@ UI texts in `src/i18n.ts` are translated per language and are not bound by this 
 | Rückfragen-Schutz                               | question guard                    | `promptGuard.ts`; a question on screen holds the queued message back                 |
 | Hänger-Hinweis                                  | stall hint                        | `stall.ts`; a working agent shows nothing new for a while, quiet text on its row     |
 | Warte-Hinweis                                   | wait hint                         | `waitHint.ts`; a session waits for you past a threshold, its row says how long       |
-| Ruhezeiten (Hinweise)                           | quiet hours                       | `quietHours.ts`; daily window without taskbar flash, chime and desktop notification  |
+| Ruhezeiten (Hinweise)                           | quiet hours                       | `quietHours.ts`; no flash, chime, desktop notification, push or budget warning       |
 | Textbaustein                                    | snippet                           | `snippets.ts`                                                                        |
 | Variable (Textbaustein)                         | snippet variable                  | `snippetVariables.ts`; `{{file}}` and others, filled per session when sending        |
 | Workspace-Vorlage                               | workspace template                | `templates.ts`; named set of sessions started together, stored per machine           |
