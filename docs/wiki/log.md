@@ -1350,3 +1350,14 @@ Hangar's copy holds reaches Codex CLI only where the name is free, never a proje
 deleting a copy move it aside first and check the moved file. A `sandbox_mode` in a Codex CLI
 agent file does not override the parent's sandbox (Codex CLI documentation), so none is written.
 Pages changed: [[sub-agent-library]], index.
+
+## [2026-11-21] lint | Three more bundled sub-agents
+Hangar now ships fifteen sub-agent definitions: `hangar-finance` (bookkeeping, tax preparation,
+pricing, liquidity; never files or pays), `hangar-contracts` (contract review and drafting,
+licenses, insurance; never signs or sends) and `hangar-sysadmin` (Windows, macOS and Linux
+workstations and servers; read-only diagnosis first, every change with a rollback). Their default
+figures are fixed by name, because the name hash would have repeated another agent's figure;
+`hangar-n8n` and `hangar-comfyui` (unreleased so far) get fixed figures for the same reason, and a
+test keeps every bundled agent's default figure distinct. `hangar-manager` names and reviews all
+bundled roles.
+Pages changed: [[sub-agent-library]].

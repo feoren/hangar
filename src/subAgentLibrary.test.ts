@@ -1,5 +1,5 @@
 /// <reference types="node" />
-import { readFileSync } from "node:fs";
+import { readdirSync, readFileSync } from "node:fs";
 
 import { describe, expect, it } from "vitest";
 
@@ -89,11 +89,38 @@ describe("figures", () => {
       kind: "builtin",
       id: "social-media-01",
     });
-    // No role word: a bundled figure picked from the name, whatever the color says.
-    const picked = defaultFigure("hangar-n8n", "orange");
+    // No role word and no fixed pick: a bundled figure picked from the name, whatever the color.
+    const picked = defaultFigure("hangar-writer", "orange");
     expect(picked.kind).toBe("builtin");
-    expect(defaultFigure("hangar-n8n", null)).toEqual(picked);
-    expect(defaultFigure("hangar-comfyui", "purple").kind).toBe("builtin");
+    expect(defaultFigure("hangar-writer", null)).toEqual(picked);
+    // Picked by name, so no two bundled agents share a default figure.
+    expect(defaultFigure("hangar-comfyui", "purple")).toEqual({
+      kind: "builtin",
+      id: "frontend-03",
+    });
+    expect(defaultFigure("hangar-n8n", "orange")).toEqual({ kind: "builtin", id: "developer-03" });
+    expect(defaultFigure("hangar-finance", "green")).toEqual({
+      kind: "builtin",
+      id: "researcher-04",
+    });
+    expect(defaultFigure("hangar-contracts", null)).toEqual({
+      kind: "builtin",
+      id: "researcher-03",
+    });
+    expect(defaultFigure("hangar-sysadmin", "blue")).toEqual({ kind: "builtin", id: "backend-03" });
+  });
+
+  it("differ for every bundled agent", () => {
+    const names = readdirSync(new URL("../src-tauri/bundled-agents/", import.meta.url))
+      .filter((file) => file.endsWith(".md"))
+      .map((file) => file.slice(0, -".md".length));
+    expect(names.length).toBeGreaterThanOrEqual(15);
+    const figures = names.map((name) => {
+      const figure = defaultFigure(name, null);
+      expect(figure.kind).toBe("builtin");
+      return figure.kind === "builtin" ? figure.id : name;
+    });
+    expect(new Set(figures).size).toBe(names.length);
   });
 
   it("are Hangar's own: every other agent shows its initial", () => {
@@ -122,7 +149,7 @@ describe("figures", () => {
 
   it("keep a name's figure when new figures are bundled", () => {
     // Pinned: new bundled figures must not move it.
-    expect(defaultFigure("hangar-n8n", null)).toEqual({ kind: "builtin", id: "researcher-01" });
+    expect(defaultFigure("hangar-writer", null)).toEqual({ kind: "builtin", id: "manager-02" });
     for (const id of NAME_FIGURES) expect(BUILTIN_FIGURES).toContain(id);
   });
 

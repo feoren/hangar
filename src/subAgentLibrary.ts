@@ -296,11 +296,14 @@ export function initialFigure(name: string, color: string | null): Figure {
 
 /**
  * The figure of an agent without a chosen one. A Hangar agent wears the role figure the word
- * after the prefix points to (`hangar-tester` -> tester), else a bundled figure picked from the
- * name, the same on every start (`hangar-n8n`). Every other agent gets its initial.
+ * after the prefix points to (`hangar-tester` -> tester), else the one picked for it by name
+ * (`hangar-finance`), else a bundled figure picked from the name's hash, the same on every start.
+ * Every other agent gets its initial.
  */
 export function defaultFigure(name: string, color: string | null): Figure {
   if (!isHangarAgent(name)) return initialFigure(name, color);
+  const picked = PICKED_FIGURES.get(name);
+  if (picked !== undefined) return { kind: "builtin", id: picked };
   for (const word of name.slice(HANGAR_PREFIX.length).split("-")) {
     const role = ROLE_WORDS[word];
     const id = role === undefined ? undefined : `${role}-01`;
@@ -309,6 +312,19 @@ export function defaultFigure(name: string, color: string | null): Figure {
   const id = NAME_FIGURES[hash(name) % NAME_FIGURES.length] ?? "developer-01";
   return { kind: "builtin", id };
 }
+
+/**
+ * Bundled agents without a role word. Their hash pick would repeat another bundled agent's figure
+ * (`hangar-n8n` the researcher's, `hangar-comfyui` the manager's), so each wears one fixed here;
+ * a test keeps every bundled agent's default figure distinct.
+ */
+const PICKED_FIGURES: ReadonlyMap<string, BuiltinFigure> = new Map<string, BuiltinFigure>([
+  ["hangar-comfyui", "frontend-03"],
+  ["hangar-contracts", "researcher-03"],
+  ["hangar-finance", "researcher-04"],
+  ["hangar-n8n", "developer-03"],
+  ["hangar-sysadmin", "backend-03"],
+]);
 
 /**
  * The figures a name without a role word is spread over. Frozen at the first set: picking from

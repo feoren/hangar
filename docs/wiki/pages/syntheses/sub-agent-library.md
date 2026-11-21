@@ -185,10 +185,11 @@ sets (`extras`); the window names them for project definitions ("brings hooks, m
 
 ## Bundled definitions (`src-tauri/src/bundled_agents.rs`)
 
-Hangar ships twelve Claude Code definitions of its own (`hangar-backend`, `hangar-comfyui`,
-`hangar-developer`, `hangar-frontend`, `hangar-manager`, `hangar-marketing`, `hangar-n8n`,
-`hangar-researcher`, `hangar-sales`, `hangar-security`, `hangar-social-media`, `hangar-tester`)
-as `src-tauri/bundled-agents/<name>.md`, embedded at compile time (`include_str!`), so nothing is
+Hangar ships fifteen Claude Code definitions of its own (`hangar-backend`, `hangar-comfyui`,
+`hangar-contracts`, `hangar-developer`, `hangar-finance`, `hangar-frontend`, `hangar-manager`,
+`hangar-marketing`, `hangar-n8n`, `hangar-researcher`, `hangar-sales`, `hangar-security`,
+`hangar-social-media`, `hangar-sysadmin`, `hangar-tester`) as
+`src-tauri/bundled-agents/<name>.md`, embedded at compile time (`include_str!`), so nothing is
 read from the installation folder at run time. A test keeps every file parsable with `parse_def`
 and its `name` equal to its file name. The owner decided that every user gets them without doing
 anything. The `hangar-` prefix keeps them apart from the user's own names (and gives them their
@@ -384,10 +385,16 @@ repository.
 
 ### Default figure
 
-Only for a Hangar agent (`hangar-<role>`), without a chosen figure: the role figure a word after
-the prefix points to (`backend`, `developer`, `frontend`, `manager`, `researcher`, `security`,
-`tester`, `marketing`, `sales`, `social` to their figures, and so on), else a built-in figure
-picked by a hash of the whole name, the same on every start (`hangar-n8n`, `hangar-comfyui`).
+Only for a Hangar agent (`hangar-<role>`), without a chosen figure: the figure fixed for that
+name in `PICKED_FIGURES` (`hangar-comfyui` frontend-03, `hangar-contracts` researcher-03,
+`hangar-finance` researcher-04, `hangar-n8n` developer-03, `hangar-sysadmin` backend-03), else the
+role figure a word after the prefix points to (`backend`, `developer`, `frontend`, `manager`,
+`researcher`, `security`, `tester`, `marketing`, `sales`, `social` to their figures, and so on),
+else a built-in figure picked by a hash of the whole name, the same on every start. The fixed
+picks exist because the hash repeats figures of other bundled agents (`hangar-n8n` the
+researcher's, `hangar-comfyui` the manager's, `hangar-finance` and `hangar-sysadmin` the
+developer's); a test keeps the default figures of all files in `src-tauri/bundled-agents/`
+distinct. None of these agents had shipped in a release yet, so no figure a user saw moved.
 Any other name gets its initial (`initialFigure`), see "Figures" above. A project's own
 definition never wears a figure, also under Hangar's prefix; a project copy with the global
 definition's fingerprint is that agent and wears its figure.
