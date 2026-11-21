@@ -4966,11 +4966,6 @@ body.resizing-horizontal * {
   }
 }
 
-/* Font size sits between fields in the terminal section and needs their spacing below it. */
-.terminal-look .range-field {
-  margin: 0 0 18px;
-}
-
 /* Terminal look: a small terminal in the chosen colors, font, size and cursor, with the 16 colors
    beside it. It sticks to the top of the panel while the pickers below it scroll, so every choice
    shows at once; the shadows in the panel color hide what scrolls past above it and the outline
@@ -4983,7 +4978,7 @@ body.resizing-horizontal * {
   align-items: center;
   justify-content: space-between;
   gap: 16px;
-  margin: 6px 0 16px;
+  margin: var(--space-2) var(--space-2) var(--space-1);
   padding: 10px 14px;
   border: 1px solid var(--border);
   border-radius: 8px;
@@ -5841,6 +5836,85 @@ label.setting-line:hover {
 .setting-card > .gate-rule-list {
   margin: 0;
   padding: var(--space-1) var(--space-2);
+}
+
+/* Tiles and sliders: name and help on top, the control across the whole line below. */
+/* A grid, not a column flexbox: that would size the tile grids at their narrowest and leave a gap. */
+.setting-line.setting-wide {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  align-items: stretch;
+  padding-bottom: var(--space-2);
+}
+
+.setting-wide-control {
+  min-width: 0;
+}
+
+/* A line that opens a rarely changed setting below it (the session row builder). */
+.setting-line.disclosure-row {
+  width: 100%;
+  font: inherit;
+  color: inherit;
+  text-align: left;
+  flex-wrap: nowrap;
+  background: none;
+  border: none;
+  cursor: pointer;
+}
+
+.disclosure-row:hover {
+  background: var(--hover);
+}
+
+.setting:last-child > .disclosure-row[aria-expanded="false"]:hover {
+  border-radius: 0 0 7px 7px;
+}
+
+.disclosure-row:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
+  border-radius: 7px;
+}
+
+.setting-disclosure-body {
+  padding: var(--space-1) var(--space-2) var(--space-2);
+}
+
+.setting-disclosure-body > .field {
+  margin-bottom: 0;
+}
+
+/* Cursor form and blinking side by side; in a narrow panel the switch wraps below. */
+.cursor-control {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: flex-end;
+  gap: var(--space-1) var(--space-2);
+  max-width: 100%;
+}
+
+.inline-switch {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+  min-height: 32px;
+  cursor: pointer;
+}
+
+/* A quiet action after the last group, such as "Reset layout". */
+.dialog .setting-footer {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 0 var(--space-1);
+  margin: var(--space-2) 0 0;
+}
+
+.setting-footer .link-button {
+  text-decoration: underline;
+  text-underline-offset: 2px;
 }
 
 .setting-advanced {

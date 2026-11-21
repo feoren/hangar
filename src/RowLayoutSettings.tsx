@@ -15,6 +15,7 @@ import { useT, type MessageKey } from "./i18n";
 import { ArrowUpIcon, CloseIcon, GripIcon, PlusIcon } from "./icons";
 import type { BadgeLook } from "./programPrefs";
 import { formatCpu, formatMemory, type ResourceParts } from "./resources";
+import { DisclosureRow } from "./SettingsParts";
 import {
   DEFAULT_ROW_LAYOUT,
   ELEMENT_FORMS,
@@ -150,6 +151,31 @@ interface Drag {
   y: number;
   moved: boolean;
   target: DropTarget | null;
+}
+
+/**
+ * The builder behind one line in the Sidebar group: most people never change the row, so it stays
+ * closed and the line names the template in use.
+ */
+export function RowLayoutSetting({
+  value,
+  language,
+  onChange,
+}: {
+  value: RowLayout;
+  language: string;
+  onChange: (value: RowLayout) => void;
+}) {
+  const t = useT();
+  const preset = matchingPreset(value);
+  return (
+    <DisclosureRow
+      label={t("settings.rowStyleEdit")}
+      help={preset === null ? t("rowLayout.own") : t(ROW_PRESET_NAMES[preset])}
+    >
+      <RowLayoutField value={value} language={language} onChange={onChange} />
+    </DisclosureRow>
+  );
 }
 
 export function RowLayoutField({
@@ -296,7 +322,10 @@ export function RowLayoutField({
 
   return (
     <div className="field row-builder">
-      <span id="settings-row-layout">{t("settings.rowStyle")}</span>
+      {/* Named by the line that opens it (RowLayoutSetting); the name stays for the editor. */}
+      <span id="settings-row-layout" className="sr-only">
+        {t("settings.rowStyle")}
+      </span>
       <p id="settings-row-layout-help" className="muted">
         {t("settings.rowStyleHelp")}
       </p>

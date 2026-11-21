@@ -10,10 +10,12 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   ActionRow,
   Advanced,
+  DisclosureRow,
   InlineConfirm,
   SegmentedField,
   SettingsGroup,
   SwitchRow,
+  WideRow,
 } from "./SettingsParts";
 
 Reflect.set(globalThis, "IS_REACT_ACT_ENVIRONMENT", true);
@@ -142,6 +144,47 @@ describe("SegmentedField", () => {
       radios[0]?.click();
     });
     expect(onChange).toHaveBeenCalledWith("block");
+  });
+});
+
+describe("WideRow", () => {
+  it("hands its name and help to the control below them", () => {
+    render(
+      <WideRow label="Font" help="Installed ones show too.">
+        {({ labelId, helpId }) => (
+          <div role="radiogroup" aria-labelledby={labelId} aria-describedby={helpId} />
+        )}
+      </WideRow>,
+    );
+    const group = host.querySelector('[role="radiogroup"]');
+    expect(byId(group?.getAttribute("aria-labelledby") ?? null)?.textContent).toBe("Font");
+    expect(byId(group?.getAttribute("aria-describedby") ?? null)?.textContent).toBe(
+      "Installed ones show too.",
+    );
+  });
+});
+
+describe("DisclosureRow", () => {
+  it("starts closed and opens and closes its content on a click", () => {
+    render(
+      <DisclosureRow label="Customize row" help="Standard">
+        <p className="probe-child">Builder</p>
+      </DisclosureRow>,
+    );
+    const toggle = host.querySelector<HTMLButtonElement>("button[aria-expanded]");
+    expect(toggle?.textContent).toContain("Customize row");
+    expect(toggle?.textContent).toContain("Standard");
+    expect(toggle?.getAttribute("aria-expanded")).toBe("false");
+    expect(host.querySelector(".probe-child")).toBeNull();
+    act(() => {
+      toggle?.click();
+    });
+    expect(toggle?.getAttribute("aria-expanded")).toBe("true");
+    expect(byId(toggle?.getAttribute("aria-controls") ?? null)?.textContent).toBe("Builder");
+    act(() => {
+      toggle?.click();
+    });
+    expect(host.querySelector(".probe-child")).toBeNull();
   });
 });
 

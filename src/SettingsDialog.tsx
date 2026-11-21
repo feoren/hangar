@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, useSyncExternalStore, type ReactNode } from "react";
+import { useEffect, useId, useRef, useState, useSyncExternalStore, type ReactNode } from "react";
 
 import { AccountSettings } from "./AccountSettings";
 import { errorText, type Profile } from "./api";
@@ -15,8 +15,16 @@ import type { UpdateActions } from "./ProgramUpdateOffer";
 import { ProgramsSettings } from "./ProgramsSettings";
 import { AttentionSettings } from "./AttentionSettings";
 import { RangeField } from "./RangeField";
-import { RowLayoutField } from "./RowLayoutSettings";
-import { ActionRow, SettingsGroup, SwitchRow } from "./SettingsParts";
+import { RowLayoutSetting } from "./RowLayoutSettings";
+import {
+  ActionRow,
+  SegmentedField,
+  SettingRow,
+  SettingsGroup,
+  Switch,
+  SwitchRow,
+  WideRow,
+} from "./SettingsParts";
 import { treeFlowSupported } from "./treeFlow";
 import { TreeFlowField } from "./TreeFlowSettings";
 import type { Settings } from "./settings";
@@ -335,284 +343,282 @@ function SectionContent(props: Props & { section: SettingsSection }) {
   }
 }
 
+/**
+ * Appearance, most used first: the app's look, the terminals, the sidebar and the file viewer.
+ * Resetting the layout sits last as a quiet link: it only puts sizes back.
+ */
 function AppearanceSection(props: Props) {
   const { settings, onChange } = props;
   const t = useT();
-  const [layoutReset, setLayoutReset] = useState(false);
   return (
     <>
-      <div className="field">
-        <span id="settings-theme">{t("settings.theme")}</span>
-        <div
-          className="segmented"
-          role="radiogroup"
-          aria-labelledby="settings-theme"
-          aria-describedby="settings-theme-help"
-        >
-          {THEME_SETTINGS.map((theme) => (
-            <label key={theme} className="segment">
-              <input
-                type="radio"
-                name="theme"
-                value={theme}
-                checked={settings.theme === theme}
-                onChange={() => {
-                  onChange({ theme });
-                }}
-              />
-              <span>{t(THEME_NAMES[theme])}</span>
-            </label>
-          ))}
-        </div>
-        <p id="settings-theme-help" className="muted">
-          {t("settings.themeHelp")}
-        </p>
-      </div>
-      <div className="field">
-        <span id="settings-grouping">{t("sidebar.groupBy")}</span>
-        <div
-          className="segmented"
-          role="radiogroup"
-          aria-labelledby="settings-grouping"
-          aria-describedby="settings-grouping-help"
-        >
-          {SESSION_GROUPINGS.map((grouping) => (
-            <label key={grouping} className="segment">
-              <input
-                type="radio"
-                name="session-grouping"
-                value={grouping}
-                checked={settings.sessionGrouping === grouping}
-                onChange={() => {
-                  onChange({ sessionGrouping: grouping });
-                }}
-              />
-              <span>{t(GROUPING_NAMES[grouping])}</span>
-            </label>
-          ))}
-        </div>
-        <p id="settings-grouping-help" className="muted">
-          {t("sidebar.groupByHelp")}
-        </p>
-      </div>
-      <RowLayoutField
-        value={settings.rowLayout}
-        language={settings.language}
-        onChange={(rowLayout) => {
-          onChange({ rowLayout });
-        }}
-      />
-      <TreeFlowField
-        value={settings.treeFlow}
-        supported={treeFlowSupported()}
-        onChange={(treeFlow) => {
-          onChange({ treeFlow });
-        }}
-      />
-      <TerminalLookFields {...props} />
-      <ViewerThemeFields {...props} />
-      <div className="settings-row">
-        <button
-          type="button"
-          className="secondary-button"
-          aria-describedby="reset-layout-help"
-          onClick={() => {
-            props.onResetLayout();
-            setLayoutReset(true);
+      <SettingsGroup title={t("settings.groupInterface")}>
+        <SegmentedField
+          label={t("settings.theme")}
+          help={t("settings.themeHelp")}
+          value={settings.theme}
+          options={THEME_SETTINGS.map((theme) => ({ value: theme, label: t(THEME_NAMES[theme]) }))}
+          onChange={(theme) => {
+            onChange({ theme });
           }}
-        >
-          {t("settings.resetLayout")}
-        </button>
-        <span id="reset-layout-help" className="muted" role="status">
-          {layoutReset ? t("settings.layoutResetDone") : t("settings.resetLayoutHelp")}
-        </span>
-      </div>
+        />
+      </SettingsGroup>
+      <TerminalLookGroup {...props} />
+      <SettingsGroup title={t("settings.groupSidebar")}>
+        <SegmentedField
+          label={t("sidebar.groupBy")}
+          help={t("sidebar.groupByHelp")}
+          value={settings.sessionGrouping}
+          options={SESSION_GROUPINGS.map((grouping) => ({
+            value: grouping,
+            label: t(GROUPING_NAMES[grouping]),
+          }))}
+          onChange={(sessionGrouping) => {
+            onChange({ sessionGrouping });
+          }}
+        />
+        <TreeFlowField
+          value={settings.treeFlow}
+          supported={treeFlowSupported()}
+          onChange={(treeFlow) => {
+            onChange({ treeFlow });
+          }}
+        />
+        <RowLayoutSetting
+          value={settings.rowLayout}
+          language={settings.language}
+          onChange={(rowLayout) => {
+            onChange({ rowLayout });
+          }}
+        />
+      </SettingsGroup>
+      <ViewerThemeGroup {...props} />
+      <ResetLayoutLink onReset={props.onResetLayout} />
     </>
   );
 }
 
-/** Color scheme, font, size and cursor of the terminals, with a small live preview. */
-function TerminalLookFields(props: Props) {
+/** "Reset layout" as a quiet link; what it does, then that it is done, next to it. */
+function ResetLayoutLink({ onReset }: { onReset: () => void }) {
+  const t = useT();
+  const [done, setDone] = useState(false);
+  return (
+    <p className="setting-footer">
+      <button
+        type="button"
+        className="link-button"
+        aria-describedby="reset-layout-help"
+        onClick={() => {
+          onReset();
+          setDone(true);
+        }}
+      >
+        {t("settings.resetLayout")}
+      </button>
+      <span id="reset-layout-help" className="muted" role="status">
+        {done ? t("settings.layoutResetDone") : t("settings.resetLayoutHelp")}
+      </span>
+    </p>
+  );
+}
+
+/** Color scheme, font, size and cursor of the terminals, under a small live preview. */
+function TerminalLookGroup(props: Props) {
   const { settings, onChange } = props;
   const t = useT();
   const fonts = fontChoices(availableFonts(), settings.terminalFont);
   return (
-    <section className="settings-section terminal-look" aria-labelledby="settings-terminal">
-      <h4 id="settings-terminal" className="settings-subtitle">
-        {t("settings.terminal")}
-      </h4>
+    <SettingsGroup title={t("settings.terminal")}>
+      {/* A direct child of the card, so it can stay in view while the pickers scroll. */}
       <TerminalPreview settings={settings} theme={props.theme} fontSize={props.fontSize} />
-      <div className="field">
-        <span id="settings-scheme">{t("settings.colorScheme")}</span>
-        <div
-          className="scheme-picker"
-          role="radiogroup"
-          aria-labelledby="settings-scheme"
-          aria-describedby="settings-scheme-help"
-        >
-          {SCHEME_GROUPS.map((group) => (
-            <div
-              key={group}
-              className="scheme-group"
-              role="group"
-              aria-labelledby={`scheme-group-${group}`}
-            >
-              <span id={`scheme-group-${group}`} className="scheme-group-title">
-                {t(SCHEME_GROUP_NAMES[group])}
-              </span>
-              <div className="scheme-grid">
-                {schemesInGroup(group).map((scheme) => (
-                  <SchemeTile
-                    key={scheme}
-                    scheme={scheme}
-                    name={t(SCHEME_NAMES[scheme])}
-                    colors={schemeColors(scheme, props.theme)}
-                    font={fontStack(settings.terminalFont)}
-                    checked={settings.terminalScheme === scheme}
-                    onSelect={() => {
-                      onChange({ terminalScheme: scheme });
-                    }}
-                  />
-                ))}
+      <WideRow label={t("settings.colorScheme")} help={t("settings.colorSchemeHelp")}>
+        {({ labelId, helpId }) => (
+          <div
+            className="scheme-picker"
+            role="radiogroup"
+            aria-labelledby={labelId}
+            aria-describedby={helpId}
+          >
+            {SCHEME_GROUPS.map((group) => (
+              <div
+                key={group}
+                className="scheme-group"
+                role="group"
+                aria-labelledby={`scheme-group-${group}`}
+              >
+                <span id={`scheme-group-${group}`} className="scheme-group-title">
+                  {t(SCHEME_GROUP_NAMES[group])}
+                </span>
+                <div className="scheme-grid">
+                  {schemesInGroup(group).map((scheme) => (
+                    <SchemeTile
+                      key={scheme}
+                      scheme={scheme}
+                      name={t(SCHEME_NAMES[scheme])}
+                      colors={schemeColors(scheme, props.theme)}
+                      font={fontStack(settings.terminalFont)}
+                      checked={settings.terminalScheme === scheme}
+                      onSelect={() => {
+                        onChange({ terminalScheme: scheme });
+                      }}
+                    />
+                  ))}
+                </div>
               </div>
-            </div>
-          ))}
+            ))}
+          </div>
+        )}
+      </WideRow>
+      <WideRow label={t("settings.font")} help={t("settings.fontHelp")}>
+        {({ labelId, helpId }) => (
+          <div
+            className="font-picker"
+            role="radiogroup"
+            aria-labelledby={labelId}
+            aria-describedby={helpId}
+          >
+            {fonts.map((font) => (
+              <label key={font} className="font-option" style={{ fontFamily: fontStack(font) }}>
+                <input
+                  type="radio"
+                  name="terminal-font"
+                  value={font}
+                  checked={settings.terminalFont === font}
+                  onChange={() => {
+                    onChange({ terminalFont: font });
+                  }}
+                />
+                <span className="font-option-name">
+                  {font === "default" ? t("settings.fontDefault") : font}
+                </span>
+                <span className="font-option-sample" aria-hidden="true">
+                  {FONT_SAMPLE}
+                </span>
+                <span className="font-option-check">
+                  <CheckIcon size={14} />
+                </span>
+              </label>
+            ))}
+          </div>
+        )}
+      </WideRow>
+      <div className="setting">
+        <div className="setting-line">
+          <RangeField
+            id="font-size"
+            label={t("settings.fontSize")}
+            value={props.fontSize}
+            min={FONT_SIZE.min}
+            max={FONT_SIZE.max}
+            display={t("settings.fontSizeValue", { size: props.fontSize })}
+            onChange={(value) => {
+              props.onFontSize(clampFontSize(value));
+            }}
+          />
         </div>
-        <p id="settings-scheme-help" className="muted">
-          {t("settings.colorSchemeHelp")}
-        </p>
       </div>
-      <div className="field">
-        <span id="settings-font">{t("settings.font")}</span>
-        <div
-          className="font-picker"
-          role="radiogroup"
-          aria-labelledby="settings-font"
-          aria-describedby="settings-font-help"
-        >
-          {fonts.map((font) => (
-            <label key={font} className="font-option" style={{ fontFamily: fontStack(font) }}>
-              <input
-                type="radio"
-                name="terminal-font"
-                value={font}
-                checked={settings.terminalFont === font}
-                onChange={() => {
-                  onChange({ terminalFont: font });
-                }}
-              />
-              <span className="font-option-name">
-                {font === "default" ? t("settings.fontDefault") : font}
-              </span>
-              <span className="font-option-sample" aria-hidden="true">
-                {FONT_SAMPLE}
-              </span>
-              <span className="font-option-check">
-                <CheckIcon size={14} />
-              </span>
-            </label>
-          ))}
-        </div>
-        <p id="settings-font-help" className="muted">
-          {t("settings.fontHelp")}
-        </p>
-      </div>
-      <RangeField
-        id="font-size"
-        label={t("settings.fontSize")}
-        value={props.fontSize}
-        min={FONT_SIZE.min}
-        max={FONT_SIZE.max}
-        display={t("settings.fontSizeValue", { size: props.fontSize })}
-        onChange={(value) => {
-          props.onFontSize(clampFontSize(value));
+      <CursorRow
+        cursorStyle={settings.cursorStyle}
+        blink={settings.cursorBlink}
+        onStyle={(cursorStyle) => {
+          onChange({ cursorStyle });
+        }}
+        onBlink={(cursorBlink) => {
+          onChange({ cursorBlink });
         }}
       />
-      <div className="field">
-        <span id="settings-cursor">{t("settings.cursor")}</span>
-        <div className="segmented" role="radiogroup" aria-labelledby="settings-cursor">
-          {CURSOR_STYLES.map((style) => (
-            <label key={style} className="segment">
-              <input
-                type="radio"
-                name="cursor-style"
-                value={style}
-                checked={settings.cursorStyle === style}
-                onChange={() => {
-                  onChange({ cursorStyle: style });
-                }}
-              />
-              <span>{t(CURSOR_NAMES[style])}</span>
-            </label>
-          ))}
-        </div>
-      </div>
-      <label className="check">
-        <input
-          type="checkbox"
-          checked={settings.cursorBlink}
-          onChange={(event) => {
-            onChange({ cursorBlink: event.currentTarget.checked });
-          }}
-        />
-        <span>{t("settings.cursorBlink")}</span>
-      </label>
-    </section>
+    </SettingsGroup>
+  );
+}
+
+/** The cursor's form as segments and its blinking as a switch, side by side in one line. */
+function CursorRow(props: {
+  cursorStyle: CursorStyle;
+  blink: boolean;
+  onStyle: (style: CursorStyle) => void;
+  onBlink: (blink: boolean) => void;
+}) {
+  const t = useT();
+  const blinkId = `${useId()}-blink`;
+  return (
+    <SettingRow
+      label={t("settings.cursor")}
+      control={({ labelId }) => (
+        <span className="cursor-control">
+          <span className="segmented" role="radiogroup" aria-labelledby={labelId}>
+            {CURSOR_STYLES.map((style) => (
+              <label key={style} className="segment">
+                <input
+                  type="radio"
+                  name="cursor-style"
+                  value={style}
+                  checked={props.cursorStyle === style}
+                  onChange={() => {
+                    props.onStyle(style);
+                  }}
+                />
+                <span>{t(CURSOR_NAMES[style])}</span>
+              </label>
+            ))}
+          </span>
+          <label className="inline-switch">
+            <Switch checked={props.blink} labelledBy={blinkId} onChange={props.onBlink} />
+            <span id={blinkId}>{t("settings.cursorBlink")}</span>
+          </label>
+        </span>
+      )}
+    />
   );
 }
 
 /** Colors of the file viewer window: one tile per theme, each a few lines of code in it. */
-function ViewerThemeFields(props: Props) {
+function ViewerThemeGroup(props: Props) {
   const { settings, onChange } = props;
   const t = useT();
   return (
-    <section className="settings-section" aria-labelledby="settings-viewer">
-      <h4 id="settings-viewer" className="settings-subtitle">
-        {t("settings.viewer")}
-      </h4>
-      <div className="field">
-        <div
-          className="viewer-theme-picker"
-          role="radiogroup"
-          aria-labelledby="settings-viewer"
-          aria-describedby="settings-viewer-help"
-        >
-          {VIEWER_THEMES.map((theme) => {
-            const palette = viewerPalette(theme, props.theme);
-            return (
-              <label
-                key={theme}
-                className="viewer-theme-option"
-                style={{ background: palette.background, color: palette.foreground }}
-              >
-                <input
-                  type="radio"
-                  name="viewer-theme"
-                  value={theme}
-                  checked={settings.viewerTheme === theme}
-                  onChange={() => {
-                    onChange({ viewerTheme: theme });
-                  }}
-                />
-                <CodeSample palette={palette} font={fontStack(settings.terminalFont)} />
-                <span
-                  className="viewer-theme-name"
-                  style={{ background: palette.activeLine, color: palette.foreground }}
+    <SettingsGroup title={t("settings.viewer")}>
+      <WideRow label={t("settings.colorScheme")} help={t("settings.viewerHelp")}>
+        {({ labelId, helpId }) => (
+          <div
+            className="viewer-theme-picker"
+            role="radiogroup"
+            aria-labelledby={labelId}
+            aria-describedby={helpId}
+          >
+            {VIEWER_THEMES.map((theme) => {
+              const palette = viewerPalette(theme, props.theme);
+              return (
+                <label
+                  key={theme}
+                  className="viewer-theme-option"
+                  style={{ background: palette.background, color: palette.foreground }}
                 >
-                  {t(VIEWER_THEME_NAMES[theme])}
-                </span>
-                <span className="viewer-theme-check">
-                  <CheckIcon size={14} />
-                </span>
-              </label>
-            );
-          })}
-        </div>
-        <p id="settings-viewer-help" className="muted">
-          {t("settings.viewerHelp")}
-        </p>
-      </div>
-    </section>
+                  <input
+                    type="radio"
+                    name="viewer-theme"
+                    value={theme}
+                    checked={settings.viewerTheme === theme}
+                    onChange={() => {
+                      onChange({ viewerTheme: theme });
+                    }}
+                  />
+                  <CodeSample palette={palette} font={fontStack(settings.terminalFont)} />
+                  <span
+                    className="viewer-theme-name"
+                    style={{ background: palette.activeLine, color: palette.foreground }}
+                  >
+                    {t(VIEWER_THEME_NAMES[theme])}
+                  </span>
+                  <span className="viewer-theme-check">
+                    <CheckIcon size={14} />
+                  </span>
+                </label>
+              );
+            })}
+          </div>
+        )}
+      </WideRow>
+    </SettingsGroup>
   );
 }
 

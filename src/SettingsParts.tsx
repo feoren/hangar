@@ -2,9 +2,10 @@
 // switch for on/off, a segmented choice, a button with its status, an inline question and a
 // collapsed "Advanced" part. Sections build on these so every page reads and behaves the same.
 
-import { useEffect, useId, useRef, type ReactNode, type Ref } from "react";
+import { useEffect, useId, useRef, useState, type ReactNode, type Ref } from "react";
 
 import { useT } from "./i18n";
+import { ChevronIcon } from "./icons";
 
 /** Ids a row hands to its control, so the control is named and described by the row's texts. */
 export interface RowIds {
@@ -103,6 +104,85 @@ export function SettingRow({
       )}
       {expanded && children !== undefined && children !== null && children !== false && (
         <div className="setting-children">{children}</div>
+      )}
+    </div>
+  );
+}
+
+/**
+ * A setting whose control needs the whole width, such as a row of tiles or a slider: its name and
+ * help on top, the control below them.
+ */
+export function WideRow({
+  label,
+  help,
+  children,
+}: {
+  label: ReactNode;
+  help?: ReactNode;
+  children: (ids: RowIds) => ReactNode;
+}) {
+  const id = useId();
+  const labelId = `${id}-label`;
+  const helpId = help === undefined ? undefined : `${id}-help`;
+  return (
+    <div className="setting">
+      <div className="setting-line setting-wide">
+        <span className="setting-text">
+          <span id={labelId} className="setting-label">
+            {label}
+          </span>
+          {help !== undefined && (
+            <span id={helpId} className="setting-help">
+              {help}
+            </span>
+          )}
+        </span>
+        <div className="setting-wide-control">{children({ labelId, helpId })}</div>
+      </div>
+    </div>
+  );
+}
+
+/**
+ * A rarely changed setting behind one line: a click on it opens `children` below, a second click
+ * closes them again. Closed when the dialog opens, so the page stays short.
+ */
+export function DisclosureRow({
+  label,
+  help,
+  children,
+}: {
+  label: ReactNode;
+  /** One line about the current state, shown while closed and open. */
+  help?: ReactNode;
+  children: ReactNode;
+}) {
+  const id = useId();
+  const [open, setOpen] = useState(false);
+  return (
+    <div className="setting">
+      <button
+        type="button"
+        className="setting-line disclosure-row"
+        aria-expanded={open}
+        aria-controls={open ? `${id}-body` : undefined}
+        onClick={() => {
+          setOpen((current) => !current);
+        }}
+      >
+        <span className="setting-text">
+          <span className="setting-label">{label}</span>
+          {help !== undefined && <span className="setting-help">{help}</span>}
+        </span>
+        <span className={open ? "look-chevron open" : "look-chevron"} aria-hidden="true">
+          <ChevronIcon />
+        </span>
+      </button>
+      {open && (
+        <div id={`${id}-body`} className="setting-disclosure-body">
+          {children}
+        </div>
       )}
     </div>
   );

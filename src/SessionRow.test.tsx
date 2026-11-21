@@ -17,7 +17,7 @@ import {
   showElement,
   type RowLayout,
 } from "./rowLayout";
-import { RowLayoutField, RowLayoutPreview } from "./RowLayoutSettings";
+import { RowLayoutField, RowLayoutPreview, RowLayoutSetting } from "./RowLayoutSettings";
 import { SessionRowBody, type RowBodyProps } from "./SessionRow";
 import { SessionLoad } from "./SessionLoad";
 
@@ -347,6 +347,25 @@ describe("the builder", () => {
     expect(hidden).toContain('<option value="" selected="">Your own layout</option>');
     expect(html).toContain('<option value="standard" selected="">Standard</option>');
     expect(html).toMatch(/<button type="button" class="secondary-button" disabled="">Reset/);
+  });
+});
+
+describe("the builder's line in the settings", () => {
+  it("stays closed and names the template in use, or your own layout", () => {
+    const standard = render(
+      <RowLayoutSetting value={DEFAULT_ROW_LAYOUT} language="en" onChange={() => undefined} />,
+    );
+    expect(standard).toContain('aria-expanded="false"');
+    expect(standard).toContain("Standard");
+    expect(count(standard, "row-builder-line")).toBe(0);
+    const own = render(
+      <RowLayoutSetting
+        value={hideElement(DEFAULT_ROW_LAYOUT, "tokens")}
+        language="en"
+        onChange={() => undefined}
+      />,
+    );
+    expect(own).toContain("Your own layout");
   });
 });
 
