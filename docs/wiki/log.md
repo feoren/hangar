@@ -1320,3 +1320,8 @@ endless wait for a working target, no reload after an action, a message gone dur
 claim nobody closed (now runs out after 120 s, no card while its automatic paste runs),
 overlapping reads, arm delay per card list.
 Pages changed: [[0014-session-links]], [[0012-cross-project-messages]].
+
+## [2026-11-21] lint | Link budget starts again only on a line the person typed
+A bare Enter, or arrows and Enter, on an agent's dialog no longer starts a link group's budget
+again; only an Enter that sends printable text the person typed does (`ownLineKey` in
+`src/links.ts`). Pages changed: [[0014-session-links]].

@@ -6,7 +6,7 @@ superseded_by:
 tags: [sessions, agents, hooks, security, pty, sidebar]
 sources: ["[[0012-cross-project-messages]]", "[[cross-project-paste-measurement]]", "[[unattended-settings-reading]]"]
 created: 2026-11-19
-updated: 2026-11-20
+updated: 2026-11-21
 ---
 
 # ADR 0014: Linked sessions that work together
@@ -155,8 +155,10 @@ agent to run a command; Gemini CLI and OpenCode are not measured yet.
     never pasted on its own again.
   - **Budget.** Besides the rate, at most 20 automatic deliveries per group without the person
     stepping in (`AUTO_BUDGET`, state `BrakeState::Spent`); then everything waits for a click and
-    the group shows the brake's hint. It starts again when the person presses Enter in a member
-    session (`link_person_typed`), pastes a card or edits the group.
+    the group shows the brake's hint. It starts again when the person sends a line they typed in a
+    member session (`link_person_typed`, `ownLineKey` in `links.ts`), pastes a card or edits the
+    group. A bare Enter, or arrows and Enter, on an agent's dialog does not count: an agent can ask
+    for that reflex.
   - **Marked as a peer's message.** The header reads
     `[Message from agent "<name>" (link group), not from the person]` and every line of the text
     is indented with `| ` (not `> `, which made a quoted numbered list look like a dialog's

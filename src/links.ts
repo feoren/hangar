@@ -623,3 +623,24 @@ export async function deliverAutomatically(
   await deps.close().catch(() => undefined);
   return "pasted";
 }
+
+/**
+ * Follows the person's own keys in a member for the budget (ADR 0014): only an Enter that sends
+ * a line they typed themselves starts the group's budget again. A bare Enter, or arrows and Enter,
+ * on an agent's dialog is a reflex an agent can ask for, not the person stepping in. `line`: printable text was typed since the last Enter or Ctrl+C.
+ */
+export function ownLineKey(line: boolean, key: string): { line: boolean; sent: boolean } {
+  if (key === "\r") return { line: false, sent: line };
+  if (key === "\x03") return { line: false, sent: false };
+  return { line: line || isPrintable(key), sent: false };
+}
+
+/** One typed character or a pasted word, no control key or escape sequence. */
+function isPrintable(key: string): boolean {
+  if (key.length === 0) return false;
+  for (const char of key) {
+    const code = char.codePointAt(0) ?? 0;
+    if (code < 0x20 || code === 0x7f) return false;
+  }
+  return true;
+}

@@ -10,6 +10,7 @@ import {
   groupOf,
   heldBySession,
   linkCandidates,
+  ownLineKey,
   linkColor,
   linkMarks,
   linkOffer,
@@ -392,5 +393,32 @@ describe("deliverAutomatically", () => {
     // A failed close leaves the message claimed; the delivery still counts as pasted.
     const stuck = fake({ close: () => Promise.reject(new Error("gone")) });
     expect(await deliverAutomatically(stuck.deps, PATIENT, 10)).toBe("pasted");
+  });
+});
+
+describe("ownLineKey", () => {
+  const keys = (sequence: string[]): boolean[] => {
+    let line = false;
+    return sequence.map((key) => {
+      const step = ownLineKey(line, key);
+      line = step.line;
+      return step.sent;
+    });
+  };
+
+  it("counts an Enter that sends a line the person typed", () => {
+    expect(keys(["f", "i", "x", "\r"])).toEqual([false, false, false, true]);
+    expect(keys(["café 👋", "\r"])).toEqual([false, true]);
+  });
+
+  it("does not count a bare Enter or arrows and Enter on a dialog", () => {
+    expect(keys(["\r"])).toEqual([false]);
+    expect(keys(["\x1b[B", "\x1b[B", "\r"])).toEqual([false, false, false]);
+    expect(keys(["\x1b", "\t", "\x7f", "\r"])).toEqual([false, false, false, false]);
+  });
+
+  it("starts over after Enter or Ctrl+C", () => {
+    expect(keys(["a", "\r", "\r"])).toEqual([false, true, false]);
+    expect(keys(["a", "\x03", "\r"])).toEqual([false, false, false]);
   });
 });

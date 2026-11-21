@@ -27,6 +27,7 @@ import {
 import { t } from "./i18n";
 import { FONT_SIZE } from "./layout";
 import type { ShellKind } from "./pathQuote";
+import { ownLineKey } from "./links";
 import { answersDialog } from "./permissionWaits";
 import { PathChecker } from "./pathCheck";
 import { SubmittedLines } from "./handover";
@@ -233,7 +234,9 @@ export class SessionTerminal {
   private personKeyAt: number | null = null;
   /** The person typed since their last Enter: a half-typed line may stand at the prompt. */
   private personDraft = false;
-  /** The person pressed Enter here themselves (not Hangar's `submit`). */
+  /** The person typed printable text since their last Enter or Ctrl+C (`ownLineKey`). */
+  private personLine = false;
+  /** The person sent a line they typed here themselves (not Hangar's `submit`, not a bare Enter). */
   onPersonSubmit: (() => void) | null = null;
   /**
    * The person pressed a key that answers a dialog (`answersDialog`: Enter, Esc, a digit), for the
@@ -986,10 +989,12 @@ export class SessionTerminal {
   private personKey(key: string): void {
     this.personKeyAt = Date.now();
     if (answersDialog(key)) this.onPersonAnswerKey?.();
+    const own = ownLineKey(this.personLine, key);
+    this.personLine = own.line;
+    if (own.sent) this.onPersonSubmit?.();
     // Enter sends the line; Ctrl+C clears it in the agent CLIs.
     if (key === "\r" || key === "\x03") {
       this.personDraft = false;
-      if (key === "\r") this.onPersonSubmit?.();
     } else {
       this.personDraft = true;
     }

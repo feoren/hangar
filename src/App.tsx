@@ -2472,7 +2472,7 @@ export function App() {
           api.permissionAnswered(id).catch(() => undefined);
         }
       };
-      // The person's own Enter in a link group member: the group's budget starts again.
+      // A line the person typed and sent in a link group member: the group's budget starts again.
       terminal.onPersonSubmit = () => {
         if (groupOf(linkStateRef.current, id) !== undefined) {
           api.linkPersonTyped(id).catch(() => undefined);
