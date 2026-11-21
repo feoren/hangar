@@ -395,36 +395,50 @@ repository.
 
 ### Default figure
 
-Only for a Hangar agent (`hangar-<role>`), without a chosen figure: the figure fixed for that
-name in `PICKED_FIGURES` (`hangar-comfyui` frontend-03, `hangar-contracts` researcher-03,
-`hangar-finance` researcher-04, `hangar-n8n` developer-03, `hangar-sysadmin` backend-03), else the
-role figure a word after the prefix points to (`backend`, `developer`, `frontend`, `manager`,
-`researcher`, `security`, `tester`, `marketing`, `sales`, `social` to their figures, and so on),
-else a built-in figure picked by a hash of the whole name, the same on every start. The fixed
-picks exist because the hash repeats figures of other bundled agents (`hangar-n8n` the
-researcher's, `hangar-comfyui` the manager's, `hangar-finance` and `hangar-sysadmin` the
-developer's); a test keeps the default figures of all files in `src-tauri/bundled-agents/`
-distinct. None of these agents had shipped in a release yet, so no figure a user saw moved.
+Only for a Hangar agent (`hangar-<role>`), without a chosen figure: the `<role>-01` figure a word
+after the prefix points to (`ROLE_WORDS`: `backend`, `developer`, `frontend`, `manager`,
+`researcher`, `security`, `tester`, `marketing`, `sales`, `social`, `sysadmin`, `n8n`, `comfyui`,
+`finance`, `contracts` to their figures, plus synonyms such as `devops` or `legal`), else a
+built-in figure picked by a hash of the whole name from the frozen `NAME_FIGURES`, the same on
+every start. Every bundled agent carries its own role word, so each wears its role's first figure;
+a test keeps the default figures of all files in `src-tauri/bundled-agents/` distinct. Until the
+owner drew figures for `hangar-comfyui`, `hangar-contracts`, `hangar-finance`, `hangar-n8n` and
+`hangar-sysadmin`, they wore figures fixed by name (`PICKED_FIGURES`, now gone); none of them had
+shipped in a release, so no figure a user saw moved.
 Any other name gets its initial (`initialFigure`), see "Figures" above. A project's own
 definition never wears a figure, also under Hangar's prefix; a project copy with the global
 definition's fingerprint is that agent and wears its figure.
 
 ### Built-in figures
 
-Twelve chibi figures supplied by the owner (`backend-01`, `developer-01/02`, `frontend-01/02`,
-`manager-01/02`, `researcher-01/02`, `security-01/02`, `tester-01`), shrunk from 1254 px PNGs to
-portrait WebP with alpha, 240 x 360 px (2 : 3), by `tools/figures.py <in> <out>`: the empty margin
-(the figures filled only about half the width of the square originals) is cut to the visible
-pixels, the figure fills the height and stands on the bottom edge, so the head sits at the same
-height in every file (Lanczos, quality 82, 15 to 28 KiB each).
+41 chibi figures supplied by the owner, `<role>-<nn>`: backend 1 to 3, comfyui 1, contracts 1 and
+2, developer 1 to 4, finance 1 and 2, frontend 1 to 4, manager 1 to 4, marketing 1 and 2, n8n 1 to
+3, researcher 1 to 4, sales 1 and 2, security 1 to 3, social-media 1 and 2, sysadmin 1 and 2,
+tester 1 to 3. The 1254 px square masters (each as PNG and WebP) stay outside the repository;
+`tools/figures.py <in> <out>` takes one source per name (PNG before WebP before GIF) and turns it
+into a portrait WebP with alpha, 240 x 360 px (2 : 3): the empty margin is cut to the visible
+pixels (alpha above 8), the figure is scaled to fit with a 2 px margin, centered horizontally and
+standing on the bottom edge (Lanczos, quality 82, method 6, 15 to 36 KiB each). A tall figure
+fills the height and its head sits at the top; a wide one (props held out to the side) fills the
+width and sits lower, up to 67 px of 360. The script prints that top per file, and
+`FIGURE_TOPS` in `subAgentLibrary.ts` lists every top below the margin; a test in
+`tools/test_figures.py` measures the bundled files and keeps the list equal to them. The script
+is deterministic: run over the masters it reproduces every bundled file byte for byte, which is
+how a changed master is found.
+The settings name each figure in words ("Contracts 2", `figureName` with `subAgentLib.role.*`).
 Vite bundles them (`import.meta.glob`); the Rust list `agent_figures::BUILTIN`, the TypeScript
 list `BUILTIN_FIGURES` and the files are kept equal by tests.
 
 ### Whole figure and head
 
 `AgentFigure` draws the whole figure (`crop="full"`) in a 2 : 3 box, `size` being its height, and
-for tight places the face (`crop="head"`) in a round box: the top 39 % of the file, centered
-(`.agent-figure.head img`: width 170 %, left -35 %, top 0). An own image is always shown whole
+for tight places the face (`crop="head"`) in a round box: the top 39 % of the figure, centered
+(`.agent-figure.head img`: width 170 %, left -35 %, top 0 for a figure that fills the height). A
+wide figure sits lower in its file, so `AgentFigure` sets `--figure-lift` to its top from
+`FIGURE_TOPS` minus the 2 px margin, and the image moves up by that share of the 360 px file
+(`top: calc(-255% * lift / 360)`, the image being 255 % as tall as the box). Without the lift
+such a round showed only hair. The head is not scaled up: a scaled head of a wide figure loses its
+mouth at the lower edge of the round. An own image is always shown whole
 (`object-fit: contain`), also in the round box. An initial on its color is a round badge in the
 head form and a tall capsule in the full form.
 

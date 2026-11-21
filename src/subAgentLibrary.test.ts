@@ -77,7 +77,7 @@ describe("figures", () => {
     expect(ids).toEqual([...BUILTIN_FIGURES]);
   });
 
-  it("default to the role after Hangar's prefix, else a fixed pick", () => {
+  it("default to the role after Hangar's prefix, else a pick by name", () => {
     expect(defaultFigure("hangar-backend", null)).toEqual({ kind: "builtin", id: "backend-01" });
     expect(defaultFigure("hangar-tester", "red")).toEqual({ kind: "builtin", id: "tester-01" });
     expect(defaultFigure("hangar-marketing", "orange")).toEqual({
@@ -89,25 +89,42 @@ describe("figures", () => {
       kind: "builtin",
       id: "social-media-01",
     });
-    // No role word and no fixed pick: a bundled figure picked from the name, whatever the color.
+    // No role word: a bundled figure picked from the name, whatever the color.
     const picked = defaultFigure("hangar-writer", "orange");
     expect(picked.kind).toBe("builtin");
     expect(defaultFigure("hangar-writer", null)).toEqual(picked);
-    // Picked by name, so no two bundled agents share a default figure.
+    // The newer bundled agents carry their own role word.
     expect(defaultFigure("hangar-comfyui", "purple")).toEqual({
       kind: "builtin",
-      id: "frontend-03",
+      id: "comfyui-01",
     });
-    expect(defaultFigure("hangar-n8n", "orange")).toEqual({ kind: "builtin", id: "developer-03" });
-    expect(defaultFigure("hangar-finance", "green")).toEqual({
-      kind: "builtin",
-      id: "researcher-04",
-    });
+    expect(defaultFigure("hangar-n8n", "orange")).toEqual({ kind: "builtin", id: "n8n-01" });
+    expect(defaultFigure("hangar-finance", "green")).toEqual({ kind: "builtin", id: "finance-01" });
     expect(defaultFigure("hangar-contracts", null)).toEqual({
       kind: "builtin",
-      id: "researcher-03",
+      id: "contracts-01",
     });
-    expect(defaultFigure("hangar-sysadmin", "blue")).toEqual({ kind: "builtin", id: "backend-03" });
+    expect(defaultFigure("hangar-sysadmin", "blue")).toEqual({
+      kind: "builtin",
+      id: "sysadmin-01",
+    });
+    // Synonyms point to the same role, but only after Hangar's prefix and only as a whole word.
+    const synonyms: [string, string][] = [
+      ["admin", "sysadmin-01"],
+      ["ops", "sysadmin-01"],
+      ["devops", "sysadmin-01"],
+      ["automation", "n8n-01"],
+      ["accounting", "finance-01"],
+      ["tax", "finance-01"],
+      ["contract", "contracts-01"],
+      ["legal", "contracts-01"],
+    ];
+    for (const [word, id] of synonyms) {
+      expect(defaultFigure(`hangar-${word}`, null)).toEqual({ kind: "builtin", id });
+      expect(defaultFigure(word, null).kind).toBe("initial");
+    }
+    expect(defaultFigure("hangar-taxi", null)).toEqual(defaultFigure("hangar-taxi", "red"));
+    expect(defaultFigure("hangar-taxi", null)).not.toEqual({ kind: "builtin", id: "finance-01" });
   });
 
   it("differ for every bundled agent", () => {

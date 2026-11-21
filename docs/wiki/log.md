@@ -1367,3 +1367,21 @@ figures are fixed by name, because the name hash would have repeated another age
 test keeps every bundled agent's default figure distinct. `hangar-manager` names and reviews all
 bundled roles.
 Pages changed: [[sub-agent-library]].
+
+## [2026-11-21] lint | Figures for the newer bundled sub-agents
+
+The owner drew ten more figures: comfyui 1, contracts 1 and 2, finance 1 and 2, n8n 1 to 3 and
+sysadmin 1 and 2, shrunk by `tools/figures.py` like the others (its name rule now allows digits,
+for `n8n`). `hangar-comfyui`, `hangar-contracts`, `hangar-finance`, `hangar-n8n` and
+`hangar-sysadmin` now wear their role's first figure through `ROLE_WORDS`; the fixed picks by name
+are gone. The 31 older masters reproduce the bundled files exactly, so none changed.
+Pages changed: [[sub-agent-library]].
+
+## [2026-11-21] lint | Face crop of wide figures
+
+A figure that fills the width of its file sits lower in it (comfyui-01, contracts-02, n8n-01 and
+others, up to 67 px of 360), so the round face crop showed only hair. `FIGURE_TOPS` lists those
+tops, `tools/figures.py` prints them and its test keeps the list equal to the files; the face crop
+moves such a figure up by it through `--figure-lift`. `tools/figures.py` takes one source per name,
+PNG before WebP, since the masters now come in both formats.
+Pages changed: [[sub-agent-library]].

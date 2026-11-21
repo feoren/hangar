@@ -32,6 +32,20 @@
         "zh": "新增：负责记账与税务的 hangar-finance、负责合同与保险的 hangar-contracts、负责电脑与服务器的 hangar-sysadmin。"
       },
       {
+        "de": "Zehn neue Figuren: hangar-sysadmin, hangar-n8n, hangar-comfyui, hangar-finance und hangar-contracts haben jetzt eigene Figuren.",
+        "en": "Ten new figures: hangar-sysadmin, hangar-n8n, hangar-comfyui, hangar-finance and hangar-contracts now have figures of their own.",
+        "el": "Δέκα νέες φιγούρες: οι hangar-sysadmin, hangar-n8n, hangar-comfyui, hangar-finance και hangar-contracts έχουν τώρα δικές τους φιγούρες.",
+        "es": "Diez figuras nuevas: hangar-sysadmin, hangar-n8n, hangar-comfyui, hangar-finance y hangar-contracts ya tienen figuras propias.",
+        "fr": "Dix nouvelles figures : hangar-sysadmin, hangar-n8n, hangar-comfyui, hangar-finance et hangar-contracts ont maintenant leurs propres figures.",
+        "it": "Dieci nuove figure: hangar-sysadmin, hangar-n8n, hangar-comfyui, hangar-finance e hangar-contracts ora hanno figure proprie.",
+        "ja": "新しいフィギュアが 10 体: hangar-sysadmin、hangar-n8n、hangar-comfyui、hangar-finance、hangar-contracts に専用のフィギュアが付きました。",
+        "pl": "Dziesięć nowych postaci: hangar-sysadmin, hangar-n8n, hangar-comfyui, hangar-finance i hangar-contracts mają teraz własne postacie.",
+        "pt": "Dez figuras novas: hangar-sysadmin, hangar-n8n, hangar-comfyui, hangar-finance e hangar-contracts agora têm figuras próprias.",
+        "ru": "Десять новых фигурок: у hangar-sysadmin, hangar-n8n, hangar-comfyui, hangar-finance и hangar-contracts теперь свои фигурки.",
+        "tr": "On yeni figür: hangar-sysadmin, hangar-n8n, hangar-comfyui, hangar-finance ve hangar-contracts artık kendi figürlerine sahip.",
+        "zh": "十个新形象：hangar-sysadmin、hangar-n8n、hangar-comfyui、hangar-finance 和 hangar-contracts 现在有了自己的形象。"
+      },
+      {
         "de": "Figuren tragen jetzt nur noch Hangars eigene Sub-Agenten. Deine eigenen Agenten zeigen ihren Anfangsbuchstaben.",
         "en": "Only Hangar's own sub-agents wear figures now. Your own agents show their initial.",
         "el": "Φιγούρες έχουν πλέον μόνο οι υπο-πράκτορες του Hangar. Οι δικοί σου πράκτορες δείχνουν το αρχικό τους γράμμα.",

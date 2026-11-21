@@ -6,6 +6,7 @@ import type { Profile } from "./api";
 import { createTranslator } from "./i18n";
 import type { PopupItem } from "./PopupMenu";
 import {
+  BUILTIN_FIGURES,
   EMPTY_LIBRARY,
   figureName,
   NEUTRAL_FIGURE_COLOR,
@@ -116,5 +117,9 @@ describe("the start as sub-agent menu", () => {
     expect(figureName("unknown-01", t)).toBe("unknown-01");
     expect(figureName("social-media-02", t)).toBe("Social media 2");
     expect(figureName("sales-01", createTranslator("de"))).toBe("Vertrieb 1");
+    expect(figureName("n8n-03", t)).toBe("n8n 3");
+    expect(figureName("contracts-02", createTranslator("de"))).toBe("Verträge 2");
+    // Every bundled figure has a name in words.
+    for (const id of BUILTIN_FIGURES) expect(figureName(id, t)).not.toBe(id);
   });
 });

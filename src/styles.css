@@ -13332,8 +13332,10 @@ body.session-dragging .session-actions {
 
 /* Sub-agent figures (AgentFigure.tsx): a bundled figure, an own image or an initial. They stand
    still. `full` is the whole figure in a portrait box (2 : 3, like the files from
-   tools/figures.py: cropped to the figure, filling the height, standing on the bottom edge);
-   `head` shows the face in a round box: the top 39 % of the figure, in the middle. */
+   tools/figures.py: cropped to the figure, scaled to fit, standing on the bottom edge);
+   `head` shows the face in a round box: the top 39 % of the file, in the middle. A wide figure
+   fills the width and sits lower in its file; AgentFigure.tsx sets `--figure-lift` to how many
+   pixels of the 360 px file it sits lower (`FIGURE_TOPS`), and the image moves up by that. */
 .agent-figure {
   position: relative;
   display: inline-flex;
@@ -13364,7 +13366,8 @@ body.session-dragging .session-actions {
 
 .agent-figure.head img {
   position: absolute;
-  top: 0;
+  /* The image is 255 % as tall as the round box (170 % wide, 2 : 3). */
+  top: calc(-255% * var(--figure-lift, 0) / 360);
   left: -35%;
   width: 170%;
   max-width: none;
