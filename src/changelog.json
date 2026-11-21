@@ -4,6 +4,34 @@
     "date": null,
     "items": [
       {
+        "de": "Hangar bringt zwölf Sub-Agenten mit, etwa hangar-backend, hangar-tester und hangar-security, bereit in Claude Code und Codex. Abschaltbar in den Einstellungen.",
+        "en": "Hangar ships twelve sub-agents, such as hangar-backend, hangar-tester and hangar-security, ready in Claude Code and Codex. Switch them off in the settings.",
+        "el": "Το Hangar φέρνει δώδεκα υπο-πράκτορες, όπως hangar-backend, hangar-tester και hangar-security, για Claude Code και Codex. Κλείνουν στις ρυθμίσεις.",
+        "es": "Hangar incluye doce subagentes, como hangar-backend, hangar-tester y hangar-security, listos en Claude Code y Codex. Puedes desactivarlos en los ajustes.",
+        "fr": "Hangar fournit douze sous-agents, comme hangar-backend, hangar-tester et hangar-security, prêts dans Claude Code et Codex. Désactivables dans les réglages.",
+        "it": "Hangar include dodici sotto-agenti, come hangar-backend, hangar-tester e hangar-security, pronti in Claude Code e Codex. Puoi disattivarli nelle impostazioni.",
+        "ja": "Hangar に hangar-backend、hangar-tester、hangar-security など 12 のサブエージェントが付属し、Claude Code と Codex ですぐ使えます。設定でオフにできます。",
+        "pl": "Hangar ma dwunastu podagentów, np. hangar-backend, hangar-tester i hangar-security, gotowych w Claude Code i Codex. Możesz ich wyłączyć w ustawieniach.",
+        "pt": "O Hangar traz doze subagentes, como hangar-backend, hangar-tester e hangar-security, prontos no Claude Code e no Codex. Dá para desativá-los nas configurações.",
+        "ru": "В Hangar двенадцать субагентов, например hangar-backend, hangar-tester и hangar-security, для Claude Code и Codex. Выключаются в настройках.",
+        "tr": "Hangar artık hangar-backend, hangar-tester ve hangar-security gibi on iki alt ajanla geliyor; Claude Code ve Codex'te hazır. Ayarlardan kapatabilirsin.",
+        "zh": "Hangar 现在自带十二个子代理，例如 hangar-backend、hangar-tester 和 hangar-security，可直接在 Claude Code 和 Codex 中使用。可在设置中关闭。"
+      },
+      {
+        "de": "Figuren tragen jetzt nur noch Hangars eigene Sub-Agenten. Deine eigenen Agenten zeigen ihren Anfangsbuchstaben.",
+        "en": "Only Hangar's own sub-agents wear figures now. Your own agents show their initial.",
+        "el": "Φιγούρες έχουν πλέον μόνο οι υπο-πράκτορες του Hangar. Οι δικοί σου πράκτορες δείχνουν το αρχικό τους γράμμα.",
+        "es": "Ahora solo los subagentes propios de Hangar llevan figura. Tus agentes muestran su inicial.",
+        "fr": "Seuls les sous-agents de Hangar ont désormais une figure. Tes propres agents affichent leur initiale.",
+        "it": "Ora solo i sotto-agenti di Hangar hanno una figura. I tuoi agenti mostrano la loro iniziale.",
+        "ja": "フィギュアは Hangar 自身のサブエージェントだけに表示されます。自分のエージェントには頭文字が表示されます。",
+        "pl": "Postacie mają teraz tylko podagenci Hangara. Twoi agenci pokazują swoją pierwszą literę.",
+        "pt": "Agora só os subagentes do próprio Hangar têm figura. Seus agentes mostram a inicial.",
+        "ru": "Фигурки теперь есть только у собственных субагентов Hangar. Твои агенты показывают свою первую букву.",
+        "tr": "Artık yalnızca Hangar'ın kendi alt ajanlarının figürü var. Kendi ajanların baş harfini gösterir.",
+        "zh": "现在只有 Hangar 自己的子代理才显示形象。你自己的代理显示其首字母。"
+      },
+      {
         "de": "Diktieren geht jetzt mit einer Taste: Halte die rechte Strg-Taste gedrückt und sprich. Wählbar sind auch F8, F9, F10 oder Strg+Umschalt+Leertaste.",
         "en": "Dictation now works with a single key: hold the right Ctrl key and speak. In the settings you can also pick F8, F9, F10 or Ctrl+Shift+Space.",
         "el": "Η υπαγόρευση γίνεται τώρα με ένα μόνο πλήκτρο: κράτα πατημένο το δεξί Ctrl και μίλα. Στις ρυθμίσεις μπορείς να διαλέξεις και F8, F9, F10 ή Ctrl+Shift+Διάστημα.",
