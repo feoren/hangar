@@ -39,9 +39,10 @@ describe("bubble text", () => {
     expect(say("PowerShell", "cargo test")).toBe("Running cargo test");
   });
 
-  it("speaks German too", () => {
-    expect(say("Read", "src/terminal.ts", de)).toBe("Liest terminal.ts");
-    expect(say("Bash", "cargo test", de)).toBe("Führt cargo test aus");
+  it("speaks German too, in the first person like the figure doing the work", () => {
+    expect(say("Read", "src/terminal.ts", de)).toBe("Lese terminal.ts");
+    expect(say("Bash", "cargo test", de)).toBe("Führe cargo test aus");
+    expect(say("Bash", null, de)).toBe("Führe einen Befehl aus");
   });
 
   it("says it without a target when texts are off", () => {
