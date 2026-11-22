@@ -1888,25 +1888,15 @@ h2 .beta-badge {
   color: var(--warn);
 }
 
-/* RAM and GPU carry an amount after their share, so they get more of the row than the CPU. */
-.gauge-cpu {
-  flex-grow: 2;
-}
-
-.gauge-memory,
-.gauge-gpu {
-  flex-grow: 3;
-}
-
 .gauge-amount {
   display: none;
   margin-left: 4px;
   color: var(--muted);
 }
 
-/* From the narrowest sidebar (305 px, a 293 px bar) on, "RAM 100 % 31.9 GB" fits its tile in
-   every language (measured in Edge); a narrower bar keeps the amounts in the tooltip. */
-@container (min-width: 285px) {
+/* The three tiles share the row equally (flex 1 1 0). "RAM 100 % 31.9 GB" needs about a third of
+   a 330 px bar; a narrower bar keeps the amounts in the tooltip. */
+@container (min-width: 330px) {
   .gauge-amount {
     display: inline;
   }
