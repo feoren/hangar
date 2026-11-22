@@ -1,24 +1,27 @@
 //! Hands the user's Claude Code sub-agent definitions (`~/.claude/agents/*.md`, global) to the
-//! other installed agent CLIs whose format is known: a copy per definition in the program's own
-//! format and folder. So far Codex CLI (`~/.codex/agents/<name>.toml`, [`crate::codex_agents`]).
+//! other installed agent CLIs whose format is measured: a copy per definition in the program's
+//! own format and folder. Codex CLI (`~/.codex/agents/<name>.toml`, [`crate::codex_agents`]),
+//! GitHub Copilot CLI, OpenCode 2.x and Gemini CLI (Markdown, [`crate::md_agents`]).
 //! Contract: docs/wiki/pages/syntheses/sub-agent-library.md, "Provision to other programs".
 //!
 //! Rules:
-//! - A copy carries a marker ([`crate::codex_agents::marker`]); Hangar changes and removes only
-//!   files with an intact marker.
+//! - A copy carries a marker ([`crate::codex_agents::marker`], [`MdFormat::marker`]); Hangar
+//!   changes and removes only files with an intact marker.
 //! - A file of the user's under a definition's name (its file name or its `name`) is replaced:
-//!   first set aside as `<name>.toml.bak` (`.bak.2` and so on, never overwriting one), which the
-//!   copy's marker names. When the definition goes, the copy goes and the backup takes its place
-//!   again.
-//! - Global folder: a missing copy is created. Project folders (start places and working folders
-//!   of sessions, as the backend knows them): only files that already hold a definition's name
-//!   (file name or `name`, never the marker's source) and that git does not track are replaced;
-//!   no new file is created, other names stay untouched, and a link in `.codex` or
-//!   `.codex/agents` skips the folder.
-//! - Model and effort of a copy are kept when it is written again; those of a replaced file are
-//!   taken over.
-//! - Claude Code's `tools` and `model` are not copied: Codex CLI names its tools differently and
-//!   Claude Code's model aliases mean nothing there.
+//!   first set aside as `<name>.toml.bak` (`<name>.agent.md.bak`, `<name>.md.bak`; `.bak.2` and
+//!   so on, never overwriting one), which the copy's marker names. When the definition goes, the
+//!   copy goes and the backup takes its place again.
+//! - Global folder: a missing copy is created. Project folders, Codex CLI only (start places and
+//!   working folders of sessions, as the backend knows them): only files that already hold a
+//!   definition's name (file name or `name`, never the marker's source) and that git does not
+//!   track are replaced; no new file is created, other names stay untouched, and a link in
+//!   `.codex` or `.codex/agents` skips the folder. The Markdown programs' project folders stay
+//!   untouched: Copilot CLI ranks its user folder first anyway, and OpenCode's and Gemini CLI's
+//!   project agents belong to the repository.
+//! - Model and effort of a Codex CLI copy are kept when it is written again; those of a replaced
+//!   file are taken over. The Markdown copies carry no model.
+//! - Claude Code's `tools` and `model` are not copied: the other programs name their tools
+//!   differently and Claude Code's model aliases mean nothing there.
 
 use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 use std::ffi::OsStr;
@@ -34,7 +37,104 @@ use serde::Serialize;
 use crate::agent_defs::{self, Library, Scope};
 use crate::agent_models::DefProgram;
 use crate::codex_agents::{self, Copy};
+use crate::md_agents::MdFormat;
 use crate::no_links::{self, Links};
+
+/// How one program's copies look and where they go.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Format {
+    Codex,
+    Md(MdFormat),
+}
+
+impl Format {
+    fn of(program: DefProgram) -> Option<Self> {
+        match program {
+            DefProgram::Claude => None,
+            DefProgram::Codex => Some(Self::Codex),
+            other => MdFormat::of(other).map(Self::Md),
+        }
+    }
+
+    /// The agents folder below `base` (the home folder or a project).
+    fn dir(self, base: &Path) -> PathBuf {
+        match self {
+            Self::Codex => codex_agents::agents_dir(base),
+            Self::Md(md) => md.agents_dir(base),
+        }
+    }
+
+    fn dir_label(self) -> &'static str {
+        match self {
+            Self::Codex => ".codex/agents",
+            Self::Md(md) => md.dir_label(),
+        }
+    }
+
+    /// The ending of a copy's file name.
+    fn suffix(self) -> &'static str {
+        match self {
+            Self::Codex => ".toml",
+            Self::Md(md) => md.suffix(),
+        }
+    }
+
+    /// Whether project folders get copies as well.
+    fn projects(self) -> bool {
+        self == Self::Codex
+    }
+
+    /// Whether the program knows an agent by the name inside the file only (Gemini CLI).
+    fn names_inside(self) -> bool {
+        matches!(self, Self::Md(md) if md.names_inside())
+    }
+
+    /// The agent a file stands for by its name; `None` for a file the program does not read.
+    fn stem(self, file: &str) -> Option<&str> {
+        match self {
+            Self::Codex => Some(stem(file)),
+            Self::Md(md) => md.stem(file),
+        }
+    }
+
+    fn marker(self, text: &str) -> Option<codex_agents::Marker> {
+        match self {
+            Self::Codex => codex_agents::marker(text),
+            Self::Md(md) => md.marker(text),
+        }
+    }
+
+    fn marker_unchecked(self, text: &str) -> Option<codex_agents::Marker> {
+        match self {
+            Self::Codex => codex_agents::marker_unchecked(text),
+            Self::Md(md) => md.marker_unchecked(text),
+        }
+    }
+}
+
+/// The oldest version whose sub-agent format was measured, for the programs that need one
+/// (docs/wiki/pages/sources/sub-agent-formats-measurement.md). OpenCode 1.x reads another
+/// folder layout that was never measured, so it gets no copies.
+pub fn min_version(program: DefProgram) -> Option<&'static str> {
+    match program {
+        DefProgram::Copilot => Some("1.0.114"),
+        DefProgram::Opencode => Some("2.3.2"),
+        DefProgram::Gemini => Some("0.70.0"),
+        DefProgram::Claude | DefProgram::Codex => None,
+    }
+}
+
+/// Whether the installed `version` of `program` reaches [`min_version`]; an unknown version does
+/// not, and a program without a floor always does.
+pub fn version_reaches(program: DefProgram, version: Option<&str>) -> bool {
+    use crate::agent_catalog::MinVersion;
+    let Some(min) = min_version(program).and_then(MinVersion::parse) else {
+        return true;
+    };
+    version
+        .and_then(MinVersion::parse)
+        .is_some_and(|installed| installed >= min)
+}
 
 /// Why a copy could not be written or a file was left alone, as the window words it.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
@@ -52,6 +152,9 @@ pub enum IssueKind {
     Tracked,
     /// `.codex` or `.codex/agents` of a project is a link; the folder is skipped.
     Link,
+    /// A file of the copy's file name holds another agent's name (Gemini CLI knows agents by
+    /// `name`): it stays the user's, and no copy is written until it is renamed.
+    NameTaken,
 }
 
 /// One file or folder a run left as it was, and why. Names only, no message text.
@@ -129,7 +232,12 @@ pub fn last_issues() -> Vec<Issue> {
 }
 
 /// The programs Hangar hands definitions to.
-pub const TARGETS: [DefProgram; 1] = [DefProgram::Codex];
+pub const TARGETS: [DefProgram; 4] = [
+    DefProgram::Codex,
+    DefProgram::Copilot,
+    DefProgram::Opencode,
+    DefProgram::Gemini,
+];
 
 /// Brings the copies of `program` up to date: in the global folder and in the agents folders of
 /// `folders` that exist. `enabled = false` removes Hangar's copies and restores the backups.
@@ -147,9 +255,9 @@ pub fn sync_with(
     bundled: &[String],
 ) -> Summary {
     let mut summary = Summary::default();
-    if program != DefProgram::Codex {
+    let Some(format) = Format::of(program) else {
         return summary;
-    }
+    };
     let _run = run_lock();
     let sources = if enabled {
         sources(home, bundled)
@@ -158,7 +266,8 @@ pub fn sync_with(
     };
     let global = Place {
         program,
-        dir: codex_agents::agents_dir(home),
+        format,
+        dir: format.dir(home),
         scope: Scope::Global,
         folder: None,
     };
@@ -166,17 +275,23 @@ pub fn sync_with(
         || match ensure_dir(&global.dir) {
             Ok(()) => true,
             Err(kind) => {
-                global.issue(&mut summary, ".codex/agents", None, kind);
+                global.issue(&mut summary, format.dir_label(), None, kind);
                 false
             }
         };
     if global_ready {
         sync_dir(&global, &sources, &mut summary);
     }
-    for folder in agent_defs::project_folders(home, folders) {
+    let projects = if format.projects() {
+        agent_defs::project_folders(home, folders)
+    } else {
+        Vec::new()
+    };
+    for folder in projects {
         let place = Place {
             program,
-            dir: codex_agents::agents_dir(folder),
+            format,
+            dir: format.dir(folder),
             scope: Scope::Project,
             folder: Some(folder),
         };
@@ -300,6 +415,7 @@ fn tracked(folder: &Path, path: &Path) -> bool {
 /// One agents folder of a run.
 struct Place<'a> {
     program: DefProgram,
+    format: Format,
     dir: PathBuf,
     scope: Scope,
     folder: Option<&'a Path>,
@@ -338,9 +454,58 @@ fn stem(file: &str) -> &str {
         .unwrap_or(file)
 }
 
-/// Every `.toml` file of the folder that is no link, with what it holds; broken files count by
-/// their file name.
+/// Every file of the folder the program reads that is no link, with what it holds; broken files
+/// count by their file name.
 fn entries(place: &Place<'_>) -> Vec<Entry> {
+    match place.format {
+        Format::Codex => codex_entries(place),
+        Format::Md(md) => md_entries(place, md),
+    }
+}
+
+/// Files of a Markdown agents folder read at most.
+const MAX_MD_FILES: usize = 512;
+
+/// Every file of a Markdown agents folder the program reads, with the agent it stands for. A
+/// file that cannot be read still counts by its file name.
+fn md_entries(place: &Place<'_>, md: MdFormat) -> Vec<Entry> {
+    if no_links::is_network_or_device(&place.dir) {
+        return Vec::new();
+    }
+    let Ok(listing) = fs::read_dir(&place.dir) else {
+        return Vec::new();
+    };
+    let mut files: Vec<String> = listing
+        .filter_map(Result::ok)
+        .filter_map(|entry| entry.file_name().into_string().ok())
+        .filter(|file| md.stem(file).is_some())
+        .collect();
+    files.sort();
+    files.truncate(MAX_MD_FILES);
+    files
+        .into_iter()
+        .filter_map(|file| {
+            let path = place.dir.join(&file);
+            let meta = fs::symlink_metadata(&path).ok()?;
+            if no_links::is_reparse_point(&meta) || !meta.is_file() {
+                return None;
+            }
+            let text = agent_defs::read_capped(&path).ok();
+            // An unreadable file holds no name; it still counts by its file name below.
+            let name = text.as_deref().and_then(|text| md.name_of(&file, text));
+            let marker = text.as_deref().and_then(|text| md.marker(text));
+            Some(Entry {
+                file,
+                path,
+                name,
+                marker,
+            })
+        })
+        .collect()
+}
+
+/// Every `.toml` file of a Codex CLI agents folder that is no link.
+fn codex_entries(place: &Place<'_>) -> Vec<Entry> {
     let mut library = Library::default();
     let read = agent_defs::scan_codex_dir(&place.dir, place.scope, place.folder, &mut library);
     let mut out: Vec<Entry> = read
@@ -378,24 +543,52 @@ fn sync_dir(place: &Place<'_>, sources: &[Source], summary: &mut Summary) {
         if source.bundled && place.scope != Scope::Global {
             continue;
         }
+        let by_stem = |entry: &Entry| {
+            place
+                .format
+                .stem(&entry.file)
+                .is_some_and(|stem| stem.eq_ignore_ascii_case(&source.name))
+        };
+        let by_marker = |entry: &Entry| {
+            entry
+                .marker
+                .as_ref()
+                .is_some_and(|marker| marker.source == source.name)
+        };
         let matching: Vec<&Entry> = entries
             .iter()
             .filter(|entry| {
+                // Gemini CLI knows an agent only by its `name`: a file of the definition's file
+                // name counts only while it holds no valid name of its own.
+                let stem_counts = !place.format.names_inside() || entry.name.is_none();
                 let by_name = entry.name.as_deref() == Some(source.name.as_str())
-                    || stem(&entry.file).eq_ignore_ascii_case(&source.name);
+                    || (stem_counts && by_stem(entry));
                 // In a project only what the file is called counts: a repository could forge a
                 // marker to steer a copy into any of its files.
-                let by_marker = place.scope == Scope::Global
-                    && entry
-                        .marker
-                        .as_ref()
-                        .is_some_and(|marker| marker.source == source.name);
-                by_name || by_marker
+                by_name || (place.scope == Scope::Global && by_marker(entry))
             })
             .collect();
         if matching.is_empty() {
-            if place.scope == Scope::Global {
-                create(place, source, summary);
+            // The copy's file name is held by another agent of the user's: left alone, named.
+            let taken = entries.iter().find(|entry| {
+                place.format.names_inside()
+                    && by_stem(entry)
+                    && entry.name.is_some()
+                    && !by_marker(entry)
+            });
+            match taken {
+                // Hangar's own bundled agent never troubles the user over a taken name.
+                Some(_) if source.bundled => {}
+                Some(entry) => {
+                    place.issue(
+                        summary,
+                        &entry.file,
+                        Some(&source.name),
+                        IssueKind::NameTaken,
+                    );
+                }
+                None if place.scope == Scope::Global => create(place, source, summary),
+                None => {}
             }
             continue;
         }
@@ -421,19 +614,28 @@ fn sync_dir(place: &Place<'_>, sources: &[Source], summary: &mut Summary) {
 }
 
 fn copy_text(
+    format: Format,
     source: &Source,
     model: Option<&str>,
     effort: Option<&str>,
     backup: Option<&str>,
 ) -> String {
-    codex_agents::render(&Copy {
-        name: &source.name,
-        description: &source.description,
-        instructions: &source.instructions,
-        model,
-        effort,
-        backup,
-    })
+    match format {
+        Format::Codex => codex_agents::render(&Copy {
+            name: &source.name,
+            description: &source.description,
+            instructions: &source.instructions,
+            model,
+            effort,
+            backup,
+        }),
+        Format::Md(md) => md.render(
+            &source.name,
+            &source.description,
+            &source.instructions,
+            backup,
+        ),
+    }
 }
 
 static TEMP_COUNTER: AtomicU64 = AtomicU64::new(0);
@@ -446,11 +648,12 @@ fn temp_path(dir: &Path, name: &str) -> PathBuf {
     ))
 }
 
-/// A new copy `<name>.toml`, never replacing a file that appeared meanwhile.
+/// A new copy `<name>.toml` (`<name>.agent.md`, `<name>.md`), never replacing a file that
+/// appeared meanwhile.
 fn create(place: &Place<'_>, source: &Source, summary: &mut Summary) {
-    let file = format!("{}.toml", source.name);
+    let file = format!("{}{}", source.name, place.format.suffix());
     let path = place.dir.join(&file);
-    let text = copy_text(source, None, None, None);
+    let text = copy_text(place.format, source, None, None, None);
     let temp = temp_path(&place.dir, &source.name);
     let result = crate::persist::write_atomic(&temp, text.as_bytes())
         .and_then(|()| agent_defs::create_beside(&temp, &path, text.as_bytes()));
@@ -464,15 +667,16 @@ fn create(place: &Place<'_>, source: &Source, summary: &mut Summary) {
 /// Backups tried per file.
 const BACKUP_ATTEMPTS: usize = 100;
 
-/// The first free `<name>.toml.bak`, `<name>.toml.bak.2` and so on (named after the definition,
-/// so the marker can always name it): the file at `path` is hard linked there (or copied where
-/// hard links do not exist), so its bytes stay whatever happens next.
-fn set_aside(path: &Path, name: &str, bytes: &[u8]) -> Result<String, IssueKind> {
+/// The first free `<name><suffix>.bak`, `<name><suffix>.bak.2` and so on (named after the
+/// definition, so the marker can always name it; no program reads a `.bak` file): the file at
+/// `path` is hard linked there (or copied where hard links do not exist), so its bytes stay
+/// whatever happens next.
+fn set_aside(path: &Path, name: &str, suffix: &str, bytes: &[u8]) -> Result<String, IssueKind> {
     let dir = path.parent().unwrap_or(Path::new("."));
     for n in 1..=BACKUP_ATTEMPTS {
         let backup = match n {
-            1 => format!("{name}.toml.bak"),
-            n => format!("{name}.toml.bak.{n}"),
+            1 => format!("{name}{suffix}.bak"),
+            n => format!("{name}{suffix}.bak.{n}"),
         };
         match agent_defs::create_beside(path, &dir.join(&backup), bytes) {
             Ok(()) => return Ok(backup),
@@ -495,8 +699,12 @@ fn update(place: &Place<'_>, entry: &Entry, source: &Source, summary: &mut Summa
         place.issue(summary, &entry.file, name, IssueKind::Unreadable);
         return;
     };
-    // Read again: the file may have changed since the folder was listed.
-    let parsed = codex_agents::parse_def(&text).ok();
+    // Read again: the file may have changed since the folder was listed. Only Codex CLI copies
+    // carry a model.
+    let parsed = match place.format {
+        Format::Codex => codex_agents::parse_def(&text).ok(),
+        Format::Md(_) => None,
+    };
     let model = parsed
         .as_ref()
         .and_then(|parsed| parsed.model.as_deref())
@@ -505,29 +713,35 @@ fn update(place: &Place<'_>, entry: &Entry, source: &Source, summary: &mut Summa
         .as_ref()
         .and_then(|parsed| parsed.effort.as_deref())
         .filter(|effort| crate::agent_models::valid_effort(effort));
-    let own = codex_agents::marker(&text).filter(|marker| marker.source == source.name);
+    let format = place.format;
+    let own = format
+        .marker(&text)
+        .filter(|marker| marker.source == source.name);
     let next = match own {
-        Some(marker) => copy_text(source, model, effort, marker.backup.as_deref()),
+        Some(marker) => copy_text(format, source, model, effort, marker.backup.as_deref()),
         // The user's file of a name Hangar brought along on its own stays theirs.
         None if source.bundled => return,
         None => {
-            let backup = match set_aside(&entry.path, &source.name, text.as_bytes()) {
-                Ok(backup) => backup,
-                Err(kind) => {
-                    place.issue(summary, &entry.file, name, kind);
-                    return;
-                }
-            };
+            let backup =
+                match set_aside(&entry.path, &source.name, format.suffix(), text.as_bytes()) {
+                    Ok(backup) => backup,
+                    Err(kind) => {
+                        place.issue(summary, &entry.file, name, kind);
+                        return;
+                    }
+                };
             summary
                 .replaced
                 .push((entry.path.clone(), place.dir.join(&backup)));
             // A copy edited by hand keeps naming the user's original, which then comes back
             // when the copy goes; the edited text stays as the new backup.
-            let original = codex_agents::marker_unchecked(&text)
+            let original = format
+                .marker_unchecked(&text)
                 .filter(|marker| marker.source == source.name)
                 .and_then(|marker| marker.backup)
                 .filter(|original| place.dir.join(original).is_file());
             copy_text(
+                format,
                 source,
                 model,
                 effort,
@@ -550,7 +764,7 @@ fn remove(place: &Place<'_>, entry: &Entry, marker: &codex_agents::Marker, summa
     // Read again: a copy edited since the folder was listed is the user's file now.
     let still_own = agent_defs::read_capped(&entry.path)
         .ok()
-        .and_then(|text| codex_agents::marker(&text))
+        .and_then(|text| place.format.marker(&text))
         .is_some_and(|fresh| fresh == *marker);
     if !still_own {
         return;
@@ -575,6 +789,74 @@ fn remove(place: &Place<'_>, entry: &Entry, marker: &codex_agents::Marker, summa
 pub struct TargetView {
     pub program: DefProgram,
     pub enabled: bool,
+}
+
+/// One of Hangar's copies in a Markdown program's global folder, for the window: which file and
+/// which backups of the user's files lie beside it. Names only.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct MdCopy {
+    pub program: DefProgram,
+    /// The definition the copy was made from.
+    pub name: String,
+    pub file: String,
+    /// The backup its marker names: the user's file it replaced.
+    pub backup: Option<String>,
+    /// Every backup of its definition beside it, sorted.
+    pub backups: Vec<String>,
+}
+
+/// Backups listed per copy at most.
+const MAX_BACKUPS_LISTED: usize = 16;
+
+/// Hangar's copies (intact marker) in the global folders of the Markdown programs among
+/// `programs`, with their backups. Codex CLI's copies come with the library's `codexDefs`.
+pub fn md_copies(home: &Path, programs: &[DefProgram]) -> Vec<MdCopy> {
+    let mut out = Vec::new();
+    for &program in programs {
+        let Some(Format::Md(md)) = Format::of(program) else {
+            continue;
+        };
+        let place = Place {
+            program,
+            format: Format::Md(md),
+            dir: md.agents_dir(home),
+            scope: Scope::Global,
+            folder: None,
+        };
+        let entries = md_entries(&place, md);
+        if entries.iter().all(|entry| entry.marker.is_none()) {
+            continue;
+        }
+        let files: Vec<String> = fs::read_dir(&place.dir)
+            .map(|listing| {
+                listing
+                    .filter_map(Result::ok)
+                    .filter_map(|entry| entry.file_name().into_string().ok())
+                    .collect()
+            })
+            .unwrap_or_default();
+        for entry in entries {
+            let Some(marker) = entry.marker else {
+                continue;
+            };
+            let mut backups: Vec<String> = files
+                .iter()
+                .filter(|file| md.backup_name_of(&marker.source, file))
+                .take(MAX_BACKUPS_LISTED)
+                .cloned()
+                .collect();
+            backups.sort();
+            out.push(MdCopy {
+                program,
+                name: marker.source,
+                file: entry.file,
+                backup: marker.backup,
+                backups,
+            });
+        }
+    }
+    out
 }
 
 /// The targets that are installed, with their switch (`off`: switched off in Settings).
@@ -1031,6 +1313,7 @@ mod tests {
         let path = dir.join("backend.toml");
         let listed = entries(&Place {
             program: DefProgram::Codex,
+            format: Format::Codex,
             dir: dir.clone(),
             scope: Scope::Global,
             folder: None,
@@ -1042,6 +1325,7 @@ mod tests {
         let mut summary = Summary::default();
         let place = Place {
             program: DefProgram::Codex,
+            format: Format::Codex,
             dir,
             scope: Scope::Global,
             folder: None,
@@ -1133,5 +1417,360 @@ Build it.
                 enabled: false
             }]
         );
+    }
+
+    const MD_PROGRAMS: [(DefProgram, MdFormat); 3] = [
+        (DefProgram::Copilot, MdFormat::Copilot),
+        (DefProgram::Opencode, MdFormat::Opencode),
+        (DefProgram::Gemini, MdFormat::Gemini),
+    ];
+
+    /// A user's own Markdown agent for `name`, in the program's shape.
+    fn foreign_md(name: &str) -> String {
+        format!("---\nname: {name}\ndescription: Mine\n---\nMy own prompt.\n")
+    }
+
+    #[test]
+    fn markdown_copies_are_created_in_each_programs_global_folder() {
+        for (program, md) in MD_PROGRAMS {
+            let (_temp, home) = setup(&format!("provision-md-create-{program:?}"));
+            let summary = sync(&home, &[], program, true);
+            assert!(
+                summary.issues.is_empty(),
+                "{program:?}: {:?}",
+                summary.issues
+            );
+            let dir = md.agents_dir(&home);
+            let path = dir.join(format!("backend{}", md.suffix()));
+            assert!(summary.written.contains(&path), "{program:?}");
+            let text = read(&path);
+            let marker = md.marker(&text).unwrap();
+            assert_eq!(marker.source, "backend");
+            assert_eq!(marker.backup, None);
+            assert!(text.contains("description: \"Backend work: logic, APIs\"\n"));
+            assert!(text.ends_with(
+                "---\n\nYou are the backend engineer.\nUse \"quotes\" and C:\\paths.\n"
+            ));
+            // Claude Code's model alias and tools mean nothing there.
+            let fields = agent_defs::frontmatter(&text).unwrap();
+            assert!(!fields.contains_key("model") && !fields.contains_key("tools"));
+            assert!(dir.join(format!("manager{}", md.suffix())).is_file());
+            // A second run writes nothing; no Codex CLI folder appears.
+            assert!(sync(&home, &[], program, true).written.is_empty());
+            assert!(!codex_agents::agents_dir(&home).exists());
+        }
+    }
+
+    #[test]
+    fn markdown_folders_are_the_measured_paths() {
+        let (_temp, home) = setup("provision-md-paths");
+        for (program, _) in MD_PROGRAMS {
+            sync(&home, &[], program, true);
+        }
+        assert!(home.join(".copilot/agents/backend.agent.md").is_file());
+        assert!(home.join(".config/opencode/agents/backend.md").is_file());
+        assert!(home.join(".gemini/agents/backend.md").is_file());
+        let opencode = read(&home.join(".config/opencode/agents/backend.md"));
+        assert!(opencode.contains("\nmode: subagent\n"));
+    }
+
+    #[test]
+    fn a_users_markdown_file_is_set_aside_and_comes_back() {
+        for (program, md) in MD_PROGRAMS {
+            let (_temp, home) = setup(&format!("provision-md-replace-{program:?}"));
+            let dir = md.agents_dir(&home);
+            fs::create_dir_all(&dir).unwrap();
+            let file = format!("manager{}", md.suffix());
+            let own = foreign_md("manager");
+            fs::write(dir.join(&file), &own).unwrap();
+            let other = foreign_md("writer");
+            fs::write(dir.join(format!("writer{}", md.suffix())), &other).unwrap();
+
+            let summary = sync(&home, &[], program, true);
+            assert!(
+                summary.issues.is_empty(),
+                "{program:?}: {:?}",
+                summary.issues
+            );
+            let backup = format!("{file}.bak");
+            assert_eq!(summary.replaced, [(dir.join(&file), dir.join(&backup))]);
+            assert_eq!(read(&dir.join(&backup)), own);
+            let marker = md.marker(&read(&dir.join(&file))).unwrap();
+            assert_eq!(marker.backup.as_deref(), Some(backup.as_str()));
+            assert_eq!(read(&dir.join(format!("writer{}", md.suffix()))), other);
+            // Hangar's own now: nothing set aside or written again.
+            let again = sync(&home, &[], program, true);
+            assert!(again.replaced.is_empty() && again.written.is_empty());
+
+            // The definition goes: the copy goes and the user's file is back.
+            fs::remove_file(agent_defs::agents_dir(&home).join("manager.md")).unwrap();
+            let summary = sync(&home, &[], program, true);
+            assert_eq!(summary.removed, [dir.join(&file)]);
+            assert_eq!(read(&dir.join(&file)), own);
+            assert!(!dir.join(&backup).exists());
+
+            // Switched off: every copy goes, the user's files stay.
+            let off = sync(&home, &[], program, false);
+            assert_eq!(off.removed, [dir.join(format!("backend{}", md.suffix()))]);
+            assert_eq!(read(&dir.join(&file)), own);
+            assert_eq!(read(&dir.join(format!("writer{}", md.suffix()))), other);
+        }
+    }
+
+    #[test]
+    fn an_edited_markdown_copy_is_the_users_again() {
+        let (_temp, home) = setup("provision-md-edited");
+        let md = MdFormat::Gemini;
+        sync(&home, &[], DefProgram::Gemini, true);
+        let path = md.agents_dir(&home).join("backend.md");
+        let edited = read(&path).replace("backend engineer", "edited engineer");
+        fs::write(&path, &edited).unwrap();
+        let summary = sync(&home, &[], DefProgram::Gemini, true);
+        assert_eq!(summary.replaced.len(), 1);
+        assert_eq!(read(&path.with_file_name("backend.md.bak")), edited);
+        assert!(read(&path).contains("backend engineer"));
+        // Switched off: the edited text comes back.
+        sync(&home, &[], DefProgram::Gemini, false);
+        assert_eq!(read(&path), edited);
+    }
+
+    #[test]
+    fn copilot_counts_a_plain_md_file_as_the_same_agent() {
+        let (_temp, home) = setup("provision-md-copilot-plain");
+        let dir = MdFormat::Copilot.agents_dir(&home);
+        fs::create_dir_all(&dir).unwrap();
+        let own = foreign_md("whatever");
+        fs::write(dir.join("manager.md"), &own).unwrap();
+        let summary = sync(&home, &[], DefProgram::Copilot, true);
+        assert!(summary.issues.is_empty(), "{:?}", summary.issues);
+        // Copilot CLI drops `.md` as it drops `.agent.md`: the file is that agent and is
+        // replaced in place, so no second agent of the name appears.
+        assert_eq!(read(&dir.join("manager.agent.md.bak")), own);
+        assert!(MdFormat::Copilot
+            .marker(&read(&dir.join("manager.md")))
+            .is_some());
+        assert!(!dir.join("manager.agent.md").exists());
+    }
+
+    #[test]
+    fn gemini_matches_by_the_name_inside_the_file() {
+        let (_temp, home) = setup("provision-md-gemini-name");
+        let dir = MdFormat::Gemini.agents_dir(&home);
+        fs::create_dir_all(&dir).unwrap();
+        // Gemini CLI reads `name`, not the file name: this file is the agent "manager".
+        let own = foreign_md("manager");
+        fs::write(dir.join("lead.md"), &own).unwrap();
+        // A file Gemini CLI skips (leading underscore) is left alone, whatever it holds.
+        let draft = foreign_md("backend");
+        fs::write(dir.join("_draft.md"), &draft).unwrap();
+        let summary = sync(&home, &[], DefProgram::Gemini, true);
+        assert!(summary.issues.is_empty(), "{:?}", summary.issues);
+        assert_eq!(read(&dir.join("manager.md.bak")), own);
+        assert!(MdFormat::Gemini
+            .marker(&read(&dir.join("lead.md")))
+            .is_some());
+        assert!(!dir.join("manager.md").exists());
+        assert_eq!(read(&dir.join("_draft.md")), draft);
+        assert!(dir.join("backend.md").is_file());
+    }
+
+    #[test]
+    fn gemini_leaves_a_file_of_the_name_that_holds_another_agent() {
+        let (_temp, home) = setup("provision-md-gemini-taken");
+        let dir = MdFormat::Gemini.agents_dir(&home);
+        fs::create_dir_all(&dir).unwrap();
+        // The file is called "manager" but is the user's agent "lead" in Gemini CLI.
+        let lead = foreign_md("lead");
+        fs::write(dir.join("manager.md"), &lead).unwrap();
+        let summary = sync(&home, &[], DefProgram::Gemini, true);
+        assert_eq!(fs::read(dir.join("manager.md")).unwrap(), lead.as_bytes());
+        assert!(summary.replaced.is_empty(), "{:?}", summary.replaced);
+        assert!(!dir.join("manager.md.bak").exists());
+        assert_eq!(
+            summary.issues,
+            [Issue {
+                program: DefProgram::Gemini,
+                scope: Scope::Global,
+                folder: None,
+                file: "manager.md".into(),
+                name: Some("manager".into()),
+                kind: IssueKind::NameTaken,
+            }]
+        );
+        let json = serde_json::to_value(&summary.issues[0]).unwrap();
+        assert_eq!(json["kind"], "nameTaken");
+        // The other definition gets its copy as usual.
+        assert!(dir.join("backend.md").is_file());
+        // Renamed by the user: the name is free and the copy comes.
+        fs::rename(dir.join("manager.md"), dir.join("lead.md")).unwrap();
+        let summary = sync(&home, &[], DefProgram::Gemini, true);
+        assert!(summary.issues.is_empty(), "{:?}", summary.issues);
+        assert!(MdFormat::Gemini
+            .marker(&read(&dir.join("manager.md")))
+            .is_some());
+        assert_eq!(read(&dir.join("lead.md")), lead);
+    }
+
+    #[test]
+    fn gemini_still_replaces_a_file_of_the_name_without_a_valid_name() {
+        let (_temp, home) = setup("provision-md-gemini-nameless");
+        let dir = MdFormat::Gemini.agents_dir(&home);
+        fs::create_dir_all(&dir).unwrap();
+        // No frontmatter, and a name Gemini CLI would refuse: neither is another agent.
+        let plain = "Just notes.\n";
+        let bad = foreign_md("Lead Agent");
+        fs::write(dir.join("manager.md"), plain).unwrap();
+        fs::write(dir.join("backend.md"), &bad).unwrap();
+        let summary = sync(&home, &[], DefProgram::Gemini, true);
+        assert!(summary.issues.is_empty(), "{:?}", summary.issues);
+        assert_eq!(read(&dir.join("manager.md.bak")), plain);
+        assert_eq!(read(&dir.join("backend.md.bak")), bad);
+        assert!(MdFormat::Gemini
+            .marker(&read(&dir.join("manager.md")))
+            .is_some());
+    }
+
+    #[test]
+    fn the_listing_names_markdown_copies_and_their_backups() {
+        let (_temp, home) = setup("provision-md-listing");
+        let dir = MdFormat::Gemini.agents_dir(&home);
+        fs::create_dir_all(&dir).unwrap();
+        let own = foreign_md("manager");
+        fs::write(dir.join("manager.md"), &own).unwrap();
+        fs::write(dir.join("manager.md.bak"), "older backup").unwrap();
+        sync(&home, &[], DefProgram::Gemini, true);
+        sync(&home, &[], DefProgram::Copilot, true);
+        let mut copies = md_copies(
+            &home,
+            &[DefProgram::Codex, DefProgram::Gemini, DefProgram::Opencode],
+        );
+        copies.sort_by(|a, b| a.name.cmp(&b.name));
+        assert_eq!(
+            copies,
+            [
+                MdCopy {
+                    program: DefProgram::Gemini,
+                    name: "backend".into(),
+                    file: "backend.md".into(),
+                    backup: None,
+                    backups: Vec::new(),
+                },
+                MdCopy {
+                    program: DefProgram::Gemini,
+                    name: "manager".into(),
+                    file: "manager.md".into(),
+                    backup: Some("manager.md.bak.2".into()),
+                    backups: vec!["manager.md.bak".into(), "manager.md.bak.2".into()],
+                },
+            ]
+        );
+        // Only the named programs are read; a user's own file is no copy.
+        assert_eq!(md_copies(&home, &[DefProgram::Copilot]).len(), 2);
+        assert!(md_copies(&home, &[DefProgram::Opencode]).is_empty());
+        let json = serde_json::to_value(&copies[1]).unwrap();
+        assert_eq!(json["program"], "gemini");
+        assert_eq!(json["backups"][0], "manager.md.bak");
+    }
+
+    #[test]
+    fn markdown_folders_follow_the_link_rules_of_codex() {
+        let (temp, home) = setup("provision-md-links");
+        let md = MdFormat::Gemini;
+        let dir = md.agents_dir(&home);
+        // A global folder linked to a local one is followed, as for Codex CLI (dotfiles).
+        let real = temp.path().join("dotfiles-agents");
+        fs::create_dir_all(&real).unwrap();
+        fs::create_dir_all(dir.parent().unwrap()).unwrap();
+        folder_link(&dir, &real);
+        // A link named like a copy is no file of the program's: never written through.
+        let elsewhere = temp.path().join("elsewhere");
+        fs::create_dir_all(&elsewhere).unwrap();
+        fs::write(elsewhere.join("keep.txt"), "mine").unwrap();
+        folder_link(&real.join("manager.md"), &elsewhere);
+
+        let summary = sync(&home, &[], DefProgram::Gemini, true);
+        assert!(md.marker(&read(&real.join("backend.md"))).is_some());
+        assert_eq!(summary.issues.len(), 1, "{:?}", summary.issues);
+        assert_eq!(summary.issues[0].kind, IssueKind::Io);
+        assert_eq!(read(&elsewhere.join("keep.txt")), "mine");
+        assert_eq!(fs::read_dir(&elsewhere).unwrap().count(), 1);
+
+        // Switched off: the copy goes, the link and what it points to stay.
+        let off = sync(&home, &[], DefProgram::Gemini, false);
+        assert_eq!(off.removed, [dir.join("backend.md")]);
+        assert!(fs::symlink_metadata(real.join("manager.md")).is_ok());
+        assert_eq!(read(&elsewhere.join("keep.txt")), "mine");
+    }
+
+    #[test]
+    fn markdown_programs_never_touch_project_folders() {
+        let (temp, home) = setup("provision-md-project");
+        let project = temp.path().join("project");
+        for (program, md) in MD_PROGRAMS {
+            let dir = md.agents_dir(&project);
+            fs::create_dir_all(&dir).unwrap();
+            let file = dir.join(format!("manager{}", md.suffix()));
+            fs::write(&file, foreign_md("manager")).unwrap();
+            let summary = sync(&home, std::slice::from_ref(&project), program, true);
+            assert!(
+                summary.issues.is_empty(),
+                "{program:?}: {:?}",
+                summary.issues
+            );
+            assert_eq!(read(&file), foreign_md("manager"));
+            assert_eq!(fs::read_dir(&dir).unwrap().count(), 1, "{program:?}");
+        }
+    }
+
+    #[test]
+    fn a_markdown_copy_of_a_bundled_name_never_displaces_a_users_file() {
+        let (_temp, home) = setup("provision-md-bundled");
+        let dir = MdFormat::Opencode.agents_dir(&home);
+        fs::create_dir_all(&dir).unwrap();
+        let own = foreign_md("manager");
+        fs::write(dir.join("manager.md"), &own).unwrap();
+        let summary = sync_with(
+            &home,
+            &[],
+            DefProgram::Opencode,
+            true,
+            &["manager".to_owned()],
+        );
+        assert!(summary.replaced.is_empty(), "{:?}", summary.replaced);
+        assert_eq!(read(&dir.join("manager.md")), own);
+        assert!(!dir.join("manager.md.bak").exists());
+    }
+
+    #[test]
+    fn markdown_targets_need_their_measured_version() {
+        for (program, floor) in [
+            (DefProgram::Copilot, "1.0.114"),
+            (DefProgram::Opencode, "2.3.2"),
+            (DefProgram::Gemini, "0.70.0"),
+        ] {
+            assert_eq!(min_version(program), Some(floor));
+            assert!(version_reaches(program, Some(floor)));
+            assert!(!version_reaches(program, None), "{program:?}");
+            assert!(!version_reaches(program, Some("garbage")), "{program:?}");
+        }
+        assert!(version_reaches(DefProgram::Opencode, Some("v2.4.0")));
+        // OpenCode 1.x reads another folder layout, never measured.
+        assert!(!version_reaches(DefProgram::Opencode, Some("1.19.5")));
+        assert!(!version_reaches(DefProgram::Gemini, Some("0.69.9")));
+        // Claude Code and Codex CLI need no version.
+        assert!(version_reaches(DefProgram::Codex, None));
+        assert!(version_reaches(DefProgram::Claude, None));
+        let all = [
+            DefProgram::Claude,
+            DefProgram::Codex,
+            DefProgram::Copilot,
+            DefProgram::Opencode,
+            DefProgram::Gemini,
+        ];
+        let listed: Vec<DefProgram> = targets(&all, &BTreeSet::new())
+            .into_iter()
+            .map(|target| target.program)
+            .collect();
+        assert_eq!(listed, TARGETS);
     }
 }

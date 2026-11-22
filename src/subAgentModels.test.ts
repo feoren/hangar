@@ -5,12 +5,15 @@ import { describe, expect, it } from "vitest";
 import { I18nContext, createTranslator } from "./i18n";
 import { EMPTY_LIBRARY, parseLibrary, type CodexDef, type Library } from "./subAgentLibrary";
 import { ModelField } from "./SubAgentModelField";
-import { IssueList } from "./SubAgentSettings";
+import { IssueList, MarkdownCopies } from "./SubAgentSettings";
 import {
   backupsOf,
   claudeOptions,
   failures,
+  isDefProgram,
   issuesOf,
+  markdownTargets,
+  mdCopyOf,
   codexSuggestions,
   copiesOf,
   effortOptions,
@@ -19,6 +22,7 @@ import {
   ownCodexDefs,
   parseSubAgentSettings,
   provides,
+  takesModel,
   validModel,
   withBundled,
   withModel,
@@ -125,7 +129,7 @@ describe("settings", () => {
     expect(parseSubAgentSettings(null)).toEqual(DEFAULT_SETTINGS);
     const parsed = parseSubAgentSettings({
       models: { claude: { model: "sonnet", effort: null }, codex: { model: 7 }, other: {} },
-      provideOff: ["codex", "gemini"],
+      provideOff: ["codex", "qwen"],
     });
     expect(parsed).toEqual({
       models: { claude: { model: "sonnet", effort: null } },
@@ -138,6 +142,22 @@ describe("settings", () => {
     expect(codex.models.codex).toEqual({ model: "o3", effort: "high" });
     expect(withProvide(parsed, "codex", true).provideOff).toEqual([]);
     expect(withProvide(DEFAULT_SETTINGS, "codex", false).provideOff).toEqual(["codex"]);
+  });
+
+  it("know the programs that only get copies, without a model", () => {
+    for (const program of ["copilot", "opencode", "gemini"] as const) {
+      expect(isDefProgram(program)).toBe(true);
+      expect(takesModel(program)).toBe(false);
+    }
+    expect(isDefProgram("qwen")).toBe(false);
+    expect(takesModel("claude") && takesModel("codex")).toBe(true);
+    const parsed = parseSubAgentSettings({
+      models: { gemini: { model: "gemini-3-pro", effort: null } },
+      provideOff: ["copilot", "opencode", "gemini"],
+    });
+    expect(parsed.models).toEqual({});
+    expect(parsed.provideOff).toEqual(["copilot", "opencode", "gemini"]);
+    expect(withProvide(parsed, "opencode", true).provideOff).toEqual(["copilot", "gemini"]);
   });
 
   it("switch Hangar's bundled sub-agents, on by default", () => {
@@ -263,5 +283,75 @@ describe("copy issues", () => {
       ],
     });
     expect(parsed?.syncIssues).toEqual(library.syncIssues);
+  });
+});
+
+describe("Markdown copies", () => {
+  const gemini: Library = {
+    ...EMPTY_LIBRARY,
+    targets: [
+      { program: "gemini", enabled: true },
+      { program: "copilot", enabled: false },
+    ],
+    mdCopies: [
+      {
+        program: "gemini",
+        name: "manager",
+        file: "manager.md",
+        backup: "manager.md.bak",
+        backups: ["manager.md.bak", "manager.md.bak.2"],
+      },
+    ],
+    syncIssues: [
+      {
+        program: "gemini",
+        scope: "global",
+        folder: null,
+        file: "writer.md",
+        name: "writer",
+        kind: "nameTaken",
+      },
+    ],
+  };
+
+  function render(name: string): string {
+    return renderToStaticMarkup(
+      createElement(
+        I18nContext.Provider,
+        { value: createTranslator("en") },
+        createElement(MarkdownCopies, { library: gemini, name }),
+      ),
+    );
+  }
+
+  it("name the backup of a replaced file per program that gets copies", () => {
+    expect(markdownTargets(gemini)).toEqual(["gemini"]);
+    expect(mdCopyOf(gemini, "gemini", "manager")?.file).toBe("manager.md");
+    const html = render("manager");
+    expect(html).toContain("Gemini CLI:");
+    expect(html).toContain("~/.gemini/agents/manager.md.bak");
+    expect(html).toContain("~/.gemini/agents/manager.md.bak.2");
+    // Copilot CLI is switched off here: no line for it.
+    expect(html).not.toContain("Copilot");
+  });
+
+  it("say why a copy is missing", () => {
+    expect(render("writer")).toContain("The file belongs to another agent");
+    expect(render("other")).toContain("Gemini CLI:");
+  });
+
+  it("come from the backend's answer, checked", () => {
+    const parsed = parseLibrary({
+      defs: [],
+      problems: [],
+      mdCopies: [
+        ...gemini.mdCopies,
+        { program: "codex", name: "x", file: "x.toml", backup: null, backups: [] },
+        { program: "gemini", name: "Bad Name", file: "b.md", backup: null, backups: [] },
+      ],
+      syncIssues: gemini.syncIssues,
+    });
+    expect(parsed?.mdCopies).toEqual(gemini.mdCopies);
+    expect(parsed?.syncIssues.map((issue) => issue.kind)).toEqual(["nameTaken"]);
   });
 });

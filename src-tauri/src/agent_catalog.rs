@@ -1287,6 +1287,27 @@ packages={ winget='x y' }
     }
 
     #[test]
+    fn sub_agent_formats_are_only_the_measured_ones() {
+        // Evidence: docs/wiki/pages/sources/sub-agent-formats-measurement.md
+        use crate::agent_models::DefProgram;
+        let agents = builtin().unwrap();
+        let expected = [
+            ("claude", DefProgram::Claude),
+            ("codex", DefProgram::Codex),
+            ("copilot", DefProgram::Copilot),
+            ("opencode", DefProgram::Opencode),
+            ("gemini", DefProgram::Gemini),
+        ];
+        for agent in &agents {
+            let want = expected
+                .iter()
+                .find(|(id, _)| *id == agent.id)
+                .map(|(_, program)| *program);
+            assert_eq!(agent.agent_program, want, "{}", agent.id);
+        }
+    }
+
+    #[test]
     fn claude_has_conversation_ids_and_sub_agents() {
         // Evidence: docs/wiki/pages/agents/resume.md, docs/wiki/pages/sources/subagent-transcripts.md
         let agents = builtin().unwrap();

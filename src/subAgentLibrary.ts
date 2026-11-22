@@ -5,7 +5,7 @@
 
 import { splitBackendError } from "./backendError";
 import type { MessageKey } from "./i18n";
-import { isDefProgram, type DefProgram } from "./subAgentModels";
+import { isDefProgram, takesModel, type DefProgram } from "./subAgentModels";
 
 export type DefScope = "global" | "project";
 
@@ -84,9 +84,23 @@ export interface CodexDef {
   backups: string[];
 }
 
+/**
+ * Rust `MdCopy`: Hangar's copy in the global folder of Copilot CLI, OpenCode or Gemini CLI, with
+ * the backups of the user's files beside it.
+ */
+export interface MdCopy {
+  program: DefProgram;
+  /** The definition it was made from. */
+  name: string;
+  file: string;
+  /** The user's file Hangar set aside for the copy. */
+  backup: string | null;
+  backups: string[];
+}
+
 /** Rust `IssueKind`: why a copy run left a file or folder alone. */
 export type SyncIssueKind =
-  "unreadable" | "io" | "offMachine" | "noBackupName" | "tracked" | "link";
+  "unreadable" | "io" | "offMachine" | "noBackupName" | "tracked" | "link" | "nameTaken";
 
 const ISSUE_KINDS: readonly SyncIssueKind[] = [
   "unreadable",
@@ -95,6 +109,7 @@ const ISSUE_KINDS: readonly SyncIssueKind[] = [
   "noBackupName",
   "tracked",
   "link",
+  "nameTaken",
 ];
 
 /** Rust `agent_provision::Issue`. */
@@ -125,6 +140,8 @@ export interface Library {
   codexModels: string[];
   /** What the newest copy runs left alone. */
   syncIssues: SyncIssue[];
+  /** Hangar's copies in the Markdown programs' global folders. */
+  mdCopies: MdCopy[];
   /** Global definitions that are Hangar's unchanged bundled copies. */
   bundled: string[];
 }
@@ -137,6 +154,7 @@ export const EMPTY_LIBRARY: Library = {
   targets: [],
   codexModels: [],
   syncIssues: [],
+  mdCopies: [],
   bundled: [],
 };
 
@@ -706,8 +724,11 @@ function issues(value: unknown): SyncIssue[] {
     .slice(0, 64);
 }
 
+/** The installed programs with a default model (Rust `LibraryView::installed`); others are left out. */
 function programs(value: unknown): DefProgram[] {
-  return Array.isArray(value) ? value.filter(isDefProgram) : [];
+  return Array.isArray(value)
+    ? value.filter(isDefProgram).filter((program) => takesModel(program))
+    : [];
 }
 
 function parseTargets(value: unknown): ProvideTarget[] {
@@ -743,8 +764,35 @@ export function parseLibrary(value: unknown): Library | null {
       ? models.filter((model): model is string => typeof model === "string").slice(0, 8)
       : [],
     syncIssues: issues(field(value, "syncIssues")),
+    mdCopies: mdCopies(field(value, "mdCopies")),
     bundled: strings(field(value, "bundled"), 64).filter(validAgentName).slice(0, 64),
   };
+}
+
+function parseMdCopy(value: unknown): MdCopy | null {
+  if (typeof value !== "object" || value === null) return null;
+  const program = field(value, "program");
+  const name = field(value, "name");
+  const file = text(field(value, "file"), 512);
+  if (!isDefProgram(program) || takesModel(program) || !validAgentName(name) || file === null) {
+    return null;
+  }
+  return {
+    program,
+    name,
+    file,
+    backup: text(field(value, "backup"), 160),
+    backups: strings(field(value, "backups"), 160).slice(0, 16),
+  };
+}
+
+function mdCopies(value: unknown): MdCopy[] {
+  if (!Array.isArray(value)) return [];
+  const items: unknown[] = value;
+  return items
+    .map(parseMdCopy)
+    .filter((copy): copy is MdCopy => copy !== null)
+    .slice(0, 512);
 }
 
 /** Whether the global definition `name` is Hangar's bundled copy, unchanged. */

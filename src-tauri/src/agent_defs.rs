@@ -1042,6 +1042,10 @@ pub fn set_model(
     confirmed: bool,
 ) -> Result<(), DefError> {
     agent_models::check_choice(program, choice)?;
+    // Hangar lists no definitions of a program that only gets copies, so none to change.
+    if !program.takes_model() {
+        return Err(DefError::NotFound(name.to_owned()));
+    }
     if folder.is_some() && !confirmed {
         return Err(DefError::Confirm);
     }
@@ -1051,6 +1055,9 @@ pub fn set_model(
         let dir = match program {
             DefProgram::Claude => agents_dir(folder),
             DefProgram::Codex => codex_agents::agents_dir(folder),
+            DefProgram::Copilot | DefProgram::Opencode | DefProgram::Gemini => {
+                return Err(DefError::NotFound(name.to_owned()))
+            }
         };
         if let Some(parent) = dir.parent() {
             refuse_link(parent)?;
@@ -1062,6 +1069,9 @@ pub fn set_model(
     let path = match program {
         DefProgram::Claude => def_path(home, name, folder)?,
         DefProgram::Codex => codex_def_path(home, name, folder)?,
+        DefProgram::Copilot | DefProgram::Opencode | DefProgram::Gemini => {
+            return Err(DefError::NotFound(name.to_owned()))
+        }
     };
     refuse_link(&path)?;
     let text = read_text(&path).map_err(DefError::Invalid)?;
@@ -1075,6 +1085,9 @@ pub fn set_model(
                 None => agent_models::set_toml_model(&text, choice)
                     .map_err(|_| DefError::Invalid(Problem::NotToml))?,
             }
+        }
+        DefProgram::Copilot | DefProgram::Opencode | DefProgram::Gemini => {
+            return Err(DefError::NotFound(name.to_owned()))
         }
     };
     if next == text {
@@ -1688,5 +1701,33 @@ mod tests {
         let changed = BACKEND.replace("opus", "haiku");
         assert_eq!(create(&home, &changed, true).unwrap().file, "backend-2.md");
         assert_eq!(fs::read_to_string(&elsewhere).unwrap(), BACKEND);
+    }
+
+    #[test]
+    fn programs_that_only_get_copies_have_no_model_to_set() {
+        let temp = TempDir::new("defs-copy-only-model");
+        let home = temp.path().join("home");
+        let claude = agents_dir(&home);
+        fs::create_dir_all(&claude).unwrap();
+        fs::write(claude.join("backend.md"), BACKEND).unwrap();
+        crate::agent_provision::sync(&home, &[], DefProgram::Gemini, true);
+        let copy = home.join(".gemini").join("agents").join("backend.md");
+        let before = fs::read_to_string(&copy).unwrap();
+        for program in [
+            DefProgram::Copilot,
+            DefProgram::Opencode,
+            DefProgram::Gemini,
+        ] {
+            let result = set_model(
+                &home,
+                program,
+                "backend",
+                None,
+                &ModelChoice::default(),
+                false,
+            );
+            assert!(matches!(result, Err(DefError::NotFound(_))), "{result:?}");
+        }
+        assert_eq!(fs::read_to_string(&copy).unwrap(), before);
     }
 }

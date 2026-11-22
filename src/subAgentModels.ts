@@ -2,15 +2,29 @@
 // per program for every session Hangar starts. Pure; the backend checks everything again
 // (agent_models.rs). Contract: docs/wiki/pages/syntheses/sub-agent-library.md.
 
-import type { CodexDef, Library, SyncIssue } from "./subAgentLibrary";
+import type { CodexDef, Library, MdCopy, SyncIssue } from "./subAgentLibrary";
 
-/** Rust `DefProgram`: whose definitions and how its sessions take a default model. */
-export type DefProgram = "claude" | "codex";
+/**
+ * Rust `DefProgram`: whose definitions and how its sessions take a default model. Copilot CLI,
+ * OpenCode and Gemini CLI only get copies of the user's definitions, no model.
+ */
+export type DefProgram = "claude" | "codex" | "copilot" | "opencode" | "gemini";
 
-export const DEF_PROGRAMS: readonly DefProgram[] = ["claude", "codex"];
+export const DEF_PROGRAMS: readonly DefProgram[] = [
+  "claude",
+  "codex",
+  "copilot",
+  "opencode",
+  "gemini",
+];
 
 export function isDefProgram(value: unknown): value is DefProgram {
-  return value === "claude" || value === "codex";
+  return DEF_PROGRAMS.some((program) => program === value);
+}
+
+/** Rust `DefProgram::takes_model`: a default model for its sub-agents in Settings. */
+export function takesModel(program: DefProgram): boolean {
+  return program === "claude" || program === "codex";
 }
 
 /** Claude Code's model aliases offered (Rust `CLAUDE_ALIASES`); Fable costs clearly more. */
@@ -72,7 +86,7 @@ export function parseSubAgentSettings(value: unknown): SubAgentSettings {
   const models: Partial<Record<DefProgram, ModelChoice>> = {};
   const raw = field(value, "models");
   if (typeof raw === "object" && raw !== null) {
-    for (const program of DEF_PROGRAMS) {
+    for (const program of DEF_PROGRAMS.filter(takesModel)) {
       const choice = parseChoice(field(raw, program));
       if (choice !== null) models[program] = choice;
     }
@@ -188,8 +202,20 @@ export function failures(library: Library, program: DefProgram): SyncIssue[] {
   );
 }
 
-/** The backups beside a copy, the one its marker names first. */
-export function backupsOf(copy: CodexDef): string[] {
+/** The backups beside a copy (Codex CLI's or a Markdown one), the one its marker names first. */
+export function backupsOf(copy: Pick<CodexDef, "backup" | "backups">): string[] {
   const all = copy.backup === null ? copy.backups : [copy.backup, ...copy.backups];
   return [...new Set(all)];
+}
+
+/** The Markdown programs that get copies here, in the order Settings lists them. */
+export function markdownTargets(library: Library): DefProgram[] {
+  return library.targets
+    .filter((target) => target.enabled && !takesModel(target.program))
+    .map((target) => target.program);
+}
+
+/** Hangar's copy of the definition `name` in the global folder of `program`. */
+export function mdCopyOf(library: Library, program: DefProgram, name: string): MdCopy | undefined {
+  return library.mdCopies.find((copy) => copy.program === program && copy.name === name);
 }

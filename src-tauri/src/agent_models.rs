@@ -21,6 +21,20 @@ pub enum DefProgram {
     Claude,
     /// TOML in `.codex/agents`.
     Codex,
+    /// Markdown in `~/.copilot/agents` ([`crate::md_agents`]); copies only, no model default.
+    Copilot,
+    /// Markdown in `~/.config/opencode/agents` (OpenCode 2.x); copies only, no model default.
+    Opencode,
+    /// Markdown in `~/.gemini/agents`; copies only, no model default.
+    Gemini,
+}
+
+impl DefProgram {
+    /// Whether Settings > Sub-agents offers a default model for its sessions and lists its
+    /// definitions: only Claude Code and Codex CLI. The others only get copies.
+    pub fn takes_model(self) -> bool {
+        matches!(self, Self::Claude | Self::Codex)
+    }
 }
 
 /// Longest model id taken.
@@ -90,10 +104,16 @@ pub enum ModelError {
     Effort,
     #[error("This program takes no reasoning effort")]
     NoEffort,
+    #[error("Hangar hands this program no model")]
+    NoModel,
 }
 
-/// Checks a choice for `program`: a valid model, an effort only for Codex CLI.
+/// Checks a choice for `program`: a valid model, an effort only for Codex CLI, nothing for a
+/// program that only gets copies.
 pub fn check_choice(program: DefProgram, choice: &ModelChoice) -> Result<(), ModelError> {
+    if !program.takes_model() && !choice.is_empty() {
+        return Err(ModelError::NoModel);
+    }
     if choice
         .model
         .as_deref()
@@ -103,9 +123,9 @@ pub fn check_choice(program: DefProgram, choice: &ModelChoice) -> Result<(), Mod
     }
     match (program, choice.effort.as_deref()) {
         (_, None) => Ok(()),
-        (DefProgram::Claude, Some(_)) => Err(ModelError::NoEffort),
         (DefProgram::Codex, Some(effort)) if valid_effort(effort) => Ok(()),
         (DefProgram::Codex, Some(_)) => Err(ModelError::Effort),
+        (_, Some(_)) => Err(ModelError::NoEffort),
     }
 }
 
@@ -166,6 +186,7 @@ pub fn launch(
                 out.args.extend(["-c".to_owned(), arg]);
             }
         }
+        DefProgram::Copilot | DefProgram::Opencode | DefProgram::Gemini => {}
     }
     out
 }
@@ -349,6 +370,29 @@ mod tests {
             check_choice(DefProgram::Codex, &choice(Some("a b"), None)),
             Err(ModelError::Model)
         );
+        // Programs that only get copies take no model at all, and their sessions get none.
+        for program in [
+            DefProgram::Copilot,
+            DefProgram::Opencode,
+            DefProgram::Gemini,
+        ] {
+            assert!(!program.takes_model());
+            assert!(check_choice(program, &ModelChoice::default()).is_ok());
+            assert_eq!(
+                check_choice(program, &choice(Some("gpt-5"), None)),
+                Err(ModelError::NoModel)
+            );
+            assert_eq!(
+                launch(
+                    program,
+                    &choice(Some("gpt-5"), None),
+                    &BTreeMap::new(),
+                    false
+                ),
+                ModelLaunch::default()
+            );
+        }
+        assert!(DefProgram::Claude.takes_model() && DefProgram::Codex.takes_model());
     }
 
     #[test]

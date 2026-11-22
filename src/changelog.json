@@ -32,6 +32,20 @@
         "zh": "GitHub Copilot CLI、Cursor CLI 和 OpenCode 2 现在可以作为团队会话运行。"
       },
       {
+        "de": "Deine Sub-Agenten stehen jetzt auch in GitHub Copilot CLI, OpenCode 2 und Gemini CLI bereit. Abschaltbar je Programm in den Einstellungen.",
+        "en": "Your sub-agents are now ready in GitHub Copilot CLI, OpenCode 2 and Gemini CLI too. Switch each program off in the settings.",
+        "el": "Οι υπο-πράκτορές σου είναι πλέον έτοιμοι και στα GitHub Copilot CLI, OpenCode 2 και Gemini CLI. Κλείνουν ανά πρόγραμμα στις ρυθμίσεις.",
+        "es": "Tus subagentes ya están listos también en GitHub Copilot CLI, OpenCode 2 y Gemini CLI. Puedes desactivarlo por programa en los ajustes.",
+        "fr": "Tes sous-agents sont maintenant prêts aussi dans GitHub Copilot CLI, OpenCode 2 et Gemini CLI. Désactivable par programme dans les réglages.",
+        "it": "I tuoi sotto-agenti ora sono pronti anche in GitHub Copilot CLI, OpenCode 2 e Gemini CLI. Puoi disattivarlo per programma nelle impostazioni.",
+        "ja": "自分のサブエージェントが GitHub Copilot CLI、OpenCode 2、Gemini CLI でもすぐ使えるようになりました。設定でプログラムごとにオフにできます。",
+        "pl": "Twoi podagenci są teraz gotowi także w GitHub Copilot CLI, OpenCode 2 i Gemini CLI. Możesz to wyłączyć dla każdego programu w ustawieniach.",
+        "pt": "Seus subagentes agora também estão prontos no GitHub Copilot CLI, no OpenCode 2 e no Gemini CLI. Dá para desativar por programa nas configurações.",
+        "ru": "Твои субагенты теперь готовы и в GitHub Copilot CLI, OpenCode 2 и Gemini CLI. Выключается для каждой программы в настройках.",
+        "tr": "Alt ajanların artık GitHub Copilot CLI, OpenCode 2 ve Gemini CLI'da da hazır. Ayarlardan her program için kapatabilirsin.",
+        "zh": "你的子代理现在也可以在 GitHub Copilot CLI、OpenCode 2 和 Gemini CLI 中直接使用。可在设置中按程序关闭。"
+      },
+      {
         "de": "Der Aktivitätskalender auf der Startansicht hat jetzt einen Rahmen, Wochentage und eine Legende von wenig bis viel.",
         "en": "The activity calendar on the home view now has a frame, weekday names and a legend from less to more.",
         "el": "Το ημερολόγιο δραστηριότητας στην αρχική προβολή έχει πλέον πλαίσιο, ονόματα ημερών και υπόμνημα από λιγότερα σε περισσότερα.",

@@ -881,6 +881,14 @@ async fn defs_blocking<T: Send + 'static>(
         .map_err(|error| DefError::Task(error.to_string()))?
 }
 
+/// [`SessionManager::installed_programs`] on a blocking thread, as it may start programs for
+/// their version (ADR 0003, up to [`crate::version::TIMEOUT`] each while not cached).
+async fn installed_programs(app: tauri::AppHandle) -> Result<Vec<DefProgram>, String> {
+    tauri::async_runtime::spawn_blocking(move || app.state::<SessionManager>().installed_programs())
+        .await
+        .map_err(|error| error.to_string())
+}
+
 /// [`agent_defs::Library`] with what Settings needs besides: the installed programs that read
 /// sub-agent definitions, those that get copies of the user's (with their switch) and model
 /// suggestions for Codex CLI (the main model of its config).
@@ -889,11 +897,15 @@ async fn defs_blocking<T: Send + 'static>(
 pub struct LibraryView {
     #[serde(flatten)]
     library: Library,
+    /// The installed programs that take a default model for their sub-agents (Claude Code,
+    /// Codex CLI); the ones that only get copies show up in `targets`.
     installed: Vec<DefProgram>,
     targets: Vec<agent_provision::TargetView>,
     codex_models: Vec<String>,
     /// What the newest copy runs left alone, and why.
     sync_issues: Vec<agent_provision::Issue>,
+    /// Hangar's copies in the Markdown programs' global folders, with their backups.
+    md_copies: Vec<agent_provision::MdCopy>,
     /// Global definitions that are Hangar's unchanged bundled copies.
     bundled: Vec<String>,
 }
@@ -903,21 +915,29 @@ pub struct LibraryView {
 /// problems.
 #[tauri::command]
 pub async fn sub_agent_library(
+    app: tauri::AppHandle,
     manager: Manager<'_>,
     store: State<'_, MainStore>,
     folders: Vec<PathBuf>,
 ) -> Result<LibraryView, DefError> {
-    let installed = manager.installed_programs();
+    let installed = installed_programs(app).await.map_err(DefError::Task)?;
     let off = store.inner().clone();
     defs_blocking(manager, move |home| {
         let bundled = bundled_agents::unchanged(home, &off.bundled_manifest());
         let off = off.load_sub_agents().provide_off;
+        let targets = agent_provision::targets(&installed, &off);
+        let target_programs: Vec<DefProgram> =
+            targets.iter().map(|target| target.program).collect();
         Ok(LibraryView {
             bundled,
             library: agent_defs::library(home, &folders),
-            targets: agent_provision::targets(&installed, &off),
+            md_copies: agent_provision::md_copies(home, &target_programs),
+            targets,
             codex_models: codex_agents::main_model(home).into_iter().collect(),
-            installed,
+            installed: installed
+                .into_iter()
+                .filter(|program| program.takes_model())
+                .collect(),
             sync_issues: agent_provision::last_issues(),
         })
     })
@@ -956,7 +976,9 @@ pub async fn sync_sub_agents(
     folders: Vec<PathBuf>,
 ) -> Result<Vec<agent_provision::Issue>, DefError> {
     main_store::check_main(window.label()).map_err(|_| DefError::WrongWindow)?;
-    let installed = manager.installed_programs();
+    let installed = installed_programs(window.app_handle().clone())
+        .await
+        .map_err(DefError::Task)?;
     let sessions = session_folders(&manager);
     let store = store.inner().clone();
     defs_blocking(manager, move |home| {
@@ -989,12 +1011,13 @@ fn sync_all(
 /// they left alone shows in the next listing.
 #[tauri::command]
 pub async fn create_sub_agent(
+    app: tauri::AppHandle,
     manager: Manager<'_>,
     store: State<'_, MainStore>,
     text: String,
     replace: bool,
 ) -> Result<AgentDef, DefError> {
-    let installed = manager.installed_programs();
+    let installed = installed_programs(app).await.map_err(DefError::Task)?;
     let sessions = session_folders(&manager);
     let store = store.inner().clone();
     defs_blocking(manager, move |home| {
@@ -1009,11 +1032,12 @@ pub async fn create_sub_agent(
 /// go, and a file they replaced comes back.
 #[tauri::command]
 pub async fn delete_sub_agent(
+    app: tauri::AppHandle,
     manager: Manager<'_>,
     store: State<'_, MainStore>,
     name: String,
 ) -> Result<(), DefError> {
-    let installed = manager.installed_programs();
+    let installed = installed_programs(app).await.map_err(DefError::Task)?;
     let sessions = session_folders(&manager);
     let store = store.inner().clone();
     defs_blocking(manager, move |home| {
@@ -1080,7 +1104,9 @@ pub async fn save_sub_agent_settings(
     let settings = main_store::validate_sub_agents(settings)?;
     let store = store.inner().clone();
     let home = manager.home().to_path_buf();
-    let installed = manager.installed_programs();
+    let installed = installed_programs(window.app_handle().clone())
+        .await
+        .map_err(MainStoreError::Task)?;
     let sessions = session_folders(&manager);
     let saved = settings.clone();
     tauri::async_runtime::spawn_blocking(move || {

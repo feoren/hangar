@@ -25,6 +25,7 @@ use zeroize::Zeroizing;
 
 use crate::agent_catalog::{merge_all, Agent, CatalogAgent, ProfileView, Source, TeamBlock};
 use crate::agent_models::{self, DefProgram, ModelChoice};
+use crate::agent_provision;
 use crate::batch;
 use crate::cli_session::{self, Plan};
 use crate::install_source::{self, PlanInput, SystemProbe, UpdatePlan};
@@ -1000,12 +1001,33 @@ impl SessionManager {
         *lock(&self.shared.sub_agent_models) = models;
     }
 
-    /// The installed programs that read sub-agent definitions, each once.
+    /// The installed programs that read sub-agent definitions, each once. A program whose format
+    /// was measured from a certain version on ([`agent_provision::min_version`]) counts only when
+    /// the version query (ADR 0003) shows that version or a newer one.
     pub fn installed_programs(&self) -> Vec<DefProgram> {
-        let mut out: Vec<DefProgram> = self
-            .installed()
+        let installed = self.installed();
+        let needing: Vec<(Agent, PathBuf)> = installed
             .iter()
-            .filter_map(|(agent, _)| agent.prompting.agent_program)
+            .filter(|(agent, _)| {
+                agent
+                    .prompting
+                    .agent_program
+                    .is_some_and(|program| agent_provision::min_version(program).is_some())
+            })
+            .cloned()
+            .collect();
+        let source = lock(&self.shared.versions).clone();
+        let versions = match (source, needing.is_empty()) {
+            (Some(source), false) => source.versions(&needing),
+            _ => HashMap::new(),
+        };
+        let mut out: Vec<DefProgram> = installed
+            .iter()
+            .filter_map(|(agent, _)| {
+                let program = agent.prompting.agent_program?;
+                let version = versions.get(agent.id()).and_then(Option::as_deref);
+                agent_provision::version_reaches(program, version).then_some(program)
+            })
             .collect();
         out.sort();
         out.dedup();

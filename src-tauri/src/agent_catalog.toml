@@ -84,10 +84,16 @@
 #                    session as the sub-agent definition {agent} (a checked name, see
 #                    src-tauri/src/agent_defs.rs). Only programs that read the definitions in
 #                    ~/.claude/agents and <project>/.claude/agents. Inherited like prompt_args.
-#   agent_program    Optional. "claude" or "codex": the program reads sub-agent definitions in
-#                    that format (.claude/agents/*.md, .codex/agents/*.toml), takes a default
-#                    model for them from Settings > Sub-agents and, when it is not Claude Code,
-#                    gets copies of the user's Claude Code definitions (src-tauri/src/agent_provision.rs).
+#   agent_program    Optional. "claude", "codex", "copilot", "opencode" or "gemini": the program
+#                    reads sub-agent definitions in that format (.claude/agents/*.md,
+#                    .codex/agents/*.toml, ~/.copilot/agents/*.agent.md,
+#                    ~/.config/opencode/agents/*.md, ~/.gemini/agents/*.md) and, when it is not
+#                    Claude Code, gets copies of the user's Claude Code definitions
+#                    (src-tauri/src/agent_provision.rs, src-tauri/src/md_agents.rs). Only "claude"
+#                    and "codex" take a default model for them from Settings > Sub-agents. The
+#                    Markdown formats get copies only from the version they were measured with
+#                    (agent_provision::min_version). Only formats measured against the installed
+#                    program: docs/wiki/pages/sources/sub-agent-formats-measurement.md.
 #                    Inherited like prompt_args.
 #   latest          Optional. Where the newest version is published, exactly one source:
 #                    { npm = "<package>" }, { pypi = "<package>" } or
@@ -231,6 +237,10 @@ resume_args = ["--resume"]
 # (docs/wiki/pages/sources/opencode2-and-gemini-gate-findings.md); no other per-session route
 # leaves the user's setup alone (docs/wiki/pages/sources/agent-hooks-cursor-cline-gemini-opencode2-research.md).
 capabilities = { pre_edit_block = true, context_inject = false, per_session_config = true, hook_format = "gemini_system_settings", measured = false, min_version = "0.68.0" }
+# Sub-agents in ~/.gemini/agents/*.md (frontmatter `name` and `description`, nothing else: the
+# 0.70.0 schema is strict). Measured with 0.70.0, which registers a copy before any sign-in:
+# docs/wiki/pages/sources/sub-agent-formats-measurement.md.
+agent_program = "gemini"
 # From the vendor's command reference (not installed here, so not read from a binary):
 # docs/wiki/pages/sources/agent-commands-measurement.md.
 agent_commands = [
@@ -267,6 +277,10 @@ resume_args = ["--continue"]
 # fires on apply_patch, HANGAR_GATE arrives, a deny keeps the file unwritten, an empty answer lets
 # an add and an update through): docs/wiki/pages/sources/copilot-gate-live-measurement.md.
 capabilities = { pre_edit_block = true, context_inject = false, per_session_config = true, hook_format = "copilot_plugin", measured = true, min_version = "1.0.114" }
+# Custom agents in ~/.copilot/agents/<name>.agent.md, which outrank a project's. Measured with
+# 1.0.114 (listed, and a headless `--agent` run answered as the copy):
+# docs/wiki/pages/sources/sub-agent-formats-measurement.md.
+agent_program = "copilot"
 icon = "Co"
 homepage = "https://github.com/github/copilot-cli"
 install_windows = "winget install GitHub.Copilot"
@@ -357,6 +371,10 @@ resume_args = ["--continue"]
 # (headless and interactive, deny and allow, edit and shell calls):
 # docs/wiki/pages/sources/opencode2-gate-live-measurement.md. 2.x before 2.3.2 is not measured.
 capabilities = { pre_edit_block = true, context_inject = false, per_session_config = true, hook_format = "opencode_plugin", measured = true, min_version = "1.19.5", version_gap = { from = "2.0.0", below = "2.3.2" } }
+# Sub-agents in ~/.config/opencode/agents/<name>.md with `mode: subagent`. Measured with 2.3.2
+# (`opencode debug agents --standalone` lists the copy); 1.x is not measured and gets no copies:
+# docs/wiki/pages/sources/sub-agent-formats-measurement.md.
+agent_program = "opencode"
 icon = "OC"
 homepage = "https://opencode.ai"
 install_windows = "npm install -g @opencode/cli"

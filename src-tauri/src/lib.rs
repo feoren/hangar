@@ -59,6 +59,7 @@ pub mod login_path;
 pub mod main_store;
 pub mod main_window;
 pub mod manager;
+pub mod md_agents;
 pub mod model_prices;
 pub mod no_links;
 pub mod notes;

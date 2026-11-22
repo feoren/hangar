@@ -52,6 +52,8 @@ import {
   copiesOf,
   failures,
   issuesOf,
+  markdownTargets,
+  mdCopyOf,
   NO_CHOICE,
   offeredEffort,
   ownCodexDefs,
@@ -119,7 +121,13 @@ function readFile(file: File, as: "text" | "base64"): Promise<string> {
   });
 }
 
-const PROGRAM_NAMES: Record<DefProgram, string> = { claude: "Claude Code", codex: "Codex CLI" };
+const PROGRAM_NAMES: Record<DefProgram, string> = {
+  claude: "Claude Code",
+  codex: "Codex CLI",
+  copilot: "GitHub Copilot CLI",
+  opencode: "OpenCode",
+  gemini: "Gemini CLI",
+};
 
 export function SubAgentSettings({
   settings: appSettings,
@@ -632,31 +640,37 @@ function ModelDefaults({
   onSave: (next: SubAgentSettings) => void;
 }) {
   const t = useT();
-  if (settings === null || library.installed.length === 0) {
+  // Copilot CLI, OpenCode and Gemini CLI come only as targets: they take no default model.
+  if (settings === null || (library.installed.length === 0 && library.targets.length === 0)) {
     return message === null ? null : <p className="muted error-text">{message}</p>;
   }
   const suggestions = codexSuggestions(library, library.codexModels);
   return (
     <>
-      <SettingsGroup title={t("subAgentLib.defaults")} description={t("subAgentLib.defaultsHelp")}>
-        {library.installed.map((program) => (
-          <SettingRow
-            key={program}
-            label={PROGRAM_NAMES[program]}
-            control={() => (
-              <ModelField
-                program={program}
-                value={settings.models[program] ?? NO_CHOICE}
-                suggestions={program === "codex" ? suggestions : []}
-                label={t("subAgentLib.defaultFor", { program: PROGRAM_NAMES[program] })}
-                onChange={(choice) => {
-                  save(withModel(settings, program, choice));
-                }}
-              />
-            )}
-          />
-        ))}
-      </SettingsGroup>
+      {library.installed.length > 0 && (
+        <SettingsGroup
+          title={t("subAgentLib.defaults")}
+          description={t("subAgentLib.defaultsHelp")}
+        >
+          {library.installed.map((program) => (
+            <SettingRow
+              key={program}
+              label={PROGRAM_NAMES[program]}
+              control={() => (
+                <ModelField
+                  program={program}
+                  value={settings.models[program] ?? NO_CHOICE}
+                  suggestions={program === "codex" ? suggestions : []}
+                  label={t("subAgentLib.defaultFor", { program: PROGRAM_NAMES[program] })}
+                  onChange={(choice) => {
+                    save(withModel(settings, program, choice));
+                  }}
+                />
+              )}
+            />
+          ))}
+        </SettingsGroup>
+      )}
       <SettingsGroup title={t("subAgentLib.files")}>
         <SwitchRow
           label={t("subAgentLib.provideBundled")}
@@ -673,7 +687,11 @@ function ModelDefaults({
             <SettingRow
               key={target.program}
               label={t("subAgentLib.provide", { program: PROGRAM_NAMES[target.program] })}
-              help={t("subAgentLib.provideHelp")}
+              help={t(
+                target.program === "codex"
+                  ? "subAgentLib.provideHelp"
+                  : "subAgentLib.provideHelpGlobal",
+              )}
               clickable
               control={({ labelId, helpId }) => (
                 <Switch
@@ -769,6 +787,7 @@ const ISSUE_TEXTS: Record<SyncIssueKind, MessageKey> = {
   noBackupName: "subAgentLib.issue.noBackupName",
   tracked: "subAgentLib.issue.tracked",
   link: "subAgentLib.issue.link",
+  nameTaken: "subAgentLib.issue.nameTaken",
 };
 
 function issueText(issue: SyncIssue, t: ReturnType<typeof useT>): string {
@@ -800,16 +819,58 @@ function copyText(
   issue: SyncIssue | undefined,
   t: ReturnType<typeof useT>,
 ): string {
+  const place =
+    copy === undefined || copy.folder === null
+      ? "~/.codex/agents"
+      : `${folderName(copy.folder)}/.codex/agents`;
+  return copyState(copy, issue, place, t);
+}
+
+/** [`copyText`] for any copy whose folder `place` is known. */
+function copyState(
+  copy: Pick<CodexDef, "backup" | "backups"> | undefined,
+  issue: SyncIssue | undefined,
+  place: string,
+  t: ReturnType<typeof useT>,
+): string {
   if (copy === undefined) {
     return issue === undefined ? t("subAgentLib.copyMissing") : issueText(issue, t);
   }
   const backups = backupsOf(copy);
   if (backups.length === 0) return t("subAgentLib.copyProvided");
-  const place =
-    copy.folder === null ? "~/.codex/agents" : `${folderName(copy.folder)}/.codex/agents`;
   return t("subAgentLib.copyReplaced", {
     backup: backups.map((backup) => `${place}/${backup}`).join(", "),
   });
+}
+
+/** The global agents folder of each Markdown program (Rust `MdFormat::agents_dir`). */
+const MD_FOLDERS: Partial<Record<DefProgram, string>> = {
+  copilot: "~/.copilot/agents",
+  opencode: "~/.config/opencode/agents",
+  gemini: "~/.gemini/agents",
+};
+
+/**
+ * Where the copies of the global definition `name` stand in Copilot CLI, OpenCode and Gemini
+ * CLI, one line per program that gets copies: provided, replaced with its backups, or why not.
+ */
+export function MarkdownCopies({ library, name }: { library: Library; name: string }) {
+  const t = useT();
+  return (
+    <>
+      {markdownTargets(library).map((program) => {
+        const issue = issuesOf(library, name).find(
+          (each) => each.program === program && each.scope === "global",
+        );
+        return (
+          <p key={program} className="muted sub-agent-copy">
+            {PROGRAM_NAMES[program]}:{" "}
+            {copyState(mdCopyOf(library, program, name), issue, MD_FOLDERS[program] ?? "~", t)}
+          </p>
+        );
+      })}
+    </>
+  );
 }
 
 /** A Claude Code definition opened: places, models, copies, figure and file actions. */
@@ -856,7 +917,10 @@ function ClaudeDetails({ entry }: { entry: LibraryEntry }) {
   const globalCopy = copies?.find((copy) => copy.scope === "global");
   const projectCopies =
     copies?.filter((copy) => copy.scope !== "global" && backupsOf(copy).length > 0) ?? [];
-  const issues = copies === null ? [] : issuesOf(library, entry.name);
+  const issues =
+    copies === null
+      ? []
+      : issuesOf(library, entry.name).filter((issue) => issue.program === "codex");
   const globalIssue = issues.find((issue) => issue.scope === "global");
   const projectIssues = issues.filter((issue) => issue.scope !== "global");
 
@@ -917,6 +981,8 @@ function ClaudeDetails({ entry }: { entry: LibraryEntry }) {
           {PROGRAM_NAMES.codex}: {issueText(issue, t)}
         </p>
       ))}
+      {/* Copies exist of global definitions only. */}
+      {entry.global !== null && <MarkdownCopies library={library} name={entry.name} />}
       {models.question}
       <div className="sub-agent-actions">
         <button

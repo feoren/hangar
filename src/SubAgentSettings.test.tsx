@@ -126,6 +126,19 @@ describe("SubAgentSettings", () => {
     expect(host.querySelectorAll('input[role="switch"]')).toHaveLength(2);
   });
 
+  it("shows only the switch for a program that gets copies but no model", async () => {
+    await render({
+      ...EMPTY_LIBRARY,
+      installed: [],
+      targets: [{ program: "gemini", enabled: true }],
+    });
+    expect(titles()).toEqual([t("settings.groupSubAgentDisplay"), t("subAgentLib.files")]);
+    const label = t("subAgentLib.provide", { program: "Gemini CLI" });
+    expect(switchNamed(label).checked).toBe(true);
+    expect(host.textContent).toContain(t("subAgentLib.provideHelpGlobal"));
+    expect(host.textContent).not.toContain(t("subAgentLib.provideHelp"));
+  });
+
   it("names each default model row by its program", async () => {
     await render(installed);
     const group = [...host.querySelectorAll(".setting-group")].find(

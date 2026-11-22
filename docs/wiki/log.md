@@ -1518,3 +1518,15 @@ Checked whether the relay should name the requesting device (a holder) instead o
 app already learns the device from the note's signature, the log has no device names to show, and
 the field would break the released apps 0.9.0 to 0.13.0 (`deny_unknown_fields`, reconnect on a body
 that fails to decode, replay). Not built. Pages changed: [[team-protocol]], [[team-service-v1]], index.
+
+## [2026-11-22] ingest | Sub-agent formats of Copilot CLI, OpenCode and Gemini CLI
+Measured which agent files Copilot CLI 1.0.114, OpenCode 2.3.2 and Gemini CLI 0.70.0 load, in
+redirected config folders, with the vendor docs; Qwen Code is not installed. Hangar now copies
+the user's sub-agents to the three global folders from those versions on. New:
+[[sub-agent-formats-measurement]]. Updated: [[sub-agent-library]], index.
+
+## [2026-11-22] decision | Gemini copies match by `name`; Markdown backups shown
+Gemini CLI copies now count a file for a definition only by its `name` or Hangar's marker; a file
+of the copy's file name that holds another valid name stays and is reported as `nameTaken`. The
+listing carries Hangar's Markdown copies with their backups (`mdCopies`), which the definition's
+row names. Updated: [[sub-agent-library]].

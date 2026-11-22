@@ -2,7 +2,7 @@
 title: Sub-agent library and figures
 type: synthesis
 tags: [agents, claude-code, sub-agents, settings, figures]
-sources: [[claude-agent-flag-measurement]], [[claude-agent-frontmatter-reading]], [[sub-agent-models-research]], [[codex-subagent-model-measurement]]
+sources: [[claude-agent-flag-measurement]], [[claude-agent-frontmatter-reading]], [[sub-agent-models-research]], [[codex-subagent-model-measurement]], [[sub-agent-formats-measurement]]
 created: 2026-11-15
 updated: 2026-11-22
 ---
@@ -333,9 +333,38 @@ repository.
   (`permitted`); the same holds for a model change of a project's file, which is also refused
   when the project's `.claude`, `.codex` or their `agents` folder is a link.
 - **Which programs:** every installed catalog program whose `agent_program` is not Claude Code
-  and whose format is known: Codex CLI. A program that is not installed gets no folder and keeps
-  its files. A switch per program ("Provide my sub-agents in Codex CLI"), on by default; off
-  removes Hangar's copies and puts the replaced files back.
+  and whose format was measured: Codex CLI, GitHub Copilot CLI from 1.0.114, OpenCode from 2.3.2
+  and Gemini CLI from 0.70.0 ([[sub-agent-formats-measurement]]). The three Markdown programs
+  count as installed only when the version query (ADR 0003) shows that version or a newer one
+  (`agent_provision::min_version`); an unknown version or OpenCode 1.x gets nothing. A program
+  that is not installed gets no folder and keeps its files. A switch per program ("Provide my
+  sub-agents in Codex CLI"), on by default; off removes Hangar's copies and puts the replaced
+  files back. Only Claude Code and Codex CLI take a default model in Settings
+  (`DefProgram::takes_model`); the others show only their switch, with a help text that leaves
+  out the project sentence (`subAgentLib.provideHelpGlobal`).
+- **Format mapping, Markdown programs (`md_agents.rs`):** `---`, the marker line, then
+  `name: "<name>"` (Copilot CLI and Gemini CLI), `description: "<whole description>"` (a YAML
+  double-quoted scalar, one line, `"`, `\`, line breaks and control characters escaped),
+  `mode: subagent` (OpenCode), `---`, a blank line and the prompt (CRLF as LF, one closing line
+  break). Nothing else: Gemini CLI 0.70.0 rejects any unknown key. Files and folders:
+  `~/.copilot/agents/<name>.agent.md`, `~/.config/opencode/agents/<name>.md`,
+  `~/.gemini/agents/<name>.md`; backups `<file>.bak`, which none of them reads. A set
+  `COPILOT_HOME`, `XDG_CONFIG_HOME` or `GEMINI_CLI_HOME` moves the folder the program reads;
+  Hangar writes to the default one. The marker is the second line (a YAML comment, read by all
+  three, measured), same text and hash rule as for Codex CLI, over every byte after it.
+- **Same name, Markdown programs:** Copilot CLI and OpenCode know an agent by its file name, so a
+  user's `manager.md` (Copilot CLI also `manager.agent.md`) is that agent and is replaced in
+  place. Gemini CLI knows an agent only by its `name` ([[sub-agent-formats-measurement]]), so
+  there a file counts for a definition by its `name` or by Hangar's intact marker: a user's
+  `lead.md` with `name: manager` is replaced in place. A file `manager.md` holding another valid
+  name (`name: lead`, Gemini CLI's slug rule) is the user's agent "lead": it stays byte for
+  byte, nothing is set aside, no copy is written, and the run reports `nameTaken` for the
+  definition until the user renames the file. A file of that file name without a readable or
+  valid `name` (Gemini CLI would refuse it anyway) still counts by its file name and is
+  replaced. A file starting with `_`, which Gemini CLI skips, is left alone. Hangar's unchanged
+  bundled definitions report no `nameTaken`. No model moves over.
+- **Project folders, Markdown programs:** never touched. Copilot CLI ranks its user folder above
+  a project's anyway, and OpenCode's and Gemini CLI's project agents belong to the repository.
 - **Format mapping, Codex CLI:** `name` is the definition's name, `description` its whole
   description, `developer_instructions` the Markdown prompt below the frontmatter (line breaks
   around it trimmed, CRLF as LF) as a multi-line literal string (`'''`), or as a multi-line basic
@@ -371,22 +400,31 @@ repository.
 - **Removal:** a copy whose definition is gone is removed and its backup renamed back into its
   place; in a project only when git does not track it.
 - **Issues:** each run reports what it left alone as `{ program, scope, folder, file, name, kind }`
-  with a stable kind (`unreadable`, `io`, `offMachine`, `noBackupName`, `tracked`, `link`), file
+  with a stable kind (`unreadable`, `io`, `offMachine`, `noBackupName`, `tracked`, `link`,
+  `nameTaken`), file
   and folder names only. The newest run's issues come with the listing (`syncIssues`); Settings
   lists failures below the switch and names the reason in the definition's row; a failed
   `sync_sub_agents` call shows as the library's error.
 - **Limits and safety:** names follow `valid_name`, Windows device names are skipped; paths are
-  only `<home or known folder>/.codex/agents/<file>`; the same read limits as for definitions;
-  writes are atomic.
+  only `<home or known folder>/.codex/agents/<file>` and, for the Markdown programs,
+  `<home>/.copilot/agents/<file>`, `<home>/.config/opencode/agents/<file>` and
+  `<home>/.gemini/agents/<file>`; the same read limits as for definitions; writes are atomic. A
+  global folder that is a link to a folder on this machine is followed (dotfiles), a file that is
+  a link is never written through.
 - **State in the window:** derived from the listing (`codexDefs` with `managed`, `backup` and
-  `backups`, and `syncIssues`): provided, replaced with the backups named, or why not.
+  `backups`, `mdCopies` and `syncIssues`): provided, replaced with the backups named, or why not.
+  `mdCopies` lists Hangar's copies (intact marker) in the global folders of the Markdown
+  programs that are targets here, `{ program, name, file, backup, backups }`, the backups being
+  the `<file>.bak` and `.bak.<n>` names of the definition beside it (at most 16, names only;
+  `agent_provision::md_copies`). The row of a global definition shows one line per Markdown
+  program that gets copies ("Gemini CLI: replaced, kept as ~/.gemini/agents/manager.md.bak"),
+  with the reason from that program's issue when the copy is missing.
 
 > [!question] Open: other programs
-> Gemini CLI (`~/.gemini/agents/*.md`), Qwen Code (`~/.qwen/agents/*.md`), GitHub Copilot CLI
-> (`~/.copilot/agents/*.agent.md`) and OpenCode (`~/.config/opencode/agents/*.md`) are named in
-> the owner's request but are not installed or not working here; their formats were not read
-> ([[sub-agent-models-research]]). A new target needs its format measured, then a variant of
-> `DefProgram`, a renderer and `agent_program` in its catalog entry.
+> Qwen Code is not installed here, so its format was not measured and it gets no copies (left
+> out, not greyed out). OpenCode 1.x is not measured either. A new target needs its format
+> measured, then a variant of `DefProgram`, a renderer, a version floor and `agent_program` in
+> its catalog entry ([[sub-agent-formats-measurement]]).
 
 ## Window
 

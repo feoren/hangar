@@ -1216,6 +1216,8 @@ const de = {
   "subAgentLib.provide": "Meine Sub-Agenten in {program} bereitstellen",
   "subAgentLib.provideHelp":
     "Hangar legt sie dort als eigene Dateien an. Eine Datei gleichen Namens wird ersetzt und als .bak aufgehoben. Das gilt auch für ungetrackte .codex/agents deiner Projekte.",
+  "subAgentLib.provideHelpGlobal":
+    "Hangar legt sie dort als eigene Dateien an. Eine Datei gleichen Namens wird ersetzt und als .bak aufgehoben.",
   "subAgentLib.files": "Sub-Agenten bereitstellen",
   "subAgentLib.provideBundled": "Hangars Sub-Agenten bereitstellen",
   "subAgentLib.provideBundledHelp":
@@ -1245,6 +1247,8 @@ const de = {
   "subAgentLib.issue.noBackupName": "Kein freier Name für die Sicherung",
   "subAgentLib.issue.tracked": "Projektdatei in {folder} überdeckt deine Kopie",
   "subAgentLib.issue.link": "Ordner ist eine Verknüpfung; Hangar folgt ihr nicht",
+  "subAgentLib.issue.nameTaken":
+    "Die Datei gehört zu einem anderen Agenten; benenne sie um, dann legt Hangar die Kopie an",
   "subAgentLib.copyProvided": "bereitgestellt",
   "subAgentLib.copyReplaced": "ersetzt, Sicherung: {backup}",
   "subAgentLib.copyMissing": "nicht bereitgestellt",
@@ -3546,6 +3550,8 @@ const en: Record<MessageKey, string> = {
   "subAgentLib.provide": "Provide my sub-agents in {program}",
   "subAgentLib.provideHelp":
     "Hangar adds them there as files of its own. A file of the same name is replaced and kept as .bak. This also applies to untracked .codex/agents in your projects.",
+  "subAgentLib.provideHelpGlobal":
+    "Hangar adds them there as files of its own. A file of the same name is replaced and kept as .bak.",
   "subAgentLib.files": "Provide sub-agents",
   "subAgentLib.provideBundled": "Provide Hangar's sub-agents",
   "subAgentLib.provideBundledHelp":
@@ -3575,6 +3581,8 @@ const en: Record<MessageKey, string> = {
   "subAgentLib.issue.noBackupName": "No free name for the backup",
   "subAgentLib.issue.tracked": "Project file in {folder} covers your copy",
   "subAgentLib.issue.link": "Folder is a link; Hangar does not follow it",
+  "subAgentLib.issue.nameTaken":
+    "The file belongs to another agent; rename it and Hangar adds the copy",
   "subAgentLib.copyProvided": "provided",
   "subAgentLib.copyReplaced": "replaced, backup: {backup}",
   "subAgentLib.copyMissing": "not provided",
@@ -5881,6 +5889,8 @@ const el: Record<MessageKey, string> = {
   "subAgentLib.provide": "Διάθεση των υπο-πρακτόρων μου στο {program}",
   "subAgentLib.provideHelp":
     "Το Hangar τους προσθέτει εκεί ως δικά του αρχεία. Ένα αρχείο με το ίδιο όνομα αντικαθίσταται και φυλάσσεται ως .bak. Ισχύει και για μη παρακολουθούμενα .codex/agents των έργων σου.",
+  "subAgentLib.provideHelpGlobal":
+    "Το Hangar τους προσθέτει εκεί ως δικά του αρχεία. Ένα αρχείο με το ίδιο όνομα αντικαθίσταται και φυλάσσεται ως .bak.",
   "subAgentLib.files": "Διάθεση υπο-πρακτόρων",
   "subAgentLib.provideBundled": "Διάθεση των υπο-πρακτόρων του Hangar",
   "subAgentLib.provideBundledHelp":
@@ -5911,6 +5921,8 @@ const el: Record<MessageKey, string> = {
   "subAgentLib.issue.noBackupName": "Δεν υπάρχει ελεύθερο όνομα για το αντίγραφο",
   "subAgentLib.issue.tracked": "Αρχείο έργου στο {folder} καλύπτει το αντίγραφό σου",
   "subAgentLib.issue.link": "Ο φάκελος είναι σύνδεσμος· το Hangar δεν τον ακολουθεί",
+  "subAgentLib.issue.nameTaken":
+    "Το αρχείο ανήκει σε άλλον πράκτορα· μετονόμασέ το και το Hangar θα προσθέσει το αντίγραφο",
   "subAgentLib.copyProvided": "διατέθηκε",
   "subAgentLib.copyReplaced": "αντικαταστάθηκε, αντίγραφο: {backup}",
   "subAgentLib.copyMissing": "δεν διατέθηκε",
@@ -8244,6 +8256,8 @@ const es: Record<MessageKey, string> = {
   "subAgentLib.provide": "Ofrecer mis subagentes en {program}",
   "subAgentLib.provideHelp":
     "Hangar los añade allí como archivos propios. Un archivo con el mismo nombre se reemplaza y se guarda como .bak. También vale para .codex/agents sin seguimiento en tus proyectos.",
+  "subAgentLib.provideHelpGlobal":
+    "Hangar los añade allí como archivos propios. Un archivo con el mismo nombre se reemplaza y se guarda como .bak.",
   "subAgentLib.files": "Ofrecer subagentes",
   "subAgentLib.provideBundled": "Ofrecer los subagentes de Hangar",
   "subAgentLib.provideBundledHelp":
@@ -8273,6 +8287,8 @@ const es: Record<MessageKey, string> = {
   "subAgentLib.issue.noBackupName": "No hay nombre libre para la copia",
   "subAgentLib.issue.tracked": "Un archivo del proyecto en {folder} tapa tu copia",
   "subAgentLib.issue.link": "La carpeta es un enlace; Hangar no lo sigue",
+  "subAgentLib.issue.nameTaken":
+    "El archivo pertenece a otro agente; cámbiale el nombre y Hangar añadirá la copia",
   "subAgentLib.copyProvided": "disponible",
   "subAgentLib.copyReplaced": "reemplazado, copia: {backup}",
   "subAgentLib.copyMissing": "no disponible",
@@ -10595,6 +10611,8 @@ const fr: Record<MessageKey, string> = {
   "subAgentLib.provide": "Proposer mes sous-agents dans {program}",
   "subAgentLib.provideHelp":
     "Hangar les y ajoute comme ses propres fichiers. Un fichier du même nom est remplacé et gardé en .bak. Cela vaut aussi pour les .codex/agents non suivis de tes projets.",
+  "subAgentLib.provideHelpGlobal":
+    "Hangar les y ajoute comme ses propres fichiers. Un fichier du même nom est remplacé et gardé en .bak.",
   "subAgentLib.files": "Proposer des sous-agents",
   "subAgentLib.provideBundled": "Proposer les sous-agents de Hangar",
   "subAgentLib.provideBundledHelp":
@@ -10625,6 +10643,8 @@ const fr: Record<MessageKey, string> = {
   "subAgentLib.issue.noBackupName": "Aucun nom libre pour la sauvegarde",
   "subAgentLib.issue.tracked": "Un fichier du projet dans {folder} masque ta copie",
   "subAgentLib.issue.link": "Le dossier est un lien ; Hangar ne le suit pas",
+  "subAgentLib.issue.nameTaken":
+    "Le fichier appartient à un autre agent ; renomme-le et Hangar ajoutera la copie",
   "subAgentLib.copyProvided": "proposé",
   "subAgentLib.copyReplaced": "remplacé, sauvegarde : {backup}",
   "subAgentLib.copyMissing": "non proposé",
@@ -12955,6 +12975,8 @@ const it: Record<MessageKey, string> = {
   "subAgentLib.provide": "Offri i miei sotto-agenti in {program}",
   "subAgentLib.provideHelp":
     "Hangar li aggiunge lì come file propri. Un file con lo stesso nome viene sostituito e conservato come .bak. Vale anche per i .codex/agents non tracciati dei tuoi progetti.",
+  "subAgentLib.provideHelpGlobal":
+    "Hangar li aggiunge lì come file propri. Un file con lo stesso nome viene sostituito e conservato come .bak.",
   "subAgentLib.files": "Offri sotto-agenti",
   "subAgentLib.provideBundled": "Offri i sotto-agenti di Hangar",
   "subAgentLib.provideBundledHelp":
@@ -12985,6 +13007,8 @@ const it: Record<MessageKey, string> = {
   "subAgentLib.issue.noBackupName": "Nessun nome libero per la copia",
   "subAgentLib.issue.tracked": "Un file di progetto in {folder} copre la tua copia",
   "subAgentLib.issue.link": "La cartella è un collegamento; Hangar non lo segue",
+  "subAgentLib.issue.nameTaken":
+    "Il file appartiene a un altro agente; rinominalo e Hangar aggiungerà la copia",
   "subAgentLib.copyProvided": "disponibile",
   "subAgentLib.copyReplaced": "sostituito, copia: {backup}",
   "subAgentLib.copyMissing": "non disponibile",
@@ -15304,6 +15328,8 @@ const ja: Record<MessageKey, string> = {
   "subAgentLib.provide": "自分のサブエージェントを {program} で使えるようにする",
   "subAgentLib.provideHelp":
     "Hangar はそこに独自のファイルとして追加します。同じ名前のファイルは置き換え、.bak として保存します。 プロジェクト内の Git 管理外の .codex/agents にも適用されます。",
+  "subAgentLib.provideHelpGlobal":
+    "Hangar はそこに独自のファイルとして追加します。同じ名前のファイルは置き換え、.bak として保存します。",
   "subAgentLib.files": "サブエージェントを使えるようにする",
   "subAgentLib.provideBundled": "Hangar のサブエージェントを使えるようにする",
   "subAgentLib.provideBundledHelp":
@@ -15333,6 +15359,8 @@ const ja: Record<MessageKey, string> = {
   "subAgentLib.issue.noBackupName": "バックアップに使える名前がありません",
   "subAgentLib.issue.tracked": "{folder} のプロジェクトファイルがあなたのコピーより優先されます",
   "subAgentLib.issue.link": "フォルダーはリンクです。Hangar はたどりません",
+  "subAgentLib.issue.nameTaken":
+    "このファイルは別のエージェントのものです。名前を変えると Hangar がコピーを追加します",
   "subAgentLib.copyProvided": "提供済み",
   "subAgentLib.copyReplaced": "置き換え済み、バックアップ: {backup}",
   "subAgentLib.copyMissing": "未提供",
@@ -17638,6 +17666,8 @@ const pl: Record<MessageKey, string> = {
   "subAgentLib.provide": "Udostępnij moich podagentów w {program}",
   "subAgentLib.provideHelp":
     "Hangar dodaje ich tam jako własne pliki. Plik o tej samej nazwie zostaje zastąpiony i zachowany jako .bak. Dotyczy to też nieśledzonych .codex/agents w twoich projektach.",
+  "subAgentLib.provideHelpGlobal":
+    "Hangar dodaje ich tam jako własne pliki. Plik o tej samej nazwie zostaje zastąpiony i zachowany jako .bak.",
   "subAgentLib.files": "Udostępnij podagentów",
   "subAgentLib.provideBundled": "Udostępnij podagentów Hangara",
   "subAgentLib.provideBundledHelp":
@@ -17667,6 +17697,8 @@ const pl: Record<MessageKey, string> = {
   "subAgentLib.issue.noBackupName": "Brak wolnej nazwy dla kopii",
   "subAgentLib.issue.tracked": "Plik projektu w {folder} zasłania twoją kopię",
   "subAgentLib.issue.link": "Folder jest dowiązaniem; Hangar za nim nie podąża",
+  "subAgentLib.issue.nameTaken":
+    "Plik należy do innego agenta; zmień jego nazwę, a Hangar doda kopię",
   "subAgentLib.copyProvided": "udostępniony",
   "subAgentLib.copyReplaced": "zastąpiony, kopia: {backup}",
   "subAgentLib.copyMissing": "nieudostępniony",
@@ -19965,6 +19997,8 @@ const pt: Record<MessageKey, string> = {
   "subAgentLib.provide": "Disponibilizar meus subagentes no {program}",
   "subAgentLib.provideHelp":
     "O Hangar os adiciona lá como arquivos próprios. Um arquivo com o mesmo nome é substituído e guardado como .bak. Vale também para .codex/agents não rastreados dos seus projetos.",
+  "subAgentLib.provideHelpGlobal":
+    "O Hangar os adiciona lá como arquivos próprios. Um arquivo com o mesmo nome é substituído e guardado como .bak.",
   "subAgentLib.files": "Disponibilizar subagentes",
   "subAgentLib.provideBundled": "Disponibilizar os subagentes do Hangar",
   "subAgentLib.provideBundledHelp":
@@ -19994,6 +20028,8 @@ const pt: Record<MessageKey, string> = {
   "subAgentLib.issue.noBackupName": "Nenhum nome livre para a cópia",
   "subAgentLib.issue.tracked": "Um arquivo do projeto em {folder} cobre sua cópia",
   "subAgentLib.issue.link": "A pasta é um link; o Hangar não o segue",
+  "subAgentLib.issue.nameTaken":
+    "O arquivo pertence a outro agente; renomeie-o e o Hangar adiciona a cópia",
   "subAgentLib.copyProvided": "disponibilizado",
   "subAgentLib.copyReplaced": "substituído, cópia: {backup}",
   "subAgentLib.copyMissing": "não disponibilizado",
@@ -22292,6 +22328,8 @@ const ru: Record<MessageKey, string> = {
   "subAgentLib.provide": "Предоставить моих субагентов в {program}",
   "subAgentLib.provideHelp":
     "Hangar добавляет их туда как свои файлы. Файл с тем же именем заменяется и сохраняется как .bak. Это касается и неотслеживаемых .codex/agents в твоих проектах.",
+  "subAgentLib.provideHelpGlobal":
+    "Hangar добавляет их туда как свои файлы. Файл с тем же именем заменяется и сохраняется как .bak.",
   "subAgentLib.files": "Предоставить субагентов",
   "subAgentLib.provideBundled": "Предоставить субагентов Hangar",
   "subAgentLib.provideBundledHelp":
@@ -22321,6 +22359,8 @@ const ru: Record<MessageKey, string> = {
   "subAgentLib.issue.noBackupName": "Нет свободного имени для копии",
   "subAgentLib.issue.tracked": "Файл проекта в {folder} перекрывает твою копию",
   "subAgentLib.issue.link": "Папка является ссылкой; Hangar по ней не переходит",
+  "subAgentLib.issue.nameTaken":
+    "Файл принадлежит другому агенту; переименуй его, и Hangar добавит копию",
   "subAgentLib.copyProvided": "предоставлен",
   "subAgentLib.copyReplaced": "заменён, копия: {backup}",
   "subAgentLib.copyMissing": "не предоставлен",
@@ -24601,6 +24641,8 @@ const tr: Record<MessageKey, string> = {
   "subAgentLib.provide": "Alt ajanlarımı {program} içinde sun",
   "subAgentLib.provideHelp":
     "Hangar onları oraya kendi dosyaları olarak ekler. Aynı adlı bir dosya değiştirilir ve .bak olarak saklanır. Bu, projelerindeki izlenmeyen .codex/agents için de geçerlidir.",
+  "subAgentLib.provideHelpGlobal":
+    "Hangar onları oraya kendi dosyaları olarak ekler. Aynı adlı bir dosya değiştirilir ve .bak olarak saklanır.",
   "subAgentLib.files": "Alt ajanları sun",
   "subAgentLib.provideBundled": "Hangar'ın alt ajanlarını sun",
   "subAgentLib.provideBundledHelp":
@@ -24630,6 +24672,8 @@ const tr: Record<MessageKey, string> = {
   "subAgentLib.issue.noBackupName": "Yedek için boş ad yok",
   "subAgentLib.issue.tracked": "{folder} içindeki proje dosyası kopyanı örtüyor",
   "subAgentLib.issue.link": "Klasör bir bağlantı; Hangar onu izlemez",
+  "subAgentLib.issue.nameTaken":
+    "Dosya başka bir ajana ait; yeniden adlandır, Hangar kopyayı ekler",
   "subAgentLib.copyProvided": "sunuldu",
   "subAgentLib.copyReplaced": "değiştirildi, yedek: {backup}",
   "subAgentLib.copyMissing": "sunulmadı",
@@ -26848,6 +26892,8 @@ const zh: Record<MessageKey, string> = {
   "subAgentLib.provide": "在 {program} 中提供我的子代理",
   "subAgentLib.provideHelp":
     "Hangar 会在那里添加自己的文件。同名文件会被替换，并保存为 .bak。这也适用于你项目中未被跟踪的 .codex/agents。",
+  "subAgentLib.provideHelpGlobal":
+    "Hangar 会在那里添加自己的文件。同名文件会被替换，并保存为 .bak。",
   "subAgentLib.files": "提供子代理",
   "subAgentLib.provideBundled": "提供 Hangar 的子代理",
   "subAgentLib.provideBundledHelp":
@@ -26876,6 +26922,7 @@ const zh: Record<MessageKey, string> = {
   "subAgentLib.issue.noBackupName": "没有可用于备份的名称",
   "subAgentLib.issue.tracked": "{folder} 中的项目文件覆盖了你的副本",
   "subAgentLib.issue.link": "文件夹是链接；Hangar 不会跟随",
+  "subAgentLib.issue.nameTaken": "该文件属于另一个代理；重命名后 Hangar 会添加副本",
   "subAgentLib.copyProvided": "已提供",
   "subAgentLib.copyReplaced": "已替换，备份：{backup}",
   "subAgentLib.copyMissing": "未提供",
