@@ -360,22 +360,29 @@ body.resizing-vertical .app {
   padding: 8px 8px 6px;
 }
 
-/* In a narrow sidebar the version goes first; the logo and name are never cut off. */
+/* The version sits small below the name, so the whole of it (with "beta") stays readable next
+   to the home button and an update pill at every sidebar width. In a very narrow sidebar it goes
+   first; the logo and name are never cut off. */
 .sidebar-header {
   container-type: inline-size;
 }
 
 .brand {
-  display: flex;
+  display: grid;
   flex: 1;
+  grid-template-columns: auto minmax(0, 1fr);
   align-items: center;
-  gap: 7px;
+  gap: 1px 7px;
   min-width: 0;
   overflow: hidden;
   font-size: 15px;
   font-weight: 600;
   letter-spacing: 0.02em;
   white-space: nowrap;
+}
+
+.brand .logo {
+  grid-row: 1 / span 2;
 }
 
 .logo {
@@ -391,17 +398,25 @@ body.resizing-vertical .app {
 }
 
 .brand-name {
-  flex: none;
+  line-height: 16px;
 }
 
 .brand-version {
+  grid-column: 2;
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
-  font-size: 11.5px;
+  font-size: 11px;
   font-weight: 400;
+  line-height: 13px;
   letter-spacing: 0;
   color: var(--muted);
+}
+
+.brand-version .beta-badge {
+  padding: 0 4px;
+  font-size: 9.5px;
+  line-height: 11px;
 }
 
 .version-text {
