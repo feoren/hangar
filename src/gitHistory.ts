@@ -2,6 +2,7 @@
 // merges pages of the list and groups it into "not pushed" and the rest. Pure, so it can be tested
 // without the backend or React.
 
+import { shortAge } from "./format";
 import { parseGitDiff, type GitDiff } from "./gitDiff";
 
 /**
@@ -200,27 +201,12 @@ export function commitGroups(log: GitLog): CommitGroup[] {
   return groups;
 }
 
-const MINUTE = 60;
-const HOUR = 60 * MINUTE;
-const DAY = 24 * HOUR;
-const WEEK = 7 * DAY;
-const MONTH = 30 * DAY;
-const YEAR = 365 * DAY;
-
 /**
- * How long ago a commit was made: "5 min ago", "yesterday", "3 weeks ago" (in the UI language via
- * Intl, so no unit needs translating). A date in the future (clock skew) counts as now.
+ * How long ago a commit was made: "5 min ago", "yesterday", "3 weeks ago" (`shortAge`).
+ * `authoredAt` in seconds.
  */
 export function commitAge(authoredAt: number, nowMs: number, language: string): string {
-  const seconds = Math.max(0, Math.floor(nowMs / 1000) - authoredAt);
-  const format = new Intl.RelativeTimeFormat(language, { numeric: "auto", style: "short" });
-  if (seconds < MINUTE) return format.format(0, "second");
-  if (seconds < HOUR) return format.format(-Math.floor(seconds / MINUTE), "minute");
-  if (seconds < DAY) return format.format(-Math.floor(seconds / HOUR), "hour");
-  if (seconds < WEEK) return format.format(-Math.floor(seconds / DAY), "day");
-  if (seconds < MONTH) return format.format(-Math.floor(seconds / WEEK), "week");
-  if (seconds < YEAR) return format.format(-Math.floor(seconds / MONTH), "month");
-  return format.format(-Math.floor(seconds / YEAR), "year");
+  return shortAge(authoredAt * 1000, nowMs, language);
 }
 
 /** Full date and time for tooltips. */

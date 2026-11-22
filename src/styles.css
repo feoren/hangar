@@ -2721,46 +2721,61 @@ h2 .beta-badge {
   min-width: 0;
 }
 
-/* Recently closed above the programs: a small caption, then rows like the programs' with the
-   folder first and the title after it in the muted color, on one line. */
-.recently-closed {
-  margin-bottom: 4px;
+/* Recently opened: a group of its own right above New session, with the same header. It parts
+   from what is above by one line, as New session does, and gives way first when the sidebar is
+   short. Rows like the programs', on two lines: the folder, then the title (or program) and how
+   long ago in the muted color. The × at the end shows on hover and keyboard focus. */
+.sidebar-group.recent-group {
+  flex: 0 1 auto;
+  border-top: var(--hairline) solid var(--border);
 }
 
-.recently-closed-title {
-  margin: 0;
-  padding: 6px 16px 2px;
-  font-size: 11px;
-  font-weight: 600;
-  letter-spacing: 0.04em;
-  text-transform: uppercase;
-  color: var(--muted);
+.splitter.horizontal + .recent-group {
+  border-top: none;
 }
 
-.closed-session-text {
+.recent-group .group-body {
+  overflow-y: auto;
+  padding-bottom: 6px;
+}
+
+.recent-open {
+  padding-block: 4px;
+}
+
+.recent-text {
   display: flex;
   flex: 1 1 0;
-  gap: 6px;
-  align-items: baseline;
+  flex-direction: column;
   min-width: 0;
+  line-height: 1.3;
+}
+
+.recent-folder,
+.recent-detail {
   overflow: hidden;
   white-space: nowrap;
-}
-
-.closed-session-folder {
-  flex: 0 1 auto;
-  min-width: 0;
-  overflow: hidden;
   text-overflow: ellipsis;
 }
 
-.closed-session-title {
-  flex: 0 4 auto;
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
+.recent-folder {
+  font-weight: 600;
+}
+
+.recent-detail {
   font-size: 11.5px;
   color: var(--muted);
+}
+
+.recent-remove {
+  flex: none;
+  margin-right: 4px;
+  opacity: 0;
+}
+
+.recent-row:hover .recent-remove,
+.recent-row:focus-within .recent-remove {
+  opacity: 1;
 }
 
 /* The version gives way first when space is short; the name stays readable. */

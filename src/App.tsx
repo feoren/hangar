@@ -348,22 +348,27 @@ import {
   loadMainPrefs,
   loadProtectedSettings,
   loadSecuritySwitches,
-  loadRecentlyClosed,
+  loadRecentSessions,
   loadStoredTemplates,
   migrateQueuedMessages,
   saveMainPrefs,
   saveProtectedSettings,
-  saveRecentlyClosed,
+  saveRecentSessions,
   saveStoredTemplates,
   type MainPrefs,
 } from "./mainStore";
 import {
-  closedEntry,
-  pushClosed,
-  shownClosed,
-  withoutClosed,
-  type ClosedSession,
-} from "./recentlyClosed";
+  browserStorage,
+  markSeeded,
+  needsSeed,
+  pushRecent,
+  recentEntry,
+  seedRecent,
+  shownRecent,
+  UNKNOWN_TIME,
+  withoutRecent,
+  type RecentSession,
+} from "./recentlyOpened";
 import {
   gateActive,
   hasStoredSettings,
@@ -922,25 +927,18 @@ export function App() {
       setTemplates(stored);
     });
   }, []);
-  /** Recently closed sessions (recentlyClosed.ts), kept by the backend for this window. */
-  const [recentlyClosed, setRecentlyClosed] = useState<ClosedSession[]>([]);
+  /** Recently opened sessions (recentlyOpened.ts), kept by the backend for this window. */
+  const [recentSessions, setRecentSessions] = useState<RecentSession[]>([]);
   /** The list the backend holds; saved only once it was read, and changed. */
-  const savedClosed = useRef<ClosedSession[] | null>(null);
+  const savedRecent = useRef<RecentSession[] | null>(null);
+  /** The list is read once, after the preferences and programs (see `seedProgram`). */
+  const recentRequested = useRef(false);
   useEffect(() => {
-    void loadRecentlyClosed().then((stored) => {
-      savedClosed.current = stored;
-      // Sessions closed before the answer came go in front of the stored ones.
-      setRecentlyClosed((current) =>
-        current.reduceRight((list, entry) => pushClosed(list, entry), stored),
-      );
-    });
-  }, []);
-  useEffect(() => {
-    if (savedClosed.current === null || savedClosed.current === recentlyClosed) return;
-    savedClosed.current = recentlyClosed;
-    saveRecentlyClosed(recentlyClosed).catch(() => undefined);
-  }, [recentlyClosed]);
-  /** A recently closed session is starting again; a second click waits until it runs. */
+    if (savedRecent.current === null || savedRecent.current === recentSessions) return;
+    savedRecent.current = recentSessions;
+    saveRecentSessions(recentSessions).catch(() => undefined);
+  }, [recentSessions]);
+  /** A recently opened session is starting again; a second click waits until it runs. */
   const reopening = useRef(false);
   /** A template is starting its sessions; another start waits until it is done. */
   const templateStarting = useRef(false);
@@ -2856,6 +2854,22 @@ export function App() {
           ...(worktree ? { worktree } : {}),
         });
         setLastProgramId(profile.id);
+        // A start the list keeps (not in an own worktree, not as a sub-agent definition, not a
+        // team session): it is offered again once it is no longer open.
+        const opened =
+          worktree === undefined && subAgent === null && mode !== "team"
+            ? recentEntry(
+                {
+                  profileId: profile.id,
+                  cwd: info.cwd,
+                  title: named,
+                  // The id Hangar gave the agent CLI: a list kept from a crash still resumes it.
+                  cliSessionId: info.cliSessionId ?? resume?.cliSessionId,
+                },
+                Date.now(),
+              )
+            : null;
+        if (opened !== null) setRecentSessions((current) => pushRecent(current, opened));
         // The folder the session really runs in (the backend may fall back to the home folder);
         // for a worktree the repository's folder, so recent folders do not fill with worktrees.
         const used = worktree === undefined ? info.cwd : (prepared?.worktree.repoRoot ?? base);
@@ -3200,9 +3214,10 @@ export function App() {
       }
       terminals.delete(id);
       forgetFile(id);
-      // Only once the process is gone: a still running one holds the conversation.
-      const entry = closed && session !== undefined ? closedEntry(session, Date.now()) : null;
-      if (entry !== null) setRecentlyClosed((current) => pushClosed(current, entry));
+      // Only once the process is gone: a still running one holds the conversation. Replaces the
+      // entry of its start with the final title, marker and conversation.
+      const entry = closed && session !== undefined ? recentEntry(session, Date.now()) : null;
+      if (entry !== null) setRecentSessions((current) => pushRecent(current, entry));
       dispatch({ type: "removed", id });
       forgetAttention(id);
       setDevServers((current) => {
@@ -4673,26 +4688,64 @@ export function App() {
     />
   );
   /** What the sidebar and Ctrl+Shift+O offer to reopen: nothing that is open already. */
-  const closedShown = shownClosed(recentlyClosed, state.sessions);
+  const recentShown = shownRecent(recentSessions, state.sessions);
+  /** The program the next start would use, once the preferences and programs are read. */
+  const seedProgram = profilesReady && prefsReady ? nextProgram?.id : undefined;
   /**
-   * Starts a recently closed session again: the same program in the same folder, privately,
-   * with its title and marker, resuming its conversation. The entry leaves the list either way;
-   * a program that is gone says so, a folder that is gone gives the start's own error.
+   * Reads the recently opened sessions once the preferences and programs are known. When the
+   * backend holds none yet, the first list (once per machine) is the recent folders with
+   * `seedProgram`, so "Recently opened" offers something from the start; a list from before
+   * marks that as done, so a list emptied by hand stays empty.
    */
-  const reopenClosed = (entry: ClosedSession) => {
+  useEffect(() => {
+    if (recentRequested.current || !prefsReady || !profilesReady) return;
+    recentRequested.current = true;
+    const recentFolders = folders.recent;
+    void loadRecentSessions().then((stored) => {
+      savedRecent.current = stored;
+      const storage = browserStorage();
+      const first = stored.length === 0 && needsSeed(storage);
+      markSeeded(storage);
+      const base = first ? seedRecent(recentFolders, seedProgram) : stored;
+      // Sessions started or closed before the answer came go in front.
+      setRecentSessions((current) =>
+        current.reduceRight((list, entry) => pushRecent(list, entry), base),
+      );
+    });
+  }, [prefsReady, profilesReady, folders.recent, seedProgram]);
+  /**
+   * Starts a recently opened session again: the same program in the same folder, privately,
+   * with its title and marker, resuming its conversation (without a known one, the start
+   * resumes the program's last conversation in the folder, or starts fresh). A program that is
+   * gone says so and its entry leaves the list; a folder that is gone gives the start's own
+   * error.
+   */
+  const reopenRecent = (entry: RecentSession) => {
     // Until the profiles are read, every program would look gone and the entry would be lost.
     if (reopening.current || profiles.length === 0) return;
-    setRecentlyClosed((current) => withoutClosed(current, entry));
     const profile = profiles.find((p) => p.id === entry.profileId);
     if (profile?.installed !== true) {
-      setError(t("recentlyClosed.programMissing", { name: profile?.name ?? entry.profileId }));
+      setRecentSessions((current) => withoutRecent(current, entry));
+      setError(t("recentlyOpened.programMissing", { name: profile?.name ?? entry.profileId }));
       return;
     }
     reopening.current = true;
-    void start(profile, entry.cwd, "private", entry.title, undefined, undefined, null, {
-      cliSessionId: entry.cliSessionId,
-    })
+    // An entry taken over from the recent folders never ran here: a fresh start, named after
+    // its program. Any other one resumes as a restore does.
+    const seeded = entry.closedAt === UNKNOWN_TIME;
+    void start(
+      profile,
+      entry.cwd,
+      "private",
+      seeded ? undefined : entry.title,
+      undefined,
+      undefined,
+      null,
+      seeded ? null : { cliSessionId: entry.cliSessionId },
+    )
       .then((id) => {
+        // It did not start (a folder that is gone): not offered again.
+        if (id === null) setRecentSessions((current) => withoutRecent(current, entry));
         if (id !== null && (entry.color !== null || entry.emoji !== null)) {
           dispatch({ type: "marked", id, marker: { color: entry.color, emoji: entry.emoji } });
         }
@@ -5109,9 +5162,9 @@ export function App() {
           );
         }
         break;
-      case "reopenClosed": {
-        const entry = closedShown[0];
-        if (entry !== undefined) reopenClosed(entry);
+      case "reopenRecent": {
+        const entry = recentShown[0];
+        if (entry !== undefined) reopenRecent(entry);
         break;
       }
       case "find":
@@ -5297,11 +5350,11 @@ export function App() {
         },
         {
           type: "action",
-          label: t("menu.reopenClosed"),
-          shortcut: keys("reopenClosed"),
-          disabled: closedShown.length === 0,
+          label: t("menu.reopenRecent"),
+          shortcut: keys("reopenRecent"),
+          disabled: recentShown.length === 0,
           run: () => {
-            perform("reopenClosed");
+            perform("reopenRecent");
           },
         },
         { type: "action", label: t("menu.pickCwd"), run: () => void pickCwd() },
@@ -6714,8 +6767,11 @@ export function App() {
             dispatch({ type: "activated", id });
           }}
           onStart={startHere}
-          recentlyClosed={closedShown}
-          onReopenClosed={reopenClosed}
+          recentSessions={recentShown}
+          onReopenRecent={reopenRecent}
+          onRemoveRecent={(entry) => {
+            setRecentSessions((current) => withoutRecent(current, entry));
+          }}
           updatingPrograms={updatingPrograms}
           confirmUpdate={confirmUpdate}
           onRequestUpdate={updateActions.request}

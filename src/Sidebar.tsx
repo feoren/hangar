@@ -14,8 +14,8 @@ import { gateHint } from "./gate";
 import { LinkMarkSign, linkMarkText } from "./LinkMark";
 import { toggleSelection, type LinkMark } from "./links";
 import { queuedPreview, type QueuedMessage } from "./messageQueue";
-import type { ClosedSession } from "./recentlyClosed";
-import { ClosedSessionList } from "./ClosedSessionList";
+import type { RecentSession } from "./recentlyOpened";
+import { RecentSessionList } from "./RecentSessionList";
 import type { CardSend } from "./messageCard";
 import type { WaitingMessage } from "./partnerInbox";
 import { WaitingMessages } from "./WaitingMessages";
@@ -200,10 +200,12 @@ interface Props {
   onActivate: (id: number) => void;
   /** Starts a program in the target, as the switch says (private or team session). */
   onStart: (profile: Profile) => void;
-  /** Recently closed sessions to start again, most recent first (recentlyClosed.ts `shownClosed`). */
-  recentlyClosed: readonly ClosedSession[];
-  /** Starts that closed session again: same program, folder, title and conversation. */
-  onReopenClosed: (entry: ClosedSession) => void;
+  /** Recently opened sessions not open now, most recent first (recentlyOpened.ts `shownRecent`). */
+  recentSessions: readonly RecentSession[];
+  /** Starts that session again: same program, folder, title and conversation. */
+  onReopenRecent: (entry: RecentSession) => void;
+  /** Takes the entry off the "Recently opened" list. */
+  onRemoveRecent: (entry: RecentSession) => void;
   /** Profile IDs whose update session runs right now. */
   updatingPrograms: ReadonlySet<string>;
   /** Program whose update waits for "Update anyway" (it is running), otherwise `null`. */
@@ -1225,6 +1227,30 @@ export function Sidebar(props: Props) {
         />
       )}
 
+      {props.recentSessions.length > 0 && (
+        <GroupSection
+          group="recentlyOpened"
+          title={t("recentlyOpened.title")}
+          open={open("recentlyOpened")}
+          className="recent-group"
+          onToggle={props.onToggleGroup}
+        >
+          <RecentSessionList
+            entries={props.recentSessions}
+            badgeFor={badgeFor}
+            programName={(id) => profileById.get(id)?.name ?? id}
+            language={props.language}
+            now={now}
+            onReopen={props.onReopenRecent}
+            onRemove={(entry) => {
+              // The last one takes the group with it: the focus goes back to the terminal.
+              if (props.recentSessions.length === 1) props.onMenuClose();
+              props.onRemoveRecent(entry);
+            }}
+          />
+        </GroupSection>
+      )}
+
       <GroupSection
         group="newSession"
         title={t("sidebar.newSession")}
@@ -1335,11 +1361,6 @@ export function Sidebar(props: Props) {
           !startable.some((profile) => listedFor(mode, profile)) && (
             <p className="hint group-hint">{t("start.noTeamAgents")}</p>
           )}
-        <ClosedSessionList
-          entries={props.recentlyClosed}
-          badgeFor={badgeFor}
-          onReopen={props.onReopenClosed}
-        />
         <ul className="profile-list">
           {startable
             .filter((profile) => listedFor(mode, profile))

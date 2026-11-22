@@ -80,17 +80,17 @@ describe("matchShortcut", () => {
     expect(formatShortcut(SHORTCUT_LABELS.newSession, de)).toBe("Strg+Umschalt+T");
   });
 
-  it("reopens the last closed session with Ctrl+Shift+O, Ctrl+O stays with the shell", () => {
-    expect(matchShortcut(key("O", "KeyO", { shift: true }))).toBe("reopenClosed");
+  it("reopens the last opened session with Ctrl+Shift+O, Ctrl+O stays with the shell", () => {
+    expect(matchShortcut(key("O", "KeyO", { shift: true }))).toBe("reopenRecent");
     expect(matchShortcut(key("o", "KeyO"))).toBeNull(); // operate-and-get-next
     expect(matchShortcut(key("O", "KeyO", { shift: true, alt: true }))).toBeNull();
     // Ctrl+Shift+T stays "New session".
     expect(matchShortcut(key("T", "KeyT", { shift: true }))).toBe("newSession");
-    expect(ignoresRepeat("reopenClosed")).toBe(true);
-    expect(formatShortcut(SHORTCUT_LABELS.reopenClosed, createTranslator("de"))).toBe(
+    expect(ignoresRepeat("reopenRecent")).toBe(true);
+    expect(formatShortcut(SHORTCUT_LABELS.reopenRecent, createTranslator("de"))).toBe(
       "Strg+Umschalt+O",
     );
-    expect(formatShortcut(SHORTCUT_LABELS.reopenClosed, createTranslator("en"))).toBe(
+    expect(formatShortcut(SHORTCUT_LABELS.reopenRecent, createTranslator("en"))).toBe(
       "Ctrl+Shift+O",
     );
   });

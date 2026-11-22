@@ -1587,3 +1587,9 @@ key in use).
 Filed how "Recently closed" reopens a closed session through the restore path (resume by
 conversation id, fresh start on fallback), which sessions it leaves out, its storage in the main
 store and the Ctrl+Shift+O shortcut. Updated: [[session-restore]], index.
+
+## [2026-11-23] query | Recently opened sessions
+Reworked "Recently closed" into the sidebar group "Recently opened" above New session: every start
+records its program and folder, closing updates the entry, open ones are hidden, the first list
+comes from the recent folders with the last program, rows show the folder, title or program and a
+short relative time, and the × removes an entry. Updated: [[session-restore]], index.

@@ -167,6 +167,27 @@ export function relativeTime(then: number, now: number, language: string): strin
   }).format(date);
 }
 
+const WEEK_MS = 7 * DAY_MS;
+const MONTH_MS = 30 * DAY_MS;
+const YEAR_MS = 365 * DAY_MS;
+
+/**
+ * How long ago, short: "now", "5 min ago", "yesterday", "3 weeks ago" (in the UI language via
+ * Intl, so no unit needs translating). `then` and `now` in ms; a time in the future (clock skew)
+ * counts as now.
+ */
+export function shortAge(then: number, now: number, language: string): string {
+  const age = Math.max(0, now - then);
+  const format = new Intl.RelativeTimeFormat(language, { numeric: "auto", style: "short" });
+  if (age < MINUTE_MS) return format.format(0, "second");
+  if (age < HOUR_MS) return format.format(-Math.floor(age / MINUTE_MS), "minute");
+  if (age < DAY_MS) return format.format(-Math.floor(age / HOUR_MS), "hour");
+  if (age < WEEK_MS) return format.format(-Math.floor(age / DAY_MS), "day");
+  if (age < MONTH_MS) return format.format(-Math.floor(age / WEEK_MS), "week");
+  if (age < YEAR_MS) return format.format(-Math.floor(age / MONTH_MS), "month");
+  return format.format(-Math.floor(age / YEAR_MS), "year");
+}
+
 const BYTE_UNITS = ["KiB", "MiB", "GiB", "TiB"] as const;
 
 /**

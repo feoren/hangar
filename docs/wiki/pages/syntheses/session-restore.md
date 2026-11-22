@@ -4,7 +4,7 @@ type: synthesis
 tags: [sessions, persistence, resume, contract]
 sources: ["[[resume-measurement]]", "[[resume-id-measurement]]"]
 created: 2026-11-07
-updated: 2026-11-22
+updated: 2026-11-23
 ---
 
 # Restoring sessions after a restart
@@ -140,36 +140,55 @@ says so. Backend: `src-tauri/src/exit_marker.rs`, frontend: `src/crashRestore.ts
   them on disk unencrypted, next to the scrollback, for every session and every crash. A shell
   session has no conversation to resume; its scrollback shows what was typed up to the last save.
 
-## Recently closed
-Closing a session (sidebar, menu, Ctrl+Shift+W, also after the stop question) records it in
-"Recently closed" in the sidebar's New session area. One click, the File menu or Ctrl+Shift+O
-starts it again, using the restore path: the same profile in the same folder,
-`create_session(..., resume: true, cliSessionId)`, with the title and marker brought back. A failed
-resume falls back to a fresh start (`resumeFallback`) as on restore. A shell has no conversation
-and just starts fresh in its folder. Code: `src/recentlyClosed.ts`, `close` and `reopenClosed` in
-`src/App.tsx`.
+## Recently opened
+"Recently opened" is a sidebar group of its own, right above New session, with the same
+collapsible header (`layout.ts` `SIDEBAR_GROUPS`, fold kept in the layout). It offers the programs
+the person started in a folder that are not open now, so the next start skips choosing a folder
+and then a program. It is hidden while empty and not in the collapsed rail. One click, the File
+menu or Ctrl+Shift+O (the newest shown entry) starts it again, using the restore path: the same
+profile in the same folder, `create_session(..., resume: true, cliSessionId)`, with the title and
+marker brought back. A failed resume falls back to a fresh start (`resumeFallback`) as on restore.
+A shell has no conversation and just starts fresh in its folder. Code: `src/recentlyOpened.ts`,
+`src/RecentSessionList.tsx`, `start`, `close` and `reopenRecent` in `src/App.tsx`.
+- **Recorded:** every successful `start` (program list, palette, menu, shortcut, templates, a
+  reopen, a handover or partner start in private mode) adds an entry with the session's title and
+  the start time. `close` replaces it with the final title, marker and conversation id and the
+  close time. A restore after app start does not record; closing a restored session does.
 - **Not recorded:** update sessions, sessions started as a sub-agent definition, team sessions
-  and any session with a worktree of its own. That worktree is removed on close, and agent CLIs
-  resume by folder ([[resume]]), so the conversation would not come back. Sessions ended because
-  the app quits do not go through `close` and are not recorded either; a close that failed in the
-  backend is not recorded, because the process still holds the conversation.
-- **List:** most recent first. One entry per conversation id, or, for entries without one, per
-  program and folder (`folderKey`); the newest stays. At most 10 are kept and 5 shown. An entry
-  whose conversation a session in the list holds (running or a placeholder) is hidden. An entry
-  without a conversation id resumes the program's last conversation in its folder
-  (`resume_args`), so it is hidden while a session of the same program runs in that folder. Reopening
-  takes the entry off the list, also when the start fails: a missing or uninstalled program gives
-  an error notice, a missing folder the start's own `bad_cwd` text.
+  and any session with a worktree of its own (arena contestants included). That worktree is
+  removed on close, and agent CLIs resume by folder ([[resume]]), so the conversation would not
+  come back. A close that failed in the backend does not update the entry, because the process
+  still holds the conversation.
+- **List:** most recent first. One entry per program and folder (`samePath`), and one per
+  conversation id, which the backend requires; the newest stays. At most 10 are kept and 5 shown.
+  An entry is hidden while a session in the list (running or a placeholder) runs its program in
+  its folder or holds its conversation, so the list offers only what is not open. An entry without
+  a conversation id resumes the program's last conversation in its folder (`resume_args`).
+  Reopening keeps the entry (the new start replaces it); it leaves the list when the start fails
+  (a missing folder gives the start's own `bad_cwd` text) or the program is missing or not
+  installed (an error notice). The × on a row removes the entry.
+- **Row:** program badge and folder name on the first line; the session title (or the program's
+  name when the title is just the folder name) and a short relative time (`format.ts` `shortAge`,
+  `Intl.RelativeTimeFormat` in the UI language) on the second. Title, program and full path in
+  the tooltip.
+- **First list:** when the backend holds no list yet, the recent folders (`folders.ts`, newest
+  first) are offered with the program the next start would use (`launch.ts` `pickProgram`, only
+  installed and shown programs), up to 5, with the folder's name as the title and no
+  conversation. Their `closedAt` is 0 (`UNKNOWN_TIME`): no time is shown, and a click starts the
+  program fresh. This happens once per machine (`localStorage` flag
+  `hangar.recentlyOpened.seeded`), so a list emptied by hand stays empty; the flag only ever
+  suppresses entries, so a planted value cannot start anything.
 - **Storage:** `recently-closed.json` in the main store (`main_store.rs` `ClosedSession`,
-  commands `load_recently_closed` and `save_recently_closed`, main window only). An entry starts
-  a program in a folder, the same threat as the recent folder list, so it never goes to
+  commands `load_recently_closed` and `save_recently_closed`, main window only); the names stay
+  from when only closed sessions were listed, and `closedAt` now means "last used". An entry
+  starts a program in a folder, the same threat as the recent folder list, so it never goes to
   `localStorage`. Both sides check every field (program id, folder, title up to 256 characters,
   `#rrggbb` color, emoji up to 16 bytes, lowercase UUID used once, `closedAt` up to
   `Number.MAX_SAFE_INTEGER`). A file with one bad entry, an unknown field or more than 10 entries
   reads as an empty list.
-- **Shortcut:** Ctrl+Shift+T, the browsers' key for this, already starts a new session, so
-  reopening uses Ctrl+Shift+O. Without Shift, Ctrl+O stays with the shell (operate-and-get-next in
-  Readline).
+- **Shortcut:** Ctrl+Shift+T, the browsers' key for reopening, already starts a new session, so
+  reopening uses Ctrl+Shift+O (`reopenRecent`). Without Shift, Ctrl+O stays with the shell
+  (operate-and-get-next in Readline).
 
 ## Known limits
 - Two sessions of the same agent in the same folder resume the same most recent conversation

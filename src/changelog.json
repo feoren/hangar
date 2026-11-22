@@ -4,18 +4,18 @@
     "date": null,
     "items": [
       {
-        "de": "Zuletzt geschlossen: Unter Neue Session öffnet ein Klick eine geschlossene Session wieder, im selben Ordner mit demselben Gespräch. Oder Strg+Umschalt+O.",
-        "en": "Recently closed: under New session, one click reopens a closed session in the same folder with the same conversation. Or press Ctrl+Shift+O.",
-        "el": "Πρόσφατα κλειστές: στη Νέα συνεδρία ένα κλικ ανοίγει ξανά μια κλειστή συνεδρία στον ίδιο φάκελο με την ίδια συζήτηση. Ή Ctrl+Shift+O.",
-        "es": "Cerradas hace poco: en Nueva sesión, un clic reabre una sesión cerrada en la misma carpeta con la misma conversación. O pulsa Ctrl+Mayús+O.",
-        "fr": "Fermées récemment : sous Nouvelle session, un clic rouvre une session fermée dans le même dossier avec la même conversation. Ou Ctrl+Maj+O.",
-        "it": "Chiuse di recente: in Nuova sessione un clic riapre una sessione chiusa nella stessa cartella con la stessa conversazione. Oppure Ctrl+Maiusc+O.",
-        "ja": "最近閉じたセッション：「新しいセッション」でクリックするだけで、閉じたセッションを同じフォルダーと同じ会話で再び開けます。Ctrl+Shift+O でも開けます。",
-        "pl": "Ostatnio zamknięte: w Nowa sesja jedno kliknięcie otwiera zamkniętą sesję ponownie w tym samym folderze z tą samą rozmową. Albo Ctrl+Shift+O.",
-        "pt": "Fechadas há pouco: em Nova sessão, um clique reabre uma sessão fechada na mesma pasta com a mesma conversa. Ou use Ctrl+Shift+O.",
-        "ru": "Недавно закрытые: в «Новый сеанс» один щелчок снова открывает закрытый сеанс в той же папке с тем же разговором. Или Ctrl+Shift+O.",
-        "tr": "Son kapatılanlar: Yeni oturum altında tek tıkla kapatılan bir oturum aynı klasörde aynı sohbetle yeniden açılır. Ya da Ctrl+Shift+O.",
-        "zh": "最近关闭：在“新建会话”下点一下，即可在同一文件夹中以同一对话重新打开已关闭的会话。也可按 Ctrl+Shift+O。"
+        "de": "Zuletzt geöffnet: Über Neue Session stehen deine letzten Programme mit Ordner. Ein Klick startet sie wieder, mit demselben Gespräch. Oder Strg+Umschalt+O.",
+        "en": "Recently opened: above New session you find your last programs with their folder. One click starts one again with the same conversation. Or press Ctrl+Shift+O.",
+        "el": "Πρόσφατα ανοιγμένες: πάνω από τη Νέα συνεδρία βρίσκεις τα τελευταία σου προγράμματα με τον φάκελο. Ένα κλικ τα ξεκινά ξανά με την ίδια συζήτηση. Ή Ctrl+Shift+O.",
+        "es": "Abiertas hace poco: encima de Nueva sesión están tus últimos programas con su carpeta. Un clic reabre uno con la misma conversación. O Ctrl+Mayús+O.",
+        "fr": "Ouvertes récemment : au-dessus de Nouvelle session, tes derniers programmes avec leur dossier. Un clic en relance un avec la même conversation. Ou Ctrl+Maj+O.",
+        "it": "Aperte di recente: sopra Nuova sessione trovi i tuoi ultimi programmi con la cartella. Un clic ne riavvia uno con la stessa conversazione. Oppure Ctrl+Maiusc+O.",
+        "ja": "最近開いたセッション：「新しいセッション」の上に、最近使ったプログラムがフォルダーと一緒に並びます。クリックで同じ会話のまま再開できます。Ctrl+Shift+O でも開けます。",
+        "pl": "Ostatnio otwarte: nad Nowa sesja widzisz ostatnie programy z ich folderem. Jedno kliknięcie uruchamia je ponownie z tą samą rozmową. Albo Ctrl+Shift+O.",
+        "pt": "Abertas há pouco: acima de Nova sessão estão os teus últimos programas com a pasta. Um clique abre um de novo com a mesma conversa. Ou usa Ctrl+Shift+O.",
+        "ru": "Недавно открытые: над «Новый сеанс» видны твои последние программы с папкой. Один щелчок снова запускает программу с тем же разговором. Или Ctrl+Shift+O.",
+        "tr": "Son açılanlar: Yeni oturum’un üstünde son programların klasörleriyle durur. Tek tıkla aynı sohbetle yeniden başlar. Ya da Ctrl+Shift+O.",
+        "zh": "最近打开：“新建会话”上方列出你最近用过的程序及其文件夹。点一下即可以同一对话重新启动。也可按 Ctrl+Shift+O。"
       },
       {
         "de": "Die Figuren der Sub-Agents bewegen sich jetzt ruhig, solange du sie siehst. Unter Einstellungen > Sub-Agenten wählst du Animiert oder Still.",

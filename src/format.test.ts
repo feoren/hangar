@@ -12,6 +12,7 @@ import {
   shortPath,
   statusText,
   relativeTime,
+  shortAge,
 } from "./format";
 import { contrastRatio } from "./theme";
 
@@ -154,6 +155,30 @@ describe("relativeTime", () => {
   it("shows a date after a week, with the year only for other years", () => {
     expect(relativeTime(new Date(2026, 9, 1).getTime(), now, "en")).toBe("Oct 1");
     expect(relativeTime(new Date(2025, 9, 1).getTime(), now, "en")).toBe("Oct 1, 2025");
+  });
+});
+
+describe("shortAge", () => {
+  const now = new Date(2026, 10, 9, 12, 0).getTime();
+  const minute = 60_000;
+  const hour = 60 * minute;
+  const day = 24 * hour;
+
+  it("names the age short, in the UI language", () => {
+    expect(shortAge(now - 5_000, now, "de")).toBe("jetzt");
+    expect(shortAge(now + minute, now, "en")).toBe("now");
+    expect(shortAge(now - 5 * minute, now, "de")).toBe("vor 5 Min.");
+    expect(shortAge(now - 5 * minute, now, "en")).toBe("5 min. ago");
+    expect(shortAge(now - 3 * hour, now, "de")).toBe("vor 3 Std.");
+    expect(shortAge(now - 26 * hour, now, "de")).toBe("gestern");
+    expect(shortAge(now - 26 * hour, now, "en")).toBe("yesterday");
+  });
+
+  it("counts weeks, months and years further back", () => {
+    expect(shortAge(now - 8 * day, now, "en")).toBe("last wk.");
+    expect(shortAge(now - 21 * day, now, "en")).toBe("3 wk. ago");
+    expect(shortAge(now - 70 * day, now, "en")).toBe("2 mo. ago");
+    expect(shortAge(now - 800 * day, now, "en")).toBe("2 yr. ago");
   });
 });
 

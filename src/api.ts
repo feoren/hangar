@@ -11,7 +11,7 @@ import type { GateAnswer } from "./gate";
 import type { MainPrefs } from "./mainStore";
 import type { PanelBounds, PanelMessage } from "./panelBridge";
 import type { PushEvent, PushInput } from "./phonePush";
-import type { ClosedSession } from "./recentlyClosed";
+import type { RecentSession } from "./recentlyOpened";
 import type { ProtectedSettings, SecuritySwitches } from "./settings";
 import { backendErrorText } from "./backendError";
 import { InputStalled, inputQueue } from "./sessionInput";
@@ -480,9 +480,12 @@ export const api = {
   loadTemplates: () => invoke<unknown>("load_templates"),
   saveTemplates: (templates: readonly WorkspaceTemplate[]) =>
     invoke<null>("save_templates", { templates }),
-  /** The recently closed sessions, most recent first; check with `parseRecentlyClosed`. */
+  /**
+   * The recently opened sessions, most recent first; check with `parseRecentSessions`. The
+   * commands keep the names from when only closed sessions were listed.
+   */
   loadRecentlyClosed: () => invoke<unknown>("load_recently_closed"),
-  saveRecentlyClosed: (entries: readonly ClosedSession[]) =>
+  saveRecentlyClosed: (entries: readonly RecentSession[]) =>
     invoke<null>("save_recently_closed", { entries }),
   /** The partner projects (ADR 0012); check with `parsePartnerBook`. */
   partnerProjects: () => invoke<unknown>("partner_projects"),

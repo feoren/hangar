@@ -26,7 +26,7 @@ const STORAGE_KEY = "hangar.layout";
  * (`closedAgentGroups`); each grouping keeps its own folds. Layouts saved before
  * that also hold "sessions" and "worktrees"; reading drops them, so those programs start open.
  */
-export const SIDEBAR_GROUPS = ["newSession"] as const;
+export const SIDEBAR_GROUPS = ["recentlyOpened", "newSession"] as const;
 export type SidebarGroup = (typeof SIDEBAR_GROUPS)[number];
 
 export function isSidebarGroup(value: unknown): value is SidebarGroup {
