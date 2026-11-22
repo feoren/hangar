@@ -20,7 +20,7 @@
 //! - Claude Code's `tools` and `model` are not copied: Codex CLI names its tools differently and
 //!   Claude Code's model aliases mean nothing there.
 
-use std::collections::{BTreeMap, BTreeSet, HashSet};
+use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 use std::ffi::OsStr;
 use std::fs;
 use std::io;
@@ -215,16 +215,21 @@ pub fn sync_installed(
 
 /// The folders of `requested` that the backend knows itself (`known`: the sessions' working
 /// folders and the stored start places), compared the way the file system does. The window can
-/// narrow the folders a run touches, never widen them.
+/// narrow the folders a run touches, never widen them. Each match goes on as the known path, not
+/// as requested: the comparison folds case by Unicode rules, so a requested spelling could match
+/// and still name another folder.
 pub fn permitted(requested: &[PathBuf], known: &[PathBuf]) -> Vec<PathBuf> {
-    let known: HashSet<String> = known
+    let known: HashMap<String, &PathBuf> = known
         .iter()
-        .map(|path| crate::git::path_key(path))
+        .map(|path| (crate::git::path_key(path), path))
         .collect();
     requested
         .iter()
-        .filter(|path| known.contains(&crate::git::path_key(path)))
-        .cloned()
+        .filter_map(|path| {
+            known
+                .get(&crate::git::path_key(path))
+                .map(|&path| path.clone())
+        })
         .collect()
 }
 
@@ -906,9 +911,29 @@ mod tests {
         ];
         assert_eq!(
             permitted(&asked, &known),
-            [PathBuf::from("/work/hangar/"), PathBuf::from("/work/site")]
+            [PathBuf::from("/work/hangar"), PathBuf::from("/work/site")]
         );
         assert!(permitted(&asked, &[]).is_empty());
+    }
+
+    /// The comparison folds case, so a requested spelling can match a known folder and still
+    /// name another one: the KELVIN SIGN lowercases to `k`, yet NTFS keeps `WorK` and `work`
+    /// apart (as a case-sensitive folder keeps `Work` and `work`). Only the known path goes on.
+    #[cfg(any(windows, target_os = "macos"))]
+    #[test]
+    fn a_permitted_folder_is_handed_on_as_the_backend_knows_it() {
+        let known = [PathBuf::from("C:/Work/Hangar")];
+        let asked = [
+            PathBuf::from("c:/WORK/hangar/"),
+            PathBuf::from("C:/Wor\u{212A}/Hangar"),
+        ];
+        assert_eq!(
+            permitted(&asked, &known),
+            [
+                PathBuf::from("C:/Work/Hangar"),
+                PathBuf::from("C:/Work/Hangar")
+            ]
+        );
     }
 
     /// A link to a folder: a junction on Windows (no privilege needed), a symlink elsewhere.

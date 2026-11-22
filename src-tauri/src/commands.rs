@@ -2188,12 +2188,36 @@ pub async fn git_changed_count(
 }
 
 /// The user's own commits in the repositories of `folders`, for the activity calendar
-/// (git_activity.rs). Folders that are no repository are skipped, not reported.
+/// (git_activity.rs). Folders that are no repository are skipped, not reported. No session
+/// names these folders, so only those the backend knows itself count ([`known_folders`]: the
+/// sessions' folders, favorites and recent folders, exactly what the calendar asks for); the
+/// window can narrow the folders git runs in, never point it at another one.
 #[tauri::command]
-pub async fn git_activity(folders: Vec<PathBuf>) -> Result<GitActivity, ActivityError> {
-    tauri::async_runtime::spawn_blocking(move || git_activity::activity(&Git::locate()?, &folders))
-        .await
-        .map_err(|error| ActivityError::Git(GitError::Task(error.to_string())))?
+pub async fn git_activity(
+    manager: Manager<'_>,
+    store: State<'_, MainStore>,
+    folders: Vec<PathBuf>,
+) -> Result<GitActivity, ActivityError> {
+    if folders.len() > git_activity::MAX_FOLDERS {
+        return Err(ActivityError::TooManyFolders);
+    }
+    let sessions = session_folders(&manager);
+    let store = store.inner().clone();
+    tauri::async_runtime::spawn_blocking(move || {
+        let folders = activity_folders(&folders, sessions, &store);
+        git_activity::activity(&Git::locate()?, &folders)
+    })
+    .await
+    .map_err(|error| ActivityError::Git(GitError::Task(error.to_string())))?
+}
+
+/// The folders of `requested` the calendar may read: those the backend knows itself.
+fn activity_folders(
+    requested: &[PathBuf],
+    sessions: Vec<PathBuf>,
+    store: &MainStore,
+) -> Vec<PathBuf> {
+    agent_provision::permitted(requested, &known_folders(sessions, store))
 }
 
 /// A working phase of a session ended (`from`, `to` in Unix ms); the window reports one event
@@ -2752,6 +2776,7 @@ pub async fn open_file_viewer(
             return Ok(());
         }
         Claim::New(label) => label,
+        Claim::Full => return Err(FileViewerError::TooManyWindows),
     };
     let built = tauri::WebviewWindowBuilder::new(
         &app,
@@ -4435,6 +4460,33 @@ mod tests {
             serde_json::to_value(&error).unwrap(),
             serde_json::json!("Unknown session 42")
         );
+    }
+
+    /// The calendar names no session, so git reads only folders the backend knows: session
+    /// folders, favorites and recent folders. Any other folder the window adds is dropped.
+    #[test]
+    fn the_calendar_reads_only_folders_the_backend_knows() {
+        let dir = crate::test_support::TempDir::new("commands-activity-folders");
+        let store = MainStore::new(dir.path().to_path_buf());
+        let prefs = MainPrefs {
+            favorites: vec!["C:/Work/Favorite".to_owned()],
+            recent: vec!["C:/Work/Recent".to_owned()],
+            ..MainPrefs::default()
+        };
+        store.save_prefs(prefs).unwrap();
+        let requested = [
+            PathBuf::from("C:/Work/Favorite"),
+            PathBuf::from("C:/Work/Recent"),
+            PathBuf::from("C:/Work/Session"),
+            PathBuf::from("C:/Elsewhere"),
+            PathBuf::from(r"\\hangar-test.invalid\share"),
+        ];
+        let allowed = activity_folders(&requested, vec![PathBuf::from("C:/Work/Session")], &store);
+        assert_eq!(allowed, requested[..3]);
+        // Without stored places only the sessions' folders remain.
+        let empty = MainStore::new(dir.path().join("empty"));
+        let allowed = activity_folders(&requested, vec![PathBuf::from("C:/Work/Session")], &empty);
+        assert_eq!(allowed, [PathBuf::from("C:/Work/Session")]);
     }
 
     #[test]

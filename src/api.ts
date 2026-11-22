@@ -675,7 +675,8 @@ export const api = {
   gitChangedCount: (id: number) => invoke<unknown>("git_changed_count", { id }),
   /**
    * The user's own commits of about the last year in the repositories of these folders (at most
-   * 24; folders that are no repository are skipped). Check with `parseGitActivity`.
+   * 24; folders that are no repository are skipped). Only folders the backend knows itself
+   * count (sessions' folders, favorites, recent folders). Check with `parseGitActivity`.
    */
   gitActivity: (folders: string[]) => invoke<unknown>("git_activity", { folders }),
   // Work log and daily review (ADR 0011).

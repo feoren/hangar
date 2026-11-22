@@ -14,6 +14,15 @@ describe("backendErrorText", () => {
     ).toBe(t("terminal.remoteFolder"));
   });
 
+  it("shows the file viewer limit in the window's own words", () => {
+    // `FileViewerError::TooManyWindows` (file_viewer.rs).
+    expect(
+      backendErrorText(
+        "[viewer_limit] At most 10 file viewers can be open at once; close one first",
+      ),
+    ).toBe(t("files.tooManyViewers"));
+  });
+
   it("shows a missing folder in the window's own words", () => {
     expect(backendErrorText("[bad_cwd] Working folder '/gone' does not exist")).toBe(
       t("terminal.missingFolder"),

@@ -1,5 +1,5 @@
 // Backend errors with a stable code: `[code] English text` (ManagerError in manager.rs,
-// ArenaError in arena.rs), and for errors that name a path or a reason
+// ArenaError in arena.rs, FileViewerError in file_viewer.rs), and for errors that name a path or a reason
 // `[code] English text\n<detail>` (SnapshotError in git_snapshots.rs). Known codes are shown in
 // the window's own words; the English text is the fallback for codes this window does not know
 // yet. Arena codes are translated by `arenaErrorText` (arena.ts), snapshot codes by
@@ -12,6 +12,7 @@ const CODE = /^\[([a-z_]+)\] /;
 const MESSAGES: ReadonlyMap<string, MessageKey> = new Map<string, MessageKey>([
   ["bad_cwd", "terminal.missingFolder"],
   ["remote_cwd", "terminal.remoteFolder"],
+  ["viewer_limit", "files.tooManyViewers"],
   ["partner_name", "partnerError.name"],
   ["partner_folder", "partnerError.folder"],
   ["partner_missing_folder", "partnerError.missingFolder"],

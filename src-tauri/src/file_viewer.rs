@@ -48,6 +48,11 @@ const SVG_PROBE_BYTES: usize = 4096;
 const MAX_LINK_BYTES: usize = 8 * 1024;
 /// A viewer opens at most one link in this time.
 pub const LINK_INTERVAL: std::time::Duration = std::time::Duration::from_secs(1);
+/// Viewer windows open at once. Each one is a WebView of its own (tens of MB, its own renderer
+/// process) and asks for its file's stamp every second while visible; ten side by side already
+/// fill two screens. The limit also bounds what a misbehaving main window or panel could open in
+/// a loop.
+pub const MAX_WINDOWS: usize = 10;
 
 #[derive(Debug, thiserror::Error)]
 pub enum FileViewerError {
@@ -85,11 +90,28 @@ pub enum FileViewerError {
     LinkRefused,
     #[error("The browser could not be opened: {0}")]
     Open(#[source] io::Error),
+    #[error("At most {MAX_WINDOWS} file viewers can be open at once; close one first")]
+    TooManyWindows,
 }
 
+impl FileViewerError {
+    /// A stable code for errors the window shows in its own words (`backendError.ts`); the
+    /// English text after it is only the fallback.
+    fn code(&self) -> Option<&'static str> {
+        match self {
+            Self::TooManyWindows => Some("viewer_limit"),
+            _ => None,
+        }
+    }
+}
+
+/// Errors reach the frontend as readable text, prefixed with `[code] ` when they have a code.
 impl Serialize for FileViewerError {
     fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
-        serializer.serialize_str(&self.to_string())
+        match self.code() {
+            Some(code) => serializer.serialize_str(&format!("[{code}] {self}")),
+            None => serializer.serialize_str(&self.to_string()),
+        }
     }
 }
 
@@ -569,6 +591,8 @@ pub enum Claim {
     /// A new label, already registered; the caller creates the window or calls
     /// [`Viewers::remove`] if it cannot.
     New(String),
+    /// [`MAX_WINDOWS`] viewers are open; nothing was registered.
+    Full,
 }
 
 /// Open viewer windows: label to target.
@@ -585,8 +609,8 @@ struct ViewerState {
 
 impl Viewers {
     /// The label of the viewer already showing `target`'s file in its session, or a new label
-    /// registered for it. Check and registration happen under one lock, so two quick
-    /// double-clicks open one window.
+    /// registered for it unless [`MAX_WINDOWS`] are open. Check and registration happen under one
+    /// lock, so two quick double-clicks open one window and parallel calls cannot pass the limit.
     pub fn claim(&self, target: Target) -> Claim {
         let mut state = lock(&self.0);
         let existing = state
@@ -595,6 +619,9 @@ impl Viewers {
             .find(|(_, open)| open.session_id == target.session_id && open.path == target.path);
         if let Some((label, _)) = existing {
             return Claim::Existing(label.clone());
+        }
+        if state.targets.len() >= MAX_WINDOWS {
+            return Claim::Full;
         }
         state.next += 1;
         let label = format!("{LABEL_PREFIX}{}", state.next);
@@ -1181,6 +1208,46 @@ mod tests {
             viewers.claim(target(1, "a")),
             Claim::New("file-viewer-4".into())
         );
+    }
+
+    #[test]
+    fn at_most_max_windows_viewers_are_open() {
+        let viewers = Viewers::default();
+        let target = |path: &str| Target {
+            session_id: 1,
+            root: PathBuf::from("r"),
+            path: PathBuf::from(path),
+            relative: path.to_owned(),
+        };
+        for n in 0..MAX_WINDOWS {
+            let claim = viewers.claim(target(&format!("f{n}")));
+            assert!(matches!(claim, Claim::New(_)), "{claim:?}");
+        }
+        assert_eq!(viewers.claim(target("one-more")), Claim::Full);
+        assert_eq!(viewers.claim(target("one-more")), Claim::Full);
+        assert_eq!(viewers.target("file-viewer-11"), None);
+        // A file that is open still comes to the front at the limit.
+        assert_eq!(
+            viewers.claim(target("f0")),
+            Claim::Existing("file-viewer-1".into())
+        );
+        // Closing one makes room for exactly one more.
+        viewers.remove("file-viewer-1");
+        assert_eq!(
+            viewers.claim(target("one-more")),
+            Claim::New("file-viewer-11".into())
+        );
+        assert_eq!(viewers.claim(target("and-another")), Claim::Full);
+    }
+
+    #[test]
+    fn the_window_limit_carries_a_stable_code() {
+        let value = serde_json::to_value(FileViewerError::TooManyWindows).unwrap();
+        let text = value.as_str().unwrap();
+        assert!(text.starts_with("[viewer_limit] "), "{text}");
+        assert!(text.contains(&MAX_WINDOWS.to_string()), "{text}");
+        let plain = serde_json::to_value(FileViewerError::NotFound).unwrap();
+        assert_eq!(plain.as_str(), Some("The file no longer exists"));
     }
 
     #[test]

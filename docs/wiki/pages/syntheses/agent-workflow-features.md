@@ -186,9 +186,12 @@ access to the git folder, which already allows far more.
   content.
 - `git_activity(folders: string[]) -> { commits: number[], truncated: boolean }`: author times
   (Unix seconds) of the user's own commits for the activity calendar in the empty window. At
-  most 24 folders (more refuse the call); each folder passes the same folder check as
-  `git_diff`, then `git rev-parse --show-toplevel`; one repository counts once. Per repository
-  `git config --get user.email` (none: skipped), then `git log --branches --tags --remotes
+  most 24 folders (more refuse the call). No session names these folders, so the backend keeps
+  only those it knows itself (the sessions' folders, favorites and recent folders, exactly what
+  the calendar sends), spelled as it knows them, and silently drops the rest; each remaining
+  folder passes the same folder check as `git_diff`, then `git rev-parse --show-toplevel`; one
+  repository counts once. Per repository `git config --get user.email` (none: skipped), then
+  `git log --branches --tags --remotes
   --no-merges --no-show-signature --fixed-strings --regexp-ignore-case --author=<email>
   "--since=378 days ago" --format="%H %at"`; the angle brackets keep a longer address that ends
   with the user's from matching. Commits are deduplicated by hash across folders (worktrees,

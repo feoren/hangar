@@ -4,7 +4,7 @@ type: synthesis
 tags: [file-tree, window, contract, security]
 sources: []
 created: 2026-11-12
-updated: 2026-11-15
+updated: 2026-11-22
 ---
 
 # File viewer window (contract)
@@ -53,6 +53,14 @@ only shows the content to that user.
 
 Label `file-viewer-<n>` (monotonic counter), URL `index.html?window=file`, 960 x 720 logical,
 minimum 480 x 320, resizable, title = file name, default decorations.
+
+At most 10 viewer windows are open at once (`MAX_WINDOWS` in `file_viewer.rs`). Each one is a
+WebView of its own and polls its file's stamp every second while visible, and ten already fill two
+screens; the limit also bounds what a misbehaving opener could create in a loop. At the limit a
+file that is already open still comes to the front; a new one is refused with
+`[viewer_limit] ...` (`FileViewerError::TooManyWindows`), which the window shows as
+`files.tooManyViewers`. Check and registration happen under one lock, so parallel calls cannot
+pass the limit.
 
 ## FileContent
 

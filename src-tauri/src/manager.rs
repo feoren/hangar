@@ -2755,10 +2755,26 @@ mod tests {
             check_cwd(&here.join("hangar-missing-folder")),
             Err(ManagerError::BadCwd(_))
         ));
+        // A verbatim drive path is a local folder: `canonicalize` and junction targets come in
+        // this form, so it stays allowed.
+        #[cfg(windows)]
+        {
+            let verbatim = std::fs::canonicalize(&here).unwrap();
+            assert!(
+                verbatim.to_string_lossy().starts_with(r"\\?\"),
+                "{verbatim:?}"
+            );
+            assert!(check_cwd(&verbatim).is_ok(), "{verbatim:?}");
+        }
         #[cfg(windows)]
         for remote in [
             r"\\hangar-test.invalid\share",
             "//hangar-test.invalid/share/x",
+            r"\\?\UNC\hangar-test.invalid\share",
+            r"\\.\PhysicalDrive0",
+            r"\\.\pipe\hangar-test",
+            r"\\?\GLOBALROOT\Device\Mup\hangar-test.invalid\share",
+            r"\\?\Volume{00000000-0000-0000-0000-000000000000}\",
         ] {
             assert!(
                 matches!(
