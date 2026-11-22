@@ -1537,3 +1537,11 @@ plinth, a name tag below it, a speech bubble whose tail continues fill and edge 
 typing dots before the first tool call, a breathing ring for waiting (opacity only) and a two-line
 strip. Measured: 0 paints at rest in every mode. Added: [[crew-paint-measurement-2026-11-22]].
 Updated: [[crew-column]].
+
+## [2026-11-22] ingest | Message paste in OpenCode and Gemini CLI, hangar-send in the bundles
+Measured Hangar's message delivery (bracketed paste with the header line, Enter 80 ms later) in
+OpenCode 2.3.2 and Gemini CLI 0.70.0 in a ConPTY: one prompt each, no submit without the Enter,
+Gemini CLI's trust dialog takes the paste. Listed `hangar-send` in the AppImage, .deb, .app and
+.dmg of the last CI run; a copy without its executable bit is now replaced at startup. New:
+[[paste-opencode-gemini-measurement]], [[hangar-send-bundles-reading]]. Updated:
+[[0012-cross-project-messages]], [[0014-session-links]], index.

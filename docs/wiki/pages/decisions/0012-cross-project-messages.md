@@ -4,9 +4,9 @@ type: decision
 status: accepted
 superseded_by:
 tags: [sessions, projects, agents, hooks, security, pty]
-sources: ["[[cross-project-paste-measurement]]"]
+sources: ["[[cross-project-paste-measurement]]", "[[paste-opencode-gemini-measurement]]", "[[hangar-send-bundles-reading]]"]
 created: 2026-11-17
-updated: 2026-11-20
+updated: 2026-11-22
 ---
 
 # ADR 0012: Messages between sessions of partner projects
@@ -158,16 +158,24 @@ because the person wrote it.
   it does not submit, Enter as a separate write does. Claude Code and Codex turn bracketed paste on
   while their folder trust dialog is open, so readiness signals cannot tell that dialog from the
   prompt: Hangar presses Enter only after the person chose "Paste and send" (decision point 4).
-- Same measurement: Codex `workspace-write` on Windows reaches 127.0.0.1 without network access
+- [[paste-opencode-gemini-measurement]] (Windows, OpenCode 2.3.2 with `--standalone`, Gemini CLI
+  0.70.0): the same holds; Hangar's delivery (paste, 80 ms, Enter) needs no recipe per program.
+  Gemini CLI also turns bracketed paste on during its folder trust dialog, where paste plus Enter
+  trusted the folder and lost the text; decision point 4 covers it as for Claude Code and Codex.
+- [[hangar-send-bundles-reading]] (CI artifacts of `2200d42`): `hangar-send` lies next to `hangar`
+  in the AppImage and the .deb (`usr/bin`) and in `Hangar.app/Contents/MacOS` (aarch64 and x64,
+  updater archive and disk image); CI fails a bundle without it. Sessions find it by name through
+  the copy in `<app local data>/bin` at the end of their `PATH`; a copy that lost its executable
+  bit is replaced at startup since 2026-11-22.
+- Same measurement as the first: Codex `workspace-write` on Windows reaches 127.0.0.1 without network access
   turned on; Claude Code under default permissions asks before the call. `hangar-send` is therefore
   an executable with its own name, which no shell alias can shadow.
 
 > [!question] Unverified
-> OpenCode, Gemini CLI and the remaining catalog CLIs (not installed or broken on the measuring
-> machine); the sandboxes of Codex and Claude Code on Linux and macOS; whether Pi and Aider run
+> The remaining catalog CLIs (not installed on the measuring machine); OpenCode and Gemini CLI on
+> Linux and macOS; the sandboxes of Codex and Claude Code on Linux and macOS; whether Pi and Aider run
 > commands without a sandbox of their own.
-> That Tauri's bundler installs and signs the second binary next to the main one (NSIS,
-> `Contents/MacOS`, `usr/bin`) was read in Tauri's source (`tauri-cli` `get_binaries`,
-> `tauri-bundler` NSIS template, `sign_binaries_if_needed`), not yet measured with a release
-> build. `tauri dev` runs `cargo run`, which builds only the app, so `beforeDevCommand`
+> The bundles hold the second binary ([[hangar-send-bundles-reading]]); not yet run on a real Mac
+> or Linux desktop: whether an agent's own command shell keeps the appended `PATH` entry, and
+> whether Gatekeeper holds the copy of a quarantined app's client outside the bundle. `tauri dev` runs `cargo run`, which builds only the app, so `beforeDevCommand`
 > builds `hangar-send` first; else sessions would get no send client.

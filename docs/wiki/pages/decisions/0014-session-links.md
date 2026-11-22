@@ -4,9 +4,9 @@ type: decision
 status: accepted
 superseded_by:
 tags: [sessions, agents, hooks, security, pty, sidebar]
-sources: ["[[0012-cross-project-messages]]", "[[cross-project-paste-measurement]]", "[[unattended-settings-reading]]"]
+sources: ["[[0012-cross-project-messages]]", "[[cross-project-paste-measurement]]", "[[paste-opencode-gemini-measurement]]", "[[unattended-settings-reading]]"]
 created: 2026-11-19
-updated: 2026-11-21
+updated: 2026-11-22
 ---
 
 # ADR 0014: Linked sessions that work together
@@ -78,8 +78,9 @@ Guards:
   target and time, not the text.
 
 **7. Agents.** Delivery is a bracketed paste plus Enter, which needs nothing from the CLI. Measured
-in [[cross-project-paste-measurement]] for Claude Code, Codex CLI, Pi and Aider. Sending needs the
-agent to run a command; Gemini CLI and OpenCode are not measured yet.
+in [[cross-project-paste-measurement]] for Claude Code, Codex CLI, Pi and Aider, and in
+[[paste-opencode-gemini-measurement]] for OpenCode 2.3.2 and Gemini CLI 0.70.0 (since 2026-11-22).
+Sending needs the agent to run a command.
 
 ## Consequences
 - New glossary terms: link group, member name.
@@ -306,6 +307,8 @@ simply offers "Send" again.
 ## Evidence
 - [[cross-project-paste-measurement]]: a bracketed paste with a header line arrives as one prompt,
   Enter as a separate write submits it (Claude Code, Codex CLI, Pi, Aider on Windows).
+- [[paste-opencode-gemini-measurement]]: the same for OpenCode 2.3.2 and Gemini CLI 0.70.0 on
+  Windows; Gemini CLI's trust dialog also takes the paste.
 - The send route, token scopes and queue limits as built in [[0012-cross-project-messages]].
 
 > [!question] Unverified
