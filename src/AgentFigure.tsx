@@ -8,9 +8,11 @@ import type { CSSProperties } from "react";
 
 import { useSubAgentLibrary } from "./subAgentLibraryStore";
 import {
+  defaultFigure,
   FIGURE_PADDING,
   figureFor,
   figureTop,
+  libraryCovers,
   runningFigure,
   type Figure,
 } from "./subAgentLibrary";
@@ -94,17 +96,22 @@ export function AgentFigure({ figure, size, crop = "full", label }: Props) {
  * session started in `cwd` (`runningFigure`), `null` when no definition of that name is listed.
  */
 export function useKnownFigure(name: string | null, cwd: string | null): Figure | null {
-  const { library, figures } = useSubAgentLibrary();
+  const { library, figures, read } = useSubAgentLibrary();
   if (name === null) return null;
-  return runningFigure(library, figures, name, cwd);
+  return runningFigure(library, figures, name, cwd, read);
 }
 
 /**
  * The figure of a running sub-agent of type `name` for the crew: a known definition's figure like
  * `useKnownFigure`, else the figure the name alone points to (a built-in type such as `Explore`).
+ * In a folder the listing does not cover, never the chosen one (`runningFigure`).
  */
 export function useCrewFigure(name: string | null, cwd: string | null): Figure {
   const known = useKnownFigure(name, cwd);
-  const { figures } = useSubAgentLibrary();
-  return known ?? figureFor(name ?? "agent", null, figures);
+  const { figures, read } = useSubAgentLibrary();
+  if (known !== null) return known;
+  const agent = name ?? "agent";
+  return cwd !== null && !libraryCovers(read, cwd)
+    ? defaultFigure(agent, null)
+    : figureFor(agent, null, figures);
 }

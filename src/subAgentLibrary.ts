@@ -521,15 +521,30 @@ export interface SessionFigure {
 }
 
 /**
+ * The listing shown was read for `cwd`: it has arrived (`read` is not `null`) and `cwd` is one
+ * of the project folders it was read for. Only then does it name every definition a session
+ * there can run as; otherwise a project definition may be missing that overrides a global one.
+ */
+export function libraryCovers(read: readonly string[] | null, cwd: string): boolean {
+  return read !== null && read.some((folder) => samePath(folder, cwd));
+}
+
+/**
  * The figure of a session running as `name` in `cwd`: the definition Claude Code takes there
- * (`defsFor`), or the name's own figure when no definition of it is listed right now.
+ * (`defsFor`), or the name's own figure when no definition of it is listed right now. `read`:
+ * the folders the listing was read for, `null` before the first one arrives. While the listing
+ * does not cover `cwd` (not read yet, or `cwd` beyond the folder limit), the session wears its
+ * default figure without the chosen one: a project definition not yet listed could override the
+ * global one, and a repository's agent must never wear the trusted figure, not even briefly.
  */
 export function sessionFigure(
   library: Library,
   chosen: ReadonlyMap<string, FigureView>,
   name: string,
   cwd: string,
+  read: readonly string[] | null,
 ): SessionFigure {
+  if (!libraryCovers(read, cwd)) return { figure: defaultFigure(name, null), project: null };
   const def = defsFor(library, cwd).find((entry) => entry.name === name);
   if (def === undefined) return { figure: figureFor(name, null, chosen), project: null };
   return {
@@ -543,14 +558,18 @@ export function sessionFigure(
  * Claude Code takes in that folder (`defsFor`), so a project that overrides the name elsewhere
  * leaves this session's figure alone. Without a folder, any project override keeps the chosen
  * figure off, as a repository's agent must never wear the trusted one. `null` when no definition
- * of that name is listed.
+ * of that name is listed. `read` as in `sessionFigure`: while the listing does not cover `cwd`,
+ * the default figure without the chosen one, as a project definition not yet listed could
+ * override the global one.
  */
 export function runningFigure(
   library: Library,
   chosen: ReadonlyMap<string, FigureView>,
   name: string,
   cwd: string | null,
+  read: readonly string[] | null,
 ): Figure | null {
+  if (cwd !== null && !libraryCovers(read, cwd)) return defaultFigure(name, null);
   if (cwd === null) {
     const defs = library.defs.filter((entry) => entry.name === name);
     const def = defs.find((entry) => overridesGlobal(library, entry)) ?? defs[0];

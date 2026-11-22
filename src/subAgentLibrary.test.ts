@@ -311,8 +311,8 @@ describe("project definitions that override a global one", () => {
     const stored = parseFigures({ writer: { kind: "builtin", id: "tester-01" } });
     const lib: Library = { ...EMPTY_LIBRARY, defs: [own] };
     expect(defFigure(own, lib, stored)).toEqual({ kind: "initial", letter: "W", color: "#3b82d6" });
-    expect(sessionFigure(lib, stored, "writer", PROJECT).figure.kind).toBe("initial");
-    expect(runningFigure(lib, stored, "writer", null)?.kind).toBe("initial");
+    expect(sessionFigure(lib, stored, "writer", PROJECT, [PROJECT]).figure.kind).toBe("initial");
+    expect(runningFigure(lib, stored, "writer", null, null)?.kind).toBe("initial");
   });
 
   it("wear the global figure when they are the same agent (equal fingerprint)", () => {
@@ -344,15 +344,42 @@ describe("project definitions that override a global one", () => {
   });
 
   it("decide a session's figure by its folder", () => {
-    const here = sessionFigure(library, chosen, "hangar-backend", PROJECT);
+    const read = [PROJECT, "C:\\src\\other"];
+    const here = sessionFigure(library, chosen, "hangar-backend", PROJECT, read);
     expect(here.figure.kind).toBe("initial");
     expect(here.project).toBe(PROJECT);
-    const elsewhere = sessionFigure(library, chosen, "hangar-backend", "C:\\src\\other");
+    const elsewhere = sessionFigure(library, chosen, "hangar-backend", "C:\\src\\other", read);
     expect(elsewhere).toEqual({ figure: { kind: "builtin", id: "security-02" }, project: null });
     // A name no listed definition has keeps its own figure.
-    expect(sessionFigure(library, chosen, "hangar-tester", PROJECT)).toEqual({
+    expect(sessionFigure(library, chosen, "hangar-tester", PROJECT, read)).toEqual({
       figure: { kind: "builtin", id: "tester-01" },
       project: null,
+    });
+  });
+
+  it("keep a session's chosen figure off until the listing covers its folder", () => {
+    const mine = parseFigures({
+      "hangar-backend": { kind: "builtin", id: "security-02" },
+      "hangar-tester": { kind: "builtin", id: "manager-01" },
+    });
+    const neutral = { figure: defaultFigure("hangar-backend", null), project: null };
+    // Before the first listing arrives: neither the listed name nor an unknown one wears the
+    // chosen figure, as a project definition not yet listed could override it.
+    expect(sessionFigure(EMPTY_LIBRARY, mine, "hangar-backend", PROJECT, null)).toEqual(neutral);
+    expect(sessionFigure(library, mine, "hangar-backend", "C:\\src\\other", null)).toEqual(neutral);
+    expect(sessionFigure(EMPTY_LIBRARY, mine, "hangar-tester", PROJECT, null)).toEqual({
+      figure: { kind: "builtin", id: "tester-01" },
+      project: null,
+    });
+    // A folder the listing was not read for (a new one, or beyond the folder limit of 32).
+    const first32 = Array.from({ length: 32 }, (_, i) => `C:\\src\\p${String(i)}`);
+    expect(sessionFigure(library, mine, "hangar-backend", "C:\\src\\p32", first32)).toEqual(
+      neutral,
+    );
+    // Once it covers the folder (compared like the file system does), the choice counts again.
+    expect(sessionFigure(library, mine, "hangar-backend", "c:/src/p3/", first32).figure).toEqual({
+      kind: "builtin",
+      id: "security-02",
     });
   });
 
@@ -399,17 +426,41 @@ describe("runningFigure", () => {
     problems: [],
   };
   const chosen = new Map([["hangar-backend", { kind: "builtin" as const, id: "backend-01" }]]);
+  const READ = [PROJECT, OTHER];
+
+  describe("before the listing covers the session's folder", () => {
+    // Only the global definition is listed so far; the project's overriding one is not read yet.
+    const globalOnly: Library = { ...EMPTY_LIBRARY, defs: [def("hangar-backend")] };
+    const mine = new Map([["hangar-backend", { kind: "builtin" as const, id: "security-02" }]]);
+    const neutral = defaultFigure("hangar-backend", null);
+
+    it("keeps the chosen figure off while no listing has arrived", () => {
+      expect(runningFigure(globalOnly, mine, "hangar-backend", PROJECT, null)).toEqual(neutral);
+      expect(neutral).not.toEqual({ kind: "builtin", id: "security-02" });
+    });
+
+    it("keeps the chosen figure off in a folder beyond the first 32", () => {
+      const first32 = Array.from({ length: 32 }, (_, i) => `C:\\src\\p${String(i)}`);
+      expect(runningFigure(globalOnly, mine, "hangar-backend", PROJECT, first32)).toEqual(neutral);
+    });
+
+    it("wears the chosen figure once the folder is covered, in any spelling", () => {
+      expect(
+        runningFigure(globalOnly, mine, "hangar-backend", PROJECT, ["c:/SRC/hangar/"]),
+      ).toEqual({ kind: "builtin", id: "security-02" });
+    });
+  });
 
   it("wears the chosen figure in a project that does not override the name", () => {
     // Regression: a project override elsewhere turned every session's figure neutral.
-    expect(runningFigure(library, chosen, "hangar-backend", OTHER)).toEqual({
+    expect(runningFigure(library, chosen, "hangar-backend", OTHER, READ)).toEqual({
       kind: "builtin",
       id: "backend-01",
     });
   });
 
   it("stays neutral in the project that overrides the name", () => {
-    expect(runningFigure(library, chosen, "hangar-backend", PROJECT)).toEqual({
+    expect(runningFigure(library, chosen, "hangar-backend", PROJECT, READ)).toEqual({
       kind: "initial",
       letter: "H",
       color: NEUTRAL_FIGURE_COLOR,
@@ -417,7 +468,7 @@ describe("runningFigure", () => {
   });
 
   it("stays neutral without a folder while any project overrides the name", () => {
-    expect(runningFigure(library, chosen, "hangar-backend", null)).toEqual({
+    expect(runningFigure(library, chosen, "hangar-backend", null, null)).toEqual({
       kind: "initial",
       letter: "H",
       color: NEUTRAL_FIGURE_COLOR,
@@ -425,6 +476,6 @@ describe("runningFigure", () => {
   });
 
   it("is null for a name no definition has", () => {
-    expect(runningFigure(library, chosen, "Explore", OTHER)).toBeNull();
+    expect(runningFigure(library, chosen, "Explore", OTHER, READ)).toBeNull();
   });
 });

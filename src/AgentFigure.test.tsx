@@ -2,10 +2,60 @@
 import { readFileSync } from "node:fs";
 
 import { renderToStaticMarkup } from "react-dom/server";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 
-import { AgentFigure, BUNDLED_FIGURES, builtinFigureUrl } from "./AgentFigure";
-import { BUILTIN_FIGURES, figureTop } from "./subAgentLibrary";
+import { AgentFigure, BUNDLED_FIGURES, builtinFigureUrl, useCrewFigure } from "./AgentFigure";
+import {
+  BUILTIN_FIGURES,
+  defaultFigure,
+  figureTop,
+  type Figure,
+  type FigureView,
+} from "./subAgentLibrary";
+
+const store = vi.hoisted(() => {
+  const state: { read: readonly string[] | null } = { read: null };
+  return state;
+});
+
+vi.mock("./subAgentLibraryStore", async () => {
+  const { EMPTY_LIBRARY: empty } = await import("./subAgentLibrary");
+  const figures: ReadonlyMap<string, FigureView> = new Map([
+    ["hangar-tester", { kind: "builtin", id: "security-02" }],
+  ]);
+  return {
+    useSubAgentLibrary: () => ({ library: empty, figures, error: null, read: store.read }),
+  };
+});
+
+describe("useCrewFigure", () => {
+  function crewFigure(name: string, cwd: string): Figure | null {
+    let seen: Figure | null = null;
+    function Probe() {
+      seen = useCrewFigure(name, cwd);
+      return null;
+    }
+    renderToStaticMarkup(<Probe />);
+    return seen;
+  }
+
+  it("keeps the chosen figure off for an unknown name in a folder the listing does not cover", () => {
+    store.read = null;
+    expect(crewFigure("hangar-tester", "C:\\src\\hangar")).toEqual(
+      defaultFigure("hangar-tester", null),
+    );
+    store.read = ["C:\\src\\other"];
+    expect(crewFigure("hangar-tester", "C:\\src\\hangar")).toEqual(
+      defaultFigure("hangar-tester", null),
+    );
+    // Covered, the name's chosen figure counts as before.
+    store.read = ["C:\\src\\hangar"];
+    expect(crewFigure("hangar-tester", "C:\\src\\hangar")).toEqual({
+      kind: "builtin",
+      id: "security-02",
+    });
+  });
+});
 
 describe("AgentFigure", () => {
   it("bundles exactly the built-in figures", () => {

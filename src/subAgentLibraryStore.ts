@@ -18,9 +18,15 @@ export interface LibraryState {
   figures: ReadonlyMap<string, FigureView>;
   /** The newest refresh failed: why. The last good listing stays. */
   error: string | null;
+  /**
+   * The project folders the shown listing was read for; `null` until the first listing arrives.
+   * A session in another folder may have a project definition the listing lacks
+   * (`sessionFigure`).
+   */
+  read: readonly string[] | null;
 }
 
-let state: LibraryState = { library: EMPTY_LIBRARY, figures: new Map(), error: null };
+let state: LibraryState = { library: EMPTY_LIBRARY, figures: new Map(), error: null, read: null };
 let folders: readonly string[] = [];
 /** Answers of older refreshes are dropped. */
 let generation = 0;
@@ -35,16 +41,20 @@ function publish(next: LibraryState): void {
 export async function refreshLibrary(): Promise<void> {
   generation += 1;
   const mine = generation;
+  const asked = folders;
   try {
     const [library, figures] = await Promise.all([
-      api.subAgentLibrary(folders),
+      api.subAgentLibrary(asked),
       api.subAgentFigures(),
     ]);
     if (mine !== generation) return;
+    const parsed = parseLibrary(library);
     publish({
-      library: parseLibrary(library) ?? EMPTY_LIBRARY,
+      library: parsed ?? EMPTY_LIBRARY,
       figures: parseFigures(figures),
       error: null,
+      // An answer that does not parse lists nothing, so it covers no folder.
+      read: parsed === null ? null : asked,
     });
   } catch (e) {
     if (mine === generation) publish({ ...state, error: errorText(e) });
@@ -104,5 +114,5 @@ export function useSubAgentLibrary(): LibraryState {
 export function resetLibraryStore(): void {
   generation += 1;
   folders = [];
-  state = { library: EMPTY_LIBRARY, figures: new Map(), error: null };
+  state = { library: EMPTY_LIBRARY, figures: new Map(), error: null, read: null };
 }

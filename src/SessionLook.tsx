@@ -24,10 +24,10 @@ export interface SessionLookProps {
 
 export function SessionLook({ look, session, programName, crop = "head" }: SessionLookProps) {
   const t = useT();
-  const { library, figures } = useSubAgentLibrary();
+  const { library, figures, read } = useSubAgentLibrary();
   const agent = session.subAgent ?? null;
   if (agent === null) return <Badge look={look} />;
-  const { figure, project } = sessionFigure(library, figures, agent, session.cwd);
+  const { figure, project } = sessionFigure(library, figures, agent, session.cwd, read);
   const title =
     programName === undefined
       ? undefined
