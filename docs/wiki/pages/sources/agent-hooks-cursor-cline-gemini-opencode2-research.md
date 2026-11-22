@@ -34,7 +34,6 @@ unless [[opencode2-gate-live-measurement]] says so.
 ## Significance for Hangar
 
 - OpenCode 2.x: built and measured ([[opencode2-gate-live-measurement]]).
-- Cursor CLI: the next candidate. Needs a signed-in Cursor CLI on the measuring machine, a
-  `cursor` input and answer format in `hangar gate-hook`, and a live run.
+- Cursor CLI: built and measured ([[cursor-gate-live-measurement]]).
 - Cline CLI and Gemini CLI stay off team sessions: each per-session route changes the user's own
   setup (hidden agents and rules, files in the worktree or `~/.gemini`, a sign-out).

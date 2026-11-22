@@ -1437,3 +1437,9 @@ uses it from 2.0.0 (2.0.0 to 2.3.1 unmeasured). Cursor CLI has a candidate route
 Gemini CLI none that leaves the user's setup alone. New: [[opencode2-gate-live-measurement]],
 [[agent-hooks-cursor-cline-gemini-opencode2-research]]. Updated: [[agent-gate-adapters]],
 [[opencode2-and-gemini-gate-findings]], index.
+
+## [2026-11-22] ingest | Cursor CLI gate measurement
+Cursor CLI 2026.11.19, signed in, holds `Write` and `Delete` through a `--plugin-dir` plugin whose
+`preToolUse` hook runs `hangar gate-hook cursor pre-tool-use`; measured headless, interactive and
+end to end. New: [[cursor-gate-live-measurement]]. Updated: [[agent-gate-adapters]],
+[[agent-hooks-cursor-cline-gemini-opencode2-research]], index.
