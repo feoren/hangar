@@ -644,3 +644,13 @@ export function RowsIcon(props: IconProps) {
     </Svg>
   );
 }
+
+/** A window with a column on its right: the right panel. */
+export function SidePanelIcon(props: IconProps) {
+  return (
+    <Svg {...props}>
+      <rect x="2" y="3" width="12" height="10" rx="1.5" />
+      <path d="M10 3v10" />
+    </Svg>
+  );
+}

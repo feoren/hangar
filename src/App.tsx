@@ -6783,10 +6783,12 @@ export function App() {
                 ? null
                 : [activeSession.marker?.emoji, activeSession.title].filter(Boolean).join(" ")
             }
-            sideTab={notesShown ? "notes" : changesShown ? "changes" : filesShown ? "files" : null}
-            onToggleSideTab={(tab) => {
-              if (tab === "notes") toggleNotes();
-              else if (tab === "changes") toggleChanges();
+            sideOpen={sideShown}
+            onToggleSide={() => {
+              // The tab's own switch: closes it when open, opens it with the focus, or brings the
+              // detached panel window up on it.
+              if (layout.sideTab === "notes") toggleNotes();
+              else if (layout.sideTab === "changes") toggleChanges();
               else toggleFiles();
             }}
           />

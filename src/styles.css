@@ -6333,18 +6333,13 @@ label.setting-line:hover {
   white-space: nowrap;
 }
 
-.main-bar-tabs {
-  display: flex;
+.main-bar-toggle {
   flex: none;
-  gap: 2px;
-}
-
-.main-bar-tab {
   width: 30px;
   height: 30px;
 }
 
-.main-bar-tab[aria-pressed="true"] {
+.main-bar-toggle[aria-pressed="true"] {
   color: var(--accent);
   background: color-mix(in srgb, var(--accent) 14%, transparent);
 }
