@@ -384,6 +384,7 @@ import {
 } from "./shortcuts";
 import { Sidebar } from "./Sidebar";
 import { useSidebarMotion, useWindowResizing } from "./sidebarMotion";
+import { useSidePanelMotion } from "./sidePanelMotion";
 import { Splitter } from "./Splitter";
 import { badgeKind, TaskbarBadge } from "./taskbarBadge";
 import { TaskbarFlasher } from "./taskbarFlash";
@@ -2000,6 +2001,8 @@ export function App() {
   );
   // Detached: the buttons and menu bring the panel window to the front, they hide nothing.
   const sideShown = layout.sideOpen && !panelWindow.detached;
+  /** The panel slides in and out (sidePanelMotion.ts); detaching takes it away at once. */
+  const sideMotion = useSidePanelMotion(sideShown, !panelWindow.detached);
   const notesShown = sideShown && layout.sideTab === "notes";
   const changesShown = sideShown && layout.sideTab === "changes";
   const filesShown = sideShown && layout.sideTab === "files";
@@ -7106,7 +7109,7 @@ export function App() {
                 }}
               />
             )}
-            {sideShown && (
+            {sideMotion.phase !== "closed" && (
               <SidePanel
                 tab={layout.sideTab}
                 onTab={(tab) => {
@@ -7116,6 +7119,8 @@ export function App() {
                 }}
                 mode={notesPlacement.mode}
                 width={notesPlacement.width}
+                phase={sideMotion.phase}
+                frame={sideMotion.panel}
                 onDetach={detachPanel}
                 onClose={closeSide}
                 onEscape={focusTerminal}
