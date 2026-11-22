@@ -231,6 +231,61 @@ describe("catalog agent descriptions", () => {
     expect(described.sort()).toEqual(ids.map((id) => `agent.${id}.description`).sort());
   });
 
+  it("stay one or two short sentences in every language", () => {
+    for (const id of ids) {
+      const key = agentDescriptionKey(id);
+      if (!key) continue;
+      for (const language of LANGUAGES) {
+        const text = translate(language, key);
+        const where = `${language}:${id}`;
+        expect(text.length, where).toBeLessThanOrEqual(110);
+        expect(text, where).toBe(text.trim());
+        expect(text, where).toMatch(/[.。]$/);
+        expect(text, where).not.toMatch(/[\u2013\u2014]/);
+      }
+    }
+  });
+
+  it("name exactly the evidenced open source license in every language, or none", () => {
+    // The license (an SPDX id in round brackets) is only named where the wiki page
+    // agent-vendors-licenses has the evidence. A new catalog entry needs a row here,
+    // which forces that research before its description claims anything.
+    const evidenced: Record<string, string | null> = {
+      claude: null,
+      codex: "Apache-2.0",
+      gemini: "Apache-2.0",
+      antigravity: null,
+      copilot: null,
+      cursor: null,
+      kimi: "MIT",
+      qwen: "Apache-2.0",
+      kiro: null,
+      opencode: "MIT",
+      aider: "Apache-2.0",
+      goose: "Apache-2.0",
+      crush: null,
+      pi: "MIT",
+      omp: "MIT",
+      forge: "Apache-2.0",
+      kode: "Apache-2.0",
+      codebuff: "Apache-2.0",
+      cline: "Apache-2.0",
+      vibe: "Apache-2.0",
+      droid: null,
+      amp: null,
+    };
+    const license = (text: string): string | null =>
+      /[(（]([A-Za-z0-9.-]+)[)）][.。]$/.exec(text)?.[1] ?? null;
+    for (const id of ids) {
+      const key = agentDescriptionKey(id);
+      if (!key) continue;
+      expect(Object.keys(evidenced), `no license evidence for ${id}`).toContain(id);
+      for (const language of LANGUAGES) {
+        expect(license(translate(language, key)), `${language}:${id}`).toBe(evidenced[id]);
+      }
+    }
+  });
+
   it("are missing for unknown IDs", () => {
     expect(agentDescriptionKey("my-script")).toBeUndefined();
     expect(agentDescriptionKey("")).toBeUndefined();

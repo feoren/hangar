@@ -299,7 +299,7 @@ name = "Kimi Code CLI"
 commands = ["kimi"]
 resume_args = ["--continue"]
 icon = "K"
-homepage = "https://github.com/MoonshotAI/kimi-cli"
+homepage = "https://github.com/MoonshotAI/kimi-code"
 install_windows = "irm https://code.kimi.com/kimi-code/install.ps1 | iex"
 install_unix = "curl -fsSL https://code.kimi.com/kimi-code/install.sh | bash"
 # The PyPI package kimi-cli is archived; the current CLI ships on npm and winget.

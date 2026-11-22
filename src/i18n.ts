@@ -936,26 +936,31 @@ const de = {
   "update.sessionTitle": "Update: {name}",
   "notes.delete": "Notiz löschen",
   "agent.claude.description": "Coding-Agent von Anthropic für dein Terminal.",
-  "agent.codex.description": "Quelloffener Coding-Agent von OpenAI für dein Terminal.",
-  "agent.gemini.description": "Quelloffener Coding-Agent von Google für dein Terminal.",
+  "agent.codex.description": "Coding-Agent von OpenAI für dein Terminal. Quelloffen (Apache-2.0).",
+  "agent.gemini.description": "Coding-Agent von Google für dein Terminal. Quelloffen (Apache-2.0).",
   "agent.antigravity.description": "Coding-Agent von Google für dein Terminal.",
   "agent.copilot.description": "Coding-Agent von GitHub für dein Terminal.",
-  "agent.cursor.description": "Coding-Agent von Cursor für dein Terminal.",
-  "agent.kimi.description": "Quelloffener Coding-Agent von Moonshot AI für dein Terminal.",
-  "agent.qwen.description": "Coding-Agent von Qwen für dein Terminal.",
-  "agent.kiro.description":
-    "Coding-Agent von Kiro für dein Terminal, Nachfolger der Amazon Q Developer CLI.",
-  "agent.opencode.description": "Quelloffener Coding-Agent für dein Terminal.",
-  "agent.aider.description": "Coding-Agent für dein Terminal.",
-  "agent.goose.description": "Quelloffener Coding-Agent für dein Terminal.",
-  "agent.crush.description": "Coding-Agent von Charmbracelet für dein Terminal.",
-  "agent.pi.description": "Quelloffener Coding-Agent für dein Terminal.",
-  "agent.omp.description": "Quelloffener Coding-Agent für dein Terminal.",
-  "agent.forge.description": "Coding-Agent für dein Terminal.",
-  "agent.kode.description": "Quelloffener Coding-Agent von shareAI-lab für dein Terminal.",
-  "agent.codebuff.description": "Coding-Agent für dein Terminal.",
-  "agent.cline.description": "Coding-Agent von Cline für dein Terminal.",
-  "agent.vibe.description": "Quelloffener Coding-Agent von Mistral AI für dein Terminal.",
+  "agent.cursor.description": "Coding-Agent von Anysphere für dein Terminal.",
+  "agent.kimi.description": "Coding-Agent von Moonshot AI für dein Terminal. Quelloffen (MIT).",
+  "agent.qwen.description":
+    "Coding-Agent von Alibaba Cloud für dein Terminal. Quelloffen (Apache-2.0).",
+  "agent.kiro.description": "Coding-Agent von Amazon für dein Terminal.",
+  "agent.opencode.description": "Coding-Agent von Anomaly für dein Terminal. Quelloffen (MIT).",
+  "agent.aider.description": "Coding-Agent für dein Terminal. Quelloffen (Apache-2.0).",
+  "agent.goose.description":
+    "Coding-Agent der Agentic AI Foundation für dein Terminal. Quelloffen (Apache-2.0).",
+  "agent.crush.description": "Coding-Agent von Charm für dein Terminal.",
+  "agent.pi.description": "Coding-Agent von Earendil Works für dein Terminal. Quelloffen (MIT).",
+  "agent.omp.description": "Coding-Agent von Stencil Labs für dein Terminal. Quelloffen (MIT).",
+  "agent.forge.description":
+    "Coding-Agent von Tailcall für dein Terminal. Quelloffen (Apache-2.0).",
+  "agent.kode.description":
+    "Coding-Agent von ShareAI Lab für dein Terminal. Quelloffen (Apache-2.0).",
+  "agent.codebuff.description":
+    "Coding-Agent von Freebuff für dein Terminal. Quelloffen (Apache-2.0).",
+  "agent.cline.description": "Coding-Agent für dein Terminal. Quelloffen (Apache-2.0).",
+  "agent.vibe.description":
+    "Coding-Agent von Mistral AI für dein Terminal. Quelloffen (Apache-2.0).",
   "agent.droid.description": "Coding-Agent von Factory für dein Terminal.",
   "agent.amp.description": "Coding-Agent für dein Terminal.",
 
@@ -3259,26 +3264,31 @@ const en: Record<MessageKey, string> = {
   "update.sessionTitle": "Update: {name}",
   "notes.delete": "Delete note",
   "agent.claude.description": "Coding agent by Anthropic for your terminal.",
-  "agent.codex.description": "Open-source coding agent by OpenAI for your terminal.",
-  "agent.gemini.description": "Open-source coding agent by Google for your terminal.",
+  "agent.codex.description": "Coding agent by OpenAI for your terminal. Open source (Apache-2.0).",
+  "agent.gemini.description": "Coding agent by Google for your terminal. Open source (Apache-2.0).",
   "agent.antigravity.description": "Coding agent by Google for your terminal.",
   "agent.copilot.description": "Coding agent by GitHub for your terminal.",
-  "agent.cursor.description": "Coding agent by Cursor for your terminal.",
-  "agent.kimi.description": "Open-source coding agent by Moonshot AI for your terminal.",
-  "agent.qwen.description": "Coding agent by Qwen for your terminal.",
-  "agent.kiro.description":
-    "Coding agent by Kiro for your terminal, successor to the Amazon Q Developer CLI.",
-  "agent.opencode.description": "Open-source coding agent for your terminal.",
-  "agent.aider.description": "Coding agent for your terminal.",
-  "agent.goose.description": "Open-source coding agent for your terminal.",
-  "agent.crush.description": "Coding agent by Charmbracelet for your terminal.",
-  "agent.pi.description": "Open-source coding agent for your terminal.",
-  "agent.omp.description": "Open-source coding agent for your terminal.",
-  "agent.forge.description": "Coding agent for your terminal.",
-  "agent.kode.description": "Open-source coding agent by shareAI-lab for your terminal.",
-  "agent.codebuff.description": "Coding agent for your terminal.",
-  "agent.cline.description": "Coding agent by Cline for your terminal.",
-  "agent.vibe.description": "Open-source coding agent by Mistral AI for your terminal.",
+  "agent.cursor.description": "Coding agent by Anysphere for your terminal.",
+  "agent.kimi.description": "Coding agent by Moonshot AI for your terminal. Open source (MIT).",
+  "agent.qwen.description":
+    "Coding agent by Alibaba Cloud for your terminal. Open source (Apache-2.0).",
+  "agent.kiro.description": "Coding agent by Amazon for your terminal.",
+  "agent.opencode.description": "Coding agent by Anomaly for your terminal. Open source (MIT).",
+  "agent.aider.description": "Coding agent for your terminal. Open source (Apache-2.0).",
+  "agent.goose.description":
+    "Coding agent by the Agentic AI Foundation for your terminal. Open source (Apache-2.0).",
+  "agent.crush.description": "Coding agent by Charm for your terminal.",
+  "agent.pi.description": "Coding agent by Earendil Works for your terminal. Open source (MIT).",
+  "agent.omp.description": "Coding agent by Stencil Labs for your terminal. Open source (MIT).",
+  "agent.forge.description":
+    "Coding agent by Tailcall for your terminal. Open source (Apache-2.0).",
+  "agent.kode.description":
+    "Coding agent by ShareAI Lab for your terminal. Open source (Apache-2.0).",
+  "agent.codebuff.description":
+    "Coding agent by Freebuff for your terminal. Open source (Apache-2.0).",
+  "agent.cline.description": "Coding agent for your terminal. Open source (Apache-2.0).",
+  "agent.vibe.description":
+    "Coding agent by Mistral AI for your terminal. Open source (Apache-2.0).",
   "agent.droid.description": "Coding agent by Factory for your terminal.",
   "agent.amp.description": "Coding agent for your terminal.",
 
@@ -5579,30 +5589,38 @@ const el: Record<MessageKey, string> = {
   "notes.delete": "Διαγραφή σημείωσης",
   "agent.claude.description": "Πράκτορας προγραμματισμού για το τερματικό σου, από Anthropic.",
   "agent.codex.description":
-    "Πράκτορας προγραμματισμού ανοιχτού κώδικα για το τερματικό σου, από OpenAI.",
+    "Πράκτορας προγραμματισμού για το τερματικό σου, από OpenAI. Ανοιχτού κώδικα (Apache-2.0).",
   "agent.gemini.description":
-    "Πράκτορας προγραμματισμού ανοιχτού κώδικα για το τερματικό σου, από Google.",
+    "Πράκτορας προγραμματισμού για το τερματικό σου, από Google. Ανοιχτού κώδικα (Apache-2.0).",
   "agent.antigravity.description": "Πράκτορας προγραμματισμού για το τερματικό σου, από Google.",
   "agent.copilot.description": "Πράκτορας προγραμματισμού για το τερματικό σου, από GitHub.",
-  "agent.cursor.description": "Πράκτορας προγραμματισμού για το τερματικό σου, από Cursor.",
+  "agent.cursor.description": "Πράκτορας προγραμματισμού για το τερματικό σου, από Anysphere.",
   "agent.kimi.description":
-    "Πράκτορας προγραμματισμού ανοιχτού κώδικα για το τερματικό σου, από Moonshot AI.",
-  "agent.qwen.description": "Πράκτορας προγραμματισμού για το τερματικό σου, από Qwen.",
-  "agent.kiro.description":
-    "Πράκτορας προγραμματισμού για το τερματικό σου, από Kiro. Διάδοχος του Amazon Q Developer CLI.",
-  "agent.opencode.description": "Πράκτορας προγραμματισμού ανοιχτού κώδικα για το τερματικό σου.",
-  "agent.aider.description": "Πράκτορας προγραμματισμού για το τερματικό σου.",
-  "agent.goose.description": "Πράκτορας προγραμματισμού ανοιχτού κώδικα για το τερματικό σου.",
-  "agent.crush.description": "Πράκτορας προγραμματισμού για το τερματικό σου, από Charmbracelet.",
-  "agent.pi.description": "Πράκτορας προγραμματισμού ανοιχτού κώδικα για το τερματικό σου.",
-  "agent.omp.description": "Πράκτορας προγραμματισμού ανοιχτού κώδικα για το τερματικό σου.",
-  "agent.forge.description": "Πράκτορας προγραμματισμού για το τερματικό σου.",
+    "Πράκτορας προγραμματισμού για το τερματικό σου, από Moonshot AI. Ανοιχτού κώδικα (MIT).",
+  "agent.qwen.description":
+    "Πράκτορας προγραμματισμού για το τερματικό σου, από Alibaba Cloud. Ανοιχτού κώδικα (Apache-2.0).",
+  "agent.kiro.description": "Πράκτορας προγραμματισμού για το τερματικό σου, από Amazon.",
+  "agent.opencode.description":
+    "Πράκτορας προγραμματισμού για το τερματικό σου, από Anomaly. Ανοιχτού κώδικα (MIT).",
+  "agent.aider.description":
+    "Πράκτορας προγραμματισμού για το τερματικό σου. Ανοιχτού κώδικα (Apache-2.0).",
+  "agent.goose.description":
+    "Πράκτορας προγραμματισμού για το τερματικό σου, από το Agentic AI Foundation. Ανοιχτού κώδικα (Apache-2.0).",
+  "agent.crush.description": "Πράκτορας προγραμματισμού για το τερματικό σου, από Charm.",
+  "agent.pi.description":
+    "Πράκτορας προγραμματισμού για το τερματικό σου, από Earendil Works. Ανοιχτού κώδικα (MIT).",
+  "agent.omp.description":
+    "Πράκτορας προγραμματισμού για το τερματικό σου, από Stencil Labs. Ανοιχτού κώδικα (MIT).",
+  "agent.forge.description":
+    "Πράκτορας προγραμματισμού για το τερματικό σου, από Tailcall. Ανοιχτού κώδικα (Apache-2.0).",
   "agent.kode.description":
-    "Πράκτορας προγραμματισμού ανοιχτού κώδικα για το τερματικό σου, από shareAI-lab.",
-  "agent.codebuff.description": "Πράκτορας προγραμματισμού για το τερματικό σου.",
-  "agent.cline.description": "Πράκτορας προγραμματισμού για το τερματικό σου, από Cline.",
+    "Πράκτορας προγραμματισμού για το τερματικό σου, από ShareAI Lab. Ανοιχτού κώδικα (Apache-2.0).",
+  "agent.codebuff.description":
+    "Πράκτορας προγραμματισμού για το τερματικό σου, από Freebuff. Ανοιχτού κώδικα (Apache-2.0).",
+  "agent.cline.description":
+    "Πράκτορας προγραμματισμού για το τερματικό σου. Ανοιχτού κώδικα (Apache-2.0).",
   "agent.vibe.description":
-    "Πράκτορας προγραμματισμού ανοιχτού κώδικα για το τερματικό σου, από Mistral AI.",
+    "Πράκτορας προγραμματισμού για το τερματικό σου, από Mistral AI. Ανοιχτού κώδικα (Apache-2.0).",
   "agent.droid.description": "Πράκτορας προγραμματισμού για το τερματικό σου, από Factory.",
   "agent.amp.description": "Πράκτορας προγραμματισμού για το τερματικό σου.",
 
@@ -7929,30 +7947,39 @@ const es: Record<MessageKey, string> = {
   "update.sessionTitle": "Actualización: {name}",
   "notes.delete": "Eliminar nota",
   "agent.claude.description": "Agente de programación de Anthropic para tu terminal.",
-  "agent.codex.description": "Agente de programación de código abierto de OpenAI para tu terminal.",
+  "agent.codex.description":
+    "Agente de programación de OpenAI para tu terminal. Código abierto (Apache-2.0).",
   "agent.gemini.description":
-    "Agente de programación de código abierto de Google para tu terminal.",
+    "Agente de programación de Google para tu terminal. Código abierto (Apache-2.0).",
   "agent.antigravity.description": "Agente de programación de Google para tu terminal.",
   "agent.copilot.description": "Agente de programación de GitHub para tu terminal.",
-  "agent.cursor.description": "Agente de programación de Cursor para tu terminal.",
+  "agent.cursor.description": "Agente de programación de Anysphere para tu terminal.",
   "agent.kimi.description":
-    "Agente de programación de código abierto de Moonshot AI para tu terminal.",
-  "agent.qwen.description": "Agente de programación de Qwen para tu terminal.",
-  "agent.kiro.description":
-    "Agente de programación de Kiro para tu terminal, sucesor de Amazon Q Developer CLI.",
-  "agent.opencode.description": "Agente de programación de código abierto para tu terminal.",
-  "agent.aider.description": "Agente de programación para tu terminal.",
-  "agent.goose.description": "Agente de programación de código abierto para tu terminal.",
-  "agent.crush.description": "Agente de programación de Charmbracelet para tu terminal.",
-  "agent.pi.description": "Agente de programación de código abierto para tu terminal.",
-  "agent.omp.description": "Agente de programación de código abierto para tu terminal.",
-  "agent.forge.description": "Agente de programación para tu terminal.",
+    "Agente de programación de Moonshot AI para tu terminal. Código abierto (MIT).",
+  "agent.qwen.description":
+    "Agente de programación de Alibaba Cloud para tu terminal. Código abierto (Apache-2.0).",
+  "agent.kiro.description": "Agente de programación de Amazon para tu terminal.",
+  "agent.opencode.description":
+    "Agente de programación de Anomaly para tu terminal. Código abierto (MIT).",
+  "agent.aider.description":
+    "Agente de programación para tu terminal. Código abierto (Apache-2.0).",
+  "agent.goose.description":
+    "Agente de programación de la Agentic AI Foundation para tu terminal. Código abierto (Apache-2.0).",
+  "agent.crush.description": "Agente de programación de Charm para tu terminal.",
+  "agent.pi.description":
+    "Agente de programación de Earendil Works para tu terminal. Código abierto (MIT).",
+  "agent.omp.description":
+    "Agente de programación de Stencil Labs para tu terminal. Código abierto (MIT).",
+  "agent.forge.description":
+    "Agente de programación de Tailcall para tu terminal. Código abierto (Apache-2.0).",
   "agent.kode.description":
-    "Agente de programación de código abierto de shareAI-lab para tu terminal.",
-  "agent.codebuff.description": "Agente de programación para tu terminal.",
-  "agent.cline.description": "Agente de programación de Cline para tu terminal.",
+    "Agente de programación de ShareAI Lab para tu terminal. Código abierto (Apache-2.0).",
+  "agent.codebuff.description":
+    "Agente de programación de Freebuff para tu terminal. Código abierto (Apache-2.0).",
+  "agent.cline.description":
+    "Agente de programación para tu terminal. Código abierto (Apache-2.0).",
   "agent.vibe.description":
-    "Agente de programación de código abierto de Mistral AI para tu terminal.",
+    "Agente de programación de Mistral AI para tu terminal. Código abierto (Apache-2.0).",
   "agent.droid.description": "Agente de programación de Factory para tu terminal.",
   "agent.amp.description": "Agente de programación para tu terminal.",
 
@@ -10270,30 +10297,36 @@ const fr: Record<MessageKey, string> = {
   "notes.delete": "Supprimer la note",
   "agent.claude.description": "Agent de programmation conçu par Anthropic pour ton terminal.",
   "agent.codex.description":
-    "Agent de programmation open source conçu par OpenAI pour ton terminal.",
+    "Agent de programmation conçu par OpenAI pour ton terminal. Open source (Apache-2.0).",
   "agent.gemini.description":
-    "Agent de programmation open source conçu par Google pour ton terminal.",
+    "Agent de programmation conçu par Google pour ton terminal. Open source (Apache-2.0).",
   "agent.antigravity.description": "Agent de programmation conçu par Google pour ton terminal.",
   "agent.copilot.description": "Agent de programmation conçu par GitHub pour ton terminal.",
-  "agent.cursor.description": "Agent de programmation conçu par Cursor pour ton terminal.",
+  "agent.cursor.description": "Agent de programmation conçu par Anysphere pour ton terminal.",
   "agent.kimi.description":
-    "Agent de programmation open source conçu par Moonshot AI pour ton terminal.",
-  "agent.qwen.description": "Agent de programmation conçu par Qwen pour ton terminal.",
-  "agent.kiro.description":
-    "Agent de programmation conçu par Kiro pour ton terminal, successeur d'Amazon Q Developer CLI.",
-  "agent.opencode.description": "Agent de programmation open source pour ton terminal.",
-  "agent.aider.description": "Agent de programmation pour ton terminal.",
-  "agent.goose.description": "Agent de programmation open source pour ton terminal.",
-  "agent.crush.description": "Agent de programmation conçu par Charmbracelet pour ton terminal.",
-  "agent.pi.description": "Agent de programmation open source pour ton terminal.",
-  "agent.omp.description": "Agent de programmation open source pour ton terminal.",
-  "agent.forge.description": "Agent de programmation pour ton terminal.",
+    "Agent de programmation conçu par Moonshot AI pour ton terminal. Open source (MIT).",
+  "agent.qwen.description":
+    "Agent de programmation conçu par Alibaba Cloud pour ton terminal. Open source (Apache-2.0).",
+  "agent.kiro.description": "Agent de programmation conçu par Amazon pour ton terminal.",
+  "agent.opencode.description":
+    "Agent de programmation conçu par Anomaly pour ton terminal. Open source (MIT).",
+  "agent.aider.description": "Agent de programmation pour ton terminal. Open source (Apache-2.0).",
+  "agent.goose.description":
+    "Agent de programmation conçu par l'Agentic AI Foundation pour ton terminal. Open source (Apache-2.0).",
+  "agent.crush.description": "Agent de programmation conçu par Charm pour ton terminal.",
+  "agent.pi.description":
+    "Agent de programmation conçu par Earendil Works pour ton terminal. Open source (MIT).",
+  "agent.omp.description":
+    "Agent de programmation conçu par Stencil Labs pour ton terminal. Open source (MIT).",
+  "agent.forge.description":
+    "Agent de programmation conçu par Tailcall pour ton terminal. Open source (Apache-2.0).",
   "agent.kode.description":
-    "Agent de programmation open source conçu par shareAI-lab pour ton terminal.",
-  "agent.codebuff.description": "Agent de programmation pour ton terminal.",
-  "agent.cline.description": "Agent de programmation conçu par Cline pour ton terminal.",
+    "Agent de programmation conçu par ShareAI Lab pour ton terminal. Open source (Apache-2.0).",
+  "agent.codebuff.description":
+    "Agent de programmation conçu par Freebuff pour ton terminal. Open source (Apache-2.0).",
+  "agent.cline.description": "Agent de programmation pour ton terminal. Open source (Apache-2.0).",
   "agent.vibe.description":
-    "Agent de programmation open source conçu par Mistral AI pour ton terminal.",
+    "Agent de programmation conçu par Mistral AI pour ton terminal. Open source (Apache-2.0).",
   "agent.droid.description": "Agent de programmation conçu par Factory pour ton terminal.",
   "agent.amp.description": "Agent de programmation pour ton terminal.",
 
@@ -12620,30 +12653,39 @@ const it: Record<MessageKey, string> = {
   "update.sessionTitle": "Aggiornamento: {name}",
   "notes.delete": "Elimina nota",
   "agent.claude.description": "Agente di programmazione di Anthropic per il tuo terminale.",
-  "agent.codex.description": "Agente di programmazione open source di OpenAI per il tuo terminale.",
+  "agent.codex.description":
+    "Agente di programmazione di OpenAI per il tuo terminale. Open source (Apache-2.0).",
   "agent.gemini.description":
-    "Agente di programmazione open source di Google per il tuo terminale.",
+    "Agente di programmazione di Google per il tuo terminale. Open source (Apache-2.0).",
   "agent.antigravity.description": "Agente di programmazione di Google per il tuo terminale.",
   "agent.copilot.description": "Agente di programmazione di GitHub per il tuo terminale.",
-  "agent.cursor.description": "Agente di programmazione di Cursor per il tuo terminale.",
+  "agent.cursor.description": "Agente di programmazione di Anysphere per il tuo terminale.",
   "agent.kimi.description":
-    "Agente di programmazione open source di Moonshot AI per il tuo terminale.",
-  "agent.qwen.description": "Agente di programmazione di Qwen per il tuo terminale.",
-  "agent.kiro.description":
-    "Agente di programmazione di Kiro per il tuo terminale, successore di Amazon Q Developer CLI.",
-  "agent.opencode.description": "Agente di programmazione open source per il tuo terminale.",
-  "agent.aider.description": "Agente di programmazione per il tuo terminale.",
-  "agent.goose.description": "Agente di programmazione open source per il tuo terminale.",
-  "agent.crush.description": "Agente di programmazione di Charmbracelet per il tuo terminale.",
-  "agent.pi.description": "Agente di programmazione open source per il tuo terminale.",
-  "agent.omp.description": "Agente di programmazione open source per il tuo terminale.",
-  "agent.forge.description": "Agente di programmazione per il tuo terminale.",
+    "Agente di programmazione di Moonshot AI per il tuo terminale. Open source (MIT).",
+  "agent.qwen.description":
+    "Agente di programmazione di Alibaba Cloud per il tuo terminale. Open source (Apache-2.0).",
+  "agent.kiro.description": "Agente di programmazione di Amazon per il tuo terminale.",
+  "agent.opencode.description":
+    "Agente di programmazione di Anomaly per il tuo terminale. Open source (MIT).",
+  "agent.aider.description":
+    "Agente di programmazione per il tuo terminale. Open source (Apache-2.0).",
+  "agent.goose.description":
+    "Agente di programmazione dell'Agentic AI Foundation per il tuo terminale. Open source (Apache-2.0).",
+  "agent.crush.description": "Agente di programmazione di Charm per il tuo terminale.",
+  "agent.pi.description":
+    "Agente di programmazione di Earendil Works per il tuo terminale. Open source (MIT).",
+  "agent.omp.description":
+    "Agente di programmazione di Stencil Labs per il tuo terminale. Open source (MIT).",
+  "agent.forge.description":
+    "Agente di programmazione di Tailcall per il tuo terminale. Open source (Apache-2.0).",
   "agent.kode.description":
-    "Agente di programmazione open source di shareAI-lab per il tuo terminale.",
-  "agent.codebuff.description": "Agente di programmazione per il tuo terminale.",
-  "agent.cline.description": "Agente di programmazione di Cline per il tuo terminale.",
+    "Agente di programmazione di ShareAI Lab per il tuo terminale. Open source (Apache-2.0).",
+  "agent.codebuff.description":
+    "Agente di programmazione di Freebuff per il tuo terminale. Open source (Apache-2.0).",
+  "agent.cline.description":
+    "Agente di programmazione per il tuo terminale. Open source (Apache-2.0).",
   "agent.vibe.description":
-    "Agente di programmazione open source di Mistral AI per il tuo terminale.",
+    "Agente di programmazione di Mistral AI per il tuo terminale. Open source (Apache-2.0).",
   "agent.droid.description": "Agente di programmazione di Factory per il tuo terminale.",
   "agent.amp.description": "Agente di programmazione per il tuo terminale.",
 
@@ -14959,30 +15001,38 @@ const ja: Record<MessageKey, string> = {
   "notes.delete": "メモを削除",
   "agent.claude.description": "Anthropic が開発したターミナル向けコーディングエージェント。",
   "agent.codex.description":
-    "OpenAI が開発したオープンソースのターミナル向けコーディングエージェント。",
+    "OpenAI が開発したターミナル向けコーディングエージェント。オープンソース（Apache-2.0）。",
   "agent.gemini.description":
-    "Google が開発したオープンソースのターミナル向けコーディングエージェント。",
+    "Google が開発したターミナル向けコーディングエージェント。オープンソース（Apache-2.0）。",
   "agent.antigravity.description": "Google が開発したターミナル向けコーディングエージェント。",
   "agent.copilot.description": "GitHub が開発したターミナル向けコーディングエージェント。",
-  "agent.cursor.description": "Cursor が開発したターミナル向けコーディングエージェント。",
+  "agent.cursor.description": "Anysphere が開発したターミナル向けコーディングエージェント。",
   "agent.kimi.description":
-    "Moonshot AI が開発したオープンソースのターミナル向けコーディングエージェント。",
-  "agent.qwen.description": "Qwen が開発したターミナル向けコーディングエージェント。",
-  "agent.kiro.description":
-    "Kiro が開発したターミナル向けコーディングエージェント。Amazon Q Developer CLI の後継です。",
-  "agent.opencode.description": "オープンソースのターミナル向けコーディングエージェント。",
-  "agent.aider.description": "ターミナル向けコーディングエージェント。",
-  "agent.goose.description": "オープンソースのターミナル向けコーディングエージェント。",
-  "agent.crush.description": "Charmbracelet が開発したターミナル向けコーディングエージェント。",
-  "agent.pi.description": "オープンソースのターミナル向けコーディングエージェント。",
-  "agent.omp.description": "オープンソースのターミナル向けコーディングエージェント。",
-  "agent.forge.description": "ターミナル向けコーディングエージェント。",
+    "Moonshot AI が開発したターミナル向けコーディングエージェント。オープンソース（MIT）。",
+  "agent.qwen.description":
+    "Alibaba Cloud が開発したターミナル向けコーディングエージェント。オープンソース（Apache-2.0）。",
+  "agent.kiro.description": "Amazon が開発したターミナル向けコーディングエージェント。",
+  "agent.opencode.description":
+    "Anomaly が開発したターミナル向けコーディングエージェント。オープンソース（MIT）。",
+  "agent.aider.description":
+    "ターミナル向けコーディングエージェント。オープンソース（Apache-2.0）。",
+  "agent.goose.description":
+    "Agentic AI Foundation が開発したターミナル向けコーディングエージェント。オープンソース（Apache-2.0）。",
+  "agent.crush.description": "Charm が開発したターミナル向けコーディングエージェント。",
+  "agent.pi.description":
+    "Earendil Works が開発したターミナル向けコーディングエージェント。オープンソース（MIT）。",
+  "agent.omp.description":
+    "Stencil Labs が開発したターミナル向けコーディングエージェント。オープンソース（MIT）。",
+  "agent.forge.description":
+    "Tailcall が開発したターミナル向けコーディングエージェント。オープンソース（Apache-2.0）。",
   "agent.kode.description":
-    "shareAI-lab が開発したオープンソースのターミナル向けコーディングエージェント。",
-  "agent.codebuff.description": "ターミナル向けコーディングエージェント。",
-  "agent.cline.description": "Cline が開発したターミナル向けコーディングエージェント。",
+    "ShareAI Lab が開発したターミナル向けコーディングエージェント。オープンソース（Apache-2.0）。",
+  "agent.codebuff.description":
+    "Freebuff が開発したターミナル向けコーディングエージェント。オープンソース（Apache-2.0）。",
+  "agent.cline.description":
+    "ターミナル向けコーディングエージェント。オープンソース（Apache-2.0）。",
   "agent.vibe.description":
-    "Mistral AI が開発したオープンソースのターミナル向けコーディングエージェント。",
+    "Mistral AI が開発したターミナル向けコーディングエージェント。オープンソース（Apache-2.0）。",
   "agent.droid.description": "Factory が開発したターミナル向けコーディングエージェント。",
   "agent.amp.description": "ターミナル向けコーディングエージェント。",
 
@@ -17281,28 +17331,39 @@ const pl: Record<MessageKey, string> = {
   "update.sessionTitle": "Aktualizacja: {name}",
   "notes.delete": "Usuń notatkę",
   "agent.claude.description": "Agent programistyczny od Anthropic do twojego terminala.",
-  "agent.codex.description": "Agent programistyczny open source od OpenAI do twojego terminala.",
-  "agent.gemini.description": "Agent programistyczny open source od Google do twojego terminala.",
+  "agent.codex.description":
+    "Agent programistyczny od OpenAI do twojego terminala. Open source (Apache-2.0).",
+  "agent.gemini.description":
+    "Agent programistyczny od Google do twojego terminala. Open source (Apache-2.0).",
   "agent.antigravity.description": "Agent programistyczny od Google do twojego terminala.",
   "agent.copilot.description": "Agent programistyczny od GitHub do twojego terminala.",
-  "agent.cursor.description": "Agent programistyczny od Cursor do twojego terminala.",
+  "agent.cursor.description": "Agent programistyczny od Anysphere do twojego terminala.",
   "agent.kimi.description":
-    "Agent programistyczny open source od Moonshot AI do twojego terminala.",
-  "agent.qwen.description": "Agent programistyczny od Qwen do twojego terminala.",
-  "agent.kiro.description":
-    "Agent programistyczny od Kiro do twojego terminala, następca Amazon Q Developer CLI.",
-  "agent.opencode.description": "Agent programistyczny open source do twojego terminala.",
-  "agent.aider.description": "Agent programistyczny do twojego terminala.",
-  "agent.goose.description": "Agent programistyczny open source do twojego terminala.",
-  "agent.crush.description": "Agent programistyczny od Charmbracelet do twojego terminala.",
-  "agent.pi.description": "Agent programistyczny open source do twojego terminala.",
-  "agent.omp.description": "Agent programistyczny open source do twojego terminala.",
-  "agent.forge.description": "Agent programistyczny do twojego terminala.",
+    "Agent programistyczny od Moonshot AI do twojego terminala. Open source (MIT).",
+  "agent.qwen.description":
+    "Agent programistyczny od Alibaba Cloud do twojego terminala. Open source (Apache-2.0).",
+  "agent.kiro.description": "Agent programistyczny od Amazon do twojego terminala.",
+  "agent.opencode.description":
+    "Agent programistyczny od Anomaly do twojego terminala. Open source (MIT).",
+  "agent.aider.description":
+    "Agent programistyczny do twojego terminala. Open source (Apache-2.0).",
+  "agent.goose.description":
+    "Agent programistyczny od Agentic AI Foundation do twojego terminala. Open source (Apache-2.0).",
+  "agent.crush.description": "Agent programistyczny od Charm do twojego terminala.",
+  "agent.pi.description":
+    "Agent programistyczny od Earendil Works do twojego terminala. Open source (MIT).",
+  "agent.omp.description":
+    "Agent programistyczny od Stencil Labs do twojego terminala. Open source (MIT).",
+  "agent.forge.description":
+    "Agent programistyczny od Tailcall do twojego terminala. Open source (Apache-2.0).",
   "agent.kode.description":
-    "Agent programistyczny open source od shareAI-lab do twojego terminala.",
-  "agent.codebuff.description": "Agent programistyczny do twojego terminala.",
-  "agent.cline.description": "Agent programistyczny od Cline do twojego terminala.",
-  "agent.vibe.description": "Agent programistyczny open source od Mistral AI do twojego terminala.",
+    "Agent programistyczny od ShareAI Lab do twojego terminala. Open source (Apache-2.0).",
+  "agent.codebuff.description":
+    "Agent programistyczny od Freebuff do twojego terminala. Open source (Apache-2.0).",
+  "agent.cline.description":
+    "Agent programistyczny do twojego terminala. Open source (Apache-2.0).",
+  "agent.vibe.description":
+    "Agent programistyczny od Mistral AI do twojego terminala. Open source (Apache-2.0).",
   "agent.droid.description": "Agent programistyczny od Factory do twojego terminala.",
   "agent.amp.description": "Agent programistyczny do twojego terminala.",
 
@@ -19596,30 +19657,38 @@ const pt: Record<MessageKey, string> = {
   "notes.delete": "Excluir nota",
   "agent.claude.description": "Agente de programação criado por Anthropic para o seu terminal.",
   "agent.codex.description":
-    "Agente de programação de código aberto criado por OpenAI para o seu terminal.",
+    "Agente de programação criado por OpenAI para o seu terminal. Código aberto (Apache-2.0).",
   "agent.gemini.description":
-    "Agente de programação de código aberto criado por Google para o seu terminal.",
+    "Agente de programação criado por Google para o seu terminal. Código aberto (Apache-2.0).",
   "agent.antigravity.description": "Agente de programação criado por Google para o seu terminal.",
   "agent.copilot.description": "Agente de programação criado por GitHub para o seu terminal.",
-  "agent.cursor.description": "Agente de programação criado por Cursor para o seu terminal.",
+  "agent.cursor.description": "Agente de programação criado por Anysphere para o seu terminal.",
   "agent.kimi.description":
-    "Agente de programação de código aberto criado por Moonshot AI para o seu terminal.",
-  "agent.qwen.description": "Agente de programação criado por Qwen para o seu terminal.",
-  "agent.kiro.description":
-    "Agente de programação criado por Kiro para o seu terminal, sucessor do Amazon Q Developer CLI.",
-  "agent.opencode.description": "Agente de programação de código aberto para o seu terminal.",
-  "agent.aider.description": "Agente de programação para o seu terminal.",
-  "agent.goose.description": "Agente de programação de código aberto para o seu terminal.",
-  "agent.crush.description": "Agente de programação criado por Charmbracelet para o seu terminal.",
-  "agent.pi.description": "Agente de programação de código aberto para o seu terminal.",
-  "agent.omp.description": "Agente de programação de código aberto para o seu terminal.",
-  "agent.forge.description": "Agente de programação para o seu terminal.",
+    "Agente de programação criado por Moonshot AI para o seu terminal. Código aberto (MIT).",
+  "agent.qwen.description":
+    "Agente de programação criado por Alibaba Cloud para o seu terminal. Código aberto (Apache-2.0).",
+  "agent.kiro.description": "Agente de programação criado por Amazon para o seu terminal.",
+  "agent.opencode.description":
+    "Agente de programação criado por Anomaly para o seu terminal. Código aberto (MIT).",
+  "agent.aider.description":
+    "Agente de programação para o seu terminal. Código aberto (Apache-2.0).",
+  "agent.goose.description":
+    "Agente de programação criado pela Agentic AI Foundation para o seu terminal. Código aberto (Apache-2.0).",
+  "agent.crush.description": "Agente de programação criado por Charm para o seu terminal.",
+  "agent.pi.description":
+    "Agente de programação criado por Earendil Works para o seu terminal. Código aberto (MIT).",
+  "agent.omp.description":
+    "Agente de programação criado por Stencil Labs para o seu terminal. Código aberto (MIT).",
+  "agent.forge.description":
+    "Agente de programação criado por Tailcall para o seu terminal. Código aberto (Apache-2.0).",
   "agent.kode.description":
-    "Agente de programação de código aberto criado por shareAI-lab para o seu terminal.",
-  "agent.codebuff.description": "Agente de programação para o seu terminal.",
-  "agent.cline.description": "Agente de programação criado por Cline para o seu terminal.",
+    "Agente de programação criado por ShareAI Lab para o seu terminal. Código aberto (Apache-2.0).",
+  "agent.codebuff.description":
+    "Agente de programação criado por Freebuff para o seu terminal. Código aberto (Apache-2.0).",
+  "agent.cline.description":
+    "Agente de programação para o seu terminal. Código aberto (Apache-2.0).",
   "agent.vibe.description":
-    "Agente de programação de código aberto criado por Mistral AI para o seu terminal.",
+    "Agente de programação criado por Mistral AI para o seu terminal. Código aberto (Apache-2.0).",
   "agent.droid.description": "Agente de programação criado por Factory para o seu terminal.",
   "agent.amp.description": "Agente de programação para o seu terminal.",
 
@@ -21911,30 +21980,38 @@ const ru: Record<MessageKey, string> = {
   "notes.delete": "Удалить заметку",
   "agent.claude.description": "Агент программирования от Anthropic для твоего терминала.",
   "agent.codex.description":
-    "Агент программирования с открытым кодом от OpenAI для твоего терминала.",
+    "Агент программирования от OpenAI для твоего терминала. Открытый код (Apache-2.0).",
   "agent.gemini.description":
-    "Агент программирования с открытым кодом от Google для твоего терминала.",
+    "Агент программирования от Google для твоего терминала. Открытый код (Apache-2.0).",
   "agent.antigravity.description": "Агент программирования от Google для твоего терминала.",
   "agent.copilot.description": "Агент программирования от GitHub для твоего терминала.",
-  "agent.cursor.description": "Агент программирования от Cursor для твоего терминала.",
+  "agent.cursor.description": "Агент программирования от Anysphere для твоего терминала.",
   "agent.kimi.description":
-    "Агент программирования с открытым кодом от Moonshot AI для твоего терминала.",
-  "agent.qwen.description": "Агент программирования от Qwen для твоего терминала.",
-  "agent.kiro.description":
-    "Агент программирования от Kiro для твоего терминала, преемник Amazon Q Developer CLI.",
-  "agent.opencode.description": "Агент программирования с открытым кодом для твоего терминала.",
-  "agent.aider.description": "Агент программирования для твоего терминала.",
-  "agent.goose.description": "Агент программирования с открытым кодом для твоего терминала.",
-  "agent.crush.description": "Агент программирования от Charmbracelet для твоего терминала.",
-  "agent.pi.description": "Агент программирования с открытым кодом для твоего терминала.",
-  "agent.omp.description": "Агент программирования с открытым кодом для твоего терминала.",
-  "agent.forge.description": "Агент программирования для твоего терминала.",
+    "Агент программирования от Moonshot AI для твоего терминала. Открытый код (MIT).",
+  "agent.qwen.description":
+    "Агент программирования от Alibaba Cloud для твоего терминала. Открытый код (Apache-2.0).",
+  "agent.kiro.description": "Агент программирования от Amazon для твоего терминала.",
+  "agent.opencode.description":
+    "Агент программирования от Anomaly для твоего терминала. Открытый код (MIT).",
+  "agent.aider.description":
+    "Агент программирования для твоего терминала. Открытый код (Apache-2.0).",
+  "agent.goose.description":
+    "Агент программирования от Agentic AI Foundation для твоего терминала. Открытый код (Apache-2.0).",
+  "agent.crush.description": "Агент программирования от Charm для твоего терминала.",
+  "agent.pi.description":
+    "Агент программирования от Earendil Works для твоего терминала. Открытый код (MIT).",
+  "agent.omp.description":
+    "Агент программирования от Stencil Labs для твоего терминала. Открытый код (MIT).",
+  "agent.forge.description":
+    "Агент программирования от Tailcall для твоего терминала. Открытый код (Apache-2.0).",
   "agent.kode.description":
-    "Агент программирования с открытым кодом от shareAI-lab для твоего терминала.",
-  "agent.codebuff.description": "Агент программирования для твоего терминала.",
-  "agent.cline.description": "Агент программирования от Cline для твоего терминала.",
+    "Агент программирования от ShareAI Lab для твоего терминала. Открытый код (Apache-2.0).",
+  "agent.codebuff.description":
+    "Агент программирования от Freebuff для твоего терминала. Открытый код (Apache-2.0).",
+  "agent.cline.description":
+    "Агент программирования для твоего терминала. Открытый код (Apache-2.0).",
   "agent.vibe.description":
-    "Агент программирования с открытым кодом от Mistral AI для твоего терминала.",
+    "Агент программирования от Mistral AI для твоего терминала. Открытый код (Apache-2.0).",
   "agent.droid.description": "Агент программирования от Factory для твоего терминала.",
   "agent.amp.description": "Агент программирования для твоего терминала.",
 
@@ -24212,31 +24289,36 @@ const tr: Record<MessageKey, string> = {
   "notes.delete": "Notu sil",
   "agent.claude.description": "Anthropic tarafından geliştirilen, terminalin için kodlama ajanı.",
   "agent.codex.description":
-    "OpenAI tarafından geliştirilen, terminalin için açık kaynaklı kodlama ajanı.",
+    "OpenAI tarafından geliştirilen, terminalin için kodlama ajanı. Açık kaynak (Apache-2.0).",
   "agent.gemini.description":
-    "Google tarafından geliştirilen, terminalin için açık kaynaklı kodlama ajanı.",
+    "Google tarafından geliştirilen, terminalin için kodlama ajanı. Açık kaynak (Apache-2.0).",
   "agent.antigravity.description": "Google tarafından geliştirilen, terminalin için kodlama ajanı.",
   "agent.copilot.description": "GitHub tarafından geliştirilen, terminalin için kodlama ajanı.",
-  "agent.cursor.description": "Cursor tarafından geliştirilen, terminalin için kodlama ajanı.",
+  "agent.cursor.description": "Anysphere tarafından geliştirilen, terminalin için kodlama ajanı.",
   "agent.kimi.description":
-    "Moonshot AI tarafından geliştirilen, terminalin için açık kaynaklı kodlama ajanı.",
-  "agent.qwen.description": "Qwen tarafından geliştirilen, terminalin için kodlama ajanı.",
-  "agent.kiro.description":
-    "Kiro tarafından geliştirilen, terminalin için kodlama ajanı; Amazon Q Developer CLI'ın halefi.",
-  "agent.opencode.description": "Terminalin için açık kaynaklı kodlama ajanı.",
-  "agent.aider.description": "Terminalin için kodlama ajanı.",
-  "agent.goose.description": "Terminalin için açık kaynaklı kodlama ajanı.",
-  "agent.crush.description":
-    "Charmbracelet tarafından geliştirilen, terminalin için kodlama ajanı.",
-  "agent.pi.description": "Terminalin için açık kaynaklı kodlama ajanı.",
-  "agent.omp.description": "Terminalin için açık kaynaklı kodlama ajanı.",
-  "agent.forge.description": "Terminalin için kodlama ajanı.",
+    "Moonshot AI tarafından geliştirilen, terminalin için kodlama ajanı. Açık kaynak (MIT).",
+  "agent.qwen.description":
+    "Alibaba Cloud tarafından geliştirilen, terminalin için kodlama ajanı. Açık kaynak (Apache-2.0).",
+  "agent.kiro.description": "Amazon tarafından geliştirilen, terminalin için kodlama ajanı.",
+  "agent.opencode.description":
+    "Anomaly tarafından geliştirilen, terminalin için kodlama ajanı. Açık kaynak (MIT).",
+  "agent.aider.description": "Terminalin için kodlama ajanı. Açık kaynak (Apache-2.0).",
+  "agent.goose.description":
+    "Agentic AI Foundation tarafından geliştirilen, terminalin için kodlama ajanı. Açık kaynak (Apache-2.0).",
+  "agent.crush.description": "Charm tarafından geliştirilen, terminalin için kodlama ajanı.",
+  "agent.pi.description":
+    "Earendil Works tarafından geliştirilen, terminalin için kodlama ajanı. Açık kaynak (MIT).",
+  "agent.omp.description":
+    "Stencil Labs tarafından geliştirilen, terminalin için kodlama ajanı. Açık kaynak (MIT).",
+  "agent.forge.description":
+    "Tailcall tarafından geliştirilen, terminalin için kodlama ajanı. Açık kaynak (Apache-2.0).",
   "agent.kode.description":
-    "shareAI-lab tarafından geliştirilen, terminalin için açık kaynaklı kodlama ajanı.",
-  "agent.codebuff.description": "Terminalin için kodlama ajanı.",
-  "agent.cline.description": "Cline tarafından geliştirilen, terminalin için kodlama ajanı.",
+    "ShareAI Lab tarafından geliştirilen, terminalin için kodlama ajanı. Açık kaynak (Apache-2.0).",
+  "agent.codebuff.description":
+    "Freebuff tarafından geliştirilen, terminalin için kodlama ajanı. Açık kaynak (Apache-2.0).",
+  "agent.cline.description": "Terminalin için kodlama ajanı. Açık kaynak (Apache-2.0).",
   "agent.vibe.description":
-    "Mistral AI tarafından geliştirilen, terminalin için açık kaynaklı kodlama ajanı.",
+    "Mistral AI tarafından geliştirilen, terminalin için kodlama ajanı. Açık kaynak (Apache-2.0).",
   "agent.droid.description": "Factory tarafından geliştirilen, terminalin için kodlama ajanı.",
   "agent.amp.description": "Terminalin için kodlama ajanı.",
 
@@ -26468,25 +26550,25 @@ const zh: Record<MessageKey, string> = {
   "update.sessionTitle": "更新：{name}",
   "notes.delete": "删除笔记",
   "agent.claude.description": "由 Anthropic 开发的终端编程智能体。",
-  "agent.codex.description": "由 OpenAI 开发的开源终端编程智能体。",
-  "agent.gemini.description": "由 Google 开发的开源终端编程智能体。",
+  "agent.codex.description": "由 OpenAI 开发的终端编程智能体。开源（Apache-2.0）。",
+  "agent.gemini.description": "由 Google 开发的终端编程智能体。开源（Apache-2.0）。",
   "agent.antigravity.description": "由 Google 开发的终端编程智能体。",
   "agent.copilot.description": "由 GitHub 开发的终端编程智能体。",
-  "agent.cursor.description": "由 Cursor 开发的终端编程智能体。",
-  "agent.kimi.description": "由 Moonshot AI 开发的开源终端编程智能体。",
-  "agent.qwen.description": "由 Qwen 开发的终端编程智能体。",
-  "agent.kiro.description": "由 Kiro 开发的终端编程智能体，Amazon Q Developer CLI 的继任者。",
-  "agent.opencode.description": "开源终端编程智能体。",
-  "agent.aider.description": "终端编程智能体。",
-  "agent.goose.description": "开源终端编程智能体。",
-  "agent.crush.description": "由 Charmbracelet 开发的终端编程智能体。",
-  "agent.pi.description": "开源终端编程智能体。",
-  "agent.omp.description": "开源终端编程智能体。",
-  "agent.forge.description": "终端编程智能体。",
-  "agent.kode.description": "由 shareAI-lab 开发的开源终端编程智能体。",
-  "agent.codebuff.description": "终端编程智能体。",
-  "agent.cline.description": "由 Cline 开发的终端编程智能体。",
-  "agent.vibe.description": "由 Mistral AI 开发的开源终端编程智能体。",
+  "agent.cursor.description": "由 Anysphere 开发的终端编程智能体。",
+  "agent.kimi.description": "由 Moonshot AI 开发的终端编程智能体。开源（MIT）。",
+  "agent.qwen.description": "由 Alibaba Cloud 开发的终端编程智能体。开源（Apache-2.0）。",
+  "agent.kiro.description": "由 Amazon 开发的终端编程智能体。",
+  "agent.opencode.description": "由 Anomaly 开发的终端编程智能体。开源（MIT）。",
+  "agent.aider.description": "终端编程智能体。开源（Apache-2.0）。",
+  "agent.goose.description": "由 Agentic AI Foundation 开发的终端编程智能体。开源（Apache-2.0）。",
+  "agent.crush.description": "由 Charm 开发的终端编程智能体。",
+  "agent.pi.description": "由 Earendil Works 开发的终端编程智能体。开源（MIT）。",
+  "agent.omp.description": "由 Stencil Labs 开发的终端编程智能体。开源（MIT）。",
+  "agent.forge.description": "由 Tailcall 开发的终端编程智能体。开源（Apache-2.0）。",
+  "agent.kode.description": "由 ShareAI Lab 开发的终端编程智能体。开源（Apache-2.0）。",
+  "agent.codebuff.description": "由 Freebuff 开发的终端编程智能体。开源（Apache-2.0）。",
+  "agent.cline.description": "终端编程智能体。开源（Apache-2.0）。",
+  "agent.vibe.description": "由 Mistral AI 开发的终端编程智能体。开源（Apache-2.0）。",
   "agent.droid.description": "由 Factory 开发的终端编程智能体。",
   "agent.amp.description": "终端编程智能体。",
 

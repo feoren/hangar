@@ -36,7 +36,7 @@ Catalog of all wiki pages. Updated on every ingest.
 - [[gpu-readings]]: GPU load and memory per platform: Windows PDH, Linux DRM fdinfo per session process plus amdgpu sysfs and `nvidia-smi` per machine, macOS `ioreg` IOAccelerator statistics per machine only; rows keep a GPU column only with per-session figures (sources: 2, updated: 2026-11-20)
 
 ## Agent CLIs
-- [[catalog]]: built-in agent catalog: inclusion rules, name collision risks, verified agent commands per program, bundled icons and their precedence, unverified points (sources: 3, updated: 2026-11-14)
+- [[catalog]]: built-in agent catalog: inclusion rules, name collision risks, verified agent commands per program, bundled icons and their precedence, the one pattern for agent descriptions, unverified points (sources: 4, updated: 2026-11-22)
 - [[resume]]: resume_args per agent with evidence, behavior without a previous conversation, limits of --continue (sources: 2, updated: 2026-11-07)
 - [[agent-prompt-shapes]]: what questions and permission dialogs of Claude Code, Codex and Gemini look like on screen, which patterns the queue's question guard checks with their evidence, no bell from Claude Code's permission prompt in Hangar by default (sources: 1, updated: 2026-11-14)
 - [[updates]]: latest and update_hint per agent with evidence, update_hint is executed, OpenCode packages and npm_variants, comparison rules (sources: 2, updated: 2026-11-21)
@@ -108,6 +108,7 @@ Catalog of all wiki pages. Updated on every ingest.
 - [[update-sources]]: research and measurement: npm, PyPI and GitHub endpoints per agent, OpenCode packages (updated: 2026-11-07)
 - [[github-conditional-requests]]: GitHub REST docs and measurement: ETag and If-None-Match, 304 counts unauthenticated, rate limit headers and waits (updated: 2026-11-12)
 - [[agent-icons]]: Simple Icons 16.37.0 licenses per icon (CC0, Copilot MIT), brand guidelines, vendor site colors, which agent programs carry an exe icon on Windows (updated: 2026-11-12)
+- [[agent-vendors-licenses]]: research: vendor and license of all 22 catalog agents from LICENSE files, npm metadata and vendor terms (14 open source, Crush FSL-1.1-MIT, Amp now Amp Frontier, Goose at the Agentic AI Foundation, Kimi Code CLI in `kimi-code`), the description pattern and its tests (sources: 0, updated: 2026-11-22)
 - [[app-execution-alias]]: Store app execution aliases: AppExecLink reparse data after libuv, what std and Get-AuthenticodeSignature do on the empty alias file, start in ConPTY (updated: 2026-11-12)
 - [[resume-measurement]]: measurement: claude, codex, opencode, pi, aider with resume_args in an empty folder (updated: 2026-11-07)
 - [[version-number-wikipedia]]: Wikipedia: major, minor, revision and build number (updated: 2026-11-07)

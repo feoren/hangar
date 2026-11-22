@@ -1482,3 +1482,10 @@ model does not list stops the spawn; no model takes `minimal`, every listed one 
 Hangar now offers `low` to `max` and drops a stored `minimal`. New:
 [[codex-subagent-model-measurement]]. Updated: [[sub-agent-library]], [[sub-agent-models-research]],
 index.
+
+## [2026-11-22] ingest | Agent vendors and licenses
+Vendor and license of all 22 catalog agents from their LICENSE files, npm metadata and vendor
+terms; the agent descriptions in all 12 languages now follow one pattern (vendor, then "open
+source (license)" only where proven), checked by `src/i18n.test.ts`. The Kimi catalog homepage
+points to the current `kimi-code` repository. New: [[agent-vendors-licenses]]. Updated:
+[[catalog]], index.

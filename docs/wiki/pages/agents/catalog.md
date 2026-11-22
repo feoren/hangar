@@ -2,9 +2,9 @@
 title: Agent catalog
 type: agent
 tags: [agents, catalog, installation]
-sources: ["[[agent-clis-research]]", "[[agent-icons]]", "[[agent-commands-measurement]]"]
+sources: ["[[agent-clis-research]]", "[[agent-icons]]", "[[agent-commands-measurement]]", "[[agent-vendors-licenses]]"]
 created: 2026-11-07
-updated: 2026-11-14
+updated: 2026-11-22
 ---
 
 # Agent catalog
@@ -41,6 +41,12 @@ its docs ([[agent-commands-measurement]]):
 - Gemini CLI (docs only, not installed): `/compress`, `/stats`, `/model`, `/clear` (asks first).
 
 All other catalog agents have none until a measurement; a test requires that.
+
+## Descriptions
+Every catalog entry has a one-line description in all 12 languages (`agent.<id>.description` in
+`src/i18n.ts`, shown under "Available" in Settings > Programs). One pattern for all: what it is, the
+vendor, and "open source (license)" only where the LICENSE file proves it. Vendors, licenses and
+the pattern with its tests: [[agent-vendors-licenses]].
 
 ## Icons
 Every catalog entry has a bundled icon, `src/assets/agent-icons/<id>.svg`: a rounded 24 × 24 tile
