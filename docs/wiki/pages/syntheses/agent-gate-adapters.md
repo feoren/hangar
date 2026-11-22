@@ -2,9 +2,9 @@
 title: "Agent gate adapters: Codex, Gemini, Copilot, Qwen, Pi, Oh My Pi, OpenCode and Droid"
 type: synthesis
 tags: [gate, hooks, team, codex, gemini, copilot, qwen, pi, omp, opencode, droid, catalog, helper]
-sources: ["[[agent-hooks-per-session-research]]", "[[agent-hooks-remaining-agents-research]]", "[[gate-hook-helper-measurement]]", "[[codex-gate-live-measurement]]", "[[opencode-gate-live-measurement]]", "[[pi-gate-live-measurement]]", "[[claude-http-hook-measurement]]"]
+sources: ["[[agent-hooks-per-session-research]]", "[[agent-hooks-remaining-agents-research]]", "[[gate-hook-helper-measurement]]", "[[codex-gate-live-measurement]]", "[[opencode-gate-live-measurement]]", "[[pi-gate-live-measurement]]", "[[copilot-gate-live-measurement]]", "[[opencode2-and-gemini-gate-findings]]", "[[claude-http-hook-measurement]]"]
 created: 2026-11-12
-updated: 2026-11-14
+updated: 2026-11-22
 ---
 
 # Agent gate adapters: Codex, Gemini, Copilot, Qwen, Pi, Oh My Pi, OpenCode and Droid
@@ -19,11 +19,15 @@ in-process extension and plugin), `gate_service.rs` (install, folders, cleanup),
 
 > [!note] What is offered
 > Team-capable besides Claude Code: **Codex CLI** from 0.167.2 ([[codex-gate-live-measurement]]),
-> **OpenCode** from 1.19.5 ([[opencode-gate-live-measurement]]) and **Pi** from 1.5.2
+> **Copilot CLI** from 1.0.114 ([[copilot-gate-live-measurement]]), **OpenCode** 1.x from 1.19.5
+> ([[opencode-gate-live-measurement]]; 2.x is a rewrite the plugin does not reach,
+> `broken_from = "2.0.0"`, [[opencode2-and-gemini-gate-findings]]) and **Pi** from 1.5.2
 > ([[pi-gate-live-measurement]]; live Pi process with a scripted model, as both stored sign-ins
-> had expired). Gemini CLI, Copilot CLI, Qwen Code, Oh My Pi and Droid have their recipe built and
-> tested, but `measured = false` keeps them off until each one is run live once (owner's
-> decision: measure first; Oh My Pi and Droid are not installed on the measuring machine).
+> had expired). Qwen Code, Oh My Pi and Droid have their recipe built and tested, but
+> `measured = false` keeps them off until each one is run live once (owner's decision: measure
+> first; they are not installed on the measuring machine). Gemini CLI's recipe cannot work from
+> 0.70.0: the system settings file must be owned by an administrator
+> ([[opencode2-and-gemini-gate-findings]]).
 
 ## Shape
 
@@ -236,8 +240,10 @@ could not be written). The window shows both like the other states; `profileSett
 | Helper reads stdin, answers on stdout, exit codes; round trip through cmd.exe, PowerShell and a direct start against a real endpoint | measured, `tests/gate_hook.rs` (debug build) and [[gate-hook-helper-measurement]] (GUI-subsystem probe) |
 | Codex accepts and registers the `-c` value, also through `codex.cmd` | measured with 0.167.2 |
 | Codex runs the hook on a live `apply_patch`; `HANGAR_GATE` in the hook environment; real patch text (LF, paths relative to `cwd`); a JSON deny with exit 0 stops the write, exit 2 does not | measured with 0.167.2 through `codex.cmd`, [[codex-gate-live-measurement]] (probe as hook command; the helper itself in `tests/gate_hook.rs`) |
-| Gemini CLI: settings file honoured with user hooks, `file_path` absolute or relative, trust env persists nothing, minimum release | not measured (not installed) |
-| Copilot CLI: plugin hooks without a folder trust prompt, `exec` in a plugin, real `toolArgs` of `edit`, `create`, `apply_patch`, first release with `exec` | not measured (not installed) |
+| Gemini CLI: system settings file from `GEMINI_CLI_SYSTEM_SETTINGS_PATH` | skipped by 0.70.0 unless an administrator owns the file and its folders, [[opencode2-and-gemini-gate-findings]]; recipe unusable |
+| Copilot CLI: plugin loads from `--plugin-dir` headless and interactive (only the usual folder trust dialog), `exec` without a shell, `HANGAR_GATE` arrives, `apply_patch` with the patch string in `toolArgs`, deny (exit 2) stops the write, an empty answer lets add and update through | measured with 1.0.114, [[copilot-gate-live-measurement]] |
+| Copilot CLI: `edit` and `create` tool input shapes, first release with `exec` | not measured (the model used `apply_patch` only) |
+| OpenCode 2.x: plugin named in `OPENCODE_CONFIG_CONTENT` | not called by 2.3.2, a denied write went through, [[opencode2-and-gemini-gate-findings]] |
 | Qwen Code: HTTP hook from the system settings file, `{}` read as no decision, first release with HTTP hooks | not measured (not installed) |
 | OpenCode: plugin loads from `OPENCODE_CONFIG_DIR/plugins` (with an npm install there) | measured with 1.19.5, three live turns, [[opencode-gate-live-measurement]]; no longer used |
 | OpenCode: plugin loads from an `OPENCODE_CONFIG_CONTENT` `file://` URL without any install, `HANGAR_GATE` and the token arrive, `write` (`filePath`) is held before it runs, a thrown deny stops it, an empty answer lets it run, the user's own plugins in `~/.config/opencode/plugins` still load | measured with 1.19.5, two live turns, [[opencode-gate-live-measurement]] |

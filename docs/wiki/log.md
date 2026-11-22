@@ -1422,3 +1422,10 @@ right before a request, font size and shared projects go out in steps, only a fa
 429 and 503 are tried again, the windows may count only their own features, and the state is
 written on change once a minute instead of on every count.
 Pages changed: [[0019-anonymous-usage-statistics]].
+
+## [2026-11-22] ingest | Copilot CLI, OpenCode 2.x and Gemini CLI against the gate recipes
+Live runs of Hangar's gate recipes on Windows 11: Copilot CLI 1.0.114 holds edits headless and
+interactive and is now team-capable; OpenCode 2.3.2 never calls the 1.x plugin, so the catalog
+gains `broken_from = "2.0.0"`; Gemini CLI 0.70.0 skips a system settings file a normal user owns.
+New: [[copilot-gate-live-measurement]], [[opencode2-and-gemini-gate-findings]]. Updated:
+[[agent-gate-adapters]], index.
