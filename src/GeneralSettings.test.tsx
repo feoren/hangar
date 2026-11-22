@@ -10,6 +10,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { GeneralSettings } from "./GeneralSettings";
 import { createTranslator, I18nContext } from "./i18n";
 import { defaultSettings, type Settings } from "./settings";
+import type { UsageConsent } from "./usageStats";
 
 // A machine on battery, so the power saving switch shows as well.
 vi.mock("./usePower", () => ({ usePowerState: () => "battery" }));
@@ -33,10 +34,17 @@ afterEach(() => {
   host.remove();
 });
 
+interface Usage {
+  consent?: UsageConsent | undefined;
+  onConsent?: (enabled: boolean) => void;
+  onOpenInfo?: () => void;
+}
+
 function render(
   changes: Partial<Settings> = {},
   onChange: (patch: Partial<Settings>) => void = () => undefined,
   onClearScrollbacks: () => Promise<void> = () => Promise.resolve(),
+  usage: Usage = {},
 ) {
   act(() => {
     root.render(
@@ -45,6 +53,9 @@ function render(
           settings={{ ...defaultSettings("en"), ...changes }}
           onChange={onChange}
           onClearScrollbacks={onClearScrollbacks}
+          usageConsent={"consent" in usage ? usage.consent : null}
+          onUsageConsent={usage.onConsent ?? (() => undefined)}
+          onOpenUsageInfo={usage.onOpenInfo ?? (() => undefined)}
         />
       </I18nContext.Provider>,
     );
@@ -65,9 +76,13 @@ function groupTitles(): string[] {
 }
 
 describe("GeneralSettings", () => {
-  it("groups the settings under 'When closing' and 'Performance and costs'", () => {
+  it("groups the settings under 'When closing', 'Performance and costs' and 'Privacy'", () => {
     render();
-    expect(groupTitles()).toEqual([t("settings.groupOnClose"), t("settings.groupPerformance")]);
+    expect(groupTitles()).toEqual([
+      t("settings.groupOnClose"),
+      t("settings.groupPerformance"),
+      t("settings.groupPrivacy"),
+    ]);
     expect(host.querySelector("#settings-language")).not.toBeNull();
   });
 
@@ -163,6 +178,47 @@ describe("GeneralSettings", () => {
     expect(switchFor(t("morning.setting"))?.checked).toBe(true);
     render({ morningReview: false });
     expect(switchFor(t("morning.setting"))?.checked).toBe(false);
+  });
+
+  it("shows the usage statistics off until the person said yes", () => {
+    render({}, undefined, undefined, { consent: null });
+    expect(switchFor(t("usage.setting"))?.checked).toBe(false);
+    render({}, undefined, undefined, { consent: false });
+    expect(switchFor(t("usage.setting"))?.checked).toBe(false);
+    render({}, undefined, undefined, { consent: true });
+    expect(switchFor(t("usage.setting"))?.checked).toBe(true);
+    // While the answer is being read, the switch waits instead of guessing.
+    render({}, undefined, undefined, { consent: undefined });
+    expect(switchFor(t("usage.setting"))?.disabled).toBe(true);
+  });
+
+  it("turns the usage statistics on and off with the switch", () => {
+    const onConsent = vi.fn();
+    render({}, undefined, undefined, { consent: null, onConsent });
+    act(() => {
+      switchFor(t("usage.setting"))?.click();
+    });
+    expect(onConsent).toHaveBeenLastCalledWith(true);
+    render({}, undefined, undefined, { consent: true, onConsent });
+    act(() => {
+      switchFor(t("usage.setting"))?.click();
+    });
+    expect(onConsent).toHaveBeenLastCalledWith(false);
+  });
+
+  it("links the usage statistics to the list of what is sent, without toggling", () => {
+    const onConsent = vi.fn();
+    const onOpenInfo = vi.fn();
+    render({}, undefined, undefined, { consent: false, onConsent, onOpenInfo });
+    const link = [...host.querySelectorAll("button")].find(
+      (element) => element.textContent === t("usage.whatIsSent"),
+    );
+    act(() => {
+      link?.click();
+    });
+    expect(onOpenInfo).toHaveBeenCalledTimes(1);
+    expect(onConsent).not.toHaveBeenCalled();
+    expect(t("usage.settingHelp")).toContain("No project or person names, paths or content");
   });
 
   it("leaves the paste question and the sub-agent switches to their own sections", () => {

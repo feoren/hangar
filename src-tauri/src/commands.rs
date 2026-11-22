@@ -85,6 +85,9 @@ use crate::system_usage::{SystemMonitor, SystemUsage};
 use crate::team::{PendingConfirmation, TeamError, TeamStatus};
 use crate::team_service::TeamService;
 use crate::team_share::SessionState;
+use crate::telemetry::{self, SettingsInput};
+use crate::telemetry_catalog::{self, Feature};
+use crate::telemetry_service::TelemetryService;
 use crate::tray::{self, TrayError, TrayLabels};
 use crate::unattended;
 use crate::updates::{self, UpdateCache, UpdateInfo};
@@ -641,6 +644,11 @@ pub async fn create_session(
         )?;
         let _ = session.set(info.id);
         log_started(&work_log, &manager, &info);
+        // A restored session is no new start.
+        if !resume.unwrap_or(false) {
+            app.state::<TelemetryService>()
+                .session_started(manager.usage_program(&info.profile_id), info.mode);
+        }
         Ok(info)
     })
     .await
@@ -1336,18 +1344,21 @@ pub async fn create_note(
     scope: State<'_, PanelScope>,
     store: State<'_, NotesStore>,
     shared: State<'_, ProjectNotes>,
+    telemetry: State<'_, TelemetryService>,
     folder: NoteFolder,
     title: String,
 ) -> Result<String, NotesError> {
     notes_in_scope(window.label(), &scope, &folder)?;
-    notes_blocking(store, shared, move |n| {
+    let created = notes_blocking(store, shared, move |n| {
         n.dispatch(
             &folder,
             |s| s.create_note(&folder, &title),
             |p| p.create_note(&folder, &title),
         )
     })
-    .await
+    .await?;
+    count_feature(&telemetry, Feature::NotesCreated);
+    Ok(created)
 }
 
 #[tauri::command]
@@ -2648,6 +2659,7 @@ pub async fn reveal_session_folder(
     window: tauri::Window,
     scope: State<'_, PanelScope>,
     manager: Manager<'_>,
+    telemetry: State<'_, TelemetryService>,
     id: SessionId,
 ) -> Result<(), FileTreeError> {
     if !in_scope(&window, &scope, id) {
@@ -2666,7 +2678,11 @@ pub async fn reveal_session_folder(
         crate::desktop::open_folder(&cwd).map_err(FileTreeError::Io)
     });
     match tokio::time::timeout(file_tree::COMMAND_TIMEOUT, task).await {
-        Ok(joined) => joined.map_err(|error| FileTreeError::Task(error.to_string()))?,
+        Ok(joined) => {
+            joined.map_err(|error| FileTreeError::Task(error.to_string()))??;
+            count_feature(&telemetry, Feature::FolderRevealed);
+            Ok(())
+        }
         Err(_) => Err(FileTreeError::TimedOut),
     }
 }
@@ -2741,6 +2757,7 @@ pub async fn open_file_viewer(
                     viewers.remove(&closed);
                 }
             });
+            count_feature(&app.state::<TelemetryService>(), Feature::FileViewerOpened);
             Ok(())
         }
         Err(error) => {
@@ -4276,6 +4293,116 @@ pub fn dictation_remove_model(
 ) -> Result<(), DictationError> {
     dictation_main(&window)?;
     dictation.remove(model)
+}
+
+// Anonymous usage statistics (telemetry.rs, telemetry_service.rs, ADR 0019). Off until the person
+// answers; the window sends nothing but its answer, a settings snapshot checked against the
+// allowlists and the fixed names of the features it counts.
+
+#[derive(Debug, thiserror::Error)]
+pub enum TelemetryError {
+    #[error("Only the main window may do this")]
+    WrongWindow,
+    #[error("Background task aborted: {0}")]
+    Task(String),
+    #[error("The page cannot be opened: {0}")]
+    Open(String),
+    #[error("The answer could not be saved: {0}")]
+    Save(String),
+}
+
+impl Serialize for TelemetryError {
+    fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        serializer.serialize_str(&self.to_string())
+    }
+}
+
+fn telemetry_main(window: &tauri::Window) -> Result<(), TelemetryError> {
+    if window.label() == panel_window::MAIN_LABEL {
+        Ok(())
+    } else {
+        Err(TelemetryError::WrongWindow)
+    }
+}
+
+/// Counts a feature the backend sees happen. Only memory changes here; the statistics thread
+/// writes the file once a minute.
+fn count_feature(telemetry: &TelemetryService, feature: Feature) {
+    telemetry.count(feature);
+}
+
+/// The person's answer: `null` until asked, then `true` or `false`.
+#[tauri::command]
+pub fn telemetry_status(
+    window: tauri::Window,
+    telemetry: State<'_, TelemetryService>,
+) -> Result<Option<bool>, TelemetryError> {
+    telemetry_main(&window)?;
+    Ok(telemetry.consent())
+}
+
+/// The answer to the question or the switch in the settings; off drops everything counted.
+#[tauri::command]
+pub async fn telemetry_set_consent(
+    window: tauri::Window,
+    telemetry: State<'_, TelemetryService>,
+    enabled: bool,
+) -> Result<Option<bool>, TelemetryError> {
+    telemetry_main(&window)?;
+    let telemetry = telemetry.inner().clone();
+    tauri::async_runtime::spawn_blocking(move || telemetry.set_consent(enabled))
+        .await
+        .map_err(|error| TelemetryError::Task(error.to_string()))?
+        .map_err(|error| TelemetryError::Save(error.to_string()))
+}
+
+/// The settings a report shows, as the window has them now; mapped to the allowlists and kept
+/// only while the statistics are on.
+#[tauri::command]
+pub async fn telemetry_settings(
+    window: tauri::Window,
+    telemetry: State<'_, TelemetryService>,
+    settings: SettingsInput,
+) -> Result<(), TelemetryError> {
+    telemetry_main(&window)?;
+    let telemetry = telemetry.inner().clone();
+    tauri::async_runtime::spawn_blocking(move || telemetry.set_settings(&settings))
+        .await
+        .map_err(|error| TelemetryError::Task(error.to_string()))
+}
+
+/// One use of a feature the window sees happen: the panel window only its commit history, the
+/// main window nothing the backend counts itself ([`telemetry::window_may_count`]).
+#[tauri::command]
+pub async fn telemetry_count(
+    window: tauri::Window,
+    telemetry: State<'_, TelemetryService>,
+    feature: Feature,
+) -> Result<(), TelemetryError> {
+    let panel = match window.label() {
+        panel_window::MAIN_LABEL => false,
+        panel_window::LABEL => true,
+        _ => return Err(TelemetryError::WrongWindow),
+    };
+    if !telemetry::window_may_count(panel, feature) {
+        return Err(TelemetryError::WrongWindow);
+    }
+    let telemetry = telemetry.inner().clone();
+    tauri::async_runtime::spawn_blocking(move || telemetry.count(feature))
+        .await
+        .map_err(|error| TelemetryError::Task(error.to_string()))
+}
+
+/// Opens the public list of every field a report carries in the browser. Takes no address.
+#[tauri::command]
+pub async fn telemetry_open_info(window: tauri::Window) -> Result<(), TelemetryError> {
+    telemetry_main(&window)?;
+    let url = reqwest::Url::parse(telemetry_catalog::INFO_URL)
+        .map_err(|error| TelemetryError::Open(error.to_string()))?;
+    tauri::async_runtime::spawn_blocking(move || desktop::open_url(&url))
+        .await
+        .map_err(|error| TelemetryError::Task(error.to_string()))?
+        .map_err(|error| TelemetryError::Open(error.to_string()))
 }
 
 #[cfg(test)]

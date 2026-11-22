@@ -6,7 +6,15 @@ import { isLanguage, LANGUAGE_NAMES, LANGUAGES, useT } from "./i18n";
 import { powerKnown } from "./power";
 import { RangeField } from "./RangeField";
 import { clampScrollbackLines, SCROLLBACK_LINES, type Settings } from "./settings";
-import { ActionRow, InlineConfirm, SettingRow, SettingsGroup, SwitchRow } from "./SettingsParts";
+import {
+  ActionRow,
+  InlineConfirm,
+  SettingRow,
+  SettingsGroup,
+  Switch,
+  SwitchRow,
+} from "./SettingsParts";
+import type { UsageConsent } from "./usageStats";
 import { usePowerState } from "./usePower";
 
 interface Props {
@@ -14,13 +22,26 @@ interface Props {
   onChange: (patch: Partial<Settings>) => void;
   /** Deletes all saved scrollback; rejects with a readable error. */
   onClearScrollbacks: () => Promise<void>;
+  /** The answer about the anonymous usage statistics; `undefined` while it is being read. */
+  usageConsent: UsageConsent | undefined;
+  /** On or off; off deletes what was counted. */
+  onUsageConsent: (enabled: boolean) => void;
+  /** "What is sent": the public list of every field, in the browser. */
+  onOpenUsageInfo: () => void;
 }
 
 /**
- * Settings section "General": the language, what happens when the window closes, and what the
- * sessions cost in resources and money.
+ * Settings section "General": the language, what happens when the window closes, what the
+ * sessions cost in resources and money, and whether Hangar sends its anonymous usage statistics.
  */
-export function GeneralSettings({ settings, onChange, onClearScrollbacks }: Props) {
+export function GeneralSettings({
+  settings,
+  onChange,
+  onClearScrollbacks,
+  usageConsent,
+  onUsageConsent,
+  onOpenUsageInfo,
+}: Props) {
   const t = useT();
   const power = usePowerState();
   return (
@@ -132,6 +153,30 @@ export function GeneralSettings({ settings, onChange, onClearScrollbacks }: Prop
           onChange={(morningReview) => {
             onChange({ morningReview });
           }}
+        />
+      </SettingsGroup>
+
+      <SettingsGroup title={t("settings.groupPrivacy")}>
+        {/* Not a clickable line: the help holds the link to the field list. */}
+        <SettingRow
+          label={t("usage.setting")}
+          help={
+            <>
+              {t("usage.settingHelp")}{" "}
+              <button type="button" className="link-button account-link" onClick={onOpenUsageInfo}>
+                {t("usage.whatIsSent")}
+              </button>
+            </>
+          }
+          control={({ labelId, helpId }) => (
+            <Switch
+              checked={usageConsent === true}
+              disabled={usageConsent === undefined}
+              labelledBy={labelId}
+              describedBy={helpId}
+              onChange={onUsageConsent}
+            />
+          )}
         />
       </SettingsGroup>
     </>

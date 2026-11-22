@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-telemetry-count"
+description = "Enables the telemetry_count command without any pre-configured scope."
+commands.allow = ["telemetry_count"]
+
+[[permission]]
+identifier = "deny-telemetry-count"
+description = "Denies the telemetry_count command without any pre-configured scope."
+commands.deny = ["telemetry_count"]

@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-telemetry-set-consent"
+description = "Enables the telemetry_set_consent command without any pre-configured scope."
+commands.allow = ["telemetry_set_consent"]
+
+[[permission]]
+identifier = "deny-telemetry-set-consent"
+description = "Denies the telemetry_set_consent command without any pre-configured scope."
+commands.deny = ["telemetry_set_consent"]

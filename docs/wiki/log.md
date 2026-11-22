@@ -1409,3 +1409,16 @@ The release of 0.13.0 shows Hangar's own sub-agents with their figures in the ov
 the scenes `sub-agents` (the settings with "From Hangar" as cards) and `waiting-message` (the
 simpler card of a waiting message); `link-history` and `morning` are no longer rendered.
 Pages changed: [[release-rollout]].
+
+## [2026-11-22] query | Anonymous usage statistics with opt-in
+Decision filed for the optional daily usage report: asked once, off by default, consent in the
+backend, counters per UTC day, one report per day for yesterday, allowlists in one Rust file, the
+color scheme and viewer theme keys mapped to the schema's 0.6.0 palette names.
+Pages changed: [[0019-anonymous-usage-statistics]].
+
+## [2026-11-22] query | Usage statistics: own dev file, steps, fewer writes
+Debug builds keep their answer in a file of their own, the answer on disk wins and is checked again
+right before a request, font size and shared projects go out in steps, only a failed connection,
+429 and 503 are tried again, the windows may count only their own features, and the state is
+written on change once a minute instead of on every count.
+Pages changed: [[0019-anonymous-usage-statistics]].

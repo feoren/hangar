@@ -19,6 +19,7 @@ import type { FigureInput } from "./subAgentLibrary";
 import type { DefProgram, SubAgentSettings } from "./subAgentModels";
 import type { WorkspaceTemplate } from "./templates";
 import type { SessionState } from "./team";
+import type { UsageFeature, UsageSettings } from "./usageStats";
 
 export type SessionStatus = "starting" | "running" | "exited";
 
@@ -937,6 +938,17 @@ export const api = {
     invoke<null>("dictation_install_model", { model }),
   dictationRemoveModel: (model: DictationModel) =>
     invoke<null>("dictation_remove_model", { model }),
+
+  /** The answer to the usage statistics question: `null` until asked (`parseUsageConsent`). */
+  telemetryStatus: () => invoke<unknown>("telemetry_status"),
+  /** The person's answer; off deletes what was counted. Answers like `telemetryStatus`. */
+  telemetrySetConsent: (enabled: boolean) => invoke<unknown>("telemetry_set_consent", { enabled }),
+  /** The settings a daily report shows; the backend maps them to its allowlists. */
+  telemetrySettings: (settings: UsageSettings) => invoke<null>("telemetry_settings", { settings }),
+  /** One use of a feature; ignored while the statistics are off. */
+  telemetryCount: (feature: UsageFeature) => invoke<null>("telemetry_count", { feature }),
+  /** Opens the public list of every field a report carries in the browser. */
+  telemetryOpenInfo: () => invoke<null>("telemetry_open_info"),
 };
 
 /** Headings of a session report in the window's language (Rust: `Labels` in report/mod.rs). */

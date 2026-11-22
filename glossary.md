@@ -318,3 +318,6 @@ UI texts in `src/i18n.ts` are translated per language and are not bound by this 
 | AppImage-Variablen                              | AppImage variables                | what AppRun sets for Hangar, removed for child processes; `appimage_fixes`           |
 | Dateimanager                                    | file manager                      | Explorer, Finder or the Linux desktop's file manager; `revealLabelKey`               |
 | Datenfluss (Baumlinien)                         | tree flow                         | optional light on the sidebar tree guides to working sessions; `treeFlow.ts`         |
+| Anonyme Nutzungsstatistik                       | usage statistics                  | opt-in, off by default; `telemetry*.rs`, ADR 0019                                    |
+| Tagesbericht (Nutzungsstatistik)                | daily report                      | one report per UTC day, schema 1; `telemetry::Report`                                |
+| Programmschlüssel                               | program key                       | allowlisted name of a session's program in a report; `program_key`                   |

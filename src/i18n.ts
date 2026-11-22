@@ -1020,6 +1020,16 @@ const de = {
   "morning.setting": "Morgens den Rückblick auf gestern anbieten",
   "morning.settingHelp":
     "Beim ersten Start des Tages ein kurzer Hinweis mit Projekten, Zeit und Commits von gestern.",
+  "settings.groupPrivacy": "Datenschutz",
+  "usage.title": "Hangar mitverbessern?",
+  "usage.text":
+    "Hangar kann einmal am Tag einen anonymen Bericht darüber senden, welche Agenten, Einstellungen und Funktionen genutzt werden. Keine Projekt- oder Personennamen, Pfade, Befehle oder Inhalte. Du kannst das jederzeit in den Einstellungen ändern.",
+  "usage.send": "Anonyme Statistik senden",
+  "usage.noThanks": "Nein, danke",
+  "usage.whatIsSent": "Was gesendet wird",
+  "usage.setting": "Anonyme Nutzungsstatistik senden",
+  "usage.settingHelp":
+    "Einmal am Tag: welche Agenten, Einstellungen und Funktionen genutzt werden. Keine Projekt- oder Personennamen, Pfade oder Inhalte. Ausschalten löscht das bisher Gezählte.",
   "menu.exportSession": "Session exportieren",
   "menu.exportText": "Als Text …",
   "menu.exportHtml": "Als HTML …",
@@ -3319,6 +3329,16 @@ const en: Record<MessageKey, string> = {
   "morning.setting": "Offer a look back at yesterday in the morning",
   "morning.settingHelp":
     "On the first start of a day, a short notice with yesterday's projects, time and commits.",
+  "settings.groupPrivacy": "Privacy",
+  "usage.title": "Help improve Hangar?",
+  "usage.text":
+    "Once a day, Hangar can send an anonymous report of which agents, settings and features are used. No project or person names, paths, commands or content. You can change this anytime in Settings.",
+  "usage.send": "Send anonymous statistics",
+  "usage.noThanks": "No thanks",
+  "usage.whatIsSent": "What is sent",
+  "usage.setting": "Send anonymous usage statistics",
+  "usage.settingHelp":
+    "Once a day: which agents, settings and features are used. No project or person names, paths or content. Turning it off deletes what was counted.",
   "menu.exportSession": "Export session",
   "menu.exportText": "As text …",
   "menu.exportHtml": "As HTML …",
@@ -5619,6 +5639,16 @@ const el: Record<MessageKey, string> = {
   "morning.setting": "Πρόταση ανασκόπησης της χθεσινής μέρας το πρωί",
   "morning.settingHelp":
     "Στην πρώτη εκκίνηση της ημέρας, μια σύντομη ειδοποίηση με τα έργα, τον χρόνο και τα commits της χθες.",
+  "settings.groupPrivacy": "Απόρρητο",
+  "usage.title": "Βοηθάς να γίνει καλύτερο το Hangar;",
+  "usage.text":
+    "Μία φορά την ημέρα, το Hangar μπορεί να στέλνει μια ανώνυμη αναφορά για το ποιοι πράκτορες, ρυθμίσεις και λειτουργίες χρησιμοποιούνται. Χωρίς ονόματα έργων ή προσώπων, διαδρομές, εντολές ή περιεχόμενο. Μπορείς να το αλλάξεις όποτε θέλεις στις ρυθμίσεις.",
+  "usage.send": "Αποστολή ανώνυμων στατιστικών",
+  "usage.noThanks": "Όχι, ευχαριστώ",
+  "usage.whatIsSent": "Τι αποστέλλεται",
+  "usage.setting": "Αποστολή ανώνυμων στατιστικών χρήσης",
+  "usage.settingHelp":
+    "Μία φορά την ημέρα: ποιοι πράκτορες, ρυθμίσεις και λειτουργίες χρησιμοποιούνται. Χωρίς ονόματα έργων ή προσώπων, διαδρομές ή περιεχόμενο. Η απενεργοποίηση διαγράφει ό,τι έχει μετρηθεί.",
   "menu.exportSession": "Εξαγωγή συνεδρίας",
   "menu.exportText": "Ως κείμενο…",
   "menu.exportHtml": "Ως HTML…",
@@ -7944,6 +7974,16 @@ const es: Record<MessageKey, string> = {
   "morning.setting": "Ofrecer por la mañana un repaso de ayer",
   "morning.settingHelp":
     "Al primer inicio del día, un aviso breve con los proyectos, el tiempo y los commits de ayer.",
+  "settings.groupPrivacy": "Privacidad",
+  "usage.title": "¿Ayudas a mejorar Hangar?",
+  "usage.text":
+    "Una vez al día, Hangar puede enviar un informe anónimo sobre qué agentes, ajustes y funciones se usan. Sin nombres de proyectos o personas, rutas, comandos ni contenido. Puedes cambiarlo cuando quieras en los ajustes.",
+  "usage.send": "Enviar estadísticas anónimas",
+  "usage.noThanks": "No, gracias",
+  "usage.whatIsSent": "Qué se envía",
+  "usage.setting": "Enviar estadísticas de uso anónimas",
+  "usage.settingHelp":
+    "Una vez al día: qué agentes, ajustes y funciones se usan. Sin nombres de proyectos o personas, rutas ni contenido. Al desactivarlo se borra lo contado.",
   "menu.exportSession": "Exportar la sesión",
   "menu.exportText": "Como texto…",
   "menu.exportHtml": "Como HTML…",
@@ -10260,6 +10300,16 @@ const fr: Record<MessageKey, string> = {
   "morning.setting": "Proposer le matin un retour sur la veille",
   "morning.settingHelp":
     "Au premier démarrage de la journée, un court avis avec les projets, le temps et les commits de la veille.",
+  "settings.groupPrivacy": "Confidentialité",
+  "usage.title": "Aider à améliorer Hangar ?",
+  "usage.text":
+    "Une fois par jour, Hangar peut envoyer un rapport anonyme indiquant quels agents, réglages et fonctions sont utilisés. Aucun nom de projet ou de personne, chemin, commande ni contenu. Tu peux changer cela à tout moment dans les réglages.",
+  "usage.send": "Envoyer des statistiques anonymes",
+  "usage.noThanks": "Non merci",
+  "usage.whatIsSent": "Ce qui est envoyé",
+  "usage.setting": "Envoyer des statistiques d’utilisation anonymes",
+  "usage.settingHelp":
+    "Une fois par jour : quels agents, réglages et fonctions sont utilisés. Aucun nom de projet ou de personne, chemin ni contenu. Désactiver efface ce qui a été compté.",
   "menu.exportSession": "Exporter la session",
   "menu.exportText": "En texte…",
   "menu.exportHtml": "En HTML…",
@@ -12585,6 +12635,16 @@ const it: Record<MessageKey, string> = {
   "morning.setting": "Proponi al mattino uno sguardo a ieri",
   "morning.settingHelp":
     "Al primo avvio della giornata, un breve avviso con i progetti, il tempo e i commit di ieri.",
+  "settings.groupPrivacy": "Privacy",
+  "usage.title": "Vuoi aiutare a migliorare Hangar?",
+  "usage.text":
+    "Una volta al giorno Hangar può inviare un rapporto anonimo su quali agenti, impostazioni e funzioni vengono usati. Nessun nome di progetti o persone, percorso, comando o contenuto. Puoi cambiarlo quando vuoi nelle impostazioni.",
+  "usage.send": "Invia statistiche anonime",
+  "usage.noThanks": "No, grazie",
+  "usage.whatIsSent": "Cosa viene inviato",
+  "usage.setting": "Invia statistiche di utilizzo anonime",
+  "usage.settingHelp":
+    "Una volta al giorno: quali agenti, impostazioni e funzioni vengono usati. Nessun nome di progetti o persone, percorso o contenuto. Disattivarlo cancella quanto contato.",
   "menu.exportSession": "Esporta sessione",
   "menu.exportText": "Come testo…",
   "menu.exportHtml": "Come HTML…",
@@ -14899,6 +14959,16 @@ const ja: Record<MessageKey, string> = {
   "morning.setting": "朝に昨日の振り返りを表示",
   "morning.settingHelp":
     "その日最初の起動時に、昨日のプロジェクト、時間、コミットを短くお知らせします。",
+  "settings.groupPrivacy": "プライバシー",
+  "usage.title": "Hangar の改善に協力しますか？",
+  "usage.text":
+    "Hangar は 1 日 1 回、どのエージェント・設定・機能が使われているかを匿名で送信できます。プロジェクト名や個人名、パス、コマンド、内容は含まれません。設定でいつでも変更できます。",
+  "usage.send": "匿名の統計を送信",
+  "usage.noThanks": "送信しない",
+  "usage.whatIsSent": "送信内容",
+  "usage.setting": "匿名の利用統計を送信",
+  "usage.settingHelp":
+    "1 日 1 回、使われているエージェント・設定・機能を送信します。プロジェクト名や個人名、パス、内容は含まれません。オフにすると集計済みのデータは削除されます。",
   "menu.exportSession": "セッションをエクスポート",
   "menu.exportText": "テキストとして…",
   "menu.exportHtml": "HTML として…",
@@ -17196,6 +17266,16 @@ const pl: Record<MessageKey, string> = {
   "morning.setting": "Rano proponuj podsumowanie wczorajszego dnia",
   "morning.settingHelp":
     "Przy pierwszym uruchomieniu dnia krótkie powiadomienie z wczorajszymi projektami, czasem i commitami.",
+  "settings.groupPrivacy": "Prywatność",
+  "usage.title": "Pomożesz ulepszyć Hangar?",
+  "usage.text":
+    "Raz dziennie Hangar może wysłać anonimowy raport o tym, jakie agenty, ustawienia i funkcje są używane. Bez nazw projektów i osób, ścieżek, poleceń i treści. Możesz to zmienić w każdej chwili w ustawieniach.",
+  "usage.send": "Wysyłaj anonimowe statystyki",
+  "usage.noThanks": "Nie, dziękuję",
+  "usage.whatIsSent": "Co jest wysyłane",
+  "usage.setting": "Wysyłaj anonimowe statystyki użycia",
+  "usage.settingHelp":
+    "Raz dziennie: jakie agenty, ustawienia i funkcje są używane. Bez nazw projektów i osób, ścieżek i treści. Wyłączenie usuwa to, co zostało policzone.",
   "menu.exportSession": "Eksportuj sesję",
   "menu.exportText": "Jako tekst…",
   "menu.exportHtml": "Jako HTML…",
@@ -19487,6 +19567,16 @@ const pt: Record<MessageKey, string> = {
   "morning.setting": "Oferecer de manhã um resumo de ontem",
   "morning.settingHelp":
     "No primeiro início do dia, um aviso curto com os projetos, o tempo e os commits de ontem.",
+  "settings.groupPrivacy": "Privacidade",
+  "usage.title": "Quer ajudar a melhorar o Hangar?",
+  "usage.text":
+    "Uma vez por dia, o Hangar pode enviar um relatório anônimo de quais agentes, configurações e funções são usados. Sem nomes de projetos ou pessoas, caminhos, comandos ou conteúdo. Você pode mudar isso a qualquer momento nas configurações.",
+  "usage.send": "Enviar estatísticas anônimas",
+  "usage.noThanks": "Não, obrigado",
+  "usage.whatIsSent": "O que é enviado",
+  "usage.setting": "Enviar estatísticas de uso anônimas",
+  "usage.settingHelp":
+    "Uma vez por dia: quais agentes, configurações e funções são usados. Sem nomes de projetos ou pessoas, caminhos ou conteúdo. Desativar apaga o que foi contado.",
   "menu.exportSession": "Exportar sessão",
   "menu.exportText": "Como texto…",
   "menu.exportHtml": "Como HTML…",
@@ -21779,6 +21869,16 @@ const ru: Record<MessageKey, string> = {
   "morning.setting": "Утром предлагать обзор вчерашнего дня",
   "morning.settingHelp":
     "При первом запуске за день короткое уведомление с проектами, временем и коммитами за вчера.",
+  "settings.groupPrivacy": "Конфиденциальность",
+  "usage.title": "Поможешь улучшить Hangar?",
+  "usage.text":
+    "Раз в день Hangar может отправлять анонимный отчёт о том, какие агенты, настройки и функции используются. Без названий проектов и имён людей, путей, команд и содержимого. Это можно изменить в любой момент в настройках.",
+  "usage.send": "Отправлять анонимную статистику",
+  "usage.noThanks": "Нет, спасибо",
+  "usage.whatIsSent": "Что отправляется",
+  "usage.setting": "Отправлять анонимную статистику использования",
+  "usage.settingHelp":
+    "Раз в день: какие агенты, настройки и функции используются. Без названий проектов и имён людей, путей и содержимого. При отключении подсчитанное удаляется.",
   "menu.exportSession": "Экспорт сеанса",
   "menu.exportText": "Как текст…",
   "menu.exportHtml": "Как HTML…",
@@ -24056,6 +24156,16 @@ const tr: Record<MessageKey, string> = {
   "morning.setting": "Sabahları dünün özetini öner",
   "morning.settingHelp":
     "Günün ilk açılışında dünün projeleri, süresi ve commit'leriyle kısa bir bildirim.",
+  "settings.groupPrivacy": "Gizlilik",
+  "usage.title": "Hangar'ı geliştirmeye yardım eder misin?",
+  "usage.text":
+    "Hangar günde bir kez hangi ajanların, ayarların ve özelliklerin kullanıldığına dair anonim bir rapor gönderebilir. Proje veya kişi adı, yol, komut veya içerik yok. Bunu ayarlardan istediğin zaman değiştirebilirsin.",
+  "usage.send": "Anonim istatistik gönder",
+  "usage.noThanks": "Hayır, teşekkürler",
+  "usage.whatIsSent": "Neler gönderilir",
+  "usage.setting": "Anonim kullanım istatistiği gönder",
+  "usage.settingHelp":
+    "Günde bir kez: hangi ajanlar, ayarlar ve özellikler kullanılıyor. Proje veya kişi adı, yol veya içerik yok. Kapatınca sayılanlar silinir.",
   "menu.exportSession": "Oturumu dışa aktar",
   "menu.exportText": "Metin olarak…",
   "menu.exportHtml": "HTML olarak…",
@@ -26279,6 +26389,16 @@ const zh: Record<MessageKey, string> = {
   "morning.fileMany": "{count} 个文件",
   "morning.setting": "早上提供昨天的回顾",
   "morning.settingHelp": "每天首次启动时，简短提示昨天的项目、时间和提交。",
+  "settings.groupPrivacy": "隐私",
+  "usage.title": "帮助改进 Hangar？",
+  "usage.text":
+    "Hangar 可以每天发送一次匿名报告，说明使用了哪些代理、设置和功能。不包含项目名或人名、路径、命令或内容。你可以随时在设置中更改。",
+  "usage.send": "发送匿名统计",
+  "usage.noThanks": "不用了",
+  "usage.whatIsSent": "发送哪些内容",
+  "usage.setting": "发送匿名使用统计",
+  "usage.settingHelp":
+    "每天一次：使用了哪些代理、设置和功能。不含项目名或人名、路径或内容。关闭后会删除已统计的数据。",
   "menu.exportSession": "导出会话",
   "menu.exportText": "导出为文本…",
   "menu.exportHtml": "导出为 HTML…",

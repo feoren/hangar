@@ -67,6 +67,7 @@ import {
   type ViewerTheme,
 } from "./viewerThemes";
 import type { ProgramUpdateState } from "./useProgramUpdates";
+import type { UsageConsent } from "./usageStats";
 import type { UpdateState } from "./useUpdater";
 import { useScrollToTop } from "./useScrollToTop";
 import { hangarUpdateStatus, programUpdateStatus } from "./updateStatus";
@@ -104,6 +105,10 @@ interface Props {
   onFontSize: (size: number) => void;
   onResetLayout: () => void;
   onCheckUpdates: () => void;
+  /** The answer about the anonymous usage statistics; `undefined` while it is being read. */
+  usageConsent: UsageConsent | undefined;
+  onUsageConsent: (enabled: boolean) => void;
+  onOpenUsageInfo: () => void;
   onClose: () => void;
 }
 
@@ -312,6 +317,9 @@ function SectionContent(props: Props & { section: SettingsSection }) {
           settings={props.settings}
           onChange={props.onChange}
           onClearScrollbacks={props.onClearScrollbacks}
+          usageConsent={props.usageConsent}
+          onUsageConsent={props.onUsageConsent}
+          onOpenUsageInfo={props.onOpenUsageInfo}
         />
       );
     case "security":

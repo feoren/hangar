@@ -97,6 +97,9 @@ pub mod team_relay;
 pub mod team_service;
 pub mod team_share;
 pub mod team_tasks;
+pub mod telemetry;
+pub mod telemetry_catalog;
+pub mod telemetry_service;
 #[cfg(test)]
 mod test_support;
 pub mod text;
@@ -586,6 +589,47 @@ pub fn run() -> tauri::Result<()> {
                 ));
             app.manage(links);
             app.manage(gate);
+            // Anonymous usage statistics (ADR 0019): off until the person answers the window's
+            // one question; the thread then counts session minutes and sends yesterday's report.
+            let transport: std::sync::Arc<dyn telemetry_service::Transport> =
+                match telemetry_service::HttpTransport::new() {
+                    Ok(transport) => std::sync::Arc::new(transport),
+                    Err(error) => {
+                        eprintln!("hangar: usage statistics cannot send: {error}");
+                        std::sync::Arc::new(telemetry_service::NoTransport)
+                    }
+                };
+            let telemetry = telemetry_service::TelemetryService::new(
+                telemetry_service::Options::system(app.path().app_local_data_dir()?),
+                transport,
+            );
+            let sessions = app.handle().clone();
+            let accounts = app.handle().clone();
+            let started = telemetry.start(
+                move || sessions.state::<SessionManager>().running_programs(),
+                move || {
+                    let signed_in = matches!(
+                        accounts
+                            .state::<account_service::AccountService>()
+                            .view()
+                            .state,
+                        account::AccountState::SignedIn { .. }
+                    );
+                    let shared = accounts
+                        .state::<team_service::TeamService>()
+                        .snapshot()
+                        .teams
+                        .len();
+                    telemetry::Team {
+                        signed_in,
+                        shared_projects: u32::try_from(shared).unwrap_or(u32::MAX),
+                    }
+                },
+            );
+            if let Err(error) = started {
+                eprintln!("hangar: usage statistics not started: {error}");
+            }
+            app.manage(telemetry);
             let source = app.handle().clone();
             app.state::<team_service::TeamService>()
                 .set_local_source(move || {
@@ -806,6 +850,11 @@ pub fn run() -> tauri::Result<()> {
             commands::sub_agent_figures,
             commands::set_sub_agent_figure,
             commands::paste_sub_agent_figure,
+            commands::telemetry_status,
+            commands::telemetry_set_consent,
+            commands::telemetry_settings,
+            commands::telemetry_count,
+            commands::telemetry_open_info,
         ])
         .build(tauri::generate_context!())?;
 
@@ -834,6 +883,7 @@ pub fn run() -> tauri::Result<()> {
             handle.state::<context_usage::ContextUsage>().stop();
             handle.state::<cost_service::CostService>().stop();
             handle.state::<power::PowerMonitor>().stop();
+            handle.state::<telemetry_service::TelemetryService>().stop();
             // Team connections close with a close frame.
             handle.state::<team_service::TeamService>().shutdown();
             // Waiting edits are denied before the agents are ended.

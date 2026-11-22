@@ -10313,6 +10313,16 @@ body.session-dragging .session-actions {
   overflow-wrap: anywhere;
 }
 
+/* The one question about the usage statistics (UsageStatsNotice.tsx): the link to the field list
+   on the left, the two answers alike on the right. */
+.usage-notice-title {
+  font-weight: 600;
+}
+
+.usage-notice-info {
+  margin-right: auto;
+}
+
 @media (prefers-reduced-motion: no-preference) {
   .link-notice.start-hint {
     animation: start-hint-in 160ms ease-out;

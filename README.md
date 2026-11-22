@@ -366,6 +366,25 @@ Your code never leaves Git: Hangar shares what the agents are doing, not what th
 - **Shared notes stay in the repository**, encrypted per file, so the team server is not involved
   at all.
 
+### Anonymous usage statistics (optional)
+
+Hangar asks once whether it may send a small anonymous report per day. It is **off until you say
+yes**, and you can switch it off at any time in _Settings > General > Privacy_; switching it off
+deletes what was counted so far.
+
+- **What it contains:** the app version, the operating system and language, which agents and
+  shells were started and for how long, how many sessions were private or team sessions, a few
+  settings (theme, color scheme, font), how often some features were used, and whether you are
+  signed in with how many shared projects. Every value comes from a fixed list. The font size and
+  the number of shared projects are only sent in steps (font size 10, 13, 16 or 20; projects 0, 1,
+  2, 5 or 10), so an unusual value does not make your installation stand out.
+- **What it never contains:** no installation ID, no project or person names, paths, folders, file
+  names, commands, prompts, file contents or account data.
+- **How:** at most one report per day, sent by the app itself to the official Hangar website only,
+  never to a self-hosted team server. Development builds never send.
+
+Every field is listed at [hangar.feoren.com/telemetry](https://hangar.feoren.com/telemetry).
+
 ## Requirements
 
 |                  |                                                                                                                                                   |

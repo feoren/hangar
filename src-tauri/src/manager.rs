@@ -1074,6 +1074,50 @@ impl SessionManager {
             .collect()
     }
 
+    /// The key the usage statistics count a session of `profile_id` under
+    /// ([`crate::telemetry::program_key`]): a shell by its program, a catalog agent by its id,
+    /// also when a profile of the person's own starts it, anything else `custom` or `other`.
+    /// Looks only at the known entries, without the PATH search or a WSL detection.
+    pub fn usage_program(&self, profile_id: &str) -> &'static str {
+        let agents = self.agents();
+        let Some(agent) = agents.iter().find(|agent| agent.id() == profile_id) else {
+            return crate::telemetry_catalog::OTHER;
+        };
+        let stem = crate::telemetry::command_stem(&agent.profile.command);
+        let catalog_id = match agent.source {
+            Source::Catalog => Some(agent.id()),
+            Source::User => self
+                .catalog
+                .iter()
+                .find(|entry| {
+                    entry
+                        .commands
+                        .iter()
+                        .any(|command| crate::telemetry::command_stem(command) == stem)
+                })
+                .map(|entry| entry.id.as_str()),
+        };
+        crate::telemetry::program_key(
+            &agent.profile.command,
+            catalog_id,
+            agent.source == Source::User,
+        )
+    }
+
+    /// The usage statistics' key of every agent session that runs now (update sessions left
+    /// out), once per session.
+    pub fn running_programs(&self) -> Vec<&'static str> {
+        let running: Vec<String> = lock(&self.shared.sessions)
+            .values()
+            .filter(|e| e.info.kind == SessionKind::Agent && e.info.status != Status::Exited)
+            .map(|e| e.info.profile_id.clone())
+            .collect();
+        running
+            .iter()
+            .map(|profile_id| self.usage_program(profile_id))
+            .collect()
+    }
+
     /// Where the installed versions for the gate's minimum versions come from.
     pub fn set_version_source(&self, source: Arc<dyn VersionSource>) {
         *lock(&self.shared.versions) = Some(source);
@@ -2228,6 +2272,28 @@ mod tests {
     fn prompted_agent(extra: &str) -> Agent {
         let source = format!("[[agent]]\nid = 'p'\nname = 'P'\ncommands = ['p']\n{extra}");
         Agent::from_catalog(crate::agent_catalog::parse(&source).unwrap().remove(0))
+    }
+
+    #[test]
+    fn usage_programs_name_shells_agents_and_own_programs() {
+        let profiles = crate::profile::parse(
+            "[[profile]]\nid = 'pwsh'\nname = 'PowerShell'\ncommand = 'pwsh'\n\
+             [[profile]]\nid = 'mine'\nname = 'Mine'\ncommand = 'C:\\\\Tools\\\\claude.exe'\n\
+             [[profile]]\nid = 'script'\nname = 'Script'\ncommand = '/opt/project/run'\n",
+        )
+        .unwrap();
+        let catalog = crate::agent_catalog::parse(
+            "[[agent]]\nid = 'claude'\nname = 'Claude'\ncommands = ['claude']\n\
+             [[agent]]\nid = 'goose'\nname = 'Goose'\ncommands = ['goose']\n",
+        )
+        .unwrap();
+        let manager = SessionManager::new(profiles, catalog, PathBuf::from("/home/me"));
+        assert_eq!(manager.usage_program("pwsh"), "shell:pwsh");
+        assert_eq!(manager.usage_program("mine"), "claude");
+        assert_eq!(manager.usage_program("script"), "custom");
+        assert_eq!(manager.usage_program("claude"), "claude");
+        assert_eq!(manager.usage_program("goose"), "other");
+        assert_eq!(manager.usage_program("unknown"), "other");
     }
 
     #[test]

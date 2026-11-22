@@ -6,6 +6,7 @@ import { useCallback, useEffect, useState } from "react";
 
 import { errorText } from "./api";
 import { t } from "./i18n";
+import { countFeatureNow } from "./usageStats";
 
 export type UpdateState =
   | { kind: "idle" }
@@ -62,8 +63,7 @@ export function useUpdater(currentVersion: string | null, autoCheck: boolean) {
     let total = 0;
     let done = 0;
     try {
-      // On Windows the app quits by itself for the installer (installMode "passive").
-      await update.downloadAndInstall((event) => {
+      await update.download((event) => {
         if (event.event === "Started") {
           total = event.data.contentLength ?? 0;
         } else if (event.event === "Progress") {
@@ -74,6 +74,10 @@ export function useUpdater(currentVersion: string | null, autoCheck: boolean) {
         const percent = total > 0 ? Math.min(100, Math.round((done / total) * 100)) : null;
         setState({ kind: "installing", update, percent });
       });
+      // Counted once the download succeeded and stored before the install starts: on Windows
+      // the installer ends the app (installMode "passive").
+      await countFeatureNow("updateInstalled");
+      await update.install();
       await relaunch();
     } catch (error) {
       setState({ kind: "error", message: t("update.failed", { error: errorText(error) }) });

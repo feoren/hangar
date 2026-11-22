@@ -1158,6 +1158,8 @@ const handlers: Record<string, (args: Args) => unknown> = {
   load_workspace: () => workspace,
   save_workspace: () => null,
   last_exit_was_clean: () => true,
+  // Answered already, so the usage statistics question never covers a scene.
+  telemetry_status: () => false,
   load_scrollback: () => null,
   save_scrollback: () => null,
   detect_versions: () => versions,

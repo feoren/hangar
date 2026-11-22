@@ -28,6 +28,7 @@ import { askFor, stillAsked, type SessionQuestion } from "./sessionQuestion";
 import type { TeammateOverlap } from "./team";
 import { changesViews, shownChangesView, type TimelineAvailability } from "./timeline";
 import { TimelineView } from "./TimelineView";
+import { countFeature } from "./usageStats";
 
 interface Props {
   /** Working folder of the active session; `null` without a session. */
@@ -322,6 +323,7 @@ export function ChangesPanel(props: Props) {
               checked={view === option}
               onChange={() => {
                 props.onView(option);
+                if (option === "commits") countFeature("commitHistoryOpened");
               }}
             />
             <span>{t(VIEW_LABELS[option])}</span>

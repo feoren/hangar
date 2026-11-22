@@ -197,6 +197,11 @@ fn blocking_commands_run_off_the_main_thread() {
         "waiting_messages",
         "waiting_message_text",
         "close_waiting_message",
+        // The usage statistics write their state file.
+        "telemetry_set_consent",
+        "telemetry_settings",
+        "telemetry_count",
+        "telemetry_open_info",
     ] {
         let body = command_body(&commands, name);
         assert!(body.contains("spawn_blocking"), "{name} runs on the caller");

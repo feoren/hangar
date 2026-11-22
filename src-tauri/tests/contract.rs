@@ -315,6 +315,9 @@ fn panel_window_capability_is_narrow() {
         // act on the calling window only, unlike core:window:allow-close and allow-destroy.
         "allow-close-panel-window",
         "allow-destroy-panel-window",
+        // The commit history in the panel counts its use for the usage statistics: a fixed
+        // feature name, nothing the panel could fill with text.
+        "allow-telemetry-count",
     ];
     expected.sort_unstable();
     assert_eq!(permissions, expected);

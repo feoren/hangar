@@ -120,6 +120,8 @@ import { MarkerDialog } from "./MarkerDialog";
 import { BudgetNotice } from "./BudgetNotice";
 import type { BudgetWarned } from "./costs";
 import { MorningNotice } from "./MorningNotice";
+import { UsageStatsNotice } from "./UsageStatsNotice";
+import { countFeature, parseUsageConsent, usageSettings, type UsageConsent } from "./usageStats";
 
 import { CrashNotice } from "./CrashNotice";
 import { crashSummary, type RestoredSession } from "./crashRestore";
@@ -615,6 +617,8 @@ type Filled = { ok: true; text: string } | { ok: false; details: string };
 
 /** Debounced workspace save: several changes in quick succession result in one write. */
 const WORKSPACE_SAVE_DELAY_MS = 400;
+/** The usage statistics take the settings after they stood still this long. */
+const USAGE_SETTINGS_DELAY_MS = 2000;
 /**
  * Save the scrollback of changed sessions regularly so that a crash costs little: at most this
  * much output is lost. Only sessions with new output that have been quiet for a moment are
@@ -1095,6 +1099,8 @@ export function App() {
   const notesHandle = useRef<NotesHandle | null>(null);
   /** The right panel in its own window, kept on top; remembered per machine (ADR 0007). */
   const [panelWindow, setPanelWindow] = useState<PanelWindowPrefs>(loadWindowPrefs);
+  /** The answer about the anonymous usage statistics; `undefined` until the backend told it. */
+  const [usageConsent, setUsageConsent] = useState<UsageConsent | undefined>(undefined);
   /** Changes tab of the right panel (Ctrl+Shift+D): focus on opening. */
   const [changesFocusToken, setChangesFocusToken] = useState(0);
   /** Uncommitted changes or commits; kept for this window while the tab is closed. */
@@ -1318,6 +1324,44 @@ export function App() {
   const showError = useCallback((e: unknown) => {
     setError(errorText(e));
   }, []);
+
+  useEffect(() => {
+    api
+      .telemetryStatus()
+      .then((value) => {
+        const consent = parseUsageConsent(value);
+        if (consent !== undefined) setUsageConsent(consent);
+      })
+      // Without an answer the question stays away; the switch waits as well.
+      .catch(() => undefined);
+  }, []);
+
+  /** The person's answer, from the notice or the switch; off deletes what was counted. */
+  const answerUsage = useCallback(
+    (enabled: boolean) => {
+      setUsageConsent(enabled);
+      api
+        .telemetrySetConsent(enabled)
+        .then((value) => {
+          const consent = parseUsageConsent(value);
+          if (consent !== undefined) setUsageConsent(consent);
+        })
+        .catch((error: unknown) => {
+          showError(error);
+          api
+            .telemetryStatus()
+            .then((value) => {
+              setUsageConsent(parseUsageConsent(value));
+            })
+            .catch(() => undefined);
+        });
+    },
+    [showError],
+  );
+
+  const openUsageInfo = useCallback(() => {
+    api.telemetryOpenInfo().catch(showError);
+  }, [showError]);
 
   /**
    * Reads the waiting messages (on start, after each `partner-messages-changed` and after every
@@ -1601,6 +1645,25 @@ export function App() {
     savedPrefs.current = text;
     saveMainPrefs(next).catch(() => undefined);
   }, [prefsReady, startMode, lastProgramId, folders, settings, budgetWarned, morningOfferedDay]);
+
+  // The settings a daily report shows, only while the statistics are on; a run of changes (a
+  // slider, a dragged splitter) sends its last state once.
+  const usageSnapshot = useMemo(
+    () =>
+      usageConsent === true && prefsReady
+        ? usageSettings(settings, layout, panelWindow.detached)
+        : null,
+    [usageConsent, prefsReady, settings, layout, panelWindow.detached],
+  );
+  useEffect(() => {
+    if (usageSnapshot === null) return;
+    const timer = window.setTimeout(() => {
+      api.telemetrySettings(usageSnapshot).catch(() => undefined);
+    }, USAGE_SETTINGS_DELAY_MS);
+    return () => {
+      window.clearTimeout(timer);
+    };
+  }, [usageSnapshot]);
 
   // Only after the backend answered, and only a list that differs from the one it holds.
   useEffect(() => {
@@ -3636,7 +3699,9 @@ export function App() {
     if (session === undefined) return;
     const profile = profilesRef.current.find((p) => p.id === session.profileId);
     const text = insertPathText(item, session.cwd, shellKind(profile?.command ?? ""));
-    if (text !== "") sendFromNotes(text, session.id);
+    if (text === "") return;
+    sendFromNotes(text, session.id);
+    countFeature("pathMentioned");
   };
 
   /** A row of the file tree dragged onto a pane: its path goes into that session. */
@@ -4050,6 +4115,7 @@ export function App() {
       setLayout((current) => ({ ...current, sideOpen: false }));
       panelSent.current = "";
       toPanelWindow({ kind: "show", tab });
+      countFeature("sidePanelDetached");
       focusTerminal();
     });
   };
@@ -4398,6 +4464,7 @@ export function App() {
       reportBlocked(blocked.filter((id) => id !== null));
     });
     splitView.showOnly(ids);
+    countFeature("broadcastSent");
     return null;
   };
 
@@ -7268,6 +7335,11 @@ export function App() {
                 setDialog("dailyReview");
               }}
             />
+            <UsageStatsNotice
+              consent={prefsReady ? usageConsent : undefined}
+              onAnswer={answerUsage}
+              onOpenInfo={openUsageInfo}
+            />
             {startHint !== null && (
               <div className="link-notice start-hint" role="status" key={startHint}>
                 <span>{startHint}</span>
@@ -7931,6 +8003,9 @@ export function App() {
             }}
             onChange={updateSettings}
             onClearScrollbacks={clearScrollbacks}
+            usageConsent={usageConsent}
+            onUsageConsent={answerUsage}
+            onOpenUsageInfo={openUsageInfo}
             onOpenProfileFile={openProfileFile}
             onOpenHangarMd={openHangarMd}
             onReloadProfiles={reloadProfilesFromSettings}

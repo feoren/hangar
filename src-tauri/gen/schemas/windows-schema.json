@@ -1329,6 +1329,36 @@
           "markdownDescription": "Enables the team_status command without any pre-configured scope."
         },
         {
+          "description": "Enables the telemetry_count command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-telemetry-count",
+          "markdownDescription": "Enables the telemetry_count command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the telemetry_open_info command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-telemetry-open-info",
+          "markdownDescription": "Enables the telemetry_open_info command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the telemetry_set_consent command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-telemetry-set-consent",
+          "markdownDescription": "Enables the telemetry_set_consent command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the telemetry_settings command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-telemetry-settings",
+          "markdownDescription": "Enables the telemetry_settings command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the telemetry_status command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-telemetry-status",
+          "markdownDescription": "Enables the telemetry_status command without any pre-configured scope."
+        },
+        {
           "description": "Enables the unlink_group command without any pre-configured scope.",
           "type": "string",
           "const": "allow-unlink-group",
@@ -2527,6 +2557,36 @@
           "type": "string",
           "const": "deny-team-status",
           "markdownDescription": "Denies the team_status command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the telemetry_count command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-telemetry-count",
+          "markdownDescription": "Denies the telemetry_count command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the telemetry_open_info command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-telemetry-open-info",
+          "markdownDescription": "Denies the telemetry_open_info command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the telemetry_set_consent command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-telemetry-set-consent",
+          "markdownDescription": "Denies the telemetry_set_consent command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the telemetry_settings command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-telemetry-settings",
+          "markdownDescription": "Denies the telemetry_settings command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the telemetry_status command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-telemetry-status",
+          "markdownDescription": "Denies the telemetry_status command without any pre-configured scope."
         },
         {
           "description": "Denies the unlink_group command without any pre-configured scope.",

@@ -2,7 +2,22 @@
   {
     "version": "0.14.0",
     "date": null,
-    "items": []
+    "items": [
+      {
+        "de": "Hangar fragt einmal nach einer anonymen Nutzungsstatistik. Standardmäßig aus, ohne Projekt- oder Personennamen, Pfade oder Inhalte, jederzeit abschaltbar.",
+        "en": "Hangar asks once about anonymous usage statistics. Off by default, no project or person names, paths or content, and you can switch it off anytime.",
+        "el": "Το Hangar ρωτά μία φορά για ανώνυμα στατιστικά χρήσης. Κλειστά από προεπιλογή, χωρίς ονόματα έργων ή προσώπων, διαδρομές ή περιεχόμενο, κλείνουν οποτεδήποτε.",
+        "es": "Hangar pregunta una vez por estadísticas anónimas. Desactivadas por defecto, sin nombres de proyectos o personas, rutas ni contenido; desactivables siempre.",
+        "fr": "Hangar propose une fois des statistiques anonymes. Désactivées par défaut, sans nom de projet ou de personne, chemin ni contenu, désactivables à tout moment.",
+        "it": "Hangar chiede una volta per statistiche anonime. Disattivate di default, senza nomi di progetti o persone, percorsi o contenuti, disattivabili sempre.",
+        "ja": "Hangar は匿名の利用統計を送ってよいか一度だけ確認します。既定ではオフで、プロジェクト名や個人名、パス、内容は含まれず、いつでもオフにできます。",
+        "pl": "Hangar raz pyta o anonimowe statystyki użycia. Domyślnie wyłączone, bez nazw projektów i osób, ścieżek i treści, do wyłączenia w każdej chwili.",
+        "pt": "O Hangar pergunta uma vez sobre estatísticas anônimas. Desativadas por padrão, sem nomes de projetos ou pessoas, caminhos ou conteúdo, desligáveis sempre.",
+        "ru": "Hangar один раз спрашивает об анонимной статистике. По умолчанию выключена, без названий проектов и имён людей, путей и содержимого, отключается в любой момент.",
+        "tr": "Hangar anonim kullanım istatistiklerini bir kez sorar. Varsayılan olarak kapalı; proje veya kişi adı, yol ya da içerik yok ve istediğin zaman kapatılabilir.",
+        "zh": "Hangar 会询问一次是否发送匿名使用统计。默认关闭，不含项目名或人名、路径或内容，可随时关闭。"
+      }
+    ]
   },
   {
     "version": "0.13.0",

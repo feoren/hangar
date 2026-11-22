@@ -202,6 +202,11 @@ const COMMANDS: &[&str] = &[
     "sub_agent_figures",
     "set_sub_agent_figure",
     "paste_sub_agent_figure",
+    "telemetry_status",
+    "telemetry_set_consent",
+    "telemetry_settings",
+    "telemetry_count",
+    "telemetry_open_info",
 ];
 
 fn main() {
