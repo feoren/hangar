@@ -17,6 +17,8 @@ import { gateHint } from "./gate";
 import { LinkMarkSign, linkMarkText } from "./LinkMark";
 import { toggleSelection, type LinkMark } from "./links";
 import { queuedPreview, type QueuedMessage } from "./messageQueue";
+import type { ClosedSession } from "./recentlyClosed";
+import { ClosedSessionList } from "./ClosedSessionList";
 import type { CardSend } from "./messageCard";
 import type { WaitingMessage } from "./partnerInbox";
 import { WaitingMessages } from "./WaitingMessages";
@@ -201,6 +203,10 @@ interface Props {
   onActivate: (id: number) => void;
   /** Starts a program in the target, as the switch says (private or team session). */
   onStart: (profile: Profile) => void;
+  /** Recently closed sessions to start again, most recent first (recentlyClosed.ts `shownClosed`). */
+  recentlyClosed: readonly ClosedSession[];
+  /** Starts that closed session again: same program, folder, title and conversation. */
+  onReopenClosed: (entry: ClosedSession) => void;
   /**
    * Sub-agent definitions a start in the target can run as (subAgentLibrary.ts `defsFor`),
    * offered in a menu beside each program that takes one (Claude Code). Missing: none.
@@ -1347,6 +1353,11 @@ export function Sidebar(props: Props) {
           !startable.some((profile) => listedFor(mode, profile)) && (
             <p className="hint group-hint">{t("start.noTeamAgents")}</p>
           )}
+        <ClosedSessionList
+          entries={props.recentlyClosed}
+          badgeFor={badgeFor}
+          onReopen={props.onReopenClosed}
+        />
         <ul className="profile-list">
           {startable
             .filter((profile) => listedFor(mode, profile))

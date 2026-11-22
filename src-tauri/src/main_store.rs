@@ -8,8 +8,9 @@
 //! start, the last program, the favorite and recent folders, session restore, whether and when
 //! a waiting session shows itself, the daily budget with its early warning and the day and level
 //! its notice last showed, whether the morning summary is offered and for which day it last was,
-//! and whether the dictation key is on) and the partner projects ([`crate::partners`]: which
-//! projects may send each other messages).
+//! and whether the dictation key is on), the partner projects ([`crate::partners`]: which
+//! projects may send each other messages) and the recently closed sessions
+//! ([`ClosedSession`]: program and folder to start again with one click).
 //!
 //! The panel and file viewer windows share the main window's origin and with it its
 //! `localStorage`. A compromised viewer (a crafted Markdown file) could otherwise turn the gate
@@ -17,8 +18,9 @@
 //! agent session, switch the paste warning or updates off, plant a template that starts a
 //! program in a folder of its choice, point the next start at such a folder, start it private
 //! (without the gate), silence the notices of a session that waits for the person, hide the
-//! budget notice (a budget out of reach, today marked as warned), or turn the dictation key on, so
-//! that holding it opens the microphone. Here the files sit in the local app data folder, written
+//! budget notice (a budget out of reach, today marked as warned), turn the dictation key on, so
+//! that holding it opens the microphone, or plant a recently closed session that starts a program
+//! in a folder of its choice on the next click. Here the files sit in the local app data folder, written
 //! atomically ([`crate::persist::write_atomic`]) and validated on reading and on writing; the
 //! commands answer the main window only ([`check_main`]).
 //!
@@ -47,6 +49,16 @@ pub const SUB_AGENTS_FILE: &str = "sub-agent-settings.json";
 pub const PARTNERS_FILE: &str = "partner-projects.json";
 /// Messages agents sent to partner projects that wait for the person ([`crate::partner_inbox`]).
 pub const INBOX_FILE: &str = "partner-messages.json";
+/// Sessions the person closed, to start again with one click (`recentlyClosed.ts`).
+pub const RECENTLY_CLOSED_FILE: &str = "recently-closed.json";
+/// Recently closed sessions kept, as the window bounds them (`recentlyClosed.ts` `KEEP_LIMIT`).
+pub const MAX_RECENTLY_CLOSED: usize = 10;
+/// Every entry at its longest in escaped JSON: folder, program, title, marker and id, with room.
+const MAX_RECENTLY_CLOSED_BYTES: usize = MAX_RECENTLY_CLOSED
+    * ((MAX_FOLDER_UNITS + MAX_PROFILE_ID_UNITS + crate::manager::MAX_TITLE_CHARS * 2) * 6 + 512)
+    + 1024;
+/// The latest `closedAt` the window can write: `Number.MAX_SAFE_INTEGER` milliseconds.
+const MAX_CLOSED_AT: u64 = (1 << 53) - 1;
 /// Every project with its longest folder in escaped JSON, the pairs by name, with room.
 const MAX_PARTNERS_BYTES: usize = crate::partners::MAX_PROJECTS * (MAX_FOLDER_UNITS * 6 + 128)
     + crate::partners::MAX_PAIRS * 96
@@ -105,6 +117,8 @@ pub enum MainStoreError {
     InvalidTemplate(&'static str),
     #[error("Invalid preference: {0}")]
     InvalidPrefs(&'static str),
+    #[error("Invalid recently closed session: {0}")]
+    InvalidClosed(&'static str),
     #[error(transparent)]
     Partners(#[from] crate::partners::PartnerError),
     #[error("File {path} cannot be read or written: {source}")]
@@ -626,6 +640,72 @@ pub fn validate_prefs(prefs: &MainPrefs) -> Result<(), MainStoreError> {
     Ok(())
 }
 
+/// A session the person closed (`recentlyClosed.ts`, `ClosedSession`): its program, folder, title
+/// and marker, and the conversation id the agent CLI resumes (`None` for programs without one).
+/// `closed_at` is in milliseconds since the Unix epoch.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct ClosedSession {
+    pub profile_id: String,
+    pub cwd: String,
+    pub title: String,
+    #[serde(default)]
+    pub color: Option<String>,
+    #[serde(default)]
+    pub emoji: Option<String>,
+    #[serde(default)]
+    pub cli_session_id: Option<String>,
+    pub closed_at: u64,
+}
+
+/// The bounds the window keeps (`parseRecentlyClosed`): not too many entries, a program ID like
+/// the last program's, a folder like the menu's, a title as the backend stores session titles, a
+/// marker as the workspace keeps it, and a conversation id that is a lowercase UUID used once:
+/// two entries with one id would resume one conversation twice.
+pub fn validate_recently_closed(entries: &[ClosedSession]) -> Result<(), MainStoreError> {
+    if entries.len() > MAX_RECENTLY_CLOSED {
+        return Err(MainStoreError::InvalidClosed("too many sessions"));
+    }
+    let mut ids = BTreeSet::new();
+    for entry in entries {
+        if entry.profile_id.trim().is_empty()
+            || has_control(&entry.profile_id)
+            || entry.profile_id.encode_utf16().count() > MAX_PROFILE_ID_UNITS
+        {
+            return Err(MainStoreError::InvalidClosed("program"));
+        }
+        if !valid_folder(&entry.cwd) {
+            return Err(MainStoreError::InvalidClosed("folder"));
+        }
+        if !valid_label(&entry.title, crate::manager::MAX_TITLE_CHARS) {
+            return Err(MainStoreError::InvalidClosed("title"));
+        }
+        if entry
+            .color
+            .as_deref()
+            .is_some_and(|color| !crate::persist::is_hex_color(color))
+        {
+            return Err(MainStoreError::InvalidClosed("color"));
+        }
+        if entry.emoji.as_deref().is_some_and(|emoji| {
+            emoji.is_empty()
+                || emoji.len() > crate::persist::MAX_EMOJI_BYTES
+                || emoji.chars().any(char::is_control)
+        }) {
+            return Err(MainStoreError::InvalidClosed("emoji"));
+        }
+        if let Some(id) = &entry.cli_session_id {
+            if normalize_key(id).ok().as_deref() != Some(id.as_str()) || !ids.insert(id.as_str()) {
+                return Err(MainStoreError::InvalidClosed("conversation id"));
+            }
+        }
+        if entry.closed_at > MAX_CLOSED_AT {
+            return Err(MainStoreError::InvalidClosed("closed at"));
+        }
+    }
+    Ok(())
+}
+
 fn io_error(path: &Path) -> impl FnOnce(io::Error) -> MainStoreError + '_ {
     move |source| MainStoreError::Io {
         path: path.to_owned(),
@@ -752,6 +832,21 @@ impl MainStore {
     pub fn save_prefs(&self, prefs: MainPrefs) -> Result<(), MainStoreError> {
         validate_prefs(&prefs)?;
         save(&self.dir.join(PREFS_FILE), &prefs)
+    }
+
+    /// The recently closed sessions, most recent first. A missing, damaged or invalid file gives
+    /// none, so a planted file starts nothing.
+    pub fn load_recently_closed(&self) -> Vec<ClosedSession> {
+        let path = self.dir.join(RECENTLY_CLOSED_FILE);
+        load::<Vec<ClosedSession>>(&path, MAX_RECENTLY_CLOSED_BYTES)
+            .flatten()
+            .filter(|entries| validate_recently_closed(entries).is_ok())
+            .unwrap_or_default()
+    }
+
+    pub fn save_recently_closed(&self, entries: Vec<ClosedSession>) -> Result<(), MainStoreError> {
+        validate_recently_closed(&entries)?;
+        save(&self.dir.join(RECENTLY_CLOSED_FILE), &entries)
     }
 
     /// The partner projects; a missing, damaged or invalid file gives none, so a planted file
@@ -1552,6 +1647,155 @@ mod tests {
         ] {
             std::fs::write(&path, damaged).unwrap();
             assert_eq!(store.load_inbox(), Inbox::default());
+        }
+    }
+
+    fn closed(cwd: &str, id: Option<&str>) -> ClosedSession {
+        ClosedSession {
+            profile_id: "claude".into(),
+            cwd: cwd.into(),
+            title: "Claude Code".into(),
+            color: Some("#4a8fe7".into()),
+            emoji: Some("\u{1F680}".into()),
+            cli_session_id: id.map(str::to_owned),
+            closed_at: 1_700_000_000_000,
+        }
+    }
+
+    #[test]
+    fn recently_closed_sessions_round_trip_and_start_empty() {
+        let tmp = TempDir::new("main-store-closed");
+        let store = MainStore::new(tmp.path().to_owned());
+        assert_eq!(store.load_recently_closed(), Vec::new());
+        let entries = vec![
+            closed(r"C:\work\app", Some("0f8fad5b-d9cb-469f-a165-70867728950e")),
+            ClosedSession {
+                profile_id: "pwsh".into(),
+                color: None,
+                emoji: None,
+                ..closed("/home/me/web", None)
+            },
+        ];
+        store.save_recently_closed(entries.clone()).unwrap();
+        assert_eq!(store.load_recently_closed(), entries);
+        // The window reads camelCase; a file without the optional fields still loads.
+        let json: serde_json::Value =
+            serde_json::from_slice(&std::fs::read(tmp.path().join(RECENTLY_CLOSED_FILE)).unwrap())
+                .unwrap();
+        assert_eq!(
+            json[0]["cliSessionId"],
+            "0f8fad5b-d9cb-469f-a165-70867728950e"
+        );
+        assert_eq!(json[0]["closedAt"], 1_700_000_000_000_u64);
+        std::fs::write(
+            tmp.path().join(RECENTLY_CLOSED_FILE),
+            r#"[{"profileId":"cmd","cwd":"C:\\","title":"cmd","closedAt":1}]"#,
+        )
+        .unwrap();
+        assert_eq!(store.load_recently_closed().len(), 1);
+        store.save_recently_closed(Vec::new()).unwrap();
+        assert_eq!(store.load_recently_closed(), Vec::new());
+    }
+
+    #[test]
+    fn recently_closed_sessions_are_checked_like_the_window_checks_them() {
+        let ok = closed("/srv/app", Some("0f8fad5b-d9cb-469f-a165-70867728950e"));
+        assert!(validate_recently_closed(std::slice::from_ref(&ok)).is_ok());
+        let bad = [
+            ClosedSession {
+                profile_id: " ".into(),
+                ..ok.clone()
+            },
+            ClosedSession {
+                profile_id: "a\u{7}".into(),
+                ..ok.clone()
+            },
+            ClosedSession {
+                profile_id: "p".repeat(MAX_PROFILE_ID_UNITS + 1),
+                ..ok.clone()
+            },
+            ClosedSession {
+                cwd: String::new(),
+                ..ok.clone()
+            },
+            ClosedSession {
+                cwd: "/srv/a\nb".into(),
+                ..ok.clone()
+            },
+            ClosedSession {
+                cwd: "a".repeat(MAX_FOLDER_UNITS + 1),
+                ..ok.clone()
+            },
+            ClosedSession {
+                title: "  ".into(),
+                ..ok.clone()
+            },
+            ClosedSession {
+                title: "a\u{1b}[2J".into(),
+                ..ok.clone()
+            },
+            ClosedSession {
+                title: "t".repeat(crate::manager::MAX_TITLE_CHARS + 1),
+                ..ok.clone()
+            },
+            ClosedSession {
+                color: Some("red".into()),
+                ..ok.clone()
+            },
+            ClosedSession {
+                emoji: Some(String::new()),
+                ..ok.clone()
+            },
+            ClosedSession {
+                emoji: Some("\u{1F600}".repeat(5)),
+                ..ok.clone()
+            },
+            ClosedSession {
+                cli_session_id: Some("not-a-uuid".into()),
+                ..ok.clone()
+            },
+            // The window writes ids in lower case; another spelling is no id it wrote.
+            ClosedSession {
+                cli_session_id: Some(KEY.into()),
+                ..ok.clone()
+            },
+            ClosedSession {
+                closed_at: MAX_CLOSED_AT + 1,
+                ..ok.clone()
+            },
+        ];
+        for entry in bad {
+            assert!(
+                validate_recently_closed(std::slice::from_ref(&entry)).is_err(),
+                "{entry:?}"
+            );
+        }
+        // One conversation resumed by two entries would run twice.
+        let twice = [
+            ok.clone(),
+            closed("/srv/other", ok.cli_session_id.as_deref()),
+        ];
+        assert!(validate_recently_closed(&twice).is_err());
+        let many: Vec<ClosedSession> = (0..=MAX_RECENTLY_CLOSED)
+            .map(|index| closed(&format!("/srv/{index}"), None))
+            .collect();
+        assert!(validate_recently_closed(&many).is_err());
+        assert!(validate_recently_closed(&many[..MAX_RECENTLY_CLOSED]).is_ok());
+
+        let tmp = TempDir::new("main-store-closed-bad");
+        let store = MainStore::new(tmp.path().to_owned());
+        assert!(store.save_recently_closed(many).is_err());
+        assert_eq!(store.load_recently_closed(), Vec::new());
+        // A planted file with one bad entry starts nothing at all.
+        for planted in [
+            r#"[{"profileId":"pwsh","cwd":"","title":"x","closedAt":1}]"#.to_owned(),
+            r#"[{"profileId":"pwsh","cwd":"/x","title":"x","closedAt":1,"args":["-c"]}]"#
+                .to_owned(),
+            "{".to_owned(),
+            " ".repeat(MAX_RECENTLY_CLOSED_BYTES + 1),
+        ] {
+            std::fs::write(tmp.path().join(RECENTLY_CLOSED_FILE), planted).unwrap();
+            assert_eq!(store.load_recently_closed(), Vec::new());
         }
     }
 }

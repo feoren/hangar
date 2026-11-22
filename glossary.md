@@ -160,6 +160,7 @@ UI texts in `src/i18n.ts` are translated per language and are not bound by this 
 | Oberfläche                                      | UI                                |                                                                                      |
 | Favorit (Ordner), Lieblingsordner               | favorite folder                   | `folders.ts`                                                                         |
 | Zuletzt genutzte Ordner                         | recent folders                    | at most 8                                                                            |
+| Zuletzt geschlossen                             | recently closed (sessions)        | `recentlyClosed.ts`; closed sessions to reopen with one click, at most 10 kept       |
 | Startordner-Menü                                | folder menu                       | "Project folder" menu                                                                |
 | Startziel                                       | start target                      | where the next session starts, `startTarget.ts`                                      |
 | Laufende Projekte                               | running projects                  | project folders of running sessions, folder menu                                     |

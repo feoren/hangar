@@ -53,7 +53,7 @@ use crate::link_service::{
 };
 use crate::links::GroupId;
 use crate::main_store::{
-    self, MainPrefs, MainStore, MainStoreError, ProtectedSettings, QueuedMessages,
+    self, ClosedSession, MainPrefs, MainStore, MainStoreError, ProtectedSettings, QueuedMessages,
     SecuritySwitches, SubAgentSettings, WorkspaceTemplate,
 };
 use crate::manager::{
@@ -3835,6 +3835,33 @@ pub async fn save_templates(
     main_store::check_main(window.label())?;
     let store = store.inner().clone();
     tauri::async_runtime::spawn_blocking(move || store.save_templates(templates))
+        .await
+        .map_err(|error| MainStoreError::Task(error.to_string()))?
+}
+
+/// The recently closed sessions, most recent first; none when nothing valid is stored.
+#[tauri::command]
+pub async fn load_recently_closed(
+    window: tauri::Window,
+    store: State<'_, MainStore>,
+) -> Result<Vec<ClosedSession>, MainStoreError> {
+    main_store::check_main(window.label())?;
+    let store = store.inner().clone();
+    tauri::async_runtime::spawn_blocking(move || store.load_recently_closed())
+        .await
+        .map_err(|error| MainStoreError::Task(error.to_string()))
+}
+
+/// Replaces the stored recently closed sessions; an empty list forgets them all.
+#[tauri::command]
+pub async fn save_recently_closed(
+    window: tauri::Window,
+    store: State<'_, MainStore>,
+    entries: Vec<ClosedSession>,
+) -> Result<(), MainStoreError> {
+    main_store::check_main(window.label())?;
+    let store = store.inner().clone();
+    tauri::async_runtime::spawn_blocking(move || store.save_recently_closed(entries))
         .await
         .map_err(|error| MainStoreError::Task(error.to_string()))?
 }

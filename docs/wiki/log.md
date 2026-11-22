@@ -1582,3 +1582,8 @@ Security review of the partial phase 2 build. [[0006-encrypted-project-notes]] n
 under an epoch it knew), and takes "renewing" and the need for a new key from the verified log
 instead of the relay's answer (a lost record, an unreadable one or a pending rotation left the old
 key in use).
+
+## [2026-11-22] query | Recently closed sessions
+Filed how "Recently closed" reopens a closed session through the restore path (resume by
+conversation id, fresh start on fallback), which sessions it leaves out, its storage in the main
+store and the Ctrl+Shift+O shortcut. Updated: [[session-restore]], index.

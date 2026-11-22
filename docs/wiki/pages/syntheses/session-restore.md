@@ -140,6 +140,37 @@ says so. Backend: `src-tauri/src/exit_marker.rs`, frontend: `src/crashRestore.ts
   them on disk unencrypted, next to the scrollback, for every session and every crash. A shell
   session has no conversation to resume; its scrollback shows what was typed up to the last save.
 
+## Recently closed
+Closing a session (sidebar, menu, Ctrl+Shift+W, also after the stop question) records it in
+"Recently closed" in the sidebar's New session area. One click, the File menu or Ctrl+Shift+O
+starts it again, using the restore path: the same profile in the same folder,
+`create_session(..., resume: true, cliSessionId)`, with the title and marker brought back. A failed
+resume falls back to a fresh start (`resumeFallback`) as on restore. A shell has no conversation
+and just starts fresh in its folder. Code: `src/recentlyClosed.ts`, `close` and `reopenClosed` in
+`src/App.tsx`.
+- **Not recorded:** update sessions, sessions started as a sub-agent definition, team sessions
+  and any session with a worktree of its own. That worktree is removed on close, and agent CLIs
+  resume by folder ([[resume]]), so the conversation would not come back. Sessions ended because
+  the app quits do not go through `close` and are not recorded either; a close that failed in the
+  backend is not recorded, because the process still holds the conversation.
+- **List:** most recent first. One entry per conversation id, or, for entries without one, per
+  program and folder (`folderKey`); the newest stays. At most 10 are kept and 5 shown. An entry
+  whose conversation a session in the list holds (running or a placeholder) is hidden. An entry
+  without a conversation id resumes the program's last conversation in its folder
+  (`resume_args`), so it is hidden while a session of the same program runs in that folder. Reopening
+  takes the entry off the list, also when the start fails: a missing or uninstalled program gives
+  an error notice, a missing folder the start's own `bad_cwd` text.
+- **Storage:** `recently-closed.json` in the main store (`main_store.rs` `ClosedSession`,
+  commands `load_recently_closed` and `save_recently_closed`, main window only). An entry starts
+  a program in a folder, the same threat as the recent folder list, so it never goes to
+  `localStorage`. Both sides check every field (program id, folder, title up to 256 characters,
+  `#rrggbb` color, emoji up to 16 bytes, lowercase UUID used once, `closedAt` up to
+  `Number.MAX_SAFE_INTEGER`). A file with one bad entry, an unknown field or more than 10 entries
+  reads as an empty list.
+- **Shortcut:** Ctrl+Shift+T, the browsers' key for this, already starts a new session, so
+  reopening uses Ctrl+Shift+O. Without Shift, Ctrl+O stays with the shell (operate-and-get-next in
+  Readline).
+
 ## Known limits
 - Two sessions of the same agent in the same folder resume the same most recent conversation
   ([[resume]]), except for agents with conversation ids (claude since 0.3.0).

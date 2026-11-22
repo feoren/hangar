@@ -4,6 +4,20 @@
     "date": null,
     "items": [
       {
+        "de": "Zuletzt geschlossen: Unter Neue Session öffnet ein Klick eine geschlossene Session wieder, im selben Ordner mit demselben Gespräch. Oder Strg+Umschalt+O.",
+        "en": "Recently closed: under New session, one click reopens a closed session in the same folder with the same conversation. Or press Ctrl+Shift+O.",
+        "el": "Πρόσφατα κλειστές: στη Νέα συνεδρία ένα κλικ ανοίγει ξανά μια κλειστή συνεδρία στον ίδιο φάκελο με την ίδια συζήτηση. Ή Ctrl+Shift+O.",
+        "es": "Cerradas hace poco: en Nueva sesión, un clic reabre una sesión cerrada en la misma carpeta con la misma conversación. O pulsa Ctrl+Mayús+O.",
+        "fr": "Fermées récemment : sous Nouvelle session, un clic rouvre une session fermée dans le même dossier avec la même conversation. Ou Ctrl+Maj+O.",
+        "it": "Chiuse di recente: in Nuova sessione un clic riapre una sessione chiusa nella stessa cartella con la stessa conversazione. Oppure Ctrl+Maiusc+O.",
+        "ja": "最近閉じたセッション：「新しいセッション」でクリックするだけで、閉じたセッションを同じフォルダーと同じ会話で再び開けます。Ctrl+Shift+O でも開けます。",
+        "pl": "Ostatnio zamknięte: w Nowa sesja jedno kliknięcie otwiera zamkniętą sesję ponownie w tym samym folderze z tą samą rozmową. Albo Ctrl+Shift+O.",
+        "pt": "Fechadas há pouco: em Nova sessão, um clique reabre uma sessão fechada na mesma pasta com a mesma conversa. Ou use Ctrl+Shift+O.",
+        "ru": "Недавно закрытые: в «Новый сеанс» один щелчок снова открывает закрытый сеанс в той же папке с тем же разговором. Или Ctrl+Shift+O.",
+        "tr": "Son kapatılanlar: Yeni oturum altında tek tıkla kapatılan bir oturum aynı klasörde aynı sohbetle yeniden açılır. Ya da Ctrl+Shift+O.",
+        "zh": "最近关闭：在“新建会话”下点一下，即可在同一文件夹中以同一对话重新打开已关闭的会话。也可按 Ctrl+Shift+O。"
+      },
+      {
         "de": "Die Figuren der Sub-Agents bewegen sich jetzt ruhig, solange du sie siehst. Unter Einstellungen > Sub-Agenten wählst du Animiert oder Still.",
         "en": "Sub-agent figures now move calmly while you can see them. Choose Animated or Still in Settings > Sub-agents.",
         "el": "Οι φιγούρες των υπο-agents κινούνται πλέον ήρεμα όσο τις βλέπεις. Διάλεξε Κινούμενες ή Ακίνητες στις Ρυθμίσεις > Υπο-agents.",

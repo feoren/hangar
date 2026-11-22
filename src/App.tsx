@@ -348,13 +348,22 @@ import {
   loadMainPrefs,
   loadProtectedSettings,
   loadSecuritySwitches,
+  loadRecentlyClosed,
   loadStoredTemplates,
   migrateQueuedMessages,
   saveMainPrefs,
   saveProtectedSettings,
+  saveRecentlyClosed,
   saveStoredTemplates,
   type MainPrefs,
 } from "./mainStore";
+import {
+  closedEntry,
+  pushClosed,
+  shownClosed,
+  withoutClosed,
+  type ClosedSession,
+} from "./recentlyClosed";
 import {
   gateActive,
   hasStoredSettings,
@@ -912,6 +921,26 @@ export function App() {
       setTemplates(stored);
     });
   }, []);
+  /** Recently closed sessions (recentlyClosed.ts), kept by the backend for this window. */
+  const [recentlyClosed, setRecentlyClosed] = useState<ClosedSession[]>([]);
+  /** The list the backend holds; saved only once it was read, and changed. */
+  const savedClosed = useRef<ClosedSession[] | null>(null);
+  useEffect(() => {
+    void loadRecentlyClosed().then((stored) => {
+      savedClosed.current = stored;
+      // Sessions closed before the answer came go in front of the stored ones.
+      setRecentlyClosed((current) =>
+        current.reduceRight((list, entry) => pushClosed(list, entry), stored),
+      );
+    });
+  }, []);
+  useEffect(() => {
+    if (savedClosed.current === null || savedClosed.current === recentlyClosed) return;
+    savedClosed.current = recentlyClosed;
+    saveRecentlyClosed(recentlyClosed).catch(() => undefined);
+  }, [recentlyClosed]);
+  /** A recently closed session is starting again; a second click waits until it runs. */
+  const reopening = useRef(false);
   /** A template is starting its sessions; another start waits until it is done. */
   const templateStarting = useRef(false);
   /** Save or rename dialog of the templates. */
@@ -2741,6 +2770,10 @@ export function App() {
    * is "team" and gets `onStarted` with its id. A `fresh` one (the arena's) is taken away again
    * when the session does not run, a reused one (a handover) never. `subAgent`: Claude Code
    * starts as that sub-agent definition (subAgentLibrary.ts) and the session is named after it.
+   * `resume`: start the program resumed, as a restore does (a recently closed session): the
+   * conversation with `cliSessionId`, or without one the program's last conversation in the
+   * folder (`resumeArgs`); a program without either starts normally, and if resuming fails the
+   * backend starts it fresh (`resumeFallback`).
    * Resolves to the new session's id, `null` when it does not run.
    */
   const start = useCallback(
@@ -2752,6 +2785,7 @@ export function App() {
       onError?: (text: string) => void,
       prepared?: PreparedWorktree,
       subAgent: string | null = null,
+      resume: { cliSessionId: string | null } | null = null,
     ): Promise<number | null> => {
       const fail = onError ?? setError;
       const base = folder ?? targetRef.current;
@@ -2784,8 +2818,8 @@ export function App() {
           worktree?.path ?? base,
           terminal.startSize(INITIAL_SIZE),
           terminal.createChannel(),
-          false,
-          null,
+          resume !== null,
+          resume?.cliSessionId ?? null,
           mode === "team" && worktree !== undefined ? "team" : "private",
           // A prepared worktree (a handover, the arena) is not fresh from the project: no
           // upstream check as the first prompt.
@@ -3138,7 +3172,8 @@ export function App() {
    */
   const close = useCallback(
     async (id: number, discard = false) => {
-      const worktree = stateRef.current.sessions.find((s) => s.id === id)?.worktree;
+      const session = stateRef.current.sessions.find((s) => s.id === id);
+      const worktree = session?.worktree;
       let closed = true;
       if (!isPlaceholder(id)) {
         try {
@@ -3162,6 +3197,9 @@ export function App() {
       }
       terminals.delete(id);
       forgetFile(id);
+      // Only once the process is gone: a still running one holds the conversation.
+      const entry = closed && session !== undefined ? closedEntry(session, Date.now()) : null;
+      if (entry !== null) setRecentlyClosed((current) => pushClosed(current, entry));
       dispatch({ type: "removed", id });
       forgetAttention(id);
       setDevServers((current) => {
@@ -4633,6 +4671,35 @@ export function App() {
       crop="full"
     />
   );
+  /** What the sidebar and Ctrl+Shift+O offer to reopen: nothing that is open already. */
+  const closedShown = shownClosed(recentlyClosed, state.sessions);
+  /**
+   * Starts a recently closed session again: the same program in the same folder, privately,
+   * with its title and marker, resuming its conversation. The entry leaves the list either way;
+   * a program that is gone says so, a folder that is gone gives the start's own error.
+   */
+  const reopenClosed = (entry: ClosedSession) => {
+    // Until the profiles are read, every program would look gone and the entry would be lost.
+    if (reopening.current || profiles.length === 0) return;
+    setRecentlyClosed((current) => withoutClosed(current, entry));
+    const profile = profiles.find((p) => p.id === entry.profileId);
+    if (profile?.installed !== true) {
+      setError(t("recentlyClosed.programMissing", { name: profile?.name ?? entry.profileId }));
+      return;
+    }
+    reopening.current = true;
+    void start(profile, entry.cwd, "private", entry.title, undefined, undefined, null, {
+      cliSessionId: entry.cliSessionId,
+    })
+      .then((id) => {
+        if (id !== null && (entry.color !== null || entry.emoji !== null)) {
+          dispatch({ type: "marked", id, marker: { color: entry.color, emoji: entry.emoji } });
+        }
+      })
+      .finally(() => {
+        reopening.current = false;
+      });
+  };
   /** Start Claude Code in the target as a sub-agent, in the mode the switch says. */
   const startAgentHere = (profile: Profile, agent: string) => {
     if (!prefsReady) return;
@@ -5047,6 +5114,11 @@ export function App() {
           );
         }
         break;
+      case "reopenClosed": {
+        const entry = closedShown[0];
+        if (entry !== undefined) reopenClosed(entry);
+        break;
+      }
       case "find":
         openSearch();
         break;
@@ -5226,6 +5298,15 @@ export function App() {
           disabled: nextProgram === undefined,
           run: () => {
             perform("newSession");
+          },
+        },
+        {
+          type: "action",
+          label: t("menu.reopenClosed"),
+          shortcut: keys("reopenClosed"),
+          disabled: closedShown.length === 0,
+          run: () => {
+            perform("reopenClosed");
           },
         },
         { type: "action", label: t("menu.pickCwd"), run: () => void pickCwd() },
@@ -6638,6 +6719,8 @@ export function App() {
             dispatch({ type: "activated", id });
           }}
           onStart={startHere}
+          recentlyClosed={closedShown}
+          onReopenClosed={reopenClosed}
           agentStarts={targetAgents}
           onStartAgent={startAgentHere}
           updatingPrograms={updatingPrograms}
