@@ -900,10 +900,16 @@ compare claims with the protocol crate's `ClaimBoard` and decide reservations wi
     session is chosen), the waiting attempts, and every reservation with its holder, since when,
     when it runs out, its folder and one action (Release or Ask to release). Notices show once
     in the window and, in the background, as a desktop notification at most once a minute.
-  - **Protocol wishes (not built, nothing invented on the wire):** `task.release_requested` names
-    only the requester's member, so the app tries the requester's listed devices to open the note
-    (a holder would let it check one); a handover's `task.reserved` carries no note (the new
-    holder sends its own).
+  - **Protocol wishes (not built, nothing invented on the wire):** a handover's `task.reserved`
+    carries no note (the new holder sends its own).
+  - **Declined (2026-11-22): the requester's device in `task.release_requested`.** The app tries
+    the requester's listed devices to open the note; the device that opens it is the signer, which
+    is stronger than a device the relay names, and the card needs a signed note anyway. The log
+    gives devices no name, so "from device X" has nothing to show. Sending the field would break
+    every released app from 0.9.0 to 0.13.0: the message is `deny_unknown_fields`, so the frame
+    fails to decode, the app reconnects (`SessionEnd::Lost`) and the replay sends it again. Only
+    a version bump or a capability in `hello` could gate it, which is out of proportion to the
+    gain (one signature check instead of a few).
   - **Tests:** `team_tasks.rs` (notes, request notes, areas), engine tests against the in-memory
     relay with the protocol crate's `ReservationBook` (first wins and the blocked attempt names
     the holder, a request declined then refused by the cooldown then accepted with the title read

@@ -1512,3 +1512,9 @@ encryption. Filed a proposed amendment (crypto crate seal path, protocol version
 `blob.list`, `blob.stored`, `blob.delete`, unlogged live hints, limits, removed members, which
 agents get the context, why a decision is not a note) instead of a partial build. Updated:
 [[0005-team-collaboration]], [[0006-encrypted-project-notes]], [[team-service-v1]], index.
+
+## [2026-11-22] query | Requester's device in `task.release_requested` declined
+Checked whether the relay should name the requesting device (a holder) instead of the member. The
+app already learns the device from the note's signature, the log has no device names to show, and
+the field would break the released apps 0.9.0 to 0.13.0 (`deny_unknown_fields`, reconnect on a body
+that fails to decode, replay). Not built. Pages changed: [[team-protocol]], [[team-service-v1]], index.

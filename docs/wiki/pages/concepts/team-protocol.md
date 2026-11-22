@@ -4,7 +4,7 @@ type: concept
 tags: [collaboration, teams, protocol, websocket, hmac, hkdf, reservation, claims, threat-model]
 sources: []
 created: 2026-11-09
-updated: 2026-11-09
+updated: 2026-11-22
 ---
 
 # Team protocol
@@ -162,6 +162,12 @@ member and team and sends it to that member's connections right after their next
 drops it. One is enough, since the events themselves reach the devices on replay; the `notify` is
 the app's cue to raise a notification. An e-mail to the person is the website's business. The relay
 holds no team key, so `content` is null unless it passes on the release request's sealed note.
+
+Server bodies are `deny_unknown_fields`, and the app ends the connection on a body it cannot decode;
+a logged event comes back on replay. A new field in a server message therefore breaks every app
+already released, even when it is optional: the relay may send one only after a version bump or a
+capability the app announces. For this reason `task.release_requested.requester` stays the member
+only (the note's signature names the requesting device, see [[team-service-v1]]).
 
 `device.removed` follows a `device.remove`, after the `task.released` (memberRemoved) and
 `task.release_request_ended` (withdrawn) events of the device's holds and requests. Clients drop
