@@ -7,7 +7,7 @@ raw: raw/2026-11-09-claude-http-hook-measurement.md
 url: https://code.claude.com/docs/en/hooks
 retrieved: 2026-11-09
 created: 2026-11-09
-updated: 2026-11-09
+updated: 2026-11-22
 ---
 
 # Measurement: Claude Code http hooks through `--settings`
@@ -51,6 +51,7 @@ excerpts of the hooks reference (`raw/2026-11-09-claude-hooks-reference.md`).
   the step A watcher stays the second line.
 
 > [!question] Unverified
-> Interactive mode while a hook holds the request (Esc during the wait), sub-agent tool calls
-> (the reference says hooks there carry `agent_id`), a user settings file with hooks of its own,
-> and `--settings` with a file path instead of inline JSON were not measured.
+> Interactive mode while a hook holds the request (Esc during the wait), a user settings file
+> with hooks of its own, and `--settings` with a file path instead of inline JSON were not
+> measured. Sub-agent tool calls and their `agent_id` were measured later with 2.1.330:
+> [[claude-hook-agent-id-measurement]].

@@ -13,6 +13,9 @@ import { agentName, visibleAgents, type SubAgent } from "./subAgents";
 import { useClock } from "./useClock";
 import { useSubAgentView } from "./useSubAgents";
 
+/** Nobody waits. */
+const NOBODY: ReadonlySet<string> = new Set();
+
 /** The bubbles and the linger of finished figures move on with this clock. */
 const TICK_MS = 500;
 
@@ -35,8 +38,8 @@ interface Props {
   hidden: ReadonlySet<string>;
   /** The session waits for a decision of the user (a pending gate decision). */
   sessionWaits: boolean;
-  /** Unix ms since when it waits (the decision's creation); missing: not known. */
-  waitingSince?: number | null;
+  /** Sub-agents its pending gate decisions name (crew.ts `waitingSubAgents`); missing: none. */
+  waiting?: ReadonlySet<string>;
   /** Sub-agent shown in the open view. */
   picked: string | null;
   onShow: (sessionId: number, agentId: string | null, byKeyboard: boolean) => void;
@@ -58,7 +61,7 @@ function CrewBody({
   cwd,
   agents,
   sessionWaits,
-  waitingSince = null,
+  waiting = NOBODY,
   picked,
   onShow,
   onHide,
@@ -66,7 +69,7 @@ function CrewBody({
   const t = useT();
   const now = useClock(TICK_MS);
   const [throttle] = useState(() => new BubbleThrottle());
-  const crew = crewOf(agents, now, sessionWaits ? waitingSince : null);
+  const crew = crewOf(agents, now, sessionWaits ? waiting : NOBODY);
   const wanted = new Map(
     crew.entries.map(({ agent, state }) => [
       agent.id,

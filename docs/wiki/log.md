@@ -1489,3 +1489,12 @@ terms; the agent descriptions in all 12 languages now follow one pattern (vendor
 source (license)" only where proven), checked by `src/i18n.test.ts`. The Kimi catalog homepage
 points to the current `kimi-code` repository. New: [[agent-vendors-licenses]]. Updated:
 [[catalog]], index.
+
+## [2026-11-22] ingest | Claude Code agent_id in PreToolUse
+Measured with Claude Code 2.1.330 (print mode, haiku, command and http hook): a sub-agent's
+`PreToolUse` input carries `agent_id` and `agent_type`, the main agent's does not, and the id
+equals the sub-agent's transcript id; Codex documents neither field for `PreToolUse`. The gate now
+names the waiting sub-agents on each decision and the crew column marks exactly those; a
+decision that names nobody is the main agent's and nothing is guessed any more (the column exists
+only for Claude Code, which sends `agent_id` since 2.1.69). New: [[claude-hook-agent-id-measurement]]. Updated: [[crew-column]],
+[[claude-http-hook-measurement]], index.

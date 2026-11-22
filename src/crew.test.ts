@@ -4,7 +4,6 @@ import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 
 import {
-  awaitedAgent,
   BUBBLE_MIN_MS,
   BubbleThrottle,
   CREW_COLUMN_MIN_PANE,
@@ -13,7 +12,7 @@ import {
   crewShown,
   crewState,
   crewWatchWanted,
-  gateWaitingSince,
+  waitingSubAgents,
   DONE_LINGER_MS,
   MAX_CREW,
   QUIET_SHOWN_MS,
@@ -22,6 +21,9 @@ import {
 import type { SubAgent } from "./subAgents";
 
 const NOW = 1_000_000_000;
+
+/** No pending decision names a sub-agent. */
+const NOBODY: ReadonlySet<string> = new Set();
 
 function agent(id: string, over: Partial<SubAgent> = {}): SubAgent {
   return {
@@ -63,17 +65,6 @@ describe("state of a crew member", () => {
     expect(crewState(history, NOW, false)).toBeNull();
   });
 
-  it("picks the unfinished sub-agent with the newest activity as the awaited one", () => {
-    const list = [
-      agent("a", { lastActivity: NOW - 5000 }),
-      agent("b", { lastActivity: NOW - 1000 }),
-      agent("c", { status: "finished", lastActivity: NOW }),
-    ];
-    expect(awaitedAgent(list, NOW)).toBe("b");
-    expect(awaitedAgent([agent("c", { status: "finished" })], NOW)).toBeNull();
-    expect(awaitedAgent([], NOW)).toBeNull();
-  });
-
   it("waits for a decision only for a gate while the session needs you, never for a bell", () => {
     expect(waitsForDecision("attention", "gate")).toBe(true);
     expect(waitsForDecision("attention", "bell")).toBe(false);
@@ -84,49 +75,72 @@ describe("state of a crew member", () => {
 });
 
 describe("the crew of a session", () => {
-  it("keeps start order and marks the awaited one only when the session waits", () => {
+  it("keeps start order and marks only a sub-agent a decision names", () => {
     const list = [agent("a"), agent("b", { lastActivity: NOW - 10 })];
-    expect(crewOf(list, NOW, null).entries.map((e) => e.state)).toEqual(["working", "working"]);
-    // Both wrote before the gate began to wait; the one that wrote last is the awaited one.
-    expect(crewOf(list, NOW, NOW).entries.map((e) => e.state)).toEqual(["working", "waiting"]);
-  });
-
-  it("does not mark a sub-agent that writes since the gate began to wait", () => {
-    const list = [agent("a", { lastActivity: NOW - 1000 })];
-    expect(crewOf(list, NOW, NOW - 5000).entries[0]?.state).toBe("working");
-  });
-
-  it("marks a sub-agent that has been quiet since the gate began to wait", () => {
-    const list = [
-      agent("a", { lastActivity: NOW - 20_000 }),
-      agent("b", { lastActivity: NOW - 500 }),
-    ];
-    expect(crewOf(list, NOW, NOW - 5000).entries.map((e) => e.state)).toEqual([
-      "waiting",
+    expect(crewOf(list, NOW, NOBODY).entries.map((e) => e.state)).toEqual(["working", "working"]);
+    expect(crewOf(list, NOW, new Set(["b"])).entries.map((e) => e.state)).toEqual([
       "working",
+      "waiting",
     ]);
   });
 
-  it("takes the oldest pending gate decision of the session as the start of waiting", () => {
+  it("collects the sub-agents the session's decisions name", () => {
     const pending = [
-      { sessionId: 1, createdAt: 300 },
-      { sessionId: 2, createdAt: 100 },
-      { sessionId: 1, createdAt: 200 },
+      { sessionId: 1, agents: [] },
+      { sessionId: 1, agents: [{ id: "b" }, { id: "c" }] },
+      { sessionId: 2, agents: [{ id: "x" }] },
     ];
-    expect(gateWaitingSince(pending, 1)).toBe(200);
-    expect(gateWaitingSince(pending, 3)).toBeNull();
+    expect(waitingSubAgents(pending, 1)).toEqual(new Set(["b", "c"]));
+    expect(waitingSubAgents(pending, 3)).toEqual(new Set());
+  });
+
+  it("marks nobody for a decision that names nobody, not even the sub-agent quiet since", () => {
+    // "a" wrote last before the decision and has been quiet since: once guessed as the awaited
+    // one, now the main agent's decision, which no figure stands for.
+    const list = [
+      agent("a", { lastActivity: NOW - 20_000 }),
+      agent("b", { lastActivity: NOW - 500 }),
+      agent("c", { status: "stale", lastActivity: NOW - 90_000 }),
+    ];
+    const pending = [{ sessionId: 1, agents: [] }];
+    expect(crewOf(list, NOW, waitingSubAgents(pending, 1)).entries.map((e) => e.state)).toEqual([
+      "working",
+      "working",
+      "quiet",
+    ]);
+  });
+
+  it("marks exactly the named sub-agents, however they wrote", () => {
+    const list = [
+      agent("a", { lastActivity: NOW - 20_000 }),
+      agent("b", { lastActivity: NOW - 100 }),
+      agent("c", { status: "stale", lastActivity: NOW - 90_000 }),
+      agent("d", { status: "finished", lastActivity: NOW - 100 }),
+    ];
+    const pending = [{ sessionId: 1, agents: [{ id: "b" }, { id: "c" }, { id: "d" }] }];
+    // Several can wait at once; a finished one stays done.
+    expect(crewOf(list, NOW, waitingSubAgents(pending, 1)).entries.map((e) => e.state)).toEqual([
+      "working",
+      "waiting",
+      "waiting",
+      "done",
+    ]);
+    // A name the watch does not know marks nobody.
+    expect(crewOf(list, NOW, new Set(["gone"])).entries.some((e) => e.state === "waiting")).toBe(
+      false,
+    );
   });
 
   it("leaves out finished ones after their linger", () => {
     const list = [agent("a"), agent("b", { status: "finished", lastActivity: NOW - 60_000 })];
-    expect(crewOf(list, NOW, null).entries.map((e) => e.agent.id)).toEqual(["a"]);
+    expect(crewOf(list, NOW, NOBODY).entries.map((e) => e.agent.id)).toEqual(["a"]);
   });
 
   it("caps the crew, keeps the waiting and working ones and counts the rest", () => {
     const list = Array.from({ length: MAX_CREW + 3 }, (_, i) =>
       agent(`a${String(i)}`, i < 3 ? { status: "finished", lastActivity: NOW - 100 } : {}),
     );
-    const crew = crewOf(list, NOW, null);
+    const crew = crewOf(list, NOW, NOBODY);
     expect(crew.entries).toHaveLength(MAX_CREW);
     expect(crew.more).toBe(3);
     expect(crew.entries.every((e) => e.state === "working")).toBe(true);
@@ -138,8 +152,8 @@ describe("the crew of a session", () => {
 
 describe("visibility", () => {
   it("shows only when wanted and somebody stands in it", () => {
-    const some = crewOf([agent("a")], NOW, null);
-    const none = crewOf([], NOW, null);
+    const some = crewOf([agent("a")], NOW, NOBODY);
+    const none = crewOf([], NOW, NOBODY);
     expect(crewShown(true, some)).toBe(true);
     expect(crewShown(true, none)).toBe(false);
     expect(crewShown(false, some)).toBe(false);

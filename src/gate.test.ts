@@ -50,7 +50,14 @@ const rawDecision = {
 };
 
 function decision(overrides: Partial<PendingDecision> = {}): PendingDecision {
-  return { ...rawDecision, reserved: [], level: "overlappingLines", command: null, ...overrides };
+  return {
+    ...rawDecision,
+    reserved: [],
+    level: "overlappingLines",
+    command: null,
+    agents: [],
+    ...overrides,
+  };
 }
 
 /** A held shell command as the backend serializes it. */
@@ -292,6 +299,31 @@ describe("parseGateSnapshot", () => {
       log: [],
     });
     expect(parseGateSnapshot({ enabled: false, pending: [] })).toEqual(EMPTY_GATE);
+  });
+
+  it("reads the sub-agents a decision names and drops malformed ones", () => {
+    const agents = (value: unknown) =>
+      parseGateSnapshot({ enabled: true, pending: [{ ...rawDecision, agents: value }] })?.pending[0]
+        ?.agents;
+    expect(
+      agents([
+        { id: "aaafc28bb29131913", agentType: "general-purpose" },
+        { id: "b2" },
+        { id: "b2", agentType: "Explore" },
+        { id: "c/3", agentType: "Explore" },
+        { id: "d4", agentType: "two words" },
+        "e5",
+      ]),
+    ).toEqual([
+      { id: "aaafc28bb29131913", agentType: "general-purpose" },
+      { id: "b2", agentType: null },
+      { id: "d4", agentType: null },
+    ]);
+    // Missing or not a list: nobody is named, the decision itself still shows.
+    expect(agents(undefined)).toEqual([]);
+    expect(agents("a1")).toEqual([]);
+    expect(agents([{ id: "a".repeat(65) }])).toEqual([]);
+    expect(agents(Array.from({ length: 9 }, (_, i) => ({ id: `a${String(i)}` })))).toHaveLength(4);
   });
 
   it("keeps any tool name and empty lines (whole file or unknown)", () => {

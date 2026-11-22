@@ -32,6 +32,7 @@ const held: PendingDecision = {
   lines: [],
   createdAt: 0,
   command: ask,
+  agents: [],
 };
 
 function render(decision: PendingDecision, language: "en" | "de" = "en"): string {

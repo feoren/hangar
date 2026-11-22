@@ -426,7 +426,7 @@ import {
   type Dismissed,
 } from "./subAgents";
 import { SubAgentPane } from "./SubAgentPane";
-import { crewWatchWanted, gateWaitingSince, waitsForDecision } from "./crew";
+import { crewWatchWanted, waitingSubAgents, waitsForDecision } from "./crew";
 import { useUpdater } from "./useUpdater";
 import { useClaims } from "./useClaims";
 import { useTeam } from "./useTeam";
@@ -6873,7 +6873,7 @@ export function App() {
                               attention.get(session.id),
                               reasons.get(session.id),
                             ),
-                            waitingSince: gateWaitingSince(pendingGate, session.id),
+                            waiting: waitingSubAgents(pendingGate, session.id),
                             picked: subAgentsOf === session.id ? subAgentPick : null,
                             onShow: showSubAgent,
                             onHide: () => {

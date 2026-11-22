@@ -306,6 +306,12 @@ struct PreToolUseBody {
     tool_input: ToolInput,
     #[serde(default)]
     cwd: Option<String>,
+    /// Claude Code names the sub-agent a tool call comes from (measured with 2.1.330,
+    /// docs/wiki/pages/sources/claude-hook-agent-id-measurement.md); absent for the main agent.
+    #[serde(default)]
+    agent_id: TextField,
+    #[serde(default)]
+    agent_type: TextField,
 }
 
 /// Only the fields the gate needs; everything else, including the new file content of a
@@ -386,6 +392,39 @@ pub enum CommandText {
     TooLong(String),
 }
 
+/// Longest sub-agent type accepted from a hook, in bytes (`plugin:name` included).
+pub const MAX_AGENT_TYPE_BYTES: usize = 128;
+
+/// The sub-agent a hook request comes from, as the agent CLI named it. Only the window uses it
+/// (the crew column marks that sub-agent as waiting); no decision depends on it.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SubAgentRef {
+    /// The id Claude Code also uses in the sub-agent's transcript name (`agent-<id>.jsonl`).
+    pub id: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub agent_type: Option<String>,
+}
+
+/// Checks the sub-agent fields of a hook request: the id has the shape of a transcript id
+/// ([`crate::subagents::is_agent_id`]), the type is short and made of name characters. Anything
+/// else is dropped, never refused: the fields only label a card, and a refused request would let
+/// the call through unchecked. A type without an id names no sub-agent (Claude Code also sends
+/// the type for a main agent started with `--agent`), so it is dropped as well.
+pub fn sub_agent_ref(id: Option<&str>, agent_type: Option<&str>) -> Option<SubAgentRef> {
+    let id = id.filter(|id| crate::subagents::is_agent_id(id))?;
+    let agent_type = agent_type.filter(|kind| {
+        (1..=MAX_AGENT_TYPE_BYTES).contains(&kind.len())
+            && kind
+                .bytes()
+                .all(|b| b.is_ascii_alphanumeric() || matches!(b, b'_' | b'-' | b'.' | b':'))
+    });
+    Some(SubAgentRef {
+        id: id.to_owned(),
+        agent_type: agent_type.map(str::to_owned),
+    })
+}
+
 /// What an edit hook asks about.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct EditRequest {
@@ -399,6 +438,8 @@ pub struct EditRequest {
     /// An edit's path that is too long or holds a NUL, cut for the card: the gate cannot check
     /// it, so it asks instead of refusing the request (a refused request lets the edit through).
     pub unreadable_path: Option<String>,
+    /// The sub-agent the call comes from; `None` for the main agent or a CLI that does not say.
+    pub agent: Option<SubAgentRef>,
 }
 
 fn checked(value: String) -> Result<String, HookError> {
@@ -420,6 +461,7 @@ pub fn parse_pre_tool_use(reader: impl Read) -> Result<EditRequest, HookError> {
         serde_json::from_reader(std::io::BufReader::with_capacity(16 * 1024, reader))
             .map_err(|_| HookError::Shape)?;
     let tool = checked(body.tool_name)?;
+    let agent = sub_agent_ref(body.agent_id.0.as_deref(), body.agent_type.0.as_deref());
     let command_text = body.tool_input.command.0;
     let shell = is_shell_tool(&tool) || (!is_edit_tool(&tool) && command_text.is_some());
     let named = body.tool_input.file_path.or(body.tool_input.notebook_path);
@@ -449,6 +491,7 @@ pub fn parse_pre_tool_use(reader: impl Read) -> Result<EditRequest, HookError> {
         cwd,
         command,
         unreadable_path,
+        agent,
     })
 }
 
@@ -1385,6 +1428,11 @@ pub struct PendingDecision {
     /// named.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub command: Option<CommandAsk>,
+    /// The sub-agents whose requests wait on this decision, as the hooks named them, without
+    /// repeats; empty when every request came from the main agent or from a CLI that does not
+    /// name sub-agents.
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub agents: Vec<SubAgentRef>,
 }
 
 /// A guard rule as a card and a reason name it.
@@ -1474,9 +1522,9 @@ struct Pending<W> {
     key: String,
     /// Titles of the other sessions when the decision opened, for the reason text.
     titles: Vec<String>,
-    /// Every request waiting on this decision, by ticket: the same file asked again while the
-    /// first request waits shares its card.
-    waiters: Vec<(u64, W)>,
+    /// Every request waiting on this decision, by ticket, with the sub-agent it came from: the
+    /// same file asked again while the first request waits shares its card.
+    waiters: Vec<(u64, Option<SubAgentRef>, W)>,
 }
 
 impl<W> Pending<W> {
@@ -1484,8 +1532,29 @@ impl<W> Pending<W> {
     fn resolve(self, outcome: &Outcome) -> Vec<(W, Outcome)> {
         self.waiters
             .into_iter()
-            .map(|(_, waiter)| (waiter, outcome.clone()))
+            .map(|(_, _, waiter)| (waiter, outcome.clone()))
             .collect()
+    }
+
+    /// Adds a request to the card and names its sub-agent on it.
+    fn join(&mut self, ticket: u64, agent: Option<SubAgentRef>, waiter: W) {
+        self.waiters.push((ticket, agent, waiter));
+        self.name_agents();
+    }
+
+    /// The card names the sub-agents of the requests still waiting, in their order.
+    fn name_agents(&mut self) {
+        let mut agents: Vec<SubAgentRef> = Vec::new();
+        for agent in self
+            .waiters
+            .iter()
+            .filter_map(|(_, agent, _)| agent.as_ref())
+        {
+            if !agents.iter().any(|known| known.id == agent.id) {
+                agents.push(agent.clone());
+            }
+        }
+        self.decision.agents = agents;
     }
 
     /// The reason the agent reads, from `edit` for a file or `command` for a shell command.
@@ -1665,6 +1734,7 @@ impl<W> Gate<W> {
         &mut self,
         session: SessionId,
         tool: &str,
+        agent: Option<SubAgentRef>,
         conflict: CommandConflict,
         now_millis: u64,
         waiter: W,
@@ -1682,7 +1752,7 @@ impl<W> Gate<W> {
                 return Opened::Full;
             }
             self.next_ticket += 1;
-            pending.waiters.push((ticket, waiter));
+            pending.join(ticket, agent, waiter);
             return Opened::Waiting {
                 id: pending.decision.id,
                 ticket,
@@ -1727,10 +1797,11 @@ impl<W> Gate<W> {
                             hidden,
                         }
                     }),
+                    agents: agent.iter().cloned().collect(),
                 },
                 key,
                 titles: Vec::new(),
-                waiters: vec![(ticket, waiter)],
+                waiters: vec![(ticket, agent, waiter)],
             },
         );
         Opened::Waiting { id, ticket }
@@ -1739,11 +1810,14 @@ impl<W> Gate<W> {
     /// Queues a decision about `conflict`, unless the person already allowed the file. A request
     /// about a file the session already waits for joins that decision. [`Opened::Full`] when the
     /// session holds [`MAX_PENDING_PER_SESSION`] decisions, all sessions [`MAX_PENDING`], or the
-    /// decision [`MAX_WAITERS`] requests.
+    /// decision [`MAX_WAITERS`] requests. `agent`: the sub-agent the request comes from, named on
+    /// the card while its request waits.
+    #[allow(clippy::too_many_arguments)]
     pub fn open(
         &mut self,
         session: SessionId,
         tool: &str,
+        agent: Option<SubAgentRef>,
         conflict: Conflict,
         titles: Vec<String>,
         now_millis: u64,
@@ -1766,7 +1840,7 @@ impl<W> Gate<W> {
                 return Opened::Full;
             }
             self.next_ticket += 1;
-            pending.waiters.push((ticket, waiter));
+            pending.join(ticket, agent, waiter);
             return Opened::Waiting {
                 id: pending.decision.id,
                 ticket,
@@ -1809,10 +1883,11 @@ impl<W> Gate<W> {
                     lines: conflict.lines,
                     created_at: now_millis,
                     command: None,
+                    agents: agent.iter().cloned().collect(),
                 },
                 key: conflict.key,
                 titles,
-                waiters: vec![(ticket, waiter)],
+                waiters: vec![(ticket, agent, waiter)],
             },
         );
         Opened::Waiting { id, ticket }
@@ -1922,11 +1997,12 @@ impl<W> Gate<W> {
         let Some(pending) = self.pending.get_mut(&id) else {
             return false;
         };
-        pending.waiters.retain(|(t, _)| *t != ticket);
+        pending.waiters.retain(|(t, _, _)| *t != ticket);
         if pending.waiters.is_empty() {
             self.pending.remove(&id);
             return true;
         }
+        pending.name_agents();
         false
     }
 
@@ -2289,7 +2365,20 @@ mod tests {
                 cwd: Some(r"C:\r".into()),
                 command: None,
                 unreadable_path: None,
+                agent: None,
             }
+        );
+        // A sub-agent's call as Claude Code 2.1.330 sent it (measured).
+        let sub = br#"{"session_id":"x","cwd":"C:\\r","permission_mode":"acceptEdits",
+            "agent_id":"aaafc28bb29131913","agent_type":"general-purpose",
+            "hook_event_name":"PreToolUse","tool_name":"Write",
+            "tool_input":{"file_path":"C:\\r\\a.txt","content":"one"}}"#;
+        assert_eq!(
+            parse_pre_tool_use(&sub[..]).unwrap().agent,
+            Some(SubAgentRef {
+                id: "aaafc28bb29131913".into(),
+                agent_type: Some("general-purpose".into()),
+            })
         );
         let notebook =
             br#"{"tool_name":"NotebookEdit","tool_input":{"notebook_path":"/r/n.ipynb"}}"#;
@@ -2566,8 +2655,24 @@ mod tests {
         let mut gate: Gate<&str> = Gate::default();
         gate.set_enabled(true);
         let titles = vec!["Codex · feature".to_owned()];
-        let (a, _) = waiting(gate.open(1, "Edit", conflict("src/a.ts"), titles.clone(), 5, "a"));
-        let (b, _) = waiting(gate.open(1, "Write", conflict("src/b.ts"), titles.clone(), 6, "b"));
+        let (a, _) = waiting(gate.open(
+            1,
+            "Edit",
+            None,
+            conflict("src/a.ts"),
+            titles.clone(),
+            5,
+            "a",
+        ));
+        let (b, _) = waiting(gate.open(
+            1,
+            "Write",
+            None,
+            conflict("src/b.ts"),
+            titles.clone(),
+            6,
+            "b",
+        ));
         let snapshot = gate.snapshot();
         assert!(snapshot.enabled);
         assert_eq!(
@@ -2588,7 +2693,7 @@ mod tests {
         assert!(reason.contains("File: \"src/b.ts\""), "{reason}");
         assert!(gate.snapshot().pending.is_empty());
         // Allowed once means: asked again next time.
-        waiting(gate.open(1, "Edit", conflict("src/a.ts"), titles, 7, "c"));
+        waiting(gate.open(1, "Edit", None, conflict("src/a.ts"), titles, 7, "c"));
     }
 
     #[test]
@@ -2605,8 +2710,24 @@ mod tests {
         let mut gate: Gate<&str> = Gate::default();
         gate.set_enabled(true);
         let titles = vec!["Codex · feature".to_owned()];
-        let (a, _) = waiting(gate.open(1, "Edit", conflict("src/a.ts"), titles.clone(), 5, "a"));
-        let (b, _) = waiting(gate.open(1, "Edit", conflict("src/B.ts"), titles.clone(), 6, "b"));
+        let (a, _) = waiting(gate.open(
+            1,
+            "Edit",
+            None,
+            conflict("src/a.ts"),
+            titles.clone(),
+            5,
+            "a",
+        ));
+        let (b, _) = waiting(gate.open(
+            1,
+            "Edit",
+            None,
+            conflict("src/B.ts"),
+            titles.clone(),
+            6,
+            "b",
+        ));
         assert_eq!(
             gate.answer(a, Answer::AlwaysFolder),
             Some(vec![("a", Outcome::Allow)])
@@ -2623,7 +2744,7 @@ mod tests {
         };
         assert!(reason.contains("standing rule"), "{reason}");
         assert_eq!(gate.settle(b, RuleEffect::Deny), None);
-        let (c, _) = waiting(gate.open(1, "Edit", conflict("src/c.ts"), titles, 7, "c"));
+        let (c, _) = waiting(gate.open(1, "Edit", None, conflict("src/c.ts"), titles, 7, "c"));
         let resolved = gate.answer(c, Answer::NeverFile).unwrap();
         assert!(matches!(resolved[..], [("c", Outcome::Deny(_))]));
     }
@@ -2652,21 +2773,113 @@ mod tests {
         assert!(log[0].session.contains("<U+0007>"), "{}", log[0].session);
     }
 
+    fn sub_agent(id: &str) -> Option<SubAgentRef> {
+        Some(SubAgentRef {
+            id: id.into(),
+            agent_type: Some("general-purpose".into()),
+        })
+    }
+
+    #[test]
+    fn sub_agent_fields_are_kept_only_in_their_expected_shape() {
+        let kind = |id: &str, kind: &str| sub_agent_ref(Some(id), Some(kind));
+        assert_eq!(
+            kind("a1", "plugin:reviewer.v2")
+                .unwrap()
+                .agent_type
+                .as_deref(),
+            Some("plugin:reviewer.v2")
+        );
+        // A type that is too long or holds other characters goes, the id stays.
+        for bad in [
+            "",
+            "two words",
+            "a/b",
+            "x\u{202e}",
+            &"t".repeat(MAX_AGENT_TYPE_BYTES + 1),
+        ] {
+            assert_eq!(kind("a1", bad).unwrap().agent_type, None, "{bad:?}");
+        }
+        // An id that is no transcript id names nobody; a type alone names nobody either.
+        for bad in ["", "a.b", "../a", "a b", "a\0", &"a".repeat(65)] {
+            assert_eq!(kind(bad, "Explore"), None, "{bad:?}");
+        }
+        assert_eq!(sub_agent_ref(None, Some("Explore")), None);
+        // Odd values never refuse the request: it would let the call through unchecked.
+        for fields in [
+            r#""agent_id":7,"agent_type":["x"]"#,
+            r#""agent_id":{"a":1},"agent_type":null"#,
+            r#""agent_id":"a.b","agent_type":"Explore""#,
+        ] {
+            let body =
+                format!(r#"{{"tool_name":"Write","tool_input":{{"file_path":"/r/a"}},{fields}}}"#);
+            let request = parse_pre_tool_use(body.as_bytes()).unwrap();
+            assert_eq!(
+                (request.path.as_deref(), request.agent),
+                (Some("/r/a"), None),
+                "{body}"
+            );
+        }
+    }
+
+    #[test]
+    fn a_card_names_the_sub_agents_still_waiting_on_it() {
+        let mut gate: Gate<&str> = Gate::default();
+        gate.set_enabled(true);
+        let agents = |gate: &Gate<&str>| -> Vec<String> {
+            gate.snapshot().pending[0]
+                .agents
+                .iter()
+                .map(|agent| agent.id.clone())
+                .collect()
+        };
+        let (id, a) = waiting(gate.open(1, "Edit", sub_agent("a1"), conflict("x"), vec![], 0, "a"));
+        // The main agent and the same sub-agent again add no name; another sub-agent does.
+        let (_, main) = waiting(gate.open(1, "Edit", None, conflict("x"), vec![], 1, "m"));
+        waiting(gate.open(1, "Write", sub_agent("a1"), conflict("x"), vec![], 2, "a"));
+        let (_, b) = waiting(gate.open(1, "Edit", sub_agent("b2"), conflict("x"), vec![], 3, "b"));
+        assert_eq!(agents(&gate), ["a1", "b2"]);
+        // A request that stops waiting takes its name along, unless another of it still waits.
+        assert!(!gate.withdraw(id, b));
+        assert_eq!(agents(&gate), ["a1"]);
+        assert!(!gate.withdraw(id, a));
+        assert_eq!(agents(&gate), ["a1"]);
+        assert!(!gate.withdraw(id, main));
+        // A held command names its sub-agent too, and the window gets both fields.
+        let command = CommandConflict {
+            rules: vec![AskRule::new("force-push", "Force push")],
+            call: "git push --force".into(),
+            text: "git push --force".into(),
+        };
+        waiting(gate.open_command(2, "Bash", sub_agent("c3"), command, 5, "c"));
+        let json = serde_json::to_value(gate.snapshot()).unwrap();
+        assert_eq!(
+            json["pending"][1]["agents"],
+            serde_json::json!([{ "id": "c3", "agentType": "general-purpose" }])
+        );
+        // Without a sub-agent the field is left out, as older windows expect.
+        waiting(gate.open(3, "Edit", None, conflict("y"), vec![], 6, "d"));
+        let json = serde_json::to_value(gate.snapshot()).unwrap();
+        assert!(json["pending"][2].get("agents").is_none(), "{json}");
+    }
+
     #[test]
     fn the_same_file_asked_again_joins_the_waiting_decision() {
         let mut gate: Gate<&str> = Gate::default();
         gate.set_enabled(true);
-        let (first, ticket_1) = waiting(gate.open(1, "Edit", conflict("src/a.ts"), vec![], 0, "1"));
+        let (first, ticket_1) =
+            waiting(gate.open(1, "Edit", None, conflict("src/a.ts"), vec![], 0, "1"));
         // Another tool on the same file: still the same card.
         let (again, ticket_2) =
-            waiting(gate.open(1, "Write", conflict("src/a.ts"), vec![], 1, "2"));
+            waiting(gate.open(1, "Write", None, conflict("src/a.ts"), vec![], 1, "2"));
         assert_eq!(first, again);
         assert_ne!(ticket_1, ticket_2);
         assert_eq!(gate.snapshot().pending.len(), 1);
         // One request gives up: the card stays for the other.
         assert!(!gate.withdraw(first, ticket_1));
         assert_eq!(gate.snapshot().pending.len(), 1);
-        let (_, ticket_3) = waiting(gate.open(1, "Edit", conflict("src/a.ts"), vec![], 2, "3"));
+        let (_, ticket_3) =
+            waiting(gate.open(1, "Edit", None, conflict("src/a.ts"), vec![], 2, "3"));
         // The answer reaches every request still waiting.
         assert_eq!(
             gate.answer(first, Answer::AllowOnce),
@@ -2674,15 +2887,15 @@ mod tests {
         );
         assert!(!gate.withdraw(first, ticket_3));
         // Another session asking about the same file gets a card of its own.
-        let (mine, _) = waiting(gate.open(1, "Edit", conflict("src/a.ts"), vec![], 3, "4"));
-        let (theirs, _) = waiting(gate.open(2, "Edit", conflict("src/a.ts"), vec![], 3, "5"));
+        let (mine, _) = waiting(gate.open(1, "Edit", None, conflict("src/a.ts"), vec![], 3, "4"));
+        let (theirs, _) = waiting(gate.open(2, "Edit", None, conflict("src/a.ts"), vec![], 3, "5"));
         assert_ne!(mine, theirs);
         // A decision holds a few requests, not any number.
         for _ in 1..MAX_WAITERS {
-            waiting(gate.open(1, "Edit", conflict("src/a.ts"), vec![], 4, "x"));
+            waiting(gate.open(1, "Edit", None, conflict("src/a.ts"), vec![], 4, "x"));
         }
         assert_eq!(
-            gate.open(1, "Edit", conflict("src/a.ts"), vec![], 4, "x"),
+            gate.open(1, "Edit", None, conflict("src/a.ts"), vec![], 4, "x"),
             Opened::Full
         );
     }
@@ -2691,19 +2904,19 @@ mod tests {
     fn allow_for_this_file_skips_later_questions_of_that_session_only() {
         let mut gate: Gate<()> = Gate::default();
         gate.set_enabled(true);
-        let (id, _) = waiting(gate.open(1, "Edit", conflict("src/A.ts"), vec![], 0, ()));
+        let (id, _) = waiting(gate.open(1, "Edit", None, conflict("src/A.ts"), vec![], 0, ()));
         assert_eq!(
             gate.answer(id, Answer::AllowFile),
             Some(vec![((), Outcome::Allow)])
         );
         assert_eq!(
-            gate.open(1, "Edit", conflict("src/A.ts"), vec![], 0, ()),
+            gate.open(1, "Edit", None, conflict("src/A.ts"), vec![], 0, ()),
             Opened::Allowed
         );
-        waiting(gate.open(2, "Edit", conflict("src/A.ts"), vec![], 0, ()));
+        waiting(gate.open(2, "Edit", None, conflict("src/A.ts"), vec![], 0, ()));
         // A session that ends forgets what it was allowed.
         gate.forget(1);
-        waiting(gate.open(1, "Edit", conflict("src/A.ts"), vec![], 0, ()));
+        waiting(gate.open(1, "Edit", None, conflict("src/A.ts"), vec![], 0, ()));
     }
 
     #[test]
@@ -2711,7 +2924,15 @@ mod tests {
         let mut gate: Gate<u8> = Gate::default();
         gate.set_enabled(true);
         let open = |gate: &mut Gate<u8>, session, w| {
-            waiting(gate.open(session, "Edit", conflict("x.rs"), vec!["B".into()], 0, w))
+            waiting(gate.open(
+                session,
+                "Edit",
+                None,
+                conflict("x.rs"),
+                vec!["B".into()],
+                0,
+                w,
+            ))
         };
         let (a, _) = open(&mut gate, 1, 1);
         let expired = gate.expire(a).unwrap();
@@ -2745,22 +2966,22 @@ mod tests {
         let mut gate: Gate<()> = Gate::default();
         gate.set_enabled(true);
         for i in 0..MAX_PENDING_PER_SESSION {
-            waiting(gate.open(1, "Edit", conflict(&format!("f{i}")), vec![], 0, ()));
+            waiting(gate.open(1, "Edit", None, conflict(&format!("f{i}")), vec![], 0, ()));
         }
         assert_eq!(
-            gate.open(1, "Edit", conflict("one-more"), vec![], 0, ()),
+            gate.open(1, "Edit", None, conflict("one-more"), vec![], 0, ()),
             Opened::Full
         );
         // Another session still gets its decisions.
-        waiting(gate.open(2, "Edit", conflict("f0"), vec![], 0, ()));
+        waiting(gate.open(2, "Edit", None, conflict("f0"), vec![], 0, ()));
         // And over all sessions there is a limit as well.
         let mut session = 3;
         while gate.snapshot().pending.len() < MAX_PENDING {
-            waiting(gate.open(session, "Edit", conflict("x"), vec![], 0, ()));
+            waiting(gate.open(session, "Edit", None, conflict("x"), vec![], 0, ()));
             session += 1;
         }
         assert_eq!(
-            gate.open(session, "Edit", conflict("x"), vec![], 0, ()),
+            gate.open(session, "Edit", None, conflict("x"), vec![], 0, ()),
             Opened::Full
         );
     }
@@ -2934,7 +3155,7 @@ mod tests {
         gate.set_enabled(true);
         let conflict = assess_with_team(1, &key("c:/repo/src/b.ts"), &alone, &team).unwrap();
         let names = conflict.teammates.clone();
-        let (id, _) = waiting(gate.open(1, "Edit", conflict, names, 0, ()));
+        let (id, _) = waiting(gate.open(1, "Edit", None, conflict, names, 0, ()));
         assert_eq!(
             gate.snapshot().pending[0].teammates,
             ["Anna (Claude Code)", "Ben (Codex)"]
@@ -3168,7 +3389,7 @@ mod tests {
         // The card carries the reservation, neutralized like every name.
         let mut gate: Gate<&str> = Gate::default();
         gate.set_enabled(true);
-        gate.open(1, "Edit", conflict, Vec::new(), 1, "w");
+        gate.open(1, "Edit", None, conflict, Vec::new(), 1, "w");
         assert_eq!(gate.snapshot().pending[0].reserved[0].title, "Fix login");
     }
 

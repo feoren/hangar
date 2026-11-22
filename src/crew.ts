@@ -36,18 +36,21 @@ export function waitsForDecision(
   return attention === "attention" && reason === "gate";
 }
 
-/** Since when the session's oldest pending gate decision waits (Unix ms); `null`: none. */
-export function gateWaitingSince(
-  pending: readonly { sessionId: number; createdAt: number }[],
+/**
+ * The sub-agents the session's pending gate decisions name (Claude Code's `agent_id`). A decision
+ * that names nobody is the main agent's: the column exists only for Claude Code, which names a
+ * sub-agent on every tool call since 2.1.69, so nobody is guessed.
+ */
+export function waitingSubAgents(
+  pending: readonly { sessionId: number; agents: readonly { id: string }[] }[],
   sessionId: number,
-): number | null {
-  let since: number | null = null;
+): ReadonlySet<string> {
+  const named = new Set<string>();
   for (const decision of pending) {
-    if (decision.sessionId === sessionId && (since === null || decision.createdAt < since)) {
-      since = decision.createdAt;
-    }
+    if (decision.sessionId !== sessionId) continue;
+    for (const agent of decision.agents) named.add(agent.id);
   }
-  return since;
+  return named;
 }
 
 /** Sub-agents are watched for the column while the session supports them and the switch is on. */
@@ -62,8 +65,8 @@ export interface CrewEntry {
 
 /**
  * The state of one sub-agent, `null` when it does not belong in the column any more (a finished
- * one after its linger, a quiet one that is history). `awaited`: this is the sub-agent the
- * session's pending decision most likely belongs to.
+ * one after its linger, a quiet one that is history). `awaited`: a pending gate decision of the
+ * session names this sub-agent.
  */
 export function crewState(agent: SubAgent, now: number, awaited: boolean): CrewState | null {
   const age = agent.lastActivity === null ? 0 : Math.max(0, now - agent.lastActivity);
@@ -75,22 +78,6 @@ export function crewState(agent: SubAgent, now: number, awaited: boolean): CrewS
     case "running":
       return awaited ? "waiting" : "working";
   }
-}
-
-/**
- * The sub-agent a decision that has waited since `waitingSince` (Unix ms) most likely belongs to:
- * among the unfinished ones that wrote nothing since then, the one that wrote last. One that has
- * written since is not waiting; `null` when none fits. The sub-agent's own id is not known to the
- * gate (see the wiki), so this stays a guess.
- */
-export function awaitedAgent(agents: readonly SubAgent[], waitingSince: number): string | null {
-  let best: SubAgent | null = null;
-  for (const agent of agents) {
-    if (agent.status === "finished" || agent.lastActivity === null) continue;
-    if (agent.lastActivity >= waitingSince) continue;
-    if (best === null || agent.lastActivity >= (best.lastActivity ?? 0)) best = agent;
-  }
-  return best?.id ?? null;
 }
 
 const RANK: Record<CrewState, number> = { waiting: 0, working: 1, quiet: 2, done: 3 };
@@ -105,17 +92,17 @@ export interface Crew {
 /**
  * The crew of a session: every sub-agent that still belongs in the column, at most `max` of them
  * (waiting first, then working, quiet, done, newer before older), shown in start order.
+ * `waiting`: the sub-agents a pending gate decision names ({@link waitingSubAgents}).
  */
 export function crewOf(
   agents: readonly SubAgent[],
   now: number,
-  waitingSince: number | null,
+  waiting: ReadonlySet<string>,
   max: number = MAX_CREW,
 ): Crew {
-  const awaited = waitingSince === null ? null : awaitedAgent(agents, waitingSince);
   const all: { entry: CrewEntry; index: number }[] = [];
   agents.forEach((agent, index) => {
-    const state = crewState(agent, now, agent.id === awaited);
+    const state = crewState(agent, now, waiting.has(agent.id));
     if (state !== null) all.push({ entry: { agent, state }, index });
   });
   if (all.length <= max) return { entries: all.map((e) => e.entry), more: 0 };

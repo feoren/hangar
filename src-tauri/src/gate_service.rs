@@ -2120,7 +2120,7 @@ impl Inner {
         if let Some(start) = &request.unreadable_path {
             let text = format!("{}: {start}", request.tool);
             let hit = Hit::builtin(RULE_TOO_LONG, String::new());
-            return self.ask_command(session, &request.tool, own, text, vec![hit], stream, false);
+            return self.ask_command(session, &request, own, text, vec![hit], stream, false);
         }
         let Some(path) = request.path.as_deref() else {
             return Outcome::Allow;
@@ -2138,7 +2138,7 @@ impl Inner {
         {
             let text = format!("{}: {path}", request.tool);
             let hit = Hit::builtin(RULE_HANGAR_CONFIG, text.clone());
-            return self.ask_command(session, &request.tool, own, text, vec![hit], stream, false);
+            return self.ask_command(session, &request, own, text, vec![hit], stream, false);
         }
         // A session outside every known worktree cannot collide; its path is not even looked at.
         let Some(own) = own else {
@@ -2194,6 +2194,7 @@ impl Inner {
             gate.open(
                 session,
                 &request.tool,
+                request.agent.clone(),
                 conflict,
                 named.clone(),
                 now_millis(),
@@ -2238,19 +2239,19 @@ impl Inner {
             .into_iter()
             .filter(|hit| guard_on || hit.rule_id == RULE_HANGAR_CONFIG)
             .collect();
-        self.ask_command(session, &request.tool, own, text, hits, stream, true)
+        self.ask_command(session, request, own, text, hits, stream, true)
     }
 
     /// The person's decision about `hits` of one command (or an edit of Hangar's settings): a
     /// remembered deny for any rule blocks it, rules with a remembered allow drop out, and the
     /// rest are asked about on one card. Allowed at once when nothing is left. `guarded`: the
     /// hits come from the command guard, so switching it off before the card opens drops all
-    /// but Hangar's own settings.
+    /// but Hangar's own settings. `request` gives the tool and the sub-agent named on the card.
     #[allow(clippy::too_many_arguments)]
     fn ask_command(
         &self,
         session: SessionId,
-        tool: &str,
+        request: &EditRequest,
         own: Option<&WorktreeClaims>,
         text: String,
         hits: Vec<Hit>,
@@ -2334,7 +2335,14 @@ impl Inner {
                 text,
             };
             (
-                gate.open_command(session, tool, conflict, now_millis(), tx),
+                gate.open_command(
+                    session,
+                    &request.tool,
+                    request.agent.clone(),
+                    conflict,
+                    now_millis(),
+                    tx,
+                ),
                 rules,
             )
         };
@@ -3489,9 +3497,17 @@ mod tests {
         };
         // The hits were found while the guard was on; it is switched off before the card opens.
         fixture.service.configure_command_guard(false);
+        let request = EditRequest {
+            tool: "Bash".into(),
+            path: None,
+            cwd: None,
+            command: None,
+            unreadable_path: None,
+            agent: None,
+        };
         let outcome = fixture.service.inner.ask_command(
             1,
-            "Bash",
+            &request,
             None,
             "git push --force".into(),
             vec![hit("git-push-force")],
@@ -3625,6 +3641,45 @@ mod tests {
             post(port, ROUTE_PRE_TOOL_USE, Some(&token), &body),
             (200, String::new())
         );
+    }
+
+    #[test]
+    fn a_card_names_the_sub_agent_whose_call_waits() {
+        let fixture = fixture(DECISION_TIMEOUT);
+        fixture.service.configure(true);
+        let (port, token) = launch(&fixture, 1);
+        let from_sub_agent = |body: String| {
+            let mut json: serde_json::Value = serde_json::from_str(&body).unwrap();
+            json["agent_id"] = "aaafc28bb29131913".into();
+            json["agent_type"] = "general-purpose".into();
+            json.to_string()
+        };
+        let named = vec![gate::SubAgentRef {
+            id: "aaafc28bb29131913".into(),
+            agent_type: Some("general-purpose".into()),
+        }];
+        for body in [
+            from_sub_agent(edit(&fixture.root, "src/shared.rs")),
+            from_sub_agent(bash(&fixture.root, "git push --force")),
+        ] {
+            let waiting = {
+                let token = token.clone();
+                thread::spawn(move || post(port, ROUTE_PRE_TOOL_USE, Some(&token), &body))
+            };
+            let decision = next_pending(&fixture.events).pending.remove(0);
+            assert_eq!(decision.agents, named);
+            assert!(fixture.service.answer(decision.id, Answer::Deny));
+            assert_eq!(waiting.join().unwrap().0, 200);
+        }
+        // The main agent's call names nobody.
+        let waiting = {
+            let (token, body) = (token.clone(), edit(&fixture.root, "src/shared.rs"));
+            thread::spawn(move || post(port, ROUTE_PRE_TOOL_USE, Some(&token), &body))
+        };
+        let decision = next_pending(&fixture.events).pending.remove(0);
+        assert!(decision.agents.is_empty());
+        assert!(fixture.service.answer(decision.id, Answer::Deny));
+        assert_eq!(waiting.join().unwrap().0, 200);
     }
 
     #[test]

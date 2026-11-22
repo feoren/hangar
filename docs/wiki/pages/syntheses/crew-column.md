@@ -2,9 +2,9 @@
 title: Crew column
 type: synthesis
 tags: [agents, claude-code, sub-agents, layout, figures]
-sources: [[sub-agent-library]], [[agent-workflow-features]]
+sources: [[sub-agent-library]], [[agent-workflow-features]], [[claude-hook-agent-id-measurement]]
 created: 2026-11-16
-updated: 2026-11-16
+updated: 2026-11-22
 ---
 
 # Crew column
@@ -12,8 +12,8 @@ updated: 2026-11-16
 While an agent session has sub-agents running, they stand as whole figures in one line, one below
 the other, in a column right of that session's terminal. Each figure says in a speech bubble what
 it does right now and stands on a plinth whose color shows its state. The figures do not move.
-Data comes from the existing sub-agent watch ([[agent-workflow-features]], item 23); nothing in
-the backend changes.
+Data comes from the existing sub-agent watch ([[agent-workflow-features]], item 23) and, for
+who waits, from the gate's pending decisions (see "Who waits" below).
 
 ## Layout
 
@@ -48,22 +48,32 @@ reduced motion).
 | State | When | Token | State word (tooltip, label) | Bubble |
 | ----- | ---- | ----- | --------------------------- | ------ |
 | working | status `running` | `--accent` | Working | tool and target, e.g. "Reading terminal.ts" |
-| waiting | the session has a pending gate decision (reason `gate`, never `bell`) and this is the unfinished sub-agent whose last write is before the decision's creation and newest of those; one that wrote since is not waiting | `--warn` (amber in both themes), stronger tint and a ring | Waiting for you | "I need your OK" |
+| waiting | the session has a pending gate decision (reason `gate`, never `bell`) whose hook named this sub-agent (`agent_id`); for a decision that names nobody, the fallback below | `--warn` (amber in both themes), stronger tint and a ring | Waiting for you | "I need your OK" |
 | done | status `finished`, hidden after 8 s | `--ok` | Done | "Done" |
 | quiet | status `stale` (no writes for a minute: cancelled, crashed or waiting long) | `--muted` | Quiet | "Quiet for over a minute" |
 
 No failed state: the transcript does not say whether a sub-agent failed or was cancelled, so
-nothing is claimed. `stale` stays honest as "quiet". The waiting state is inferred from the
-session, not read from the sub-agent; with several candidates the one that wrote last before the
-decision is marked. `bell` does not count: Claude Code also rings it for the main agent's idle
-notice ([[agent-prompt-shapes]]).
+nothing is claimed. `stale` stays honest as "quiet". `bell` does not count: Claude Code also
+rings it for the main agent's idle notice ([[agent-prompt-shapes]]).
 
-> [!question] Unverified
-> Claude Code's hook reference says hooks carry `agent_id` for sub-agent tool calls
-> ([[subagent-transcripts]], [[claude-http-hook-measurement]]), which would name the waiting
-> sub-agent exactly. The gate does not pass it on today (`PendingDecision` has no such field) and
-> the field was never measured, so the guess above stays. Follow-up: the backend reads `agent_id`
-> from the gate hook input and sends it with the decision; this needs a backend rebuild.
+**Who waits.** Claude Code 2.1.330 sends `agent_id` and `agent_type` in the `PreToolUse` input of
+a sub-agent's tool call, over command and http hooks, and leaves both out for the main agent;
+`agent_id` is the id of the sub-agent's transcript, which the watch uses
+([[claude-hook-agent-id-measurement]]). The gate keeps them only in the expected shape (an id of
+1 to 64 letters, digits, `_` or `-`; a type of up to 128 such characters plus `.` and `:`; a type
+without an id is dropped, since `--agent` sends it for a main agent too) and never refuses a
+request over them (`src-tauri/src/gate.rs`, `sub_agent_ref`). The helper `hangar gate-hook`
+passes them on from any agent that sends them. Each pending decision lists the sub-agents of the
+requests still waiting on it (`PendingDecision.agents`, at most four, one per request); a request
+that stops waiting takes its name along. The column marks every named sub-agent as waiting, so
+several can wait at once; a name the watch does not know marks nobody (`src/crew.ts`,
+`waitingSubAgents`).
+
+**A decision that names nobody** is the main agent's; nothing is guessed. Claude Code sends
+`agent_id` on a sub-agent's tool calls since 2.1.69 ([[subagent-transcripts]]), and the column
+exists only for Claude Code (`SubAgentKind` has only `Claude`). An earlier version guessed the
+sub-agent that wrote last before the decision, which marked a quiet sub-agent as "Waiting for
+you" while the main agent was the one asking.
 
 Bubble text from the newest tool call (`crewText.ts`): known tools get a verb with the target
 ("Reading terminal.ts", "Searching for trackTyped", "Editing SessionLook.tsx", "Running cargo test"),

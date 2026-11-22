@@ -59,6 +59,7 @@ function mount(
   form: CrewForm,
   handlers: { onShow?: ShowFn; onHide?: HideFn } = {},
   picked: string | null = null,
+  waiting: ReadonlySet<string> | null = null,
 ) {
   const onShow = handlers.onShow ?? vi.fn<ShowFn>();
   const onHide = handlers.onHide ?? vi.fn<HideFn>();
@@ -73,7 +74,8 @@ function mount(
           cwd={null}
           watchKey="7:cli"
           hidden={new Set()}
-          sessionWaits={false}
+          sessionWaits={waiting !== null}
+          waiting={waiting ?? new Set()}
           picked={picked}
           onShow={onShow}
           onHide={onHide}
@@ -210,6 +212,36 @@ describe("CrewColumn", () => {
   it("puts the sub-agent's name before its text in the strip", () => {
     mount("strip");
     expect(host.querySelector(".crew-chip-name")?.textContent).toBe("Explore");
+  });
+
+  function waitingStates(): boolean[] {
+    return [...host.querySelectorAll(".crew-item")].map((item) =>
+      item.classList.contains("state-waiting"),
+    );
+  }
+
+  /** "a1" wrote before the decision and is quiet since, "a2" writes now. */
+  function quietAndBusy() {
+    const now = Date.now();
+    view.current = {
+      located: null,
+      agents: [
+        subAgent("a1", { lastActivity: now - 60_000 }),
+        subAgent("a2", { lastActivity: now }),
+      ],
+    };
+  }
+
+  it("marks exactly the sub-agent the gate decision names as waiting", () => {
+    quietAndBusy();
+    mount("column", {}, null, new Set(["a2"]));
+    expect(waitingStates()).toEqual([false, true]);
+  });
+
+  it("marks nobody while the session waits on a decision that names nobody", () => {
+    quietAndBusy();
+    mount("column", {}, null, new Set());
+    expect(waitingStates()).toEqual([false, false]);
   });
 
   it("keeps the name on the plinth of a finished sub-agent", () => {

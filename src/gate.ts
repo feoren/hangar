@@ -123,6 +123,13 @@ export function ruleText(rule: AskRule, t: Translate): string {
   return key === undefined ? revealInvisible(rule.description) : t(key);
 }
 
+/** A sub-agent whose request waits on a decision, as its hook named it (Rust: `SubAgentRef`). */
+export interface GateAgent {
+  /** The sub-agent's id, the same as in the sub-agent watch (`SubAgent.id`). */
+  id: string;
+  agentType: string | null;
+}
+
 /** One edit or shell command waiting for the person's answer (Rust: `PendingDecision`). */
 export interface PendingDecision {
   /** Unique per app run. */
@@ -146,6 +153,8 @@ export interface PendingDecision {
   createdAt: number;
   /** Set for a held shell command; `path` is empty then and nobody else is named. */
   command: CommandAsk | null;
+  /** Sub-agents whose requests wait on it; empty for the main agent or a CLI that names none. */
+  agents: GateAgent[];
 }
 
 /** Answer of `gate_snapshot`, read after each payload-free `gate-changed`. */
@@ -282,6 +291,38 @@ function parseCommand(value: unknown): CommandAsk | null {
   return { rules, call, text: commandText, hidden, rememberable };
 }
 
+/** Backend limits (gate.rs `sub_agent_ref`); the window checks them again. */
+const AGENT_ID = /^[A-Za-z0-9_-]{1,64}$/;
+const AGENT_TYPE = /^[A-Za-z0-9_.:-]{1,128}$/;
+/** A card holds at most this many requests (gate.rs `MAX_WAITERS`), so this many names. */
+const MAX_GATE_AGENTS = 4;
+
+function parseGateAgent(value: unknown): GateAgent | null {
+  const id = field(value, "id");
+  const agentType = field(value, "agentType");
+  if (typeof id !== "string" || !AGENT_ID.test(id)) return null;
+  return {
+    id,
+    agentType: typeof agentType === "string" && AGENT_TYPE.test(agentType) ? agentType : null,
+  };
+}
+
+/**
+ * The sub-agents a decision names. A missing or malformed list names nobody instead of failing
+ * the decision: the names only place a figure in the crew column, the card must show either way.
+ */
+function parseGateAgents(value: unknown): GateAgent[] {
+  if (!Array.isArray(value)) return [];
+  const agents: GateAgent[] = [];
+  // A list far longer than any card holds is not read in full.
+  for (const item of value.slice(0, MAX_GATE_AGENTS * 4)) {
+    const agent = parseGateAgent(item);
+    if (agent !== null && !agents.some((known) => known.id === agent.id)) agents.push(agent);
+    if (agents.length === MAX_GATE_AGENTS) break;
+  }
+  return agents;
+}
+
 function parseDecision(value: unknown): PendingDecision | null {
   const id = field(value, "id");
   const sessionId = field(value, "sessionId");
@@ -300,6 +341,7 @@ function parseDecision(value: unknown): PendingDecision | null {
   const level = LEVELS.find((entry) => entry === field(value, "level"));
   const lines = list(field(value, "lines"), parseRange);
   const createdAt = field(value, "createdAt");
+  const agents = parseGateAgents(field(value, "agents"));
   const commandValue = field(value, "command");
   const command =
     commandValue === undefined || commandValue === null ? null : parseCommand(commandValue);
@@ -320,6 +362,7 @@ function parseDecision(value: unknown): PendingDecision | null {
       lines: [],
       createdAt,
       command,
+      agents,
     };
   }
   if (typeof path !== "string" || path === "" || level === undefined || lines === null) {
@@ -341,6 +384,7 @@ function parseDecision(value: unknown): PendingDecision | null {
     lines,
     createdAt,
     command: null,
+    agents,
   };
 }
 

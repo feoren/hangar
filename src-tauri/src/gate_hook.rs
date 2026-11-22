@@ -25,7 +25,9 @@ use std::time::{Duration, Instant};
 
 use serde_json::Value;
 
-use crate::gate::{DECISION_TIMEOUT, MAX_FIELD_BYTES, ROUTE_PRE_TOOL_USE};
+use crate::gate::{
+    sub_agent_ref, SubAgentRef, DECISION_TIMEOUT, MAX_FIELD_BYTES, ROUTE_PRE_TOOL_USE,
+};
 use crate::hook_recipes::{
     AGENT_CODEX, AGENT_COPILOT, AGENT_CURSOR, AGENT_DROID, AGENT_GEMINI, EVENT_BEFORE_TOOL,
     EVENT_PRE_TOOL_USE, HELPER_ENV,
@@ -97,6 +99,9 @@ pub struct ToolCall {
     /// As the agent named them: absolute or relative to `cwd`, in either separator style.
     pub paths: Vec<String>,
     pub cwd: Option<String>,
+    /// The sub-agent the call comes from, when the agent's hook input names one (`agent_id`,
+    /// `agent_type` as Claude Code sends them); passed on so the window knows who waits.
+    pub agent: Option<SubAgentRef>,
 }
 
 /// What the gate said about the whole call.
@@ -227,7 +232,9 @@ fn string_field(input: &Value, keys: &[&str]) -> Option<String> {
 /// text counts); Copilot CLI sends `toolName`,
 /// `toolArgs` (object or JSON string) and `cwd`, or the snake case shape for its PascalCase events.
 /// Cursor CLI sends `tool_name` (`Write`, `Delete`) and `tool_input` with an absolute `file_path`,
-/// no `cwd` but `workspace_roots` (measured with 2026.11.19).
+/// no `cwd` but `workspace_roots` (measured with 2026.11.19). `agent_id` and `agent_type` are
+/// read from any agent and kept only when they pass [`sub_agent_ref`]; Codex documents neither
+/// for `PreToolUse`, the others are not measured.
 pub fn parse_call(agent: HookAgent, input: &[u8]) -> Result<ToolCall, HelperError> {
     let json: Value = serde_json::from_slice(input).map_err(|_| HelperError::Shape)?;
     if !json.is_object() {
@@ -255,18 +262,34 @@ pub fn parse_call(agent: HookAgent, input: &[u8]) -> Result<ToolCall, HelperErro
         tool,
         paths: argument_paths(args),
         cwd: string_field(&json, &["cwd"]).or_else(workspace),
+        agent: sub_agent_ref(
+            json.get("agent_id").and_then(Value::as_str),
+            json.get("agent_type").and_then(Value::as_str),
+        ),
     })
 }
 
-/// The request Claude Code's HTTP hook sends, which the endpoint already reads.
-pub fn gate_request(tool: &str, path: &str, cwd: Option<&str>) -> String {
-    serde_json::json!({
+/// The request Claude Code's HTTP hook sends, which the endpoint already reads; the sub-agent's
+/// fields only when the agent named one.
+pub fn gate_request(
+    tool: &str,
+    path: &str,
+    cwd: Option<&str>,
+    agent: Option<&SubAgentRef>,
+) -> String {
+    let mut request = serde_json::json!({
         "hook_event_name": "PreToolUse",
         "tool_name": tool,
         "tool_input": { "file_path": path },
         "cwd": cwd,
-    })
-    .to_string()
+    });
+    if let Some(agent) = agent {
+        request["agent_id"] = Value::from(agent.id.as_str());
+        if let Some(kind) = &agent.agent_type {
+            request["agent_type"] = Value::from(kind.as_str());
+        }
+    }
+    request.to_string()
 }
 
 /// The endpoint's answer body: empty is no decision, otherwise Claude Code's
@@ -476,7 +499,7 @@ fn decide(
         return Verdict::Ask(unreadable_path_reason());
     }
     for path in call.paths.iter().take(MAX_PATHS) {
-        let body = gate_request(&call.tool, path, call.cwd.as_deref());
+        let body = gate_request(&call.tool, path, call.cwd.as_deref(), call.agent.as_ref());
         let verdict = post(port, token, &body, deadline).and_then(|(status, body)| {
             if status == 200 {
                 read_verdict(&body)
@@ -868,11 +891,47 @@ mod tests {
 
     #[test]
     fn the_request_is_claude_codes_shape() {
-        let body = gate_request("apply_patch", "src/a.rs", Some("/repo"));
+        let body = gate_request("apply_patch", "src/a.rs", Some("/repo"), None);
         let parsed = crate::gate::parse_pre_tool_use(body.as_bytes()).unwrap();
         assert_eq!(parsed.tool, "apply_patch");
         assert_eq!(parsed.path.as_deref(), Some("src/a.rs"));
         assert_eq!(parsed.cwd.as_deref(), Some("/repo"));
+        assert_eq!(parsed.agent, None);
+        assert!(!body.contains("agent_id"), "{body}");
+    }
+
+    #[test]
+    fn a_named_sub_agent_travels_to_the_endpoint() {
+        let input = serde_json::json!({
+            "cwd": "/repo", "tool_name": "Create", "tool_input": { "file_path": "a.rs" },
+            "agent_id": "aaafc28bb29131913", "agent_type": "general-purpose",
+        });
+        let call = parse_call(HookAgent::Droid, input.to_string().as_bytes()).unwrap();
+        let agent = SubAgentRef {
+            id: "aaafc28bb29131913".into(),
+            agent_type: Some("general-purpose".into()),
+        };
+        assert_eq!(call.agent.as_ref(), Some(&agent));
+        let body = gate_request(&call.tool, "a.rs", call.cwd.as_deref(), call.agent.as_ref());
+        let parsed = crate::gate::parse_pre_tool_use(body.as_bytes()).unwrap();
+        assert_eq!(parsed.agent, Some(agent));
+        // Without the fields, or with values that are not ids, nobody is named.
+        for extra in [
+            serde_json::json!({}),
+            serde_json::json!({ "agent_type": "general-purpose" }),
+            serde_json::json!({ "agent_id": "a/../b" }),
+            serde_json::json!({ "agent_id": 7 }),
+            serde_json::json!({ "agent_id": "a".repeat(65) }),
+        ] {
+            let mut input = serde_json::json!({
+                "tool_name": "apply_patch", "tool_input": { "command": "x" },
+            });
+            for (key, value) in extra.as_object().unwrap() {
+                input[key] = value.clone();
+            }
+            let call = parse_call(HookAgent::Codex, input.to_string().as_bytes()).unwrap();
+            assert_eq!(call.agent, None, "{input}");
+        }
     }
 
     fn os(list: &[&str]) -> Vec<OsString> {
@@ -932,6 +991,7 @@ mod tests {
                 tool: "write_file".into(),
                 paths: vec!["ok.rs".into(), path],
                 cwd: Some("/repo".into()),
+                agent: None,
             };
             let mut notes = Vec::new();
             let verdict = decide(
