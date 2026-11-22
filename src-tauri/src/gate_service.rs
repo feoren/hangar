@@ -2162,18 +2162,16 @@ impl Inner {
             .iter()
             .map(|id| titles.get(id).cloned().unwrap_or_else(|| format!("#{id}")))
             .chain(conflict.teammates.iter().cloned())
-            .chain(
-                conflict
-                    .reserved
-                    .iter()
-                    .map(|r| format!("{}: {}", r.who, r.title)),
-            )
             .collect();
+        // Reservations get their own words in the reason: nobody changes the file for them.
+        let reserved = conflict.reserved.clone();
         let shown_path = conflict.path.clone();
         if let Some(rule) = rule {
             let outcome = match rule.effect {
                 RuleEffect::Allow => Outcome::Allow,
-                RuleEffect::Deny => Outcome::Deny(gate::rule_denied_reason(&shown_path, &named)),
+                RuleEffect::Deny => {
+                    Outcome::Deny(gate::rule_denied_reason(&shown_path, &named, &reserved))
+                }
             };
             {
                 let mut gate = lock(&self.gate);
@@ -2204,7 +2202,7 @@ impl Inner {
         let (id, ticket) = match opened {
             Opened::Waiting { id, ticket } => (id, ticket),
             Opened::Allowed => return Outcome::Allow,
-            Opened::Full => return Outcome::Ask(gate::full_reason(&shown_path, &named)),
+            Opened::Full => return Outcome::Ask(gate::full_reason(&shown_path, &named, &reserved)),
         };
         self.publish();
         self.hold(id, ticket, &rx, stream)
