@@ -1678,6 +1678,10 @@ const de = {
   "worktree.keptOpen": "Der Worktree bleibt, weil sich die Session nicht schließen ließ.",
   "worktree.keptInUse": "Der Worktree bleibt, weil eine andere Session noch darin arbeitet.",
   "worktree.keptPartly": "Der Worktree bleibt, weil sich sein Ordner nicht ganz löschen ließ.",
+  "worktree.keptUnsafeFilters":
+    "Der Worktree bleibt, weil das Repository Filter nutzt, die Hangar nicht sicher abschalten kann.",
+  "worktree.keptNotCheckedInTime":
+    "Der Worktree bleibt, weil die Prüfung zu lange gedauert hat. Versuch es später noch einmal.",
   "menu.worktreeCleanup": "Worktrees aufräumen …",
   "cleanup.title": "Worktrees aufräumen",
   "cleanup.intro":
@@ -3983,6 +3987,10 @@ const en: Record<MessageKey, string> = {
   "worktree.keptOpen": "The worktree stays because the session could not be closed.",
   "worktree.keptInUse": "The worktree stays because another session still works in it.",
   "worktree.keptPartly": "The worktree stays because its folder could not be deleted completely.",
+  "worktree.keptUnsafeFilters":
+    "The worktree stays because the repository uses filters Hangar cannot switch off safely.",
+  "worktree.keptNotCheckedInTime":
+    "The worktree stays because checking it took too long. Try again later.",
   "menu.worktreeCleanup": "Clean up worktrees…",
   "cleanup.title": "Clean up worktrees",
   "cleanup.intro":
@@ -6310,6 +6318,10 @@ const el: Record<MessageKey, string> = {
   "worktree.keptOpen": "Το worktree παραμένει, γιατί η συνεδρία δεν έκλεισε.",
   "worktree.keptInUse": "Το worktree παραμένει, γιατί μια άλλη συνεδρία δουλεύει ακόμα σε αυτό.",
   "worktree.keptPartly": "Το worktree παραμένει, γιατί ο φάκελός του δεν διαγράφηκε εντελώς.",
+  "worktree.keptUnsafeFilters":
+    "Το worktree παραμένει, γιατί το αποθετήριο χρησιμοποιεί φίλτρα που το Hangar δεν μπορεί να απενεργοποιήσει με ασφάλεια.",
+  "worktree.keptNotCheckedInTime":
+    "Το worktree παραμένει, γιατί ο έλεγχος κράτησε πολύ. Δοκίμασε ξανά αργότερα.",
   "menu.worktreeCleanup": "Καθαρισμός worktrees…",
   "cleanup.title": "Καθαρισμός worktrees",
   "cleanup.intro":
@@ -8643,6 +8655,10 @@ const es: Record<MessageKey, string> = {
   "worktree.keptOpen": "El worktree se queda porque no se pudo cerrar la sesión.",
   "worktree.keptInUse": "El worktree se queda porque otra sesión aún trabaja en él.",
   "worktree.keptPartly": "El worktree se queda porque su carpeta no se pudo borrar del todo.",
+  "worktree.keptUnsafeFilters":
+    "El worktree se queda porque el repositorio usa filtros que Hangar no puede desactivar con seguridad.",
+  "worktree.keptNotCheckedInTime":
+    "El worktree se queda porque la comprobación tardó demasiado. Inténtalo de nuevo más tarde.",
   "menu.worktreeCleanup": "Limpiar worktrees…",
   "cleanup.title": "Limpiar worktrees",
   "cleanup.intro":
@@ -10987,6 +11003,10 @@ const fr: Record<MessageKey, string> = {
   "worktree.keptOpen": "Le worktree reste, car la session n'a pas pu être fermée.",
   "worktree.keptInUse": "Le worktree reste, car une autre session y travaille encore.",
   "worktree.keptPartly": "Le worktree reste, car son dossier n’a pas pu être entièrement supprimé.",
+  "worktree.keptUnsafeFilters":
+    "Le worktree reste, car le dépôt utilise des filtres que Hangar ne peut pas désactiver sans risque.",
+  "worktree.keptNotCheckedInTime":
+    "Le worktree reste, car la vérification a pris trop de temps. Réessaie plus tard.",
   "menu.worktreeCleanup": "Nettoyer les worktrees…",
   "cleanup.title": "Nettoyer les worktrees",
   "cleanup.intro":
@@ -13317,6 +13337,10 @@ const it: Record<MessageKey, string> = {
   "worktree.keptInUse": "Il worktree resta perché un'altra sessione ci sta ancora lavorando.",
   "worktree.keptPartly":
     "Il worktree resta perché la sua cartella non è stata eliminata del tutto.",
+  "worktree.keptUnsafeFilters":
+    "Il worktree resta perché il repository usa filtri che Hangar non può disattivare in sicurezza.",
+  "worktree.keptNotCheckedInTime":
+    "Il worktree resta perché il controllo ha richiesto troppo tempo. Riprova più tardi.",
   "menu.worktreeCleanup": "Pulisci worktree…",
   "cleanup.title": "Pulisci worktree",
   "cleanup.intro":
@@ -15645,6 +15669,10 @@ const ja: Record<MessageKey, string> = {
   "worktree.keptOpen": "セッションを閉じられなかったため、worktree は残しています。",
   "worktree.keptInUse": "別のセッションがまだ作業中のため、worktree は残しています。",
   "worktree.keptPartly": "フォルダーを完全には削除できなかったため、worktree は残しています。",
+  "worktree.keptUnsafeFilters":
+    "リポジトリが Hangar では安全に無効化できないフィルターを使っているため、worktree は残しています。",
+  "worktree.keptNotCheckedInTime":
+    "確認に時間がかかりすぎたため、worktree は残しています。後でもう一度お試しください。",
   "menu.worktreeCleanup": "worktree を整理…",
   "cleanup.title": "worktree を整理",
   "cleanup.intro":
@@ -17950,6 +17978,10 @@ const pl: Record<MessageKey, string> = {
   "worktree.keptOpen": "Worktree zostaje, bo nie udało się zamknąć sesji.",
   "worktree.keptInUse": "Worktree zostaje, bo inna sesja wciąż w nim pracuje.",
   "worktree.keptPartly": "Worktree zostaje, bo jego folderu nie udało się całkowicie usunąć.",
+  "worktree.keptUnsafeFilters":
+    "Worktree zostaje, bo repozytorium używa filtrów, których Hangar nie może bezpiecznie wyłączyć.",
+  "worktree.keptNotCheckedInTime":
+    "Worktree zostaje, bo sprawdzanie trwało za długo. Spróbuj ponownie później.",
   "menu.worktreeCleanup": "Posprzątaj worktree…",
   "cleanup.title": "Posprzątaj worktree",
   "cleanup.intro":
@@ -20261,6 +20293,10 @@ const pt: Record<MessageKey, string> = {
   "worktree.keptOpen": "O worktree continua porque não foi possível fechar a sessão.",
   "worktree.keptInUse": "O worktree continua porque outra sessão ainda trabalha nele.",
   "worktree.keptPartly": "O worktree continua porque a pasta não pôde ser apagada por completo.",
+  "worktree.keptUnsafeFilters":
+    "O worktree continua porque o repositório usa filtros que o Hangar não consegue desligar com segurança.",
+  "worktree.keptNotCheckedInTime":
+    "O worktree continua porque a verificação demorou demais. Tente de novo mais tarde.",
   "menu.worktreeCleanup": "Limpar worktrees…",
   "cleanup.title": "Limpar worktrees",
   "cleanup.intro":
@@ -22562,6 +22598,10 @@ const ru: Record<MessageKey, string> = {
   "worktree.keptOpen": "Worktree остаётся: сеанс не удалось закрыть.",
   "worktree.keptInUse": "Worktree остаётся: в нём ещё работает другой сеанс.",
   "worktree.keptPartly": "Worktree остаётся: его папку не удалось удалить полностью.",
+  "worktree.keptUnsafeFilters":
+    "Worktree остаётся: репозиторий использует фильтры, которые Hangar не может безопасно отключить.",
+  "worktree.keptNotCheckedInTime":
+    "Worktree остаётся: проверка заняла слишком много времени. Попробуй позже ещё раз.",
   "menu.worktreeCleanup": "Очистить worktree…",
   "cleanup.title": "Очистить worktree",
   "cleanup.intro":
@@ -24852,6 +24892,10 @@ const tr: Record<MessageKey, string> = {
   "worktree.keptOpen": "Oturum kapatılamadığı için worktree duruyor.",
   "worktree.keptInUse": "Başka bir oturum hâlâ içinde çalıştığı için worktree duruyor.",
   "worktree.keptPartly": "Klasörü tamamen silinemediği için worktree duruyor.",
+  "worktree.keptUnsafeFilters":
+    "Depo, Hangar'ın güvenle kapatamadığı filtreler kullandığı için worktree duruyor.",
+  "worktree.keptNotCheckedInTime":
+    "Denetim çok uzun sürdüğü için worktree duruyor. Daha sonra yeniden dene.",
   "menu.worktreeCleanup": "Worktree'leri temizle…",
   "cleanup.title": "Worktree'leri temizle",
   "cleanup.intro":
@@ -27056,6 +27100,8 @@ const zh: Record<MessageKey, string> = {
   "worktree.keptOpen": "会话无法关闭，因此 worktree 仍保留。",
   "worktree.keptInUse": "另一个会话仍在其中工作，因此 worktree 仍保留。",
   "worktree.keptPartly": "其文件夹未能完全删除，因此 worktree 仍保留。",
+  "worktree.keptUnsafeFilters": "仓库使用了 Hangar 无法安全关闭的过滤器，因此 worktree 仍保留。",
+  "worktree.keptNotCheckedInTime": "检查耗时过长，因此 worktree 仍保留。请稍后重试。",
   "menu.worktreeCleanup": "清理 worktree…",
   "cleanup.title": "清理 worktree",
   "cleanup.intro":

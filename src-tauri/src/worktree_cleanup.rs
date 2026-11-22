@@ -23,7 +23,7 @@ use serde::Serialize;
 
 use crate::git::{self, Git};
 use crate::persist::read_limited;
-use crate::worktree::{self, Listed, Worktree, WorktreeError, BRANCH_PREFIX};
+use crate::worktree::{self, Kept, Listed, Worktree, WorktreeError, BRANCH_PREFIX};
 
 /// Folders the window may name per call (recent folders, favorites, sessions' repositories).
 pub const MAX_FOLDERS: usize = 64;
@@ -160,8 +160,8 @@ pub struct CleanupOutcome {
     pub branch_deleted: bool,
     /// The state checked right before; when it no longer allowed the action nothing happened.
     pub state: CleanupState,
-    /// Why the worktree stayed although its state allowed the action (git's words).
-    pub reason: Option<String>,
+    /// Why the worktree stayed although its state allowed the action.
+    pub reason: Option<Kept>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]

@@ -5,7 +5,7 @@ status: accepted
 tags: [notifications, search, split-view, launcher, git, worktree, snippets, themes, profiles, secrets, tray]
 sources: ["[[terminal-font-coverage-measurement]]", "[[session-report-transcripts]]", "[[worktree-remove-missing-measurement]]"]
 created: 2026-11-08
-updated: 2026-11-21
+updated: 2026-11-22
 ---
 
 # Agent workflow features (0.3.0)
@@ -205,12 +205,18 @@ access to the git folder, which already allows far more.
   --no-recurse-submodules HEAD` inside the new worktree, with filter overrides read there (HEAD
   already on the new branch, its `config.worktree` included). A failed checkout takes the new
   worktree and branch back by force (they hold nothing of the user yet).
-- `remove_worktree(worktree: Worktree) -> { removed: boolean, branchDeleted: boolean, reason: string | null }`:
+- `remove_worktree(worktree: Worktree) -> { removed: boolean, branchDeleted: boolean, reason: Kept | null }`:
   first `git status --porcelain=v1 -z --ignored=matching` in the worktree (filters off as above):
-  with ignored files (`!!`) nothing is removed and `reason` is "The worktree contains ignored
-  files: a, b, c and N more", because `git worktree remove` deletes ignored files even without
-  `--force`. Otherwise `git worktree remove <path>` without `--force` (a worktree with changes
-  stays, `reason` says why); `removed` is true only when the folder is gone afterwards.
+  with changed or untracked files nothing is removed and `reason` is `changes`; with only ignored
+  files (`!!`) `reason` is `ignored`, because `git worktree remove` deletes ignored files even
+  without `--force`. Otherwise `git worktree remove <path>` without `--force`; `removed` is true
+  only when the folder is gone afterwards. Changes are named from that status, not from git's
+  refusal, whose words depend on git's language: git's English "contains modified or untracked
+  files" still counts as `changes` (changes made after the status), a translated one is
+  `gitFailed` with git's words. `Kept` is `{ cause, detail: string | null }` with `cause`
+  one of `changes`, `ignored`, `partly` (folder not deleted completely), `unsafeFilters`,
+  `notCheckedInTime`, `gitFailed`; `detail` is git's own message for `gitFailed` only. The window
+  words every cause itself; a cause it does not know gets the general "worktree stays" sentence.
   `worktree remove` starts a `git status` of its own, which would run clean filters on files
   whose stat data changed: it gets the same filter overrides (read in the worktree, so a
   `config.worktree` filter counts too), which reach that child through `GIT_CONFIG_PARAMETERS`.
@@ -295,7 +301,7 @@ worktrees Hangar created and removes the safe ones. Code: `src-tauri/src/worktre
   (`{ path, repoRoot: string | null, branch, modified: number | null, state }`),
   `hangar_worktree_size(path) -> { bytes, files, complete, newest: number | null }`,
   `remove_hangar_worktree(path, repoRoot)` and `prune_hangar_worktree(path, repoRoot)` return
-  `{ done, branchDeleted, state, reason: string | null }`. All run in `spawn_blocking`.
+  `{ done, branchDeleted, state, reason: Kept | null }`. All run in `spawn_blocking`.
 
 ### Workspace
 `SavedSession` gains three optional fields (absent or `null` in old files):
@@ -509,7 +515,7 @@ request). Right click opens the menu. No window capability is needed for hiding;
    color) with the branch in line 2, and the tooltip names the branch. The close confirmation says
    the worktree goes too unless it holds changes; exited sessions close without confirmation, as
    removal never forces. After closing, a notice appears only when something stayed: the folder
-   with the reason (remaining changes and ignored files as a translated sentence, anything else in
+   with the reason (every cause as a translated sentence, only an unexpected git failure in
    git's words), or (folder gone, branch kept) the branch name, each copyable. Placeholders
    from a failed restore keep their worktree and remove it when closed.
 9. **Snippets**: stored texts (Settings section, defaults "Review the changes", "Write tests",

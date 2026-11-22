@@ -6,7 +6,7 @@ import type { Worktree } from "./api";
 import { folderKey } from "./folders";
 import { formatBytes } from "./format";
 import type { Translate } from "./i18n";
-import { keptMessage, WORKTREE_BRANCH_PREFIX } from "./worktree";
+import { type Kept, keptMessage, parseKept, WORKTREE_BRANCH_PREFIX } from "./worktree";
 
 export type CleanupState =
   | { kind: "inUse" | "missing" | "changes" | "ignored" | "merged" | "clean" }
@@ -63,7 +63,7 @@ export interface CleanupOutcome {
   done: boolean;
   branchDeleted: boolean;
   state: CleanupState;
-  reason: string | null;
+  reason: Kept | null;
 }
 
 /** What a row offers: remove, drop git's record of a missing folder, or show the folder. */
@@ -150,12 +150,12 @@ export function parseCleanupOutcome(value: unknown): CleanupOutcome | null {
   const done = field(value, "done");
   const branchDeleted = field(value, "branchDeleted");
   const state = parseState(field(value, "state"));
-  const reason = field(value, "reason");
+  const reason = parseKept(field(value, "reason"));
   if (typeof done !== "boolean" || typeof branchDeleted !== "boolean" || state === null) {
     return null;
   }
-  if (reason !== null && reason !== undefined && typeof reason !== "string") return null;
-  return { done, branchDeleted, state, reason: typeof reason === "string" ? reason : null };
+  if (reason === undefined) return null;
+  return { done, branchDeleted, state, reason };
 }
 
 /**
@@ -293,11 +293,8 @@ export function lastChange(entry: CleanupEntry, size: WorktreeSize | undefined):
 /** What to tell after a removal; `null` when everything went. */
 export function outcomeNotice(outcome: CleanupOutcome, t: Translate): string | null {
   if (outcome.done) return outcome.branchDeleted ? null : t("cleanup.branchKept");
-  // Why git kept it: the everyday cases in the window's words, anything else in git's.
-  if (outcome.reason !== null && outcome.reason.trim() !== "") {
-    return keptMessage(outcome.reason.trim(), t);
-  }
-  return t("cleanup.changedMeanwhile");
+  // Kept although its state allowed the action; without a reason the state changed meanwhile.
+  return outcome.reason === null ? t("cleanup.changedMeanwhile") : keptMessage(outcome.reason, t);
 }
 
 /** What one removal means for its row: it goes, or it stays with its fresh state and a sentence. */

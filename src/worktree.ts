@@ -108,10 +108,50 @@ export function orphanedWorktrees(
   return result;
 }
 
+/** Why a worktree stays although removing it was allowed (Rust `worktree::KeptCause`). */
+export type KeptCause =
+  "changes" | "ignored" | "partly" | "unsafeFilters" | "notCheckedInTime" | "gitFailed";
+
+const KEPT_CAUSES: readonly KeptCause[] = [
+  "changes",
+  "ignored",
+  "partly",
+  "unsafeFilters",
+  "notCheckedInTime",
+  "gitFailed",
+];
+
+function isKeptCause(value: unknown): value is KeptCause {
+  return KEPT_CAUSES.some((cause) => cause === value);
+}
+
+/**
+ * Rust `worktree::Kept`. `cause` is `null` for a cause this window does not know (a newer
+ * backend); `detail` is git's own message for `gitFailed`.
+ */
+export interface Kept {
+  cause: KeptCause | null;
+  detail: string | null;
+}
+
+/** A kept reason from the backend; `undefined` if malformed. */
+export function parseKept(value: unknown): Kept | null | undefined {
+  if (value === null || value === undefined) return null;
+  if (typeof value !== "object") return undefined;
+  const cause: unknown = Reflect.get(value, "cause");
+  const detail: unknown = Reflect.get(value, "detail");
+  if (typeof cause !== "string") return undefined;
+  if (detail !== null && detail !== undefined && typeof detail !== "string") return undefined;
+  return {
+    cause: isKeptCause(cause) ? cause : null,
+    detail: typeof detail === "string" && detail.trim() !== "" ? detail.trim() : null,
+  };
+}
+
 export interface Removal {
   removed: boolean;
   branchDeleted: boolean;
-  reason: string | null;
+  reason: Kept | null;
 }
 
 /** Answer of `remove_worktree`; `null` if malformed. */
@@ -119,10 +159,10 @@ export function parseRemoval(value: unknown): Removal | null {
   if (typeof value !== "object" || value === null) return null;
   const removed: unknown = Reflect.get(value, "removed");
   const branchDeleted: unknown = Reflect.get(value, "branchDeleted");
-  const reason: unknown = Reflect.get(value, "reason");
+  const reason = parseKept(Reflect.get(value, "reason"));
   if (typeof removed !== "boolean" || typeof branchDeleted !== "boolean") return null;
-  if (reason !== null && reason !== undefined && typeof reason !== "string") return null;
-  return { removed, branchDeleted, reason: typeof reason === "string" ? reason : null };
+  if (reason === undefined) return null;
+  return { removed, branchDeleted, reason };
 }
 
 /** Calm hint after closing: what stayed and where. `path` is shown copyable. */
@@ -133,20 +173,28 @@ export interface WorktreeNotice {
 }
 
 /**
- * Why the worktree stays. The two everyday cases (an agent left changes, a build left ignored
- * output) get a translated sentence; anything else keeps the backend's or git's own words.
+ * Why the worktree stays, in the window's own words; only git's message for `gitFailed` is passed
+ * through. No reason, or a cause this window does not know, gives the general sentence.
  */
-export function keptMessage(reason: string, t: Translate): string {
-  if (reason === "") return t("worktree.kept");
-  // git: "fatal: '<path>' contains modified or untracked files, use --force to delete it".
-  if (reason.includes("contains modified or untracked files")) return t("worktree.keptChanges");
-  // worktree.rs `ignored_reason`.
-  if (reason.startsWith("The worktree contains ignored files")) return t("worktree.keptIgnored");
-  // worktree.rs `remove_folder`.
-  if (reason === "The worktree folder could not be deleted completely") {
-    return t("worktree.keptPartly");
+export function keptMessage(reason: Kept | null, t: Translate): string {
+  switch (reason?.cause ?? null) {
+    case "changes":
+      return t("worktree.keptChanges");
+    case "ignored":
+      return t("worktree.keptIgnored");
+    case "partly":
+      return t("worktree.keptPartly");
+    case "unsafeFilters":
+      return t("worktree.keptUnsafeFilters");
+    case "notCheckedInTime":
+      return t("worktree.keptNotCheckedInTime");
+    case "gitFailed":
+      return reason?.detail
+        ? t("worktree.keptBecause", { reason: reason.detail })
+        : t("worktree.kept");
+    case null:
+      return t("worktree.kept");
   }
-  return t("worktree.keptBecause", { reason });
 }
 
 /**
@@ -160,7 +208,7 @@ export function removalNotice(
   t: Translate,
 ): WorktreeNotice | null {
   if (!removal.removed) {
-    return { message: keptMessage(removal.reason?.trim() ?? "", t), path: worktree.path };
+    return { message: keptMessage(removal.reason, t), path: worktree.path };
   }
   if (!removal.branchDeleted) {
     return { message: t("worktree.branchKept"), path: worktree.branch };

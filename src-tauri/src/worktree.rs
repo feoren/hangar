@@ -42,8 +42,76 @@ pub struct Worktree {
 pub struct Removal {
     pub removed: bool,
     pub branch_deleted: bool,
-    /// Why something stayed (git's message), otherwise `None`.
-    pub reason: Option<String>,
+    /// Why something stayed, otherwise `None`.
+    pub reason: Option<Kept>,
+}
+
+/// Why a worktree (or its branch) stays although removing it was allowed; the window words each
+/// one itself. Serialized as `{ "cause": "...", "detail": ... }`.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Kept {
+    pub cause: KeptCause,
+    /// git's own message for [`KeptCause::GitFailed`], never a sentence of Hangar's.
+    pub detail: Option<String>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub enum KeptCause {
+    /// Changed or untracked files, which `git worktree remove` refuses without `--force`.
+    Changes,
+    /// Ignored files, which `git worktree remove` would delete without asking.
+    Ignored,
+    /// The folder could not be deleted completely.
+    Partly,
+    /// The repository configures filters Hangar cannot switch off for the check.
+    UnsafeFilters,
+    /// The check did not finish in time.
+    NotCheckedInTime,
+    /// Any other failure of git.
+    GitFailed,
+}
+
+/// git's refusal of `worktree remove` for a worktree with changes (git 2.56: "fatal: '<path>'
+/// contains modified or untracked files, use --force to delete it"). Only a fallback for changes
+/// made after Hangar's own status check: git translates its messages, so a localized git gives
+/// [`KeptCause::GitFailed`] with its own words instead.
+const CHANGES_MESSAGE: &str = "contains modified or untracked files";
+
+impl Kept {
+    pub fn new(cause: KeptCause) -> Self {
+        Self {
+            cause,
+            detail: None,
+        }
+    }
+
+    /// A failed check before removing; only git's own message is kept as detail.
+    pub fn of(error: &GitError) -> Self {
+        match error {
+            GitError::Timeout => Self::new(KeptCause::NotCheckedInTime),
+            GitError::UnsafeFilters => Self::new(KeptCause::UnsafeFilters),
+            GitError::Failed(message) => Self::git_failed(message.clone()),
+            _ => Self::new(KeptCause::GitFailed),
+        }
+    }
+
+    /// git's message of a failed `worktree remove` or `branch -d`.
+    pub fn from_git(message: String) -> Self {
+        if message.contains(CHANGES_MESSAGE) {
+            Self::new(KeptCause::Changes)
+        } else {
+            Self::git_failed(message)
+        }
+    }
+
+    fn git_failed(message: String) -> Self {
+        Self {
+            cause: KeptCause::GitFailed,
+            detail: Some(message),
+        }
+    }
 }
 
 /// Lowercase ASCII letters, digits and single `-`, at most [`MAX_LABEL_CHARS`]. German umlauts
@@ -328,23 +396,6 @@ fn discard_new(
     let _ = fs::remove_dir(parent);
 }
 
-/// How many ignored names the reason lists before "and N more".
-const LISTED_IGNORED: usize = 3;
-
-/// Reason for keeping a worktree with ignored files: `git worktree remove` would delete them
-/// without asking, even without `--force` (build output, `.env` files, local databases).
-pub fn ignored_reason(ignored: &[String]) -> Option<String> {
-    let (first, rest) = ignored.split_at(ignored.len().min(LISTED_IGNORED));
-    if first.is_empty() {
-        return None;
-    }
-    let mut reason = format!("The worktree contains ignored files: {}", first.join(", "));
-    if !rest.is_empty() {
-        reason.push_str(&format!(" and {} more", rest.len()));
-    }
-    Some(reason)
-}
-
 /// Every changed, untracked and ignored entry of the worktree (`git status --porcelain=v1 -z
 /// --ignored=matching`; ignored ones are `!!`). Untracked files are listed whatever the
 /// repository's `status.showUntrackedFiles` says. `neutral` are the filter overrides
@@ -395,19 +446,22 @@ pub fn remove(git: &Git, base: &Path, worktree: &Worktree) -> Result<Removal, Wo
     Ok(Removal {
         removed: true,
         branch_deleted: output.success,
-        reason: (!output.success).then(|| git::message(&output.stderr)),
+        reason: (!output.success).then(|| Kept::from_git(git::message(&output.stderr))),
     })
 }
 
 /// Removes the worktree's folder and git's record of it, never by force, and leaves the branch
-/// alone. `None` once both are gone; otherwise why it stays. A folder deleted by hand leaves only
-/// git's record, which `git worktree remove` takes away for that one worktree (measured with git
-/// 2.56; `worktree prune` would also take the records of the user's own worktrees).
+/// alone. `None` once both are gone; otherwise why it stays. A worktree with changes stays, and
+/// one with ignored files too: `git worktree remove` would delete them without asking, even
+/// without `--force` (build output, `.env` files, local databases). A folder deleted by hand
+/// leaves only git's record, which `git worktree remove` takes away for that one worktree
+/// (measured with git 2.56; `worktree prune` would also take the records of the user's own
+/// worktrees).
 pub fn remove_folder(
     git: &Git,
     base: &Path,
     worktree: &Worktree,
-) -> Result<Option<String>, WorktreeError> {
+) -> Result<Option<Kept>, WorktreeError> {
     check_shape(worktree)?;
     check_managed(base, &worktree.path, &worktree.repo_root)?;
     git::check_folder(&worktree.repo_root)?;
@@ -420,18 +474,19 @@ pub fn remove_folder(
         // Read in the worktree, so a filter set only in its own config.worktree counts too.
         neutral = match git::filter_overrides(git, &worktree.path, deadline) {
             Ok(neutral) => neutral,
-            Err(error) => return Ok(Some(error.to_string())),
+            Err(error) => return Ok(Some(Kept::of(&error))),
         };
-        let ignored: Vec<String> = match status_entries(git, &worktree.path, &neutral, deadline) {
-            Ok(entries) => entries
-                .into_iter()
-                .filter(|file| file.status == "!!")
-                .map(|file| file.path)
-                .collect(),
-            Err(error) => return Ok(Some(error.to_string())),
+        let entries = match status_entries(git, &worktree.path, &neutral, deadline) {
+            Ok(entries) => entries,
+            Err(error) => return Ok(Some(Kept::of(&error))),
         };
-        if let Some(reason) = ignored_reason(&ignored) {
-            return Ok(Some(reason));
+        // Changes are named from this status rather than from git's refusal below, whose words
+        // depend on git's language; changes come first, as in the cleanup's states.
+        if entries.iter().any(|file| file.status != "!!") {
+            return Ok(Some(Kept::new(KeptCause::Changes)));
+        }
+        if !entries.is_empty() {
+            return Ok(Some(Kept::new(KeptCause::Ignored)));
         }
     }
     // `worktree remove` checks the worktree with a `git status` of its own, which runs clean
@@ -458,13 +513,11 @@ pub fn remove_folder(
                     .any(|entry| git::path_key(&entry.path) == git::path_key(&worktree.path))
             });
         if !gone {
-            return Ok(Some(git::message(&output.stderr)));
+            return Ok(Some(Kept::from_git(git::message(&output.stderr))));
         }
     }
     if worktree.path.exists() {
-        return Ok(Some(
-            "The worktree folder could not be deleted completely".to_owned(),
-        ));
+        return Ok(Some(Kept::new(KeptCause::Partly)));
     }
     if let Some(parent) = worktree.path.parent() {
         // Only succeeds when no other worktree of this repository is left.
@@ -672,16 +725,50 @@ mod tests {
     }
 
     #[test]
-    fn reasons_for_ignored_files() {
-        assert_eq!(ignored_reason(&[]), None);
-        let names = |n: usize| (0..n).map(|i| format!("f{i}")).collect::<Vec<_>>();
+    fn kept_reasons_serialize_as_cause_and_detail() {
+        for (cause, name) in [
+            (KeptCause::Changes, "changes"),
+            (KeptCause::Ignored, "ignored"),
+            (KeptCause::Partly, "partly"),
+            (KeptCause::UnsafeFilters, "unsafeFilters"),
+            (KeptCause::NotCheckedInTime, "notCheckedInTime"),
+            (KeptCause::GitFailed, "gitFailed"),
+        ] {
+            assert_eq!(
+                serde_json::to_value(Kept::new(cause)).unwrap(),
+                serde_json::json!({ "cause": name, "detail": null })
+            );
+        }
         assert_eq!(
-            ignored_reason(&names(2)).as_deref(),
-            Some("The worktree contains ignored files: f0, f1")
+            serde_json::to_value(Kept::from_git("fatal: locked".into())).unwrap(),
+            serde_json::json!({ "cause": "gitFailed", "detail": "fatal: locked" })
+        );
+    }
+
+    #[test]
+    fn kept_reasons_from_git() {
+        let changes =
+            "fatal: 'C:/w/x' contains modified or untracked files, use --force to delete it";
+        assert_eq!(
+            Kept::from_git(changes.into()),
+            Kept::new(KeptCause::Changes)
         );
         assert_eq!(
-            ignored_reason(&names(5)).as_deref(),
-            Some("The worktree contains ignored files: f0, f1, f2 and 2 more")
+            Kept::of(&GitError::Timeout),
+            Kept::new(KeptCause::NotCheckedInTime)
+        );
+        assert_eq!(
+            Kept::of(&GitError::UnsafeFilters),
+            Kept::new(KeptCause::UnsafeFilters)
+        );
+        assert_eq!(
+            Kept::of(&GitError::Failed("fatal: boom".into())),
+            Kept::from_git("fatal: boom".into())
+        );
+        // Hangar's own error texts are never passed on as detail.
+        assert_eq!(
+            Kept::of(&GitError::NotFound),
+            Kept::new(KeptCause::GitFailed)
         );
     }
 
@@ -906,7 +993,7 @@ mod tests {
         let removal = remove(&git, &base, &dirty).unwrap();
         assert!(!removal.removed);
         assert!(!removal.branch_deleted);
-        assert!(removal.reason.is_some());
+        assert_eq!(removal.reason, Some(Kept::new(KeptCause::Changes)));
         assert!(dirty.path.exists());
 
         // Committed but unmerged work: worktree goes, branch stays.
@@ -914,7 +1001,9 @@ mod tests {
         let removal = remove(&git, &base, &dirty).unwrap();
         assert!(removal.removed);
         assert!(!removal.branch_deleted);
-        assert!(removal.reason.is_some());
+        let reason = removal.reason.unwrap();
+        assert_eq!(reason.cause, KeptCause::GitFailed);
+        assert!(reason.detail.is_some_and(|detail| !detail.is_empty()));
         assert!(!dirty.path.exists());
 
         // Ignored files would be deleted by `worktree remove` even without --force: it stays.
@@ -922,8 +1011,18 @@ mod tests {
         fs::write(ignored.path.join("debug.log"), "local only\n").unwrap();
         let removal = remove(&git, &base, &ignored).unwrap();
         assert!(!removal.removed);
-        assert!(removal.reason.as_deref().unwrap().contains("debug.log"));
+        assert_eq!(removal.reason, Some(Kept::new(KeptCause::Ignored)));
         assert!(ignored.path.join("debug.log").is_file());
+        // Changes come first when ignored files are there too.
+        fs::write(ignored.path.join("readme.txt"), "changed\n").unwrap();
+        let removal = remove(&git, &base, &ignored).unwrap();
+        assert!(!removal.removed);
+        assert_eq!(removal.reason, Some(Kept::new(KeptCause::Changes)));
+        git_ok(
+            &git,
+            &ignored.path,
+            &["checkout", "--quiet", "--", "readme.txt"],
+        );
         fs::remove_file(ignored.path.join("debug.log")).unwrap();
 
         // No hook of the repository runs while Hangar removes the worktree and its branch.

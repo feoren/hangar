@@ -1,10 +1,12 @@
 import { describe, expect, it } from "vitest";
 
-import { createTranslator } from "./i18n";
+import { createTranslator, LANGUAGES } from "./i18n";
 import {
   createErrorText,
   insideFolder,
+  keptMessage,
   orphanedWorktrees,
+  parseKept,
   parseRemoval,
   parseWorktree,
   removalErrorNotice,
@@ -66,10 +68,78 @@ describe("parseRemoval", () => {
     });
   });
 
+  it("reads the kept reason", () => {
+    expect(
+      parseRemoval({
+        removed: false,
+        branchDeleted: false,
+        reason: { cause: "gitFailed", detail: " fatal: boom " },
+      }),
+    ).toEqual({
+      removed: false,
+      branchDeleted: false,
+      reason: { cause: "gitFailed", detail: "fatal: boom" },
+    });
+  });
+
   it("refuses malformed answers", () => {
     expect(parseRemoval({ removed: "yes", branchDeleted: true })).toBeNull();
     expect(parseRemoval({ removed: true, branchDeleted: true, reason: 3 })).toBeNull();
+    // Reasons were plain texts before; a text is no reason any more.
+    expect(parseRemoval({ removed: false, branchDeleted: false, reason: "locked" })).toBeNull();
     expect(parseRemoval(undefined)).toBeNull();
+  });
+});
+
+describe("parseKept", () => {
+  it("keeps a cause this window does not know as unknown", () => {
+    expect(parseKept({ cause: "somethingNew", detail: "x" })).toEqual({
+      cause: null,
+      detail: "x",
+    });
+    expect(parseKept({ cause: "partly" })).toEqual({ cause: "partly", detail: null });
+    expect(parseKept(null)).toBeNull();
+    expect(parseKept({ cause: 3, detail: null })).toBeUndefined();
+    expect(parseKept({ cause: "partly", detail: 3 })).toBeUndefined();
+  });
+});
+
+describe("keptMessage", () => {
+  const causes = [
+    ["changes", "worktree.keptChanges"],
+    ["ignored", "worktree.keptIgnored"],
+    ["partly", "worktree.keptPartly"],
+    ["unsafeFilters", "worktree.keptUnsafeFilters"],
+    ["notCheckedInTime", "worktree.keptNotCheckedInTime"],
+  ] as const;
+
+  it("words every cause in every language", () => {
+    for (const language of LANGUAGES) {
+      const t = createTranslator(language);
+      for (const [cause, key] of causes) {
+        const text = keptMessage({ cause, detail: null }, t);
+        expect(text).toBe(t(key));
+        expect(text).not.toBe(key);
+      }
+    }
+  });
+
+  it("passes only git's own message through", () => {
+    expect(keptMessage({ cause: "gitFailed", detail: "fatal: boom" }, en)).toBe(
+      en("worktree.keptBecause", { reason: "fatal: boom" }),
+    );
+    expect(keptMessage({ cause: "gitFailed", detail: null }, en)).toBe(en("worktree.kept"));
+    expect(keptMessage({ cause: "changes", detail: "ignored detail" }, en)).toBe(
+      en("worktree.keptChanges"),
+    );
+  });
+
+  it("falls back to the general sentence for no or an unknown cause", () => {
+    const de = createTranslator("de");
+    expect(keptMessage(null, de)).toBe(de("worktree.kept"));
+    expect(keptMessage(parseKept({ cause: "somethingNew", detail: "x" }) ?? null, de)).toBe(
+      de("worktree.kept"),
+    );
   });
 });
 
@@ -81,30 +151,30 @@ describe("removalNotice", () => {
   });
 
   it("names git's reason and the folder when the worktree stays", () => {
-    const reason = "fatal: unable to delete the folder: Permission denied";
-    const notice = removalNotice({ removed: false, branchDeleted: false, reason }, worktree, en);
+    const detail = "fatal: unable to delete the folder: Permission denied";
+    const notice = removalNotice(
+      { removed: false, branchDeleted: false, reason: { cause: "gitFailed", detail } },
+      worktree,
+      en,
+    );
     expect(notice).toEqual({
-      message: en("worktree.keptBecause", { reason }),
+      message: en("worktree.keptBecause", { reason: detail }),
       path: worktree.path,
     });
     expect(
-      removalNotice({ removed: false, branchDeleted: false, reason: " " }, worktree, en)?.message,
+      removalNotice({ removed: false, branchDeleted: false, reason: null }, worktree, en)?.message,
     ).toBe(en("worktree.kept"));
   });
 
-  it("translates the everyday reasons instead of showing git's English", () => {
+  it("translates the everyday reasons", () => {
     const de = createTranslator("de");
-    const kept = (reason: string) =>
-      removalNotice({ removed: false, branchDeleted: false, reason }, worktree, de);
     expect(
-      kept(
-        `fatal: '${worktree.path}' contains modified or untracked files, use --force to delete it`,
+      removalNotice(
+        { removed: false, branchDeleted: false, reason: { cause: "changes", detail: null } },
+        worktree,
+        de,
       ),
     ).toEqual({ message: de("worktree.keptChanges"), path: worktree.path });
-    expect(kept("The worktree contains ignored files: target, debug.log and 3 more")).toEqual({
-      message: de("worktree.keptIgnored"),
-      path: worktree.path,
-    });
   });
 
   it("names the branch when only the branch stays", () => {

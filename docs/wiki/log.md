@@ -1448,3 +1448,11 @@ end to end. New: [[cursor-gate-live-measurement]]. Updated: [[agent-gate-adapter
 A `..` after a wildcard part now takes that part back (`*/../.git` is the project's `.git`); a
 wildcard that may match `..` itself with parts after it, and a `..` right after a recursive `**`,
 cannot be placed and ask. Updated: [[0010-command-guard]], index.
+
+## [2026-11-22] lint | Reasons a worktree stays as causes
+`remove_worktree`, `remove_hangar_worktree` and `prune_hangar_worktree` name why a worktree stays
+as `{ cause, detail }` (`changes`, `ignored`, `partly`, `unsafeFilters`, `notCheckedInTime`,
+`gitFailed`) instead of git's or Hangar's English sentence, and the window words every cause in
+its 12 languages; only `gitFailed` carries git's own message. Changes are now read from the status
+Hangar runs before removing, so a git with translated messages no longer hides them.
+Pages changed: [[agent-workflow-features]].

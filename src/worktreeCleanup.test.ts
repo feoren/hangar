@@ -75,6 +75,22 @@ describe("parsing the backend's answers", () => {
         reason: null,
       }),
     ).toEqual({ done: false, branchDeleted: false, state: { kind: "changes" }, reason: null });
+    expect(
+      parseCleanupOutcome({
+        done: false,
+        branchDeleted: false,
+        state: { kind: "merged" },
+        reason: { cause: "ignored", detail: null },
+      })?.reason,
+    ).toEqual({ cause: "ignored", detail: null });
+    expect(
+      parseCleanupOutcome({
+        done: false,
+        branchDeleted: false,
+        state: { kind: "merged" },
+        reason: "locked",
+      }),
+    ).toBeNull();
     expect(parseCleanupOutcome({ done: true, branchDeleted: true, state: {} })).toBeNull();
   });
 });
@@ -168,23 +184,19 @@ describe("texts", () => {
         t,
       ),
     ).toBe(t("cleanup.changedMeanwhile"));
-    expect(
-      outcomeNotice(
-        { done: false, branchDeleted: false, state: { kind: "merged" }, reason: "locked" },
-        t,
-      ),
-    ).toBe(t("worktree.keptBecause", { reason: "locked" }));
-    expect(
+    const kept = (cause: "gitFailed" | "partly" | null, detail: string | null) =>
       outcomeNotice(
         {
           done: false,
           branchDeleted: false,
           state: { kind: "merged" },
-          reason: "The worktree folder could not be deleted completely",
+          reason: { cause, detail },
         },
         t,
-      ),
-    ).toBe(t("worktree.keptPartly"));
+      );
+    expect(kept("gitFailed", "locked")).toBe(t("worktree.keptBecause", { reason: "locked" }));
+    expect(kept("partly", null)).toBe(t("worktree.keptPartly"));
+    expect(kept(null, "x")).toBe(t("worktree.kept"));
   });
 });
 
