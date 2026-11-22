@@ -74,6 +74,8 @@ struct MockState {
     /// `GET /me` requests, and how many of the next ones answer 503.
     me_requests: u32,
     me_failures: u32,
+    /// How long `/me` waits before it checks the access token.
+    me_delay: Duration,
     /// The profile picture `/me` names: content type, bytes and etag.
     avatar: Option<(&'static str, Vec<u8>, String)>,
     /// Origin of `avatar_url`; the server's own unless set.
@@ -474,6 +476,8 @@ fn serve(mut stream: TcpStream, shared: &Mutex<MockState>, origin: &str) {
             }
         }
         ("GET", "/api/v1/me") => {
+            let delay = guard(shared).me_delay;
+            std::thread::sleep(delay);
             let mut state = guard(shared);
             state.me_requests += 1;
             if state.me_failures > 0 && authorized(&state, &request) {
@@ -629,6 +633,8 @@ struct MemoryStore {
     lock_file: Option<std::path::PathBuf>,
     /// Writes (`set`, `delete`) made while nobody held [`Self::lock_file`].
     unlocked_writes: Mutex<Vec<&'static str>>,
+    /// How long a `set` takes, like a slow keychain (a prompt, D-Bus under load).
+    set_delay: Duration,
 }
 
 impl MemoryStore {
@@ -676,6 +682,7 @@ impl SecretStore for MemoryStore {
 
     fn set(&self, account: &str, value: &str) -> Result<(), SecretError> {
         self.check_locked("set");
+        std::thread::sleep(self.set_delay);
         guard(&self.values).insert(account.to_owned(), Zeroizing::new(value.to_owned()));
         Ok(())
     }
@@ -1247,18 +1254,33 @@ fn two_hangar_processes_share_one_sign_in_without_reuse() {
     // config folder: each has its own service, refresh gate and memory.
     let dir = temp_dir("account-two-processes");
     let mock = Mock::start();
-    let store = Arc::new(MemoryStore::default());
+    // A slow keychain and a slow `/me` widen the windows a busy machine opens at random.
+    let store = Arc::new(MemoryStore {
+        set_delay: Duration::from_millis(100),
+        ..MemoryStore::default()
+    });
     let first = Harness::configured(mock.clone(), Arc::clone(&store), Some(dir.clone()));
     let second = Harness::configured(mock.clone(), Arc::clone(&store), Some(dir.clone()));
     first.stored_sign_in();
     mock.state().refresh_delay = Duration::from_millis(150);
+    mock.state().me_delay = Duration::from_millis(100);
     run(async {
-        for harness in [&first, &second] {
-            assert!(matches!(
-                harness.service.status().await.state,
-                AccountState::SignedIn { .. }
-            ));
+        // The status starts each process's background load of `/me`, which refreshes as well.
+        // The first process's refresh reaches the server before the second process starts, so
+        // the first one is the process that later holds a spent token.
+        assert!(matches!(
+            first.service.status().await.state,
+            AccountState::SignedIn { .. }
+        ));
+        let start = Instant::now();
+        while mock.state().refreshes == 0 {
+            assert!(start.elapsed() < Duration::from_secs(10), "no refresh");
+            tokio::time::sleep(Duration::from_millis(5)).await;
         }
+        assert!(matches!(
+            second.service.status().await.state,
+            AccountState::SignedIn { .. }
+        ));
         // Both find no access token and refresh at the same time.
         let a = first.service.clone();
         let b = second.service.clone();
@@ -1266,10 +1288,17 @@ fn two_hangar_processes_share_one_sign_in_without_reuse() {
         let b = tauri::async_runtime::spawn(async move { b.projects().await });
         assert_eq!(a.await.unwrap().unwrap().len(), 2);
         assert_eq!(b.await.unwrap().unwrap().len(), 2);
-        // Later the first one refreshes again, holding a token the second already spent.
+        // Later the first one refreshes again, holding a token the second already spent. The
+        // second process's `/me` may now be refused as well and refresh in the background.
         mock.state().access_valid.clear();
         mock.state().refresh_delay = Duration::ZERO;
         assert_eq!(first.service.projects().await.unwrap().len(), 2);
+        // Both background loads are done, so no refresh runs any more: the server's token and
+        // the keychain's can be compared. Before, the test read them while the second process
+        // had rotated in the background but not yet stored the new token.
+        for harness in [&first, &second] {
+            harness.until("details loaded", signed_in_with_user).await;
+        }
     });
     let state = mock.state();
     assert!(!state.revoked, "no refresh token was presented twice");
