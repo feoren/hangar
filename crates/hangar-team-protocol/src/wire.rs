@@ -44,7 +44,7 @@ use crate::limits::{
     MAX_INLINE_CIPHERTEXT_LEN, MAX_KEY_PACKAGES, MAX_LOG_ENTRIES, MAX_PREV_HASHES,
     MAX_WRAPPED_KEYS,
 };
-use crate::PROTOCOL_VERSION;
+use crate::{ENVELOPE_VERSION, MIN_PROTOCOL_VERSION, PROTOCOL_VERSION};
 
 /// Why a frame was not accepted. The server answers each with an `err` code
 /// ([`DecodeError::code`]); the text never contains the frame's content.
@@ -54,7 +54,7 @@ pub enum DecodeError {
     TooLarge { max: usize },
     #[error("the frame is not a valid envelope: {0}")]
     Envelope(String),
-    #[error("protocol version {got} is not supported (this side speaks {supported})")]
+    #[error("envelope version {got} is not supported (this side speaks {supported})")]
     Version { got: u64, supported: u16 },
     #[error("the body of `{kind}` is not valid: {reason}")]
     Body { kind: &'static str, reason: String },
@@ -143,9 +143,9 @@ impl From<ProtoRange> for RawRange {
 }
 
 impl ProtoRange {
-    /// Exactly the version this crate speaks.
+    /// Every version this crate speaks: [`MIN_PROTOCOL_VERSION`] to [`PROTOCOL_VERSION`].
     pub const CURRENT: ProtoRange = ProtoRange {
-        min: PROTOCOL_VERSION,
+        min: MIN_PROTOCOL_VERSION,
         max: PROTOCOL_VERSION,
     };
 
@@ -497,6 +497,23 @@ pub struct DeviceRemove {
     pub log: MemberLogAppend,
 }
 
+/// `notes.keys.set` (protocol version 2): store the team's notes key ring, sealed under the
+/// current epoch by an owner's or admin's device (ADR 0006, phase 2). `base` is the
+/// [`NotesKeysRecord::version`] the sender built on (0: it saw none), so the write is a compare
+/// and set: two devices that write at once cannot drop each other's keys; the second gets
+/// `conflict`, fetches, merges and writes again. The relay checks that the sending device is in
+/// the verified membership log, its role (the lower of log role and ticket role, owner or admin),
+/// the epoch (the current one, `staleEpoch`) and the version,
+/// keeps the newest record only, and answers `ack`; every connection of the team that speaks
+/// version 2 then gets [`NotesKeysUpdated`]. Deduplicated by op id.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct NotesKeysSet {
+    pub base: u64,
+    /// At most [`MAX_INLINE_CIPHERTEXT_LEN`].
+    pub content: Sealed,
+}
+
 /// Everything a client sends. `type` on the wire is the serde name; [`CLIENT_KINDS`] lists them.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 #[serde(tag = "type", content = "body")]
@@ -550,6 +567,12 @@ pub enum ClientMessage {
     KeyWrap(KeyWrap),
     #[serde(rename = "key.get")]
     KeyGet(KeyGet),
+    /// Protocol version 2: the team's notes key ring, answered with [`NotesKeys`].
+    #[serde(rename = "notes.keys.get")]
+    NotesKeysGet,
+    /// Protocol version 2.
+    #[serde(rename = "notes.keys.set")]
+    NotesKeysSet(NotesKeysSet),
     /// Keeps the connection alive; answered with `ack`.
     #[serde(rename = "ping")]
     Ping,
@@ -598,7 +621,19 @@ impl ClientMessage {
             ClientMessage::KeyRotate(_) => "key.rotate",
             ClientMessage::KeyWrap(_) => "key.wrap",
             ClientMessage::KeyGet(_) => "key.get",
+            ClientMessage::NotesKeysGet => "notes.keys.get",
+            ClientMessage::NotesKeysSet(_) => "notes.keys.set",
             ClientMessage::Ping => "ping",
+        }
+    }
+
+    /// The protocol version that introduced this kind. A client sends it only on a team whose
+    /// `welcome.proto` is at least this; the relay answers it with `badRequest` on a team that
+    /// negotiated an older version.
+    pub fn since(&self) -> u16 {
+        match self {
+            ClientMessage::NotesKeysGet | ClientMessage::NotesKeysSet(_) => 2,
+            _ => 1,
         }
     }
 
@@ -610,7 +645,7 @@ impl ClientMessage {
     /// Whether the relay remembers this intent's answer by op id ([`crate::log::RecentOps`]):
     /// a retry with the same op id gets the first answer and is not applied again. True for the
     /// intents that change shared state once: every `task.*`, `blob.put`, `device.remove`,
-    /// `memberlog.append`, `key.rotate` and `key.wrap`.
+    /// `memberlog.append`, `key.rotate`, `key.wrap` and `notes.keys.set`.
     ///
     /// False for the rest. `presence.set`, `heartbeat`, `claim.set`, `claim.clear` and
     /// `device.keys` replace the sender's own state, so applying a retry again does no harm;
@@ -632,6 +667,7 @@ impl ClientMessage {
                 | ClientMessage::MemberLogAppend(_)
                 | ClientMessage::KeyRotate(_)
                 | ClientMessage::KeyWrap(_)
+                | ClientMessage::NotesKeysSet(_)
         )
     }
 
@@ -663,6 +699,7 @@ impl ClientMessage {
                 .collect(),
             ClientMessage::BlobPut(m) => vec![m.content.epoch],
             ClientMessage::KeyWrap(m) => vec![m.epoch],
+            ClientMessage::NotesKeysSet(m) => vec![m.content.epoch],
             ClientMessage::Hello(_)
             | ClientMessage::TicketRenew(_)
             | ClientMessage::Heartbeat(_)
@@ -679,6 +716,7 @@ impl ClientMessage {
             | ClientMessage::MemberLogGet(_)
             | ClientMessage::KeyRotate(_)
             | ClientMessage::KeyGet(_)
+            | ClientMessage::NotesKeysGet
             | ClientMessage::Ping => Vec::new(),
         }
     }
@@ -730,6 +768,7 @@ impl ClientMessage {
             }
             ClientMessage::KeyWrap(m) => cipher("data", Some(&m.wrapped.data)),
             ClientMessage::DeviceRemove(m) => cipher("entry", Some(&m.log.entry)),
+            ClientMessage::NotesKeysSet(m) => inline("content", Some(&m.content)),
             ClientMessage::Hello(_)
             | ClientMessage::TicketRenew(_)
             | ClientMessage::TaskRelease(_)
@@ -743,6 +782,7 @@ impl ClientMessage {
             | ClientMessage::DevicesGet
             | ClientMessage::MemberLogGet(_)
             | ClientMessage::KeyGet(_)
+            | ClientMessage::NotesKeysGet
             | ClientMessage::Ping => Ok(()),
         }
     }
@@ -1244,6 +1284,36 @@ pub struct MemberLogAppended {
     pub by: Holder,
 }
 
+/// The team's stored notes key ring (protocol version 2): the newest `notes.keys.set`.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct NotesKeysRecord {
+    /// Counted up by the relay per team from 1 with every stored write; the `base` of the next
+    /// `notes.keys.set`.
+    pub version: u64,
+    /// The device that wrote it (the relay's word; the record's signature must verify for it).
+    pub by: Holder,
+    pub content: Sealed,
+}
+
+/// `notes.keys` (protocol version 2): the answer to `notes.keys.get`, carrying its op id; `None`
+/// when the team has no notes key ring yet. Never logged.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct NotesKeys {
+    pub record: Option<NotesKeysRecord>,
+}
+
+/// `notes.keys.updated` (protocol version 2): a new notes key ring was stored. A live hint only
+/// (never logged, no `seq`, no replay), sent only to connections that speak version 2; clients
+/// fetch the record with `notes.keys.get` on it and after every `welcome`.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct NotesKeysUpdated {
+    pub version: u64,
+    pub by: Holder,
+}
+
 /// Everything the server sends. `type` on the wire is the serde name; [`SERVER_KINDS`] lists
 /// them.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
@@ -1295,6 +1365,12 @@ pub enum ServerMessage {
     MemberLogEntries(MemberLogEntries),
     #[serde(rename = "memberlog.appended")]
     MemberLogAppended(MemberLogAppended),
+    /// Protocol version 2.
+    #[serde(rename = "notes.keys")]
+    NotesKeys(NotesKeys),
+    /// Protocol version 2.
+    #[serde(rename = "notes.keys.updated")]
+    NotesKeysUpdated(NotesKeysUpdated),
 }
 
 impl ServerMessage {
@@ -1324,6 +1400,18 @@ impl ServerMessage {
             ServerMessage::Devices(_) => "devices",
             ServerMessage::MemberLogEntries(_) => "memberlog.entries",
             ServerMessage::MemberLogAppended(_) => "memberlog.appended",
+            ServerMessage::NotesKeys(_) => "notes.keys",
+            ServerMessage::NotesKeysUpdated(_) => "notes.keys.updated",
+        }
+    }
+
+    /// The protocol version that introduced this kind. The relay never sends it to a connection
+    /// whose team negotiated an older version: an app of that version would end the connection
+    /// on a kind it does not know.
+    pub fn since(&self) -> u16 {
+        match self {
+            ServerMessage::NotesKeys(_) | ServerMessage::NotesKeysUpdated(_) => 2,
+            _ => 1,
         }
     }
 
@@ -1394,6 +1482,7 @@ impl ServerMessage {
                 MAX_INLINE_CIPHERTEXT_LEN,
             ),
             ServerMessage::Notify(m) => inline("content", m.content.as_ref()),
+            ServerMessage::NotesKeys(m) => inline("content", m.record.as_ref().map(|r| &r.content)),
             ServerMessage::Devices(m) => count("devices", m.devices.len(), MAX_WRAPPED_KEYS),
             ServerMessage::MemberLogEntries(m) => {
                 count("entries", m.entries.len(), MAX_LOG_ENTRIES)?;
@@ -1501,7 +1590,7 @@ pub fn encode_client(frame: &ClientFrame) -> Result<String, EncodeError> {
             reason,
         })?;
     finish(&OutFrame {
-        v: PROTOCOL_VERSION,
+        v: ENVELOPE_VERSION,
         id: Some(&frame.id),
         seq: None,
         team: frame.team.as_ref(),
@@ -1521,7 +1610,7 @@ pub fn encode_server(frame: &ServerFrame) -> Result<String, EncodeError> {
             reason,
         })?;
     finish(&OutFrame {
-        v: PROTOCOL_VERSION,
+        v: ENVELOPE_VERSION,
         id: frame.id.as_ref(),
         seq: frame.seq,
         team: frame.team.as_ref(),
@@ -1537,10 +1626,10 @@ fn envelope(text: &str) -> Result<InFrame<'_>, DecodeError> {
     }
     let probe: VersionProbe =
         serde_json::from_str(text).map_err(|e| DecodeError::Envelope(scrub(&e.to_string())))?;
-    if probe.v != u64::from(PROTOCOL_VERSION) {
+    if probe.v != u64::from(ENVELOPE_VERSION) {
         return Err(DecodeError::Version {
             got: probe.v,
-            supported: PROTOCOL_VERSION,
+            supported: ENVELOPE_VERSION,
         });
     }
     serde_json::from_str(text).map_err(|e| DecodeError::Envelope(scrub(&e.to_string())))
@@ -1571,6 +1660,8 @@ pub const CLIENT_KINDS: &[&str] = &[
     "key.rotate",
     "key.wrap",
     "key.get",
+    "notes.keys.get",
+    "notes.keys.set",
     "ping",
 ];
 
@@ -1599,6 +1690,8 @@ pub const SERVER_KINDS: &[&str] = &[
     "devices",
     "memberlog.entries",
     "memberlog.appended",
+    "notes.keys",
+    "notes.keys.updated",
 ];
 
 /// Parses a body straight into its type, so duplicate and unknown fields are refused by the
@@ -1652,6 +1745,8 @@ fn client_message(kind: &str, body: Option<&RawValue>) -> Result<ClientMessage, 
         "key.rotate" => ClientMessage::KeyRotate(parse(kind, body)?),
         "key.wrap" => ClientMessage::KeyWrap(parse(kind, body)?),
         "key.get" => ClientMessage::KeyGet(parse(kind, body)?),
+        "notes.keys.get" => no_body(kind, body, ClientMessage::NotesKeysGet)?,
+        "notes.keys.set" => ClientMessage::NotesKeysSet(parse(kind, body)?),
         "ping" => no_body(kind, body, ClientMessage::Ping)?,
         _ => return Err(unlisted()),
     })
@@ -1698,6 +1793,8 @@ fn server_message(kind: &str, body: Option<&RawValue>) -> Result<ServerMessage, 
         "devices" => ServerMessage::Devices(parse(kind, body)?),
         "memberlog.entries" => ServerMessage::MemberLogEntries(parse(kind, body)?),
         "memberlog.appended" => ServerMessage::MemberLogAppended(parse(kind, body)?),
+        "notes.keys" => ServerMessage::NotesKeys(parse(kind, body)?),
+        "notes.keys.updated" => ServerMessage::NotesKeysUpdated(parse(kind, body)?),
         _ => return Err(unlisted()),
     })
 }
@@ -1912,6 +2009,11 @@ mod tests {
                 wrapped: wrapped("d3"),
             }),
             ClientMessage::KeyGet(KeyGet { epoch: Epoch(1) }),
+            ClientMessage::NotesKeysGet,
+            ClientMessage::NotesKeysSet(NotesKeysSet {
+                base: 3,
+                content: sealed_text(400),
+            }),
             ClientMessage::Ping,
         ]
     }
@@ -2071,6 +2173,18 @@ mod tests {
                 hash: LogHash::from_bytes([5; 32]),
                 by: holder(),
             }),
+            ServerMessage::NotesKeys(NotesKeys {
+                record: Some(NotesKeysRecord {
+                    version: 4,
+                    by: holder(),
+                    content: sealed_text(400),
+                }),
+            }),
+            ServerMessage::NotesKeys(NotesKeys { record: None }),
+            ServerMessage::NotesKeysUpdated(NotesKeysUpdated {
+                version: 4,
+                by: holder(),
+            }),
         ]
     }
 
@@ -2124,7 +2238,8 @@ mod tests {
     fn kind_lists_are_complete() {
         let client: Vec<_> = all_client_messages().iter().map(|m| m.kind()).collect();
         assert_eq!(client, CLIENT_KINDS);
-        let server: Vec<_> = all_server_messages().iter().map(|m| m.kind()).collect();
+        let mut server: Vec<_> = all_server_messages().iter().map(|m| m.kind()).collect();
+        server.dedup();
         assert_eq!(server, SERVER_KINDS);
     }
 
@@ -2184,7 +2299,7 @@ mod tests {
         let hello = encode_client(&client(all_client_messages().remove(0))).unwrap();
         // Fields come out in declaration order.
         assert!(
-            hello.contains(r#""proto":{"min":1,"max":1},"lastSeq":{"stream":"s1","seq":41}"#),
+            hello.contains(r#""proto":{"min":1,"max":2},"lastSeq":{"stream":"s1","seq":41}"#),
             "{hello}"
         );
     }
@@ -2443,10 +2558,90 @@ mod tests {
         };
         assert_eq!(check_welcome(ProtoRange::CURRENT, &welcome), Ok(()));
         welcome.proto = 2;
+        assert_eq!(check_welcome(ProtoRange::CURRENT, &welcome), Ok(()));
+        welcome.proto = 3;
         assert_eq!(
             check_welcome(ProtoRange::CURRENT, &welcome),
-            Err(UnexpectedVersion { chosen: 2 })
+            Err(UnexpectedVersion { chosen: 3 })
         );
+    }
+
+    /// Mixed versions: an app or relay of version 1 speaks `{1, 1}`. Each side of version 2
+    /// settles on 1 with it, and on 2 with its own kind; the envelope stays `v: 1` either way.
+    #[test]
+    fn version_two_meets_version_one_on_version_one() {
+        let old = ProtoRange::new(1, 1).unwrap();
+        assert_eq!(ProtoRange::CURRENT.min(), 1);
+        assert_eq!(ProtoRange::CURRENT.max(), 2);
+        assert_eq!(ProtoRange::CURRENT.negotiate(old), Some(1));
+        assert_eq!(old.negotiate(ProtoRange::CURRENT), Some(1));
+        assert_eq!(ProtoRange::CURRENT.negotiate(ProtoRange::CURRENT), Some(2));
+        for message in all_client_messages() {
+            let text = encode_client(&client(message)).unwrap();
+            assert!(text.starts_with(r#"{"v":1,"#), "{text}");
+        }
+        for message in all_server_messages() {
+            let text = encode_server(&server(message)).unwrap();
+            assert!(text.starts_with(r#"{"v":1,"#), "{text}");
+        }
+    }
+
+    /// Exactly the notes key ring kinds are of version 2; everything a version 1 peer knows
+    /// stays version 1, so filtering by `since` keeps a version 1 connection's traffic as it was.
+    #[test]
+    fn only_the_notes_key_ring_kinds_need_version_two() {
+        let client: Vec<_> = all_client_messages()
+            .into_iter()
+            .filter(|m| m.since() == 2)
+            .map(|m| m.kind())
+            .collect();
+        assert_eq!(client, ["notes.keys.get", "notes.keys.set"]);
+        let mut server: Vec<_> = all_server_messages()
+            .into_iter()
+            .filter(|m| m.since() == 2)
+            .map(|m| m.kind())
+            .collect();
+        server.dedup();
+        assert_eq!(server, ["notes.keys", "notes.keys.updated"]);
+        assert!(all_client_messages().iter().all(|m| m.since() <= 2));
+        assert!(all_server_messages()
+            .iter()
+            .all(|m| m.since() == 1 || !m.loggable()));
+    }
+
+    #[test]
+    fn notes_key_ring_frames_check_their_limits_and_epoch() {
+        let set = |len: usize| {
+            ClientMessage::NotesKeysSet(NotesKeysSet {
+                base: 0,
+                content: sealed_text(len),
+            })
+        };
+        assert!(encode_client(&client(set(MAX_INLINE_CIPHERTEXT_LEN))).is_ok());
+        assert_eq!(
+            encode_client(&client(set(MAX_INLINE_CIPHERTEXT_LEN + 1))),
+            Err(EncodeError::Limit {
+                field: "content",
+                max: MAX_INLINE_CIPHERTEXT_LEN
+            })
+        );
+        assert_eq!(set(8).check_epoch(Epoch(2)), Ok(()));
+        assert_eq!(
+            set(8).check_epoch(Epoch(3)).map_err(|e| e.code()),
+            Err(ErrorCode::StaleEpoch)
+        );
+        let get = r#"{"v":1,"id":"o","team":"t","type":"notes.keys.get","body":{}}"#;
+        assert!(decode_client(get).is_err());
+        let answer = r#"{"v":1,"id":"o","team":"t","type":"notes.keys","body":{"record":null}}"#;
+        assert_eq!(
+            decode_server(answer).unwrap().message,
+            ServerMessage::NotesKeys(NotesKeys { record: None })
+        );
+        let logged = r#"{"v":1,"seq":4,"team":"t","type":"notes.keys.updated","body":{"version":1,"by":{"member":"m","device":"d"}}}"#;
+        assert!(matches!(
+            decode_server(logged),
+            Err(DecodeError::Sequence { .. })
+        ));
     }
 
     #[test]
@@ -2802,6 +2997,7 @@ mod tests {
                 "memberlog.append",
                 "key.rotate",
                 "key.wrap",
+                "notes.keys.set",
             ]
         );
     }

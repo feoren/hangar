@@ -195,5 +195,24 @@ Protocol version 1 is not deployed yet, so additions before the first release ke
   - `e2e::PublicKey` now implements `PartialOrd` and `Ord` (the clients' replay marks are keyed
     by holder and signing key).
 
+- **Version 2 (2026-11-22): the team's notes key ring** (ADR 0006, phase 2). Mixed versions
+  keep working; nothing changes for a peer of version 1.
+  - **Envelope and protocol version are two numbers now.** `ENVELOPE_VERSION` (the frame's `v`)
+    stays 1; `PROTOCOL_VERSION` becomes 2 and `MIN_PROTOCOL_VERSION` is 1, so
+    `ProtoRange::CURRENT` is `{1, 2}`. A relay of version 1 negotiates 1 with a new app and the
+    other way round (`ProtoRange::negotiate`); `welcome.proto` names the version of the team on
+    that connection.
+  - **`ClientMessage::since` and `ServerMessage::since`** name the version that introduced a
+    kind. Rule for the relay: answer a client kind newer than the team's negotiated version with
+    `badRequest`, and never send a server kind newer than it. Rule for the app: send a kind of
+    version 2 only after a `welcome` with `proto` 2.
+  - New client kinds `notes.keys.get` (no body) and `notes.keys.set {base, content}`
+    (deduplicated; `content` sealed under the current epoch, `check_epoch`; at most
+    `MAX_INLINE_CIPHERTEXT_LEN`). New server kinds `notes.keys {record}` (the answer, with
+    `record` `{version, by, content}` or null) and `notes.keys.updated {version, by}` (a live
+    hint; neither is loggable). The relay: owner or admin only (the lower of log role and ticket
+    role), `base` equal to the stored version (else `conflict`), one record per team, the
+    version counted up from 1.
+
 The crate is standalone (its own `Cargo.toml` and `Cargo.lock`, no workspace), so it builds
 without Tauri and without touching the app's build folder.

@@ -21,6 +21,18 @@ pub mod reservation;
 mod text;
 pub mod wire;
 
-/// The protocol version in every frame (`v`). A change to any message's shape, to a limit or to
-/// a hash rule needs a new version.
-pub const PROTOCOL_VERSION: u16 = 1;
+/// The envelope version in every frame (`v`). It stays 1 for every protocol version of this
+/// generation: a peer refuses a frame of another envelope version before it reads anything else,
+/// so raising it would cut every older peer off. Which messages a connection may carry is
+/// negotiated per team with [`PROTOCOL_VERSION`] instead (`hello.proto`, `welcome.proto`).
+pub const ENVELOPE_VERSION: u16 = 1;
+
+/// The newest protocol version this crate speaks: the set of message kinds, limits and hash
+/// rules. A change to any message's shape, to a limit or to a hash rule needs a new version.
+/// Version 2 adds the notes key ring (`notes.keys.get`, `notes.keys.set`, `notes.keys`,
+/// `notes.keys.updated`); a kind is sent only on a team whose negotiated version has it
+/// ([`wire::ClientMessage::since`], [`wire::ServerMessage::since`]).
+pub const PROTOCOL_VERSION: u16 = 2;
+
+/// The oldest protocol version this crate still speaks.
+pub const MIN_PROTOCOL_VERSION: u16 = 1;
