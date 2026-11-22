@@ -128,6 +128,12 @@ describe("WSL", () => {
     expect(wslPath("/already/posix")).toBe("/already/posix");
   });
 
+  it("maps paths holding line or paragraph separators like any other path", () => {
+    expect(wslPath("C:\\a\u2028b\\c.txt")).toBe("/mnt/c/a\u2028b/c.txt");
+    expect(wslPath("C:\\a\u2029b")).toBe("/mnt/c/a\u2029b");
+    expect(wslPath("\\\\wsl$\\Ubuntu\\home\\a\u2028b")).toBe("/home/a\u2028b");
+  });
+
   it("quotes like a POSIX shell after mapping", () => {
     expect(quotePath("C:\\My Files\\ada's.txt", "wsl")).toBe("'/mnt/c/My Files/ada'\\''s.txt'");
     expect(quotePath("C:\\a\\b.txt", "wsl")).toBe("/mnt/c/a/b.txt");
@@ -387,6 +393,15 @@ describe("insertPathText", () => {
         "'/c/work/shop/a b.md' ",
       );
       expect(insertPathText(file("ä.md", "/home/zoë"), "/tmp", "posix")).toBe("/home/zoë/ä.md ");
+    });
+
+    it("maps the drive of an absolute path holding line or paragraph separators", () => {
+      expect(insertPathText(file("a\u2028b.md"), String.raw`D:\x`, "posix")).toBe(
+        "'/c/work/shop/a\u2028b.md' ",
+      );
+      expect(insertPathText(file("a\u2029b.md"), String.raw`D:\x`, "wsl")).toBe(
+        "'/mnt/c/work/shop/a\u2029b.md' ",
+      );
     });
   });
 

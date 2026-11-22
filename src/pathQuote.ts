@@ -46,13 +46,15 @@ const POWERSHELL_QUOTES = /['\u2018\u2019\u201a\u201b]/g;
 
 /** `C:\x\y` as WSL sees it (`/mnt/c/x/y`); `\\wsl$\Distro\home` as `/home`. Others unchanged. */
 export function wslPath(path: string): string {
-  const drive = /^([a-z]):[\\/]?(.*)$/i.exec(path);
+  // `s`: without it `.` skips line and paragraph separators (U+2028, U+2029), and a name holding
+  // one would keep its Windows form.
+  const drive = /^([a-z]):[\\/]?(.*)$/is.exec(path);
   if (drive?.[1] !== undefined) {
     const rest = (drive[2] ?? "").replace(/\\/g, "/").replace(/\/+$/, "");
     const base = `/mnt/${drive[1].toLowerCase()}`;
     return rest === "" ? base : `${base}/${rest}`;
   }
-  const share = /^[\\/]{2}(?:wsl\$|wsl\.localhost)[\\/][^\\/]+(.*)$/i.exec(path);
+  const share = /^[\\/]{2}(?:wsl\$|wsl\.localhost)[\\/][^\\/]+(.*)$/is.exec(path);
   if (share) {
     const rest = (share[1] ?? "").replace(/\\/g, "/");
     return rest === "" ? "/" : rest;
@@ -139,7 +141,8 @@ function relativeTo(path: string, folder: string, windows: boolean): string | nu
 
 /** `C:/x/y` as Git Bash sees it (`/c/x/y`); a share keeps its `//server/share` form. */
 function gitBashPath(path: string): string {
-  const drive = /^([a-z]):\/?(.*)$/i.exec(path);
+  // `s` for names holding U+2028 or U+2029, as in `wslPath`.
+  const drive = /^([a-z]):\/?(.*)$/is.exec(path);
   if (drive?.[1] === undefined) return path;
   const rest = drive[2] ?? "";
   const base = `/${drive[1].toLowerCase()}`;

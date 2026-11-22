@@ -144,7 +144,8 @@ function sidePath(line: string): string | null {
 function headerPath(header: string): string {
   const rest = header.slice("diff --git ".length);
   if (rest.startsWith('"')) {
-    const parts = /^("(?:[^"\\]|\\.)*") ("(?:[^"\\]|\\.)*"|.*)$/.exec(rest);
+    // `s`: git leaves U+2028 and U+2029 unquoted with core.quotePath off, and `.` skips them.
+    const parts = /^("(?:[^"\\]|\\.)*") ("(?:[^"\\]|\\.)*"|.*)$/s.exec(rest);
     const second = parts?.[2];
     if (second !== undefined) return unquotePath(second).replace(/^b\//, "");
   }

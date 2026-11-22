@@ -113,6 +113,13 @@ describe("splitDiff", () => {
     expect(files[0]?.path).toBe("ä.txt");
   });
 
+  it("reads an unquoted new path holding a line separator after a quoted old path", () => {
+    // Only the header, so its pattern alone names the file. The new name also holds " b/": the
+    // " b/" fallback would cut it at the wrong place.
+    const files = splitDiff('diff --git "a/old\\tname" b/x b/y\u2028z\nBinary files differ');
+    expect(files[0]?.path).toBe("x b/y\u2028z");
+  });
+
   it("splits a large diff quickly enough for the panel", () => {
     const body = Array.from({ length: 40_000 }, (_, i) => `+line ${String(i)} ${"x".repeat(40)}`);
     const big = ["diff --git a/big.txt b/big.txt", "@@ -0,0 +1,40000 @@", ...body].join("\n");
