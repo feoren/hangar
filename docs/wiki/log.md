@@ -1530,3 +1530,10 @@ Gemini CLI copies now count a file for a definition only by its `name` or Hangar
 of the copy's file name that holds another valid name stays and is reported as `nameTaken`. The
 listing carries Hangar's Markdown copies with their backups (`mdCopies`), which the definition's
 row names. Updated: [[sub-agent-library]].
+
+## [2026-11-22] ingest | Crew column redesign and paint measurement
+The crew column got a round stage with a light ring in the state color instead of the block
+plinth, a name tag below it, a speech bubble whose tail continues fill and edge without a seam,
+typing dots before the first tool call, a breathing ring for waiting (opacity only) and a two-line
+strip. Measured: 0 paints at rest in every mode. Added: [[crew-paint-measurement-2026-11-22]].
+Updated: [[crew-column]].

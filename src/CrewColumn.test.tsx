@@ -199,13 +199,14 @@ describe("CrewColumn", () => {
     expect(host.querySelector("aside.crew")?.getAttribute("aria-label")).toContain("Main session");
   });
 
-  it("draws the whole figure with a plinth in the column form", () => {
+  it("draws the whole figure on a stage in the column form", () => {
     mount("column");
     expect(host.querySelector("aside")?.className).toBe("crew crew-column");
     expect(host.querySelector(".agent-figure.full")).not.toBeNull();
     expect(host.querySelector(".agent-figure.head")).toBeNull();
     expect(host.querySelector(".crew-item")?.classList.contains("state-working")).toBe(true);
-    expect(host.querySelector(".crew-plinth-label")?.textContent).toBe("Explore");
+    expect(host.querySelector(".crew-stage")).not.toBeNull();
+    expect(host.querySelector(".crew-name")?.textContent).toBe("Explore");
     expect(host.querySelector(".crew-chip-text")).toBeNull();
   });
 
@@ -244,16 +245,52 @@ describe("CrewColumn", () => {
     expect(waitingStates()).toEqual([false, false]);
   });
 
-  it("keeps the name on the plinth of a finished sub-agent", () => {
+  it("keeps the name tag of a finished sub-agent", () => {
     view.current = {
       located: null,
       agents: [subAgent("a1", { status: "finished", lastActivity: Date.now() })],
     };
     mount("column");
     expect(host.querySelector(".crew-item")?.classList.contains("state-done")).toBe(true);
-    // The color alone shows the state on screen; the word stays in the accessible name.
-    expect(host.querySelector(".crew-plinth-label")?.textContent).toBe("Explore");
+    // The ring's color and a small check show the state on screen; the word stays in the
+    // accessible name.
+    expect(host.querySelector(".crew-name")?.textContent).toBe("Explore");
+    expect(host.querySelector(".crew-bubble-text svg")).not.toBeNull();
     expect(buttons()[0]?.getAttribute("aria-label")).toContain("Fertig");
+  });
+
+  it("shows no check while a sub-agent works", () => {
+    mount("column");
+    expect(host.querySelector(".crew-bubble-text svg")).toBeNull();
+  });
+
+  it("types three dots instead of words until the first tool call", () => {
+    view.current = { located: null, agents: [subAgent("a1", { tool: null })] };
+    mount("column");
+    const dots = host.querySelector(".crew-bubble .crew-typing");
+    expect(dots?.children).toHaveLength(3);
+    expect(dots?.textContent).toBe("");
+    // The screen reader still hears the words.
+    expect(buttons()[0]?.getAttribute("aria-label")).toBe("Explore, Arbeitet, Starte …");
+  });
+
+  it("types in the strip as well", () => {
+    view.current = { located: null, agents: [subAgent("a1", { tool: null })] };
+    mount("strip");
+    expect(host.querySelector(".crew-chip-say.crew-typing")?.children).toHaveLength(3);
+  });
+
+  it("speaks in words once a tool is used", () => {
+    mount("column");
+    expect(host.querySelector(".crew-typing")).toBeNull();
+    expect(host.querySelector(".crew-bubble-text")?.textContent).not.toBe("");
+  });
+
+  it("does not type for a waiting sub-agent that has not used a tool", () => {
+    view.current = { located: null, agents: [subAgent("a1", { tool: null })] };
+    mount("column", {}, null, new Set(["a1"]));
+    expect(host.querySelector(".crew-typing")).toBeNull();
+    expect(host.querySelector(".crew-bubble-text")?.textContent).toBe("Brauche dein Okay");
   });
 
   it("draws only the head and one line of text in the strip form", () => {
@@ -261,7 +298,7 @@ describe("CrewColumn", () => {
     expect(host.querySelector("aside")?.className).toBe("crew crew-strip");
     expect(host.querySelector(".agent-figure.head")).not.toBeNull();
     expect(host.querySelector(".agent-figure.full")).toBeNull();
-    expect(host.querySelector(".crew-plinth")).toBeNull();
+    expect(host.querySelector(".crew-stage")).toBeNull();
     expect(host.querySelector(".crew-bubble")).toBeNull();
     expect(host.querySelector(".crew-chip-text")).not.toBeNull();
   });

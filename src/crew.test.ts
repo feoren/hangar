@@ -217,7 +217,7 @@ describe("bubble throttle", () => {
   });
 });
 
-describe("colors of the plinths", () => {
+describe("colors of the stages", () => {
   const css = readFileSync(new URL("./styles.css", import.meta.url), "utf8");
 
   it("come from tokens that both themes define", () => {
@@ -236,8 +236,8 @@ describe("colors of the plinths", () => {
   });
 
   it("change only colors, with a transition", () => {
-    const plinth = /\.crew-plinth \{([^}]*)\}/.exec(css)?.[1] ?? "";
-    expect(plinth).toMatch(/transition:\s*background-color[^;]*,\s*border-color/);
-    expect(plinth).not.toMatch(/animation|transform/);
+    const stage = /\.crew-stage \{([^}]*)\}/.exec(css)?.[1] ?? "";
+    expect(stage).toMatch(/transition:\s*background-color[^;]*,\s*border-color/);
+    expect(stage).not.toMatch(/animation|transform/);
   });
 });

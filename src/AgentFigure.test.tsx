@@ -102,13 +102,37 @@ describe("AgentFigure", () => {
     expect(initial).toContain("background:#8b5cc8");
   });
 
-  it("stands still: no animation on a figure, the crew's plinth only changes color", () => {
+  it("stands still: no figure moves, the crew's stage only changes color", () => {
     const css = readFileSync(new URL("./styles.css", import.meta.url), "utf8").replace(
       /\/\*[\s\S]*?\*\//g,
       "",
     );
+    const rules = [...css.matchAll(/([^{}]+)\{([^{}]*)\}/g)].map((match) => ({
+      selector: (match[1] ?? "").trim(),
+      body: match[2] ?? "",
+    }));
     expect(css).not.toMatch(/@keyframes figure-/);
-    expect(css).not.toMatch(/^\.agent-figure[^{]*\{[^}]*animation/m);
-    expect(css).not.toMatch(/\.crew-[a-z-]+[^{]*\{[^}]*(animation|transform:|translate)/);
+    const moves = /animation|transition|transform|(^|[;\s])(translate|rotate|scale)\s*:/;
+    // No figure moves anywhere, not even on hover: no animation, transition or transform.
+    for (const rule of rules.filter((r) => r.selector.includes(".agent-figure"))) {
+      expect(rule.body, rule.selector).not.toMatch(moves);
+    }
+    // In the crew only the bubble's tail is turned (a static shape); nothing else is transformed,
+    // so neither a figure nor its stage or card can be moved from an ancestor.
+    const transformed = rules
+      .filter((r) => r.selector.includes(".crew-"))
+      .filter((r) => /transform\s*:|(^|[;\s])(translate|rotate|scale)\s*:/.test(r.body))
+      .map((r) => r.selector);
+    expect(transformed).toEqual([".crew-bubble::after"]);
+    const tail = rules.find((r) => r.selector === ".crew-bubble::after")?.body ?? "";
+    expect(tail).toMatch(/transform:\s*rotate\(45deg\);/);
+    expect(tail).not.toMatch(/animation|transition:[^;]*transform/);
+    // The crew's only loops: typing dots and the waiting glow, plus a new text rising in.
+    const crewAnimations = rules
+      .filter((r) => r.selector.includes(".crew-"))
+      .flatMap((r) => [...r.body.matchAll(/animation:\s*([\w-]+)/g)].map((m) => m[1]));
+    expect(new Set(crewAnimations)).toEqual(
+      new Set(["crew-say-in", "dots-fade", "crew-wait-glow", "none"]),
+    );
   });
 });

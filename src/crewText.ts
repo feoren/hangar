@@ -88,6 +88,15 @@ export function shortTool(tool: string): string {
   return clip(last, MAX_TOOL);
 }
 
+/**
+ * Whether the bubble shows typing dots instead of words: a working figure whose shown text is
+ * still the start (no tool yet). Read from the shown text, not the agent, so the dots and a held
+ * back text (BubbleThrottle) never disagree.
+ */
+export function bubbleTyping(state: CrewState, shown: string, t: Translate): boolean {
+  return state === "working" && shown === t("subAgents.starting");
+}
+
 /** What the figure says in `state`; `agent` supplies the newest tool call. */
 export function bubbleText(agent: SubAgent, state: CrewState, t: Translate): string {
   if (state === "done") return t("subAgents.done");

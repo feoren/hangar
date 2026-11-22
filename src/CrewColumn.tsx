@@ -1,14 +1,16 @@
 // The crew beside a session's terminal (docs/wiki/pages/syntheses/crew-column.md): each running
-// sub-agent as a still whole figure on a plinth whose color shows its state, with a speech bubble
-// for what it does. In a narrow pane the same crew is a strip of faces with one line of text.
+// sub-agent as a still whole figure on a round stage whose light ring shows its state, with a
+// speech bubble for what it does and its name on a tag below. In a narrow pane the same crew is a
+// strip of faces with one line of text.
 // Which sub-agents stand here, their states and texts are decided by crew.ts and crewText.ts.
 
 import { useState } from "react";
 
 import { AgentFigure, useCrewFigure } from "./AgentFigure";
 import { BubbleThrottle, crewOf, type CrewEntry, type CrewForm, type CrewState } from "./crew";
-import { bubbleText } from "./crewText";
+import { bubbleText, bubbleTyping } from "./crewText";
 import { useT, type MessageKey } from "./i18n";
+import { CheckIcon } from "./icons";
 import { agentName, visibleAgents, type SubAgent } from "./subAgents";
 import { useClock } from "./useClock";
 import { useSubAgentView } from "./useSubAgents";
@@ -144,6 +146,7 @@ function CrewItem({
   const figure = useCrewFigure(agent.agentType, cwd);
   const name = agentName(agent, t);
   const stateLabel = t(STATE_LABELS[state]);
+  const typing = bubbleTyping(state, text, t);
   return (
     <li className={`crew-item state-${state}${picked ? " picked" : ""}`} data-agent={agent.id}>
       <button
@@ -158,24 +161,57 @@ function CrewItem({
         {form === "column" ? (
           <>
             <span className="crew-bubble" aria-hidden="true">
-              <span className="crew-bubble-text">{text}</span>
+              <CrewSay text={text} state={state} typing={typing} className="crew-bubble-text" />
             </span>
             <AgentFigure figure={figure} size={88} crop="full" />
-            <span className="crew-plinth" aria-hidden="true">
-              {/* The plinth's color alone tells the state; the word stays in the label. */}
-              <span className="crew-plinth-label">{name}</span>
+            {/* The stage's light ring alone tells the state; the word stays in the label. */}
+            <span className="crew-stage" aria-hidden="true" />
+            <span className="crew-name" aria-hidden="true">
+              {name}
             </span>
           </>
         ) : (
           <>
-            <AgentFigure figure={figure} size={26} crop="head" />
+            <AgentFigure figure={figure} size={30} crop="head" />
             <span className="crew-chip-text" aria-hidden="true">
               <span className="crew-chip-name">{name}</span>{" "}
-              <span className="crew-chip-say">{text}</span>
+              <CrewSay text={text} state={state} typing={typing} className="crew-chip-say" />
             </span>
           </>
         )}
       </button>
     </li>
+  );
+}
+
+/**
+ * What a figure says: typing dots while it has not used a tool yet, else the text, keyed by it so
+ * that a new text fades in. A finished figure gets a small check before its word.
+ */
+function CrewSay({
+  text,
+  state,
+  typing,
+  className,
+}: {
+  text: string;
+  state: CrewState;
+  typing: boolean;
+  className: string;
+}) {
+  if (typing) {
+    return (
+      <span className={`${className} crew-typing`}>
+        <span />
+        <span />
+        <span />
+      </span>
+    );
+  }
+  return (
+    <span key={text} className={`${className} crew-say`}>
+      {state === "done" && <CheckIcon size={12} />}
+      {text}
+    </span>
   );
 }

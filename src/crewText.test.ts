@@ -1,6 +1,14 @@
 import { describe, expect, it } from "vitest";
 
-import { baseName, bubbleText, clip, MAX_TARGET, shortTarget, shortTool } from "./crewText";
+import {
+  baseName,
+  bubbleText,
+  bubbleTyping,
+  clip,
+  MAX_TARGET,
+  shortTarget,
+  shortTool,
+} from "./crewText";
 import { createTranslator } from "./i18n";
 import type { SubAgent } from "./subAgents";
 
@@ -81,5 +89,29 @@ describe("bubble text", () => {
     expect(baseName("a\\b\\c.txt")).toBe("c.txt");
     expect(baseName("dir/")).toBe("dir");
     expect(baseName("plain")).toBe("plain");
+  });
+});
+
+describe("typing dots", () => {
+  it("stand in for the start text of a working figure", () => {
+    expect(bubbleTyping("working", say(null, null), en)).toBe(true);
+    expect(bubbleTyping("working", say(null, null, de), de)).toBe(true);
+  });
+
+  it("give way to words once a tool is used", () => {
+    expect(bubbleTyping("working", say("Read", "src/a.ts"), en)).toBe(false);
+    expect(bubbleTyping("working", say("Grep", null), en)).toBe(false);
+  });
+
+  it("follow the shown text, not the newest one", () => {
+    // A held back start text (BubbleThrottle) keeps its dots; a held back tool text keeps words.
+    expect(bubbleTyping("working", en("subAgents.starting"), en)).toBe(true);
+    expect(bubbleTyping("working", "Reading a file", en)).toBe(false);
+  });
+
+  it("never show in another state", () => {
+    for (const state of ["waiting", "done", "quiet"] as const) {
+      expect(bubbleTyping(state, en("subAgents.starting"), en)).toBe(false);
+    }
   });
 });

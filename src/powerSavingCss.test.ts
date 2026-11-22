@@ -55,6 +55,35 @@ describe("power saving styles", () => {
     expect(CSS.includes(`${ROOT} .terminal-preview-cursor`)).toBe(false);
   });
 
+  it("stills the crew: typing dots, the waiting glow and rising texts", () => {
+    for (const target of [
+      ".crew-say",
+      ".crew-typing",
+      ".crew-typing span",
+      ".crew-item.state-waiting .crew-stage::after",
+      ".crew-strip .crew-item.state-waiting .crew-button::after",
+    ]) {
+      expect(declarations(`${ROOT} ${target}`).join(";"), target).toMatch(/animation:\s*none/);
+    }
+    // Still, the dots keep three steps of light and the waiting ring stays fully lit.
+    expect(declarations(`${ROOT} .crew-typing span:nth-child(1)`).join(";")).toMatch(
+      /opacity:\s*0\.4/,
+    );
+    expect(declarations(`${ROOT} .crew-item.state-waiting .crew-stage::after`).join(";")).toMatch(
+      /opacity:\s*1/,
+    );
+  });
+
+  it("moves the crew's loops through opacity only", () => {
+    const frames = (name: string) =>
+      new RegExp(`@keyframes ${name} \\{([\\s\\S]*?)\\n\\}`).exec(CSS)?.[1] ?? "";
+    for (const name of ["crew-wait-glow", "dots-fade"]) {
+      const body = frames(name);
+      expect(body, name).toMatch(/opacity/);
+      expect(body, name).not.toMatch(/transform|box-shadow|background|color/);
+    }
+  });
+
   it("swaps the sparklines for still bars", () => {
     expect(declarations(`${ROOT} .gauge-spark`).join(";")).toMatch(/display:\s*none/);
     expect(declarations(`${ROOT} .gauge-bar`).join(";")).toMatch(/display:\s*block/);

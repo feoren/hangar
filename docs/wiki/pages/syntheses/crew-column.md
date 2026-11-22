@@ -2,7 +2,7 @@
 title: Crew column
 type: synthesis
 tags: [agents, claude-code, sub-agents, layout, figures]
-sources: [[sub-agent-library]], [[agent-workflow-features]], [[claude-hook-agent-id-measurement]]
+sources: [[sub-agent-library]], [[agent-workflow-features]], [[claude-hook-agent-id-measurement]], [[crew-paint-measurement-2026-11-22]]
 created: 2026-11-16
 updated: 2026-11-22
 ---
@@ -11,7 +11,8 @@ updated: 2026-11-22
 
 While an agent session has sub-agents running, they stand as whole figures in one line, one below
 the other, in a column right of that session's terminal. Each figure says in a speech bubble what
-it does right now and stands on a plinth whose color shows its state. The figures do not move.
+it does right now and stands on a round stage whose light ring shows its state. The figures do not
+move on their own.
 Data comes from the existing sub-agent watch ([[agent-workflow-features]], item 23) and, for
 who waits, from the gate's pending decisions (see "Who waits" below).
 
@@ -19,14 +20,17 @@ who waits, from the gate's pending decisions (see "Who waits" below).
 
 - **Column:** a flex child of the pane next to the terminal (never an overlay). The terminal fits to
   the remaining width through its existing resize observer and the PTY gets the new size as usual.
-  Width 148 px, not resizable and not remembered (it holds an 88 px high figure, its bubble and plinth).
+  Width 156 px including its padding and a hairline on the left, not resizable and not remembered
+  (it holds an 88 px high figure, its bubble, stage and name tag). Its floor darkens softly towards
+  the bottom (the panel color over the terminal background), so the figures stand in a room.
 - **Shown** only when the session supports sub-agents (`SessionInfo.subAgents`), the switch is on
   and at least one sub-agent is running, quiet, or finished less than `DONE_LINGER_MS` (8 s) ago.
   A quiet one older than `QUIET_SHOWN_MS` (10 min) is not shown: it is history, not crew.
   Sub-agents the user dismissed in the sidebar tree stay hidden here too.
 - **Fallback, crew strip:** a pane narrower than `CREW_COLUMN_MIN_PANE` (560 px) gets a strip
-  between header and terminal instead: one chip per sub-agent with the face, a one-line text and a
-  colored bottom edge. Chips wrap, no horizontal scrollbar.
+  between header and terminal instead: one pill per sub-agent with the face (30 px) in a ring of
+  the state color, the name on the first line and the bubble text on the second. Chips wrap, no
+  horizontal scrollbar.
 - **Switch:** "Hide crew" on the column or strip itself; "Show crew" / "Hide crew" in the session
   menu (below the sub-agents entry) and in quick access for a session that has sub-agents; and
   "Show sub-agents next to the terminal" in Settings (`crewColumn`, default on, one setting for
@@ -38,17 +42,46 @@ who waits, from the gate's pending decisions (see "Who waits" below).
 
 ## States, colors, texts
 
-The plinth is a low block seen slightly from above: a trapezoid top face in the state color, the
-figure standing in its middle, and a front face tinted with the same color mixed into the panel color and shaded towards the
-bottom, so its label (text color) keeps 4.5:1 in both themes. The label is the sub-agent's name
-(the user's choice): on screen only the color tells the state. The state word stays in the tooltip
-and the accessible name. The color changes with a short transition (color only, allowed under
-reduced motion).
+**Stage.** A round stage seen slightly from above (`.crew-stage`): an elliptical top face with a
+faint light from the top and a light edge, a darker side band (a box shadow of the same ellipse,
+moved down) and a soft shadow on the floor. The state color is only ever the rim with a soft glow,
+never a filled face, so it stays calm with six figures. The figure's feet stand in the middle of
+the top face on a contact shadow; bundled figures stand on their file's bottom edge whatever their
+width (`tools/figures.py`), so the same overlap fits all of them (`--figure-lift` only concerns the
+face crop). Below the stage the sub-agent's name (the user's choice) sits on a small tag in the text
+color on the raised panel color, which keeps 4.5:1 in both themes. On screen the ring's color tells
+the state, plus a small check in the bubble of a finished one; the state word stays in the tooltip
+and the accessible name. Colors change with a short transition (allowed under reduced motion).
+
+**Bubble.** A speech bubble whose tail continues its fill and edge without a seam: the tail is a
+square of the same fill with the edge on two sides, turned by 45 degrees (a static transform), so
+it covers the bubble's edge where they meet. A downward shadow, a light tint of the state color
+(none for quiet, stronger and bold for waiting). A quiet bubble steps back: panel color, plain
+border, muted text, no shadow, and the figure at 72 % opacity. Each new text is its own element
+(keyed by the text) and rises in over 0.22 s (opacity and transform).
+
+**Typing dots.** While a working figure still shows the start text (no tool yet), the bubble shows
+three dots that light up in turn instead of "Starting …" (`crewText.ts`, `bubbleTyping`). The
+check reads the shown text, not the agent, so dots and a text the throttle still holds back never
+disagree. The accessible name keeps the words.
+
+**Waiting** draws a second ring at the stage's edge (in the strip: around the chip) that breathes
+between 25 % and full opacity every 1.6 s. **Hover** only tints the card behind the figure; the
+figure itself never moves. **Picked** (the figure whose card is open) is a calm raised card with an
+accent edge in the column and an accent border in the strip, never a strong accent fill, so it
+does not outshout a waiting figure and its muted text keeps 4.5:1.
+
+**Motion and paint.** Every loop animates opacity only (`dots-fade`, `crew-wait-glow`), so the
+compositor runs it without repainting. Reduced motion and power saving (`:root.power-saving`)
+still all of it: no rising texts, the dots stand at three steps of light (0.4, 0.7, 1)
+and the waiting ring stays fully lit. Measured with a test page of the real `CrewColumn` (one
+figure per state, both forms): 0 `Paint` events in 3 s in each mode
+([[crew-paint-measurement-2026-11-22]]).
 
 | State | When | Token | State word (tooltip, label) | Bubble |
 | ----- | ---- | ----- | --------------------------- | ------ |
 | working | status `running` | `--accent` | Working | tool and target, e.g. "Reading terminal.ts" |
-| waiting | the session has a pending gate decision (reason `gate`, never `bell`) whose hook named this sub-agent (`agent_id`); for a decision that names nobody, the fallback below | `--warn` (amber in both themes), stronger tint and a ring | Waiting for you | "I need your OK" |
+| waiting | the session has a pending gate decision (reason `gate`, never `bell`) whose hook named this sub-agent (`agent_id`); for a decision that names nobody, the fallback below | `--warn` (amber in both themes), stronger tint and a breathing ring | Waiting for you | "I need your OK" |
 | done | status `finished`, hidden after 8 s | `--ok` | Done | "Done" |
 | quiet | status `stale` (no writes for a minute: cancelled, crashed or waiting long) | `--muted` | Quiet | "Quiet for over a minute" |
 
@@ -80,7 +113,7 @@ Bubble text from the newest tool call (`crewText.ts`): known tools get a verb wi
 paths shortened to the file name, commands and patterns cut at 28 characters on the first line.
 Without a target (excerpts switched off) the verb stands alone ("Reading a file"). Unknown tools:
 "Using {tool}" with the tool name cut to 24 characters (MCP names to their last segment). No
-tool yet: "Starting …".
+tool yet: "Starting …", which the bubble shows as typing dots (see "Typing dots").
 
 ## Throttle
 
@@ -106,6 +139,8 @@ session has sub-agents.
 Whole figure (88 px high, 59 px wide, [[sub-agent-library]] "Whole figure and head") of the sub-agent type (`agentType`) through `runningFigure` with the session's folder, like the
 tree: a project definition that overrides a global one gets the neutral figure, but only in
 sessions started in that project. Unknown types get a role figure
-from the name or the initial. No animation anywhere: the old breathing and bobbing of figure
-heads (`figure-breathe`, `figure-bob`, `busy`) is removed in the tree, the pane header and the
-session look as well.
+from the name or the initial. Figures never animate on their own: the old breathing and bobbing
+of figure heads (`figure-breathe`, `figure-bob`, `busy`) is removed in the tree, the pane header
+and the session look as well. A crew figure does not move on hover either; a test in
+`AgentFigure.test.tsx` forbids animation, transition and transform in every rule that styles a
+figure.
