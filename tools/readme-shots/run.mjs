@@ -171,14 +171,54 @@ const ONE_LINE_ROW = {
 const SCENES = [
   {
     // The hero: the link group's chain on three rows, light flowing to the working sessions, the
-    // asking session that has waited for 12 minutes, and the lead at work with its crew.
+    // asking session that has waited for 12 minutes, and the lead at work with its crew of three of
+    // Hangar's own sub-agents, each wearing its figure.
     name: "overview",
     file: "hangar",
     maxBytes: 400 * KB,
     layout: { snapLayout: "pair", paneRatios: { pair: [0.61] }, closedGroups: ["newSession"] },
     settings: flow(false),
     settled: `(${working(2)} && ${shows(".session", "done")} && ${shows(".session", "waiting 12")})`,
-    steps: [{ ready: `document.querySelectorAll(".crew-item").length === 2` }],
+    steps: [{ ready: `document.querySelectorAll(".crew-item").length === 3` }],
+  },
+  {
+    // Settings, "Sub-agents": the fifteen sub-agents Hangar ships, as cards with their figures.
+    name: "sub-agents",
+    file: "hangar-sub-agents",
+    maxBytes: 300 * KB,
+    layout: SINGLE,
+    steps: [
+      { run: click(".footer-settings"), ready: shows("[role=tab]", "Sub-agents") },
+      { run: click("[role=tab]", "Sub-agents"), ready: shows(".sub-agent-browser") },
+      { run: BLUR, ready: "true" },
+    ],
+  },
+  {
+    // Two reports of the link group wait below the lead's row: one with "Send", "Paste only" and
+    // the close mark, one set to send, which waits for the busy lead to pause and can still be
+    // cancelled.
+    name: "waiting-message",
+    file: "hangar-waiting-message",
+    maxBytes: 300 * KB,
+    layout: SINGLE,
+    steps: [
+      {
+        // The cards take no click for a moment after they appear (useArmDelay.ts).
+        ready: `document.querySelectorAll(".waiting-message-send:not([aria-disabled])").length === 2`,
+      },
+      {
+        run: `(() => {
+          const card = [...document.querySelectorAll(".waiting-message")].find((el) =>
+            el.textContent.includes("Refund page done"),
+          );
+          if (!card) throw new Error("No waiting message from docs");
+          card.querySelector(".waiting-message-send").click();
+          return true;
+        })()`,
+        ready: shows(".waiting-message-status", "Sends once"),
+      },
+      { run: BLUR, ready: "true" },
+    ],
   },
   {
     // "Edit group": the members' names, the lead and the group's cost today; the chain on the
@@ -193,28 +233,6 @@ const SCENES = [
         ready: shows("[role=menuitem]", "Edit group"),
       },
       { run: click("[role=menuitem]", "Edit group"), ready: shows(".link-names input") },
-      { run: BLUR, ready: "true" },
-    ],
-  },
-  {
-    // "Group history": the lead hands out tasks, the members report back; one report is open.
-    name: "link-history",
-    file: "hangar-link-history",
-    maxBytes: 300 * KB,
-    layout: SINGLE,
-    steps: [
-      {
-        run: contextMenu(".session-main", "Webhook retries"),
-        ready: shows("[role=menuitem]", "Group history"),
-      },
-      {
-        run: click("[role=menuitem]", "Group history"),
-        ready: `document.querySelectorAll(".link-history-entry").length === 5`,
-      },
-      {
-        run: click(".link-history-entry summary", "cart to shop"),
-        ready: shows(".link-history-entry details[open]"),
-      },
       { run: BLUR, ready: "true" },
     ],
   },
@@ -254,18 +272,6 @@ const SCENES = [
     layout: SINGLE,
     settings: { rowLayout: COST_ROW },
     steps: [{ ready: shows(".budget-notice") }],
-  },
-  {
-    // The morning summary: yesterday in one line, opened to three lines per project.
-    name: "morning",
-    file: "hangar-morning",
-    maxBytes: 300 * KB,
-    layout: SINGLE,
-    steps: [
-      { ready: shows(".morning-notice") },
-      { run: click(".morning-notice button", "View"), ready: shows(".morning-project") },
-      { run: BLUR, ready: "true" },
-    ],
   },
   {
     // The secret guard holds a commit whose staged files seem to hold a key.

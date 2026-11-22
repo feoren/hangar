@@ -34,7 +34,7 @@ your own accounts, on your own machine. The desktop app is open source under the
 
 <picture>
   <source media="(prefers-color-scheme: light)" srcset="docs/images/hangar-light.png">
-  <img alt="Hangar with two sessions side by side: a Claude Code session leading a link group, with its backend and tester sub-agents as figures in the crew column, and Codex CLI working beside it; in the sidebar a teal chain marks the three linked sessions, light flows along the tree lines to the working sessions, and a session that has waited for 12 minutes says so in its row" src="docs/images/hangar-dark.png">
+  <img alt="Hangar with two sessions side by side: a Claude Code session leading a link group, with Hangar's own sub-agents hangar-backend, hangar-frontend and hangar-tester as figures in the crew column and in the sidebar, and Codex CLI working beside it; a teal chain marks the linked sessions, light flows along the tree lines to the working sessions, and the hangar-security session has waited for 12 minutes" src="docs/images/hangar-dark.png">
 </picture>
 
 ## Features
@@ -77,7 +77,8 @@ your own accounts, on your own machine. The desktop app is open source under the
   project's agent session, with a header line naming the sender, and waits until that agent pauses.
 - **Agents message each other.** Agents in linked projects can send with `hangar-send <partner>
 <text>`. Nothing is pasted on its own: the message waits under the partner's session row until you
-  choose Paste, Paste and send or Discard.
+  choose Send, Paste only or × to discard it. While the partner still works, the card says so and
+  you can cancel.
 - **Link sessions.** Pick two or more running agents and link them; a colored chain marks the group
   in the sidebar, and they message each other with `hangar-send` until you unlink them. A lead
   hands out tasks and collects the results, the group history shows every message, and a template
@@ -145,12 +146,19 @@ your own accounts, on your own machine. The desktop app is open source under the
 
 ### Sub-agents
 
-- **Your sub-agents in one place.** _Settings > Sub-agents_ lists your Claude Code agents from
-  `~/.claude/agents` and your projects, and Codex CLI's own agent files. Add a new one by pasting it
-  or from a file; Hangar never replaces a file unasked.
-- **A figure for every agent.** Each sub-agent wears a whole figure: one of 31 bundled ones or
-  your own image, also animated. A session started as a sub-agent wears it in the sidebar, and the
-  crew column shows it while the sub-agent works.
+- **Fifteen sub-agents ready to work.** Hangar ships its own crew for Claude Code and Codex CLI:
+  hangar-backend, hangar-frontend, hangar-tester, hangar-security, hangar-developer,
+  hangar-manager, hangar-researcher, hangar-sysadmin, hangar-marketing, hangar-sales,
+  hangar-social-media, hangar-finance, hangar-contracts, hangar-n8n and hangar-comfyui. Switch
+  them off in the settings if you don't want them.
+- **Your sub-agents in one place.** _Settings > Sub-agents_ separates Hangar's sub-agents from your
+  own Claude Code agents (from `~/.claude/agents` and your projects) and Codex CLI's agent files,
+  shown as cards or as a table; one click opens an agent's model and figure. Add a new one by
+  pasting it or from a file; Hangar never replaces a file unasked.
+- **A figure for every Hangar agent.** Each of Hangar's sub-agents wears a whole figure: one of 41
+  bundled ones or your own image, also animated. Your own agents show their initial. A session
+  started as a sub-agent wears its figure in the sidebar, and the crew column shows it while the
+  sub-agent works.
 - **Start as an agent.** The arrow beside Claude Code starts a session as one of your sub-agents
   (`claude --agent`), also from quick access.
 - **Models per agent and per program.** Pick the model of each sub-agent (Opus, Sonnet, Haiku, Fable
@@ -254,6 +262,22 @@ your own accounts, on your own machine. The desktop app is open source under the
   <tr>
     <td width="50%" valign="top">
       <picture>
+        <source media="(prefers-color-scheme: light)" srcset="docs/images/hangar-sub-agents-light.png">
+        <img alt="Settings opened at Sub-agents with the switch on From Hangar, 15, and six of Hangar's sub-agents as cards with their figures: hangar-backend, hangar-frontend, hangar-tester, hangar-security, hangar-developer and hangar-manager, each with a short description" src="docs/images/hangar-sub-agents-dark.png">
+      </picture>
+      <br><sub>Fifteen sub-agents ship with Hangar, each with its own figure, as cards or as a table.</sub>
+    </td>
+    <td width="50%" valign="top">
+      <picture>
+        <source media="(prefers-color-scheme: light)" srcset="docs/images/hangar-waiting-message-light.png">
+        <img alt="Two waiting messages under the Webhook retries session: one from cart with Send, Paste only and a close button, and one from docs set to send, saying it sends once Webhook retries waits, with Cancel" src="docs/images/hangar-waiting-message-dark.png">
+      </picture>
+      <br><sub>A message from another agent waits for your click: Send, Paste only or discard.</sub>
+    </td>
+  </tr>
+  <tr>
+    <td width="50%" valign="top">
+      <picture>
         <source media="(prefers-color-scheme: light)" srcset="docs/images/hangar-link-groups-light.png">
         <img alt="The Edit group dialog of a link group with three members, shop, cart and docs, the lead set to the Webhook retries session and the group's cost today of 2.2M tokens, about $15.18, while a teal chain marks the linked sessions in the sidebar" src="docs/images/hangar-link-groups-dark.png">
       </picture>
@@ -261,20 +285,13 @@ your own accounts, on your own machine. The desktop app is open source under the
     </td>
     <td width="50%" valign="top">
       <picture>
-        <source media="(prefers-color-scheme: light)" srcset="docs/images/hangar-link-history-light.png">
-        <img alt="The group history of a link group with five messages: Hangar introducing the group, the lead handing out two tasks, and the cart and docs sessions reporting back, the cart report expanded with a Copy button" src="docs/images/hangar-link-history-dark.png">
-      </picture>
-      <br><sub>Every message of a group in one history, from the first task to the last report.</sub>
-    </td>
-  </tr>
-  <tr>
-    <td width="50%" valign="top">
-      <picture>
         <source media="(prefers-color-scheme: light)" srcset="docs/images/hangar-data-flow-light.png">
         <img alt="The sidebar with light flowing along the group's tree line and a sub-agent branch to two working sessions, each with its rate, such as 11 KB/s down, beside it" src="docs/images/hangar-data-flow-dark.png">
       </picture>
       <br><sub>Data flow: light runs along the tree lines at the pace of each agent's output.</sub>
     </td>
+  </tr>
+  <tr>
     <td width="50%" valign="top">
       <picture>
         <source media="(prefers-color-scheme: light)" srcset="docs/images/hangar-quick-access-light.png">
@@ -282,21 +299,12 @@ your own accounts, on your own machine. The desktop app is open source under the
       </picture>
       <br><sub>Quick access finds sessions, projects and the text of your notes.</sub>
     </td>
-  </tr>
-  <tr>
     <td width="50%" valign="top">
       <picture>
         <source media="(prefers-color-scheme: light)" srcset="docs/images/hangar-costs-light.png">
         <img alt="Session rows with a Cost element showing about $9.06, $1.37 and $6.12, and a notice that 82 % of the daily budget is used, about $16.55 of $20.00, with Show costs" src="docs/images/hangar-costs-dark.png">
       </picture>
       <br><sub>Costs in every row and an early warning before the daily budget runs out.</sub>
-    </td>
-    <td width="50%" valign="top">
-      <picture>
-        <source media="(prefers-color-scheme: light)" srcset="docs/images/hangar-morning-light.png">
-        <img alt="The Yesterday at a glance notice: 3 projects, 5 hours 20 minutes and 12 commits, with three lines each for acme-shop, acme-docs and acme-billing" src="docs/images/hangar-morning-dark.png">
-      </picture>
-      <br><sub>On the first start of a day, a quiet summary of yesterday.</sub>
     </td>
   </tr>
   <tr>

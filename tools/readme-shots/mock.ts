@@ -1,12 +1,12 @@
 // In-memory stand-in for the Tauri backend, used only for the README screenshots. It answers the
 // IPC calls the frontend makes and plays a scripted, fictional day in the project "acme-shop":
-// Claude Code working with a crew of sub-agents next to Codex CLI in its own worktree, a second
-// Claude Code session started as the "security" sub-agent, Gemini CLI done with the API docs in
-// the project "acme-docs", a PowerShell running the docs site's dev server and a signed-in account
-// with two teammates online. Three of the agents form a link group with a lead. Per scene it adds
-// what that scene shows: the group's history, the light flowing to working sessions, the notes
-// quick access finds, the day's costs, yesterday's summary, a commit held by the secret guard or a
-// long list of sessions on one line each.
+// Claude Code working with a crew of Hangar's own sub-agents next to Codex CLI in its own worktree,
+// a second Claude Code session started as the "hangar-security" sub-agent, Gemini CLI done with the
+// API docs in the project "acme-docs", a PowerShell running the docs site's dev server and a
+// signed-in account with two teammates online. Three of the agents form a link group with a lead.
+// Per scene it adds what that scene shows: the sub-agents Hangar ships, messages of the group that
+// wait for a click, the light flowing to working sessions, the notes quick access finds, the day's
+// costs, a commit held by the secret guard or a long list of sessions on one line each.
 // The driver (run.mjs) picks what each screenshot shows by clicking through the real frontend.
 // Nothing here talks to a real process, file or network, and every name in it is made up.
 
@@ -173,9 +173,10 @@ const baseSessions = [
     worktree: { path: WORKTREE, branch: WORKTREE_BRANCH, repoRoot: ROOT },
   },
   {
-    // Claude Code started as the "security" sub-agent: its figure is the session's avatar.
-    ...plainSession(3, "claude", ROOT, "security"),
-    subAgent: "security",
+    // Claude Code started as the "hangar-security" sub-agent: its figure is the session's avatar,
+    // its name the session's title.
+    ...plainSession(3, "claude", ROOT, "hangar-security"),
+    subAgent: "hangar-security",
     cliSessionId: "cccccccc-0000-4000-8000-000000000003",
   },
   plainSession(4, "gemini", DOCS, "Refund docs"),
@@ -232,15 +233,16 @@ const claudePrompt = (width = 46) => [
 ];
 const task = (agent: string, what: string) => `${green("●")} ${bold(agent)}(${what})`;
 
-/** The lead of the link group at work: two sub-agents run while it waits for them. */
+/** The lead of the link group at work: three sub-agents run while it waits for them. */
 const claudeCrewOut = lines([
   dim("> ") + "Add retries with backoff to the payment",
   dim("  ") + "webhook and cover them with tests",
   "",
-  "● I'll hand the handler to the backend",
-  "  agent and the tests to the tester.",
+  "● I'll hand the handler to the backend,",
+  "  the banner to the frontend and the tests",
+  "  to the tester.",
   "",
-  task("backend", "Retries with backoff"),
+  task("hangar-backend", "Retries with backoff"),
   dim("  ⎿  ") + "Update(src/payments/webhook.ts)",
   dim("     Updated with 14 additions, 3 removals"),
   dim("      38 ") + red("-  const res = await send(event);"),
@@ -251,7 +253,10 @@ const claudeCrewOut = lines([
   dim("      42 ") + green("+    await sleep(delay);"),
   dim("      43 ") + green("+  }"),
   "",
-  task("tester", "Write retry tests"),
+  task("hangar-frontend", "Retry banner"),
+  dim("  ⎿  ") + "Edit(src/ui/RetryBanner.tsx)",
+  "",
+  task("hangar-tester", "Write retry tests"),
   dim("  ⎿  ") + "Bash(pnpm test payments)",
   dim("     +9 more tool uses"),
   "",
@@ -586,7 +591,7 @@ const subAgents = [
   subAgent(
     "backend",
     "Retries with backoff",
-    "backend",
+    "hangar-backend",
     MINUTE + 38_000,
     2_000,
     "Edit",
@@ -594,9 +599,19 @@ const subAgents = [
     52_310,
   ),
   subAgent(
+    "frontend",
+    "Retry banner",
+    "hangar-frontend",
+    54_000,
+    1_500,
+    "Edit",
+    "src/ui/RetryBanner.tsx",
+    38_420,
+  ),
+  subAgent(
     "tester",
     "Write retry tests",
-    "tester",
+    "hangar-tester",
     MINUTE + 12_000,
     3_000,
     "Bash",
@@ -820,38 +835,74 @@ function sessionCwd(args: Args): string {
   return typeof info?.cwd === "string" ? info.cwd : ROOT;
 }
 
-// Sub-agent definitions: Claude Code's own (the ones that start as an agent and wear a figure).
-// Figures not chosen here come from the agent's name.
-const definition = (name: string, description: string, model: string | null, color: string) => ({
-  name,
-  description,
-  model,
-  color,
-  tools: ["Read", "Grep", "Glob", "Bash"],
-  extras: [],
-  scope: "global",
-  folder: null,
-  file: `${name}.md`,
+// Sub-agent definitions: the fifteen Hangar ships, installed as Claude Code's own and unchanged,
+// read from the files the app bundles (src-tauri/bundled-agents) so the scenes list them as they
+// ship. Each wears the figure its role points to (subAgentLibrary.ts `defaultFigure`).
+const BUNDLED_FILES = import.meta.glob<string>("../../src-tauri/bundled-agents/*.md", {
+  query: "?raw",
+  import: "default",
+  eager: true,
 });
+/** The order the sub-agents scene lists them in: the developer roles first. */
+const BUNDLED_ROLES = [
+  "backend",
+  "frontend",
+  "tester",
+  "security",
+  "developer",
+  "manager",
+  "researcher",
+  "sysadmin",
+  "marketing",
+  "sales",
+  "social-media",
+  "finance",
+  "contracts",
+  "n8n",
+  "comfyui",
+];
+/** The `key: value` lines of a definition's front matter. */
+function frontMatter(text: string): Map<string, string> {
+  const head = /^---\r?\n([\s\S]*?)\r?\n---/.exec(text)?.[1] ?? "";
+  const fields = new Map<string, string>();
+  for (const line of head.split(/\r?\n/)) {
+    const match = /^([a-z]+):\s*(.*)$/.exec(line);
+    if (match?.[1] !== undefined && match[2] !== undefined) fields.set(match[1], match[2].trim());
+  }
+  return fields;
+}
+function bundledDefinition(role: string) {
+  const file = `hangar-${role}.md`;
+  const text = BUNDLED_FILES[`../../src-tauri/bundled-agents/${file}`];
+  if (text === undefined) throw new Error(`readme-shots: no bundled sub-agent ${file}`);
+  const fields = frontMatter(text);
+  const tools = fields.get("tools");
+  return {
+    name: fields.get("name") ?? `hangar-${role}`,
+    description: fields.get("description") ?? "",
+    model: fields.get("model") ?? null,
+    color: fields.get("color") ?? null,
+    // No list: every tool, as Claude Code reads a definition without one.
+    tools: tools === undefined ? [] : tools.split(",").map((tool) => tool.trim()),
+    extras: [],
+    scope: "global",
+    folder: null,
+    file,
+  };
+}
+const bundledDefs = BUNDLED_ROLES.map(bundledDefinition);
 const subAgentLibrary = {
-  defs: [
-    definition("backend", "Changes server code, APIs and database queries.", "sonnet", "blue"),
-    definition("security", "Checks code and commands for vulnerabilities.", null, "red"),
-    definition("tester", "Runs the checks and writes missing tests.", "haiku", "green"),
-  ],
+  defs: bundledDefs,
   codexDefs: [],
   problems: [],
   installed: ["claude", "codex"],
   targets: [],
   codexModels: [],
   syncIssues: [],
+  bundled: bundledDefs.map((def) => def.name),
 };
-/** The figures the user picked: one of the newest of each role. */
-const subAgentFigures = {
-  backend: { kind: "builtin", id: "backend-03" },
-  security: { kind: "builtin", id: "security-03" },
-  tester: { kind: "builtin", id: "tester-02" },
-};
+/** No figure picked by hand: each agent wears the one its role points to. */
+const subAgentFigures = {};
 
 // The day so far in tokens and estimated dollars (cost_service.rs): Claude Code's two sessions
 // and Codex CLI. The costs scene has a daily budget of $20, so the early warning at 80 % shows.
@@ -883,7 +934,7 @@ const sessionCosts = [
 const costTitles: Record<number, [string, string]> = {
   1: ["Webhook retries", "Claude Code"],
   2: ["Cart rounding", "Codex CLI"],
-  3: ["security", "Claude Code"],
+  3: ["hangar-security", "Claude Code"],
   6: ["Search ranking", "Claude Code"],
   9: ["Mobile layout", "Claude Code"],
 };
@@ -917,7 +968,7 @@ const costReport = {
 };
 
 // The preferences the backend keeps. The costs scene has a daily budget, so the early warning
-// shows; the morning scene has not offered yesterday's summary yet, every other scene has.
+// shows; yesterday's summary was offered already, so it stays out of the way.
 const mainPrefs = {
   startMode: "private",
   lastProgram: null,
@@ -933,16 +984,18 @@ const mainPrefs = {
   budgetEarlyPercent: 80,
   budgetWarned: null,
   morningReview: true,
-  morningOfferedDay: SCENE === "morning" ? null : "2026-11-09",
+  morningOfferedDay: "2026-11-09",
   dictationEnabled: false,
 };
 
 // Link groups (ADR 0014): the lead in acme-shop hands out tasks to Codex CLI in its worktree and
 // to Gemini CLI in the docs project, and collects their results.
+/** The waiting-message scene: the group asks first, so the members' reports wait for a click. */
+const ASK_FIRST = SCENE === "waiting-message";
 const linkGroup = {
   id: 1,
   color: 1,
-  askFirst: false,
+  askFirst: ASK_FIRST,
   braked: false,
   members: [
     { session: 1, name: "shop", role: "lead" },
@@ -950,70 +1003,48 @@ const linkGroup = {
     { session: 4, name: "docs", role: "member" },
   ],
 };
+const linkMessage = (id: number, fromName: string, minutesAgo: number, text: string) => ({
+  id,
+  group: linkGroup.id,
+  fromName,
+  to: 1,
+  text,
+  at: ago(minutesAgo * MINUTE),
+  auto: false,
+  claimed: false,
+});
+/**
+ * The reports that wait below the lead's row, oldest first: the driver sends the second, which
+ * then waits for the lead to pause, and leaves the first with its buttons.
+ */
+const heldMessages = [
+  linkMessage(
+    1,
+    "cart",
+    4,
+    [
+      "Found it: each cart line was rounded before summing, so three lines at 33.33 % off " +
+        "lost a cent. src/cart/total.ts now rounds once at the end.",
+      "",
+      "- Added a test with three discounted lines",
+      "- pnpm test cart: 24 passed",
+      "- Branch hangar/cart-rounding is ready for review",
+    ].join("\n"),
+  ),
+  linkMessage(
+    2,
+    "docs",
+    1,
+    "Refund page done: docs/api/refunds.md covers create, list and cancel, each with a curl " +
+      "example.",
+  ),
+];
 const linkState = {
   groups: [linkGroup],
   sendable: [...mainSessions.keys()].map((index) => index + 1).filter((id) => id !== 5),
   unattended: [],
-  messages: [],
+  messages: ASK_FIRST ? heldMessages : [],
 };
-const historyEntry = (
-  minutesAgo: number,
-  fromName: string | null,
-  toName: string,
-  text: string,
-) => ({
-  at: ago(minutesAgo * MINUTE),
-  fromName,
-  fromRole: fromName === "shop" ? "lead" : "member",
-  toName,
-  outcome: "delivered",
-  text,
-});
-/** The group's messages, newest first. */
-const linkHistory = [
-  historyEntry(
-    2,
-    "docs",
-    "shop",
-    "Refund page done: docs/api/refunds.md covers create, list and cancel, each with a curl " +
-      "example and the error codes from the spec.",
-  ),
-  historyEntry(
-    6,
-    "cart",
-    "shop",
-    [
-      "Found it: each cart line was rounded before summing, so three lines at 33.33 % off " +
-        "lost a cent. src/cart/total.ts now sums the exact amounts and rounds once at the end.",
-      "",
-      "- Added a test with three discounted lines (src/cart/total.test.ts)",
-      "- pnpm test cart: 24 passed",
-      "",
-      "Branch hangar/cart-rounding is ready for review.",
-    ].join("\n"),
-  ),
-  historyEntry(
-    9,
-    "shop",
-    "docs",
-    "Please document the refund endpoints in docs/api/refunds.md: create, list and cancel, " +
-      "with the error codes from openapi/refunds.yaml. Tell me when it is done.",
-  ),
-  historyEntry(
-    11,
-    "shop",
-    "cart",
-    "Please find out why the cart total is one cent off for discounted items, fix it with a " +
-      "test and report back with the branch.",
-  ),
-  historyEntry(
-    12,
-    null,
-    "shop",
-    "You lead the link group with cart and docs. Hand out tasks with hangar-send and collect " +
-      "their results.",
-  ),
-];
 
 // Quick access: the notes whose text matches the query, as the backend's search finds them.
 const noteHits = [
@@ -1042,102 +1073,6 @@ const noteHits = [
     updatedAt: ago(3 * 24 * HOUR),
   },
 ];
-
-// Yesterday as the work log saw it: three projects, the morning scene's summary.
-const YESTERDAY_START = Date.UTC(2026, 10, 9, 0, 0, 0);
-const at = (hour: number, minute = 0) => YESTERDAY_START + hour * HOUR + minute * MINUTE;
-const reviewSession = (
-  key: string,
-  title: string,
-  program: string,
-  cwd: string,
-  from: number,
-  to: number,
-) => ({
-  key,
-  title,
-  program,
-  cwd,
-  worktree: false,
-  first: from,
-  last: to,
-  activeMs: Math.round((to - from) * 0.7),
-  runMs: to - from,
-  running: false,
-});
-const reviewCommit = (sha: string, subject: string, time: number) => ({
-  hash: sha.repeat(8).slice(0, 40),
-  subject,
-  time,
-  files: [],
-  fileCount: 2,
-});
-const reviewProject = (
-  path: string,
-  activeMs: number,
-  sessionList: ReturnType<typeof reviewSession>[],
-  commitList: ReturnType<typeof reviewCommit>[],
-  open: number,
-) => ({
-  path,
-  isRepo: true,
-  activeMs,
-  runMs: activeMs + 40 * MINUTE,
-  sessions: sessionList,
-  commits: commitList,
-  files: [],
-  fileCount: 0,
-  uncommitted: open === 0 ? [] : [{ path, worktree: false, files: [], count: open }],
-});
-const dailyReview = {
-  start: YESTERDAY_START,
-  end: YESTERDAY_START + 24 * HOUR,
-  activeMs: 5 * HOUR + 20 * MINUTE,
-  runMs: 7 * HOUR,
-  sessionCount: 6,
-  commitCount: 12,
-  truncated: false,
-  projects: [
-    reviewProject(
-      ROOT,
-      3 * HOUR + 5 * MINUTE,
-      [
-        reviewSession("y1", "Checkout tests", "Claude Code", ROOT, at(8, 40), at(12, 10)),
-        reviewSession("y2", "Price rounding", "Codex CLI", ROOT, at(13, 0), at(15, 30)),
-        reviewSession("y3", "Webhook retries", "Claude Code", ROOT, at(15, 45), at(17, 20)),
-      ],
-      [
-        reviewCommit("a7", "fix: round the cart total once", at(17, 5)),
-        ...["b1", "b2", "b3", "b4", "b5", "b6"].map((sha, i) =>
-          reviewCommit(sha, "test: cover the checkout", at(10, i * 5)),
-        ),
-      ],
-      3,
-    ),
-    reviewProject(
-      DOCS,
-      HOUR + 35 * MINUTE,
-      [
-        reviewSession("y4", "Refund docs", "Gemini CLI", DOCS, at(9, 0), at(10, 30)),
-        reviewSession("y5", "Docs server", "PowerShell", DOCS, at(9, 0), at(11, 0)),
-      ],
-      [
-        reviewCommit("c4", "docs: add the refund endpoints", at(10, 25)),
-        ...["c1", "c2", "c3"].map((sha, i) =>
-          reviewCommit(sha, "docs: fix links", at(9, 30 + i * 5)),
-        ),
-      ],
-      0,
-    ),
-    reviewProject(
-      BILLING,
-      40 * MINUTE,
-      [reviewSession("y6", "Invoice PDFs", "Codex CLI", BILLING, at(16, 0), at(16, 50))],
-      [reviewCommit("d1", "feat: put the new logo on invoices", at(16, 45))],
-      1,
-    ),
-  ],
-};
 
 // The secret guard: three files are staged in acme-shop; two of them seem to hold a key. The
 // mock names only the path and the kind, as the backend does; no key appears anywhere.
@@ -1356,13 +1291,14 @@ const handlers: Record<string, (args: Args) => unknown> = {
   snapshot_bind: () => null,
   snapshot_take: () => null,
   cost_report: () => costReport,
-  daily_review: () => (SCENE === "morning" ? dailyReview : null),
+  // No scene shows the morning summary.
+  daily_review: () => null,
   // Partner projects: none in these scenes.
   partner_projects: () => ({ projects: [], pairs: [] }),
   waiting_messages: () => [],
-  // Link groups and the group's history.
+  // Link groups and their waiting messages; no scene opens the group's history.
   link_state: () => linkState,
-  link_history: () => linkHistory,
+  link_history: () => [],
   // Dictation stays off; the window still asks for its state and stops it on a blur.
   dictation_stop: () => null,
   dictation_take_text: () => [],

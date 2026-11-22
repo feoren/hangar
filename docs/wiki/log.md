@@ -1403,3 +1403,9 @@ The catalog field `npm_variants` gives such a copy the npm source of `@opencode/
 update runs npm instead of `opencode upgrade`; `opencode-ai` and every other install keep the
 GitHub source, so the decision of 2026-11-07 still holds.
 Pages changed: [[updates]].
+
+## [2026-11-22] query | README scenes for 0.13.0
+The release of 0.13.0 shows Hangar's own sub-agents with their figures in the overview and adds
+the scenes `sub-agents` (the settings with "From Hangar" as cards) and `waiting-message` (the
+simpler card of a waiting message); `link-history` and `morning` are no longer rendered.
+Pages changed: [[release-rollout]].
