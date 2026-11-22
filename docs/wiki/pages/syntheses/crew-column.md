@@ -2,7 +2,7 @@
 title: Crew column
 type: synthesis
 tags: [agents, claude-code, sub-agents, layout, figures]
-sources: [[sub-agent-library]], [[agent-workflow-features]], [[claude-hook-agent-id-measurement]], [[crew-paint-measurement-2026-11-22]]
+sources: [[sub-agent-library]], [[agent-workflow-features]], [[claude-hook-agent-id-measurement]], [[crew-paint-measurement-2026-11-22]], [[figure-motion-measurement-2026-11-22]]
 created: 2026-11-16
 updated: 2026-11-22
 ---
@@ -11,8 +11,9 @@ updated: 2026-11-22
 
 While an agent session has sub-agents running, they stand as whole figures in one line, one below
 the other, in a column right of that session's terminal. Each figure says in a speech bubble what
-it does right now and stands on a round stage whose light ring shows its state. The figures do not
-move on their own.
+it does right now and stands on a round stage whose light ring shows its state. No CSS moves a
+figure; a bundled figure with an idle loop plays it while it is on screen and the setting allows
+([[sub-agent-library]] "Idle loops").
 Data comes from the existing sub-agent watch ([[agent-workflow-features]], item 23) and, for
 who waits, from the gate's pending decisions (see "Who waits" below).
 
@@ -139,8 +140,13 @@ session has sub-agents.
 Whole figure (88 px high, 59 px wide, [[sub-agent-library]] "Whole figure and head") of the sub-agent type (`agentType`) through `runningFigure` with the session's folder, like the
 tree: a project definition that overrides a global one gets the neutral figure, but only in
 sessions started in that project. Unknown types get a role figure
-from the name or the initial. Figures never animate on their own: the old breathing and bobbing
-of figure heads (`figure-breathe`, `figure-bob`, `busy`) is removed in the tree, the pane header
-and the session look as well. A crew figure does not move on hover either; a test in
+from the name or the initial. No CSS animates a figure: the old breathing and bobbing of figure
+heads (`figure-breathe`, `figure-bob`, `busy`) is removed in the tree, the pane header and the
+session look as well. A crew figure does not move on hover either; a test in
 `AgentFigure.test.tsx` forbids animation, transition and transform in every rule that styles a
-figure.
+figure. The only motion of a figure is its own idle loop, an animated WebP of the bundled figure
+([[sub-agent-library]] "Idle loops"): in the column's whole figures, not in the strip's faces.
+
+The figure button's tooltip (`title`) names the sub-agent in full with its state word
+("hangar-social-media-campaign-planner, Working"): the name tag cuts a long name, and the stage
+tells the state by color alone.

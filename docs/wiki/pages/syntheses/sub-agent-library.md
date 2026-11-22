@@ -2,7 +2,7 @@
 title: Sub-agent library and figures
 type: synthesis
 tags: [agents, claude-code, sub-agents, settings, figures]
-sources: [[claude-agent-flag-measurement]], [[claude-agent-frontmatter-reading]], [[sub-agent-models-research]], [[codex-subagent-model-measurement]], [[sub-agent-formats-measurement]]
+sources: [[claude-agent-flag-measurement]], [[claude-agent-frontmatter-reading]], [[sub-agent-models-research]], [[codex-subagent-model-measurement]], [[sub-agent-formats-measurement]], [[figure-motion-measurement-2026-11-22]]
 created: 2026-11-15
 updated: 2026-11-22
 ---
@@ -491,6 +491,58 @@ head form and a tall capsule in the full form.
 
 ### Motion
 
-None. Figures stand still (the old breathing and bobbing, `busy` and the `still` flag are gone);
-only the attention ring around a waiting session's figure in the rail pulses, like a badge's. An
-own animated GIF or WebP keeps its own animation.
+No CSS moves a figure (the old breathing and bobbing, `busy` and the `still` flag are gone; a test
+in `AgentFigure.test.tsx` forbids animation, transition and transform on every figure rule). Only
+the attention ring around a waiting session's figure in the rail pulses, like a badge's. An own
+animated GIF or WebP keeps its own animation: Hangar shows an own image as the user gave it and
+never swaps it.
+
+### Idle loops
+
+Decided by the owner: the bundled figures get a calm idle loop (body and feet stay, a short look,
+a smile, hair moving slightly; no dancing or bouncing), with the setting "Figures: Animated /
+Still" in Settings > Sub-agents > Display, animated by default.
+
+- **Files:** `src/assets/sub-agents-animated/<id>.webp`, animated WebP with alpha, 160 x 240
+  (2 : 3 like the stills), 80 frames at 16 fps (5 s), endless loop, the figure in the same place
+  as in its still file (feet on the same line). Any subset may exist; `figureFiles.ts` globs both
+  folders (`import.meta.glob`, `?url`, eager), so only URLs are in the script and Vite emits each
+  file as its own asset, read when an image first shows it. A figure without a loop stays still;
+  a test keeps every loop's name a built-in figure id. The choice in Settings is left out while no
+  loop is bundled.
+- **When a figure moves** (`figureMotion.ts`, pure; `useFigureMotion.ts`, one store per window):
+  the setting says animated, the system does not ask for reduced motion
+  (`prefers-reduced-motion: reduce`), power saving is not active (`usePower.ts`), the window is
+  not hidden (`document.visibilityState`) and the figure is on screen (one shared
+  IntersectionObserver; a figure in a scrolled-away list or a hidden pane counts as off screen).
+  Otherwise it shows its still file. An `<img>` with an animated WebP cannot be paused, so standing
+  still means swapping `src`. The next file is decoded first (`useDecodedSource`: `decode()` on a
+  detached image, then the swap; a failed decode swaps anyway), so the swap never paints an empty
+  frame, and both files hold the figure in the same place (measured within 1.3 px of the scaled
+  still), so it does not move. An unwatched figure forgets its last on-screen answer, so after a
+  still phase it moves again only once the observer has answered anew.
+- **Hint:** while reduced motion or power saving keeps the figures still although "Animated" is
+  chosen, the setting's help line says why instead of its usual sentence
+  (`settings.figureMotionReduced`, `settings.figureMotionSaving`).
+- **Only whole figures:** `crop="full"` plays the loop, the face crop (`crop="head"`, 14 to 30 px)
+  stays still. Decided against the suggestion to animate it too: at that size the idle loop is a
+  flicker of a few pixels in busy places (pane headers, search results, the crew strip) and still
+  costs decoding 80 frames.
+- **Cost** ([[figure-motion-measurement-2026-11-22]]): about 1.0 to 1.4 MiB per loop, so about
+  48 MB for all 41 in the bundle and the installer (WebP does not compress further); ten visible
+  loops took about 2 to 8 % of one core in headless Edge with software rendering, the same ten
+  stills about 0 to 1 %.
+- **In the program file:** Tauri 2.12 embeds `dist` in the binary (`tauri-codegen` 2.7.4
+  `embedded_assets.rs`: each file Brotli-compressed, quality 9 for release builds, through
+  `include_bytes!`; `tauri-utils` 2.10.2 `assets.rs` decompresses a file on each request). So the
+  loops make `hangar.exe` and each installer and update about 48 MB larger and the release build
+  slower; at start nothing is decompressed, a loop is read and decompressed only when an image
+  asks for it. That the OS maps the executable's pages on demand rather than reading the whole
+  file at start is the usual behavior of Windows and Linux loaders, not measured for Hangar.
+
+> [!question] Unverified
+> - Whether WebView2 reports `visibilityState` "hidden" for a window hidden to the tray, not only
+>   for a minimized one.
+> - CPU and memory in WebView2 with GPU compositing; only headless Edge without a GPU was measured.
+> - Whether a loop restarts at its first frame after a swap: Chromium may share one animation
+>   timeline between all images of the same file.

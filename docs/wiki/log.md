@@ -1561,3 +1561,11 @@ a teammate reserved", `Reserved tasks: ["Fix checkout" by "#alice"]`) instead of
 changing the file, and name both when an edit meets a claimed file and a reservation.
 `gate::literal` keeps U+2026, so a shortened member id reaches agents as the window shows it.
 Updated: [[agent-gate-adapters]], [[mixed-team-live-measurement]], index.
+
+## [2026-11-22] ingest | Idle loops of the bundled figures
+The bundled figures may play a calm idle loop (animated WebP, 160 x 240, 80 frames), chosen in
+Settings > Sub-agents > Display ("Figures: Animated / Still", animated by default). Reduced
+motion, power saving, a hidden window and a figure off screen show the still file instead; the
+face crop and own images never swap. Measured size, place and CPU with three test loops. The crew
+figure's button names the sub-agent in full in its tooltip. Added:
+[[figure-motion-measurement-2026-11-22]]. Updated: [[sub-agent-library]], [[crew-column]], index.
