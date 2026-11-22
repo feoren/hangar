@@ -1,7 +1,7 @@
 [
   {
     "version": "0.13.0",
-    "date": null,
+    "date": "2026-11-22",
     "items": [
       {
         "de": "Hangar bringt 15 Sub-Agenten mit, etwa hangar-backend, hangar-tester und hangar-security, bereit in Claude Code und Codex. Abschaltbar in den Einstellungen.",
