@@ -163,6 +163,20 @@ describe("dropText", () => {
     expect(dropText(["C:\\a\u001b[201~b.txt"], "powershell")).toBe("");
   });
 
+  it("rejects every C0 and C1 control character on its own, at both range edges", () => {
+    for (const control of ["\u0000", "\u001f", "\u007f", "\u0080", "\u009b", "\u009f"]) {
+      for (const kind of ["agent", "powershell", "cmd", "posix", "wsl"] as const) {
+        expect(dropText([`/tmp/a${control}b`, "/tmp/ok"], kind)).toBe(dropText(["/tmp/ok"], kind));
+        expect(dropText([`/tmp/a${control}b`], kind)).toBe("");
+      }
+    }
+  });
+
+  it("keeps the printable neighbours of the control ranges", () => {
+    expect(dropText(["/tmp/a b~c"], "agent")).not.toBe("");
+    expect(dropText(["/tmp/a\u00a0b"], "agent")).not.toBe("");
+  });
+
   it("leaves out paths with bidi controls, which read otherwise than they are", () => {
     expect(dropText(["/tmp/invoice\u202etxt.sh"], "posix")).toBe("");
     expect(dropText(["C:\\a\u200fb.txt", "C:\\ok.txt"], "powershell")).toBe("C:\\ok.txt ");
