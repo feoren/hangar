@@ -2185,6 +2185,9 @@ h2 .beta-badge {
   --tree-flow-glow: color-mix(in srgb, var(--tree-flow-a) 55%, transparent);
   --tree-flow-dot-glow: color-mix(in srgb, var(--tree-flow-a) 70%, transparent);
   --tree-flow-fade: 500ms;
+  /* The accent way to the active row while a flow runs over it: the flow's particles are in the
+     accent too and would vanish in a solid accent line. */
+  --tree-lit-quiet: color-mix(in srgb, var(--accent) 35%, transparent);
   /* The rate cell on a row: two values like "999 KB/s" in 11 px tabular digits, so the line does
      not shift while the numbers change; a longer unit widens the cell rather than being cut. */
   --fact-rate: 11.4em;
@@ -2441,6 +2444,21 @@ h2 .beta-badge {
 :root.power-saving .tree-flow-line,
 :root.power-saving .tree-flow-elbow {
   animation: none;
+}
+
+/* While a flow runs over the accent way to the active row (the group's trunk, the row's elbow),
+   the way steps back so the flow stays readable; it fades with the flow. */
+.agent-rows::after,
+.agent-rows .tree-guide::after {
+  transition: background-color var(--tree-flow-fade) var(--ease-out);
+}
+
+.agent-rows:has(> .session.active):has(> .tree-flow-line.live)::after {
+  background: var(--tree-lit-quiet);
+}
+
+.session.active > .tree-guide:has(> .tree-flow-elbow.live)::after {
+  background: var(--tree-lit-quiet);
 }
 
 /* The rate at the end of a row's line: output in blue, input in violet. */

@@ -45,6 +45,18 @@ describe("tree flow styles", () => {
     );
   });
 
+  it("quiet the accent way to the active row while a flow runs over it", () => {
+    expect(CSS).toMatch(
+      /--tree-lit-quiet: color-mix\(in srgb, var\(--accent\) \d+%, transparent\);/,
+    );
+    expect(CSS).toMatch(
+      /\.agent-rows:has\(> \.session\.active\):has\(> \.tree-flow-line\.live\)::after \{\s*background: var\(--tree-lit-quiet\);/,
+    );
+    expect(CSS).toMatch(
+      /\.session\.active > \.tree-guide:has\(> \.tree-flow-elbow\.live\)::after \{\s*background: var\(--tree-lit-quiet\);/,
+    );
+  });
+
   it("keep a part that is not live faded out and still", () => {
     expect(CSS).toMatch(
       /\.tree-flow-line,\s*\.tree-flow-elbow \{[^}]*opacity: 0;[^}]*animation-play-state: paused;/,
