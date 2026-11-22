@@ -209,7 +209,7 @@ pub fn validate(workspace: &Workspace) -> Result<(), PersistError> {
 }
 
 /// `#rrggbb` with hex digits in either case.
-fn is_hex_color(color: &str) -> bool {
+pub(crate) fn is_hex_color(color: &str) -> bool {
     color.len() == 7
         && color.starts_with('#')
         && color.bytes().skip(1).all(|b| b.is_ascii_hexdigit())

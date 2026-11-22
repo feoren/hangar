@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-save-recently-closed"
+description = "Enables the save_recently_closed command without any pre-configured scope."
+commands.allow = ["save_recently_closed"]
+
+[[permission]]
+identifier = "deny-save-recently-closed"
+description = "Denies the save_recently_closed command without any pre-configured scope."
+commands.deny = ["save_recently_closed"]

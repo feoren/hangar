@@ -169,6 +169,9 @@ fn commands_are_registered_allowed_and_wired() {
         "save_main_prefs",
         "load_templates",
         "save_templates",
+        // A recently closed session starts a program in a folder on one click.
+        "load_recently_closed",
+        "save_recently_closed",
         // Partner projects decide which agent a message reaches (ADR 0012).
         "partner_projects",
         "link_partner",

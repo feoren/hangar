@@ -815,6 +815,8 @@ pub fn run() -> tauri::Result<()> {
             commands::save_main_prefs,
             commands::load_templates,
             commands::save_templates,
+            commands::load_recently_closed,
+            commands::save_recently_closed,
             commands::partner_projects,
             commands::link_partner,
             commands::unlink_partner,

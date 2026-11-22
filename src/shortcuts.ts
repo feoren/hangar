@@ -25,6 +25,7 @@ export type AppAction =
   | "openSettings"
   | "nextWaiting"
   | "newSession"
+  | "reopenClosed"
   | "find"
   | "launcher"
   | "searchAll"
@@ -46,6 +47,10 @@ export function matchShortcut(event: KeyInfo): AppAction | null {
   if (event.shiftKey && event.code === "KeyA") return "nextWaiting";
   // New session with the most recently used program, like a new tab in Windows Terminal.
   if (event.shiftKey && event.code === "KeyT") return "newSession";
+  // The most recently closed session again (O for open again). Ctrl+Shift+T, the browsers' key
+  // for this, starts a new session here already. Ctrl+O alone is operate-and-get-next in
+  // Readline and stays with the shell.
+  if (event.shiftKey && event.code === "KeyO") return "reopenClosed";
   // Search in the scrollback, as in Windows Terminal. Ctrl+F alone moves the cursor (Readline).
   if (event.shiftKey && event.code === "KeyF") return "find";
   // Quick access to sessions, programs, folders and snippets, as the command palette in VS Code
@@ -128,6 +133,7 @@ export function isReloadKey(event: KeyInfo): boolean {
 export function ignoresRepeat(action: AppAction): boolean {
   return (
     action === "newSession" ||
+    action === "reopenClosed" ||
     action === "closeSession" ||
     action === "toggleSidebar" ||
     action === "quickNote" ||
@@ -362,6 +368,7 @@ export const SHORTCUT_LABELS: Record<AppAction, Shortcut> = {
   openSettings: { mods: ["ctrl"], key: "," },
   nextWaiting: { mods: ["ctrl", "shift"], key: "A" },
   newSession: { mods: ["ctrl", "shift"], key: "T" },
+  reopenClosed: { mods: ["ctrl", "shift"], key: "O" },
   find: { mods: ["ctrl", "shift"], key: "F" },
   searchAll: { mods: ["ctrl", "shift"], key: "S" },
   overview: { mods: ["ctrl", "shift"], key: "M" },

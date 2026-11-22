@@ -189,6 +189,8 @@ fn blocking_commands_run_off_the_main_thread() {
         "save_main_prefs",
         "load_templates",
         "save_templates",
+        "load_recently_closed",
+        "save_recently_closed",
         "partner_projects",
         "link_partner",
         "unlink_partner",

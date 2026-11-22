@@ -735,6 +735,12 @@
           "markdownDescription": "Enables the load_message_queue command without any pre-configured scope."
         },
         {
+          "description": "Enables the load_recently_closed command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-load-recently-closed",
+          "markdownDescription": "Enables the load_recently_closed command without any pre-configured scope."
+        },
+        {
           "description": "Enables the load_scrollback command without any pre-configured scope.",
           "type": "string",
           "const": "allow-load-scrollback",
@@ -1033,6 +1039,12 @@
           "type": "string",
           "const": "allow-save-protected-settings",
           "markdownDescription": "Enables the save_protected_settings command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the save_recently_closed command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-save-recently-closed",
+          "markdownDescription": "Enables the save_recently_closed command without any pre-configured scope."
         },
         {
           "description": "Enables the save_scrollback command without any pre-configured scope.",
@@ -1965,6 +1977,12 @@
           "markdownDescription": "Denies the load_message_queue command without any pre-configured scope."
         },
         {
+          "description": "Denies the load_recently_closed command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-load-recently-closed",
+          "markdownDescription": "Denies the load_recently_closed command without any pre-configured scope."
+        },
+        {
           "description": "Denies the load_scrollback command without any pre-configured scope.",
           "type": "string",
           "const": "deny-load-scrollback",
@@ -2263,6 +2281,12 @@
           "type": "string",
           "const": "deny-save-protected-settings",
           "markdownDescription": "Denies the save_protected_settings command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the save_recently_closed command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-save-recently-closed",
+          "markdownDescription": "Denies the save_recently_closed command without any pre-configured scope."
         },
         {
           "description": "Denies the save_scrollback command without any pre-configured scope.",

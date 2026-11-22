@@ -10,8 +10,9 @@
 // plant a snippet Hangar later pastes into an agent session, plant a template or a recent folder
 // that starts a program in a folder of its choice, make the next start private (without the
 // gate), silence the notices of an agent that waits for approval, hide the budget notice, or turn
-// the dictation key on so that the next hold opens the microphone. The backend commands answer
-// the main window only (`main_store.rs`).
+// the dictation key on so that the next hold opens the microphone. The recently closed sessions
+// (recentlyClosed.ts) live there too: each starts a program in a folder on one click. The backend
+// commands answer the main window only (`main_store.rs`).
 //
 // Migration: as long as the backend has stored nothing, the values an older version kept in
 // localStorage are taken over once; afterwards they are removed from localStorage, and nothing is
@@ -44,6 +45,7 @@ import {
 } from "./messageQueue";
 import type { Language } from "./i18n";
 import { parseQuietHours } from "./quietHours";
+import { parseRecentlyClosed, type ClosedSession } from "./recentlyClosed";
 import {
   defaultSettings,
   legacyNotices,
@@ -515,4 +517,30 @@ export async function loadMainPrefs(
 /** Stores the preferences; what the backend would refuse is left out. */
 export function saveMainPrefs(prefs: MainPrefs, backend: MainBackend = api): Promise<unknown> {
   return backend.saveMainPrefs(persistableMainPrefs(prefs));
+}
+
+/** The backend commands of the recently closed sessions; replaced in tests. */
+export interface ClosedBackend {
+  loadRecentlyClosed: () => Promise<unknown>;
+  saveRecentlyClosed: (entries: readonly ClosedSession[]) => Promise<unknown>;
+}
+
+/**
+ * The recently closed sessions, most recent first. Nothing to migrate: they never lived in
+ * localStorage. Without a backend (browser preview), on an error or for anything malformed: none.
+ */
+export async function loadRecentlyClosed(backend: ClosedBackend = api): Promise<ClosedSession[]> {
+  try {
+    return parseRecentlyClosed(await backend.loadRecentlyClosed());
+  } catch {
+    return [];
+  }
+}
+
+/** Stores the recently closed sessions as the backend takes them. */
+export function saveRecentlyClosed(
+  entries: readonly ClosedSession[],
+  backend: ClosedBackend = api,
+): Promise<unknown> {
+  return backend.saveRecentlyClosed(parseRecentlyClosed(entries));
 }

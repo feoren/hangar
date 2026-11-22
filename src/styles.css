@@ -2723,6 +2723,48 @@ h2 .beta-badge {
   min-width: 0;
 }
 
+/* Recently closed above the programs: a small caption, then rows like the programs' with the
+   folder first and the title after it in the muted color, on one line. */
+.recently-closed {
+  margin-bottom: 4px;
+}
+
+.recently-closed-title {
+  margin: 0;
+  padding: 6px 16px 2px;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+.closed-session-text {
+  display: flex;
+  flex: 1 1 0;
+  gap: 6px;
+  align-items: baseline;
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+}
+
+.closed-session-folder {
+  flex: 0 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.closed-session-title {
+  flex: 0 4 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  font-size: 11.5px;
+  color: var(--muted);
+}
+
 /* The version gives way first when space is short; the name stays readable. */
 .profile-version {
   flex: 0 4 auto;
