@@ -4,6 +4,34 @@
     "date": null,
     "items": [
       {
+        "de": "Die Figuren der Sub-Agents bewegen sich jetzt ruhig, solange du sie siehst. Unter Einstellungen > Sub-Agenten wählst du Animiert oder Still.",
+        "en": "Sub-agent figures now move calmly while you can see them. Choose Animated or Still in Settings > Sub-agents.",
+        "el": "Οι φιγούρες των υπο-agents κινούνται πλέον ήρεμα όσο τις βλέπεις. Διάλεξε Κινούμενες ή Ακίνητες στις Ρυθμίσεις > Υπο-agents.",
+        "es": "Las figuras de los subagentes ahora se mueven con calma mientras las ves. Elige Animadas o Quietas en Configuración > Subagentes.",
+        "fr": "Les personnages des sous-agents bougent désormais calmement tant que tu les vois. Choisis Animés ou Immobiles dans Paramètres > Sous-agents.",
+        "it": "Le figure dei sotto-agenti ora si muovono con calma finché le vedi. Scegli Animate o Ferme in Impostazioni > Sub-agenti.",
+        "ja": "サブエージェントのキャラクターが、表示中は穏やかに動くようになりました。設定 > サブエージェントで「アニメーション」か「静止」を選べます。",
+        "pl": "Postacie podagentów poruszają się teraz spokojnie, dopóki je widzisz. Wybierz Animowane lub Nieruchome w Ustawienia > Subagenci.",
+        "pt": "As figuras dos subagentes agora mexem-se com calma enquanto as vês. Escolhe Animadas ou Paradas em Configurações > Subagentes.",
+        "ru": "Фигурки субагентов теперь спокойно двигаются, пока ты их видишь. Выбери «Анимированные» или «Неподвижные» в Настройки > Субагенты.",
+        "tr": "Alt ajan figürleri artık sen onları gördükçe sakince hareket ediyor. Ayarlar > Alt agent’lar bölümünde Animasyonlu veya Durağan seç.",
+        "zh": "子代理的角色形象现在会在你能看到时轻轻地动。可在 设置 > 子代理 中选择“动画”或“静止”。"
+      },
+      {
+        "de": "Crew-Spalte: Sub-Agents stehen jetzt auf einer runden Bühne, deren Lichtring den Zustand zeigt. Bis sie loslegen, tippen Punkte in ihrer Sprechblase.",
+        "en": "Crew column: sub-agents now stand on a round stage whose light ring shows their state. Until they get going, dots type in their speech bubble.",
+        "el": "Στήλη πληρώματος: οι υπο-agents στέκονται πλέον σε στρογγυλή σκηνή με φωτεινό δακτύλιο για την κατάσταση. Ώσπου να ξεκινήσουν, τελείες γράφουν στο συννεφάκι.",
+        "es": "Columna de equipo: los subagentes ahora están en un escenario redondo cuyo aro de luz muestra el estado. Antes de empezar, unos puntos teclean en el bocadillo.",
+        "fr": "Colonne d’équipe revue : les sous-agents sont sur une scène ronde dont l’anneau lumineux montre l’état. Avant de démarrer, des points tapent dans leur bulle.",
+        "it": "Colonna della squadra: i sotto-agenti ora stanno su un palco rotondo il cui anello di luce mostra lo stato. Prima di iniziare, nel fumetto compaiono puntini.",
+        "ja": "クルー列: サブエージェントが丸いステージに立つようになり、光のリングが状態を示します。作業を始めるまでは吹き出しに入力中の点が表示されます。",
+        "pl": "Kolumna załogi: podagenci stoją teraz na okrągłej scenie, której świetlny pierścień pokazuje stan. Zanim zaczną, w dymku migają kropki pisania.",
+        "pt": "Coluna da equipa: os subagentes estão agora num palco redondo cujo anel de luz mostra o estado. Até começarem, pontos escrevem no balão de fala.",
+        "ru": "Колонка команды: субагенты теперь стоят на круглой сцене, световое кольцо показывает их состояние. Пока они не начали, в облачке печатают точки.",
+        "tr": "Ekip sütunu: alt ajanlar artık ışık halkası durumlarını gösteren yuvarlak bir sahnede durur. Başlayana kadar konuşma balonunda noktalar yazar.",
+        "zh": "团队栏：子代理现在站在圆形舞台上，光环显示其状态。开始工作前，对话气泡中会显示输入中的圆点。"
+      },
+      {
         "de": "Hangar fragt einmal nach einer anonymen Nutzungsstatistik. Standardmäßig aus, ohne Projekt- oder Personennamen, Pfade oder Inhalte, jederzeit abschaltbar.",
         "en": "Hangar asks once about anonymous usage statistics. Off by default, no project or person names, paths or content, and you can switch it off anytime.",
         "el": "Το Hangar ρωτά μία φορά για ανώνυμα στατιστικά χρήσης. Κλειστά από προεπιλογή, χωρίς ονόματα έργων ή προσώπων, διαδρομές ή περιεχόμενο, κλείνουν οποτεδήποτε.",
