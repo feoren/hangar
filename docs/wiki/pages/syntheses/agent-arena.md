@@ -4,7 +4,7 @@ type: synthesis
 tags: [arena, worktree, git, agents]
 sources: []
 created: 2026-11-13
-updated: 2026-11-15
+updated: 2026-11-22
 ---
 
 # Agent arena
@@ -84,7 +84,9 @@ contestant's worktree; otherwise nothing happens. Then, before anything changes:
   submodule (160000) on either side (`arena_link`).
 - A file the winner changed that is modified, staged or untracked in the project folder
   (`git status --untracked-files=all`, compared without case on Windows and macOS), or a new file
-  whose path already exists there, ends in a `conflict` answer listing those files.
+  whose path already exists there, ends in a `conflict` answer listing those files. A status list
+  cut at `MAX_LIST_BYTES` (4 MiB) could hide such a file and refuses with `arena_project_too_large`, even
+  when git exited cleanly after writing past the limit, before it was stopped.
 - New files must be regular files reached without a link in the worktree; no component of any
   path in the project folder may be a link or junction (`arena_link`); the deepest existing folder
   of each new file must resolve inside the project folder and outside its git folder

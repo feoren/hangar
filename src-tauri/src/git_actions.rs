@@ -97,20 +97,22 @@ pub struct StatusEntry {
     pub original: Option<String>,
 }
 
-/// `XY path\0`, for renames and copies `XY new\0old\0`.
+/// `XY path\0`, for renames and copies `XY new\0old\0`. Only [`git::whole_records`] count; a
+/// rename or copy whose original path did not arrive whole is dropped, so a cut original such as
+/// `src` never reaches `git reset` as a folder.
 pub fn parse_status_entries(output: &[u8]) -> Vec<StatusEntry> {
     let mut entries = Vec::new();
-    let mut records = output.split(|b| *b == 0);
+    let mut records = git::whole_records(output).split(|b| *b == 0);
     while let Some(record) = records.next() {
         if record.len() < 4 || record.get(2) != Some(&b' ') {
             continue;
         }
         let (code, path) = (&record[..2], &record[3..]);
         let original = if code.iter().any(|c| matches!(c, b'R' | b'C')) {
-            records
-                .next()
-                .filter(|old| !old.is_empty())
-                .map(|old| String::from_utf8_lossy(old).into_owned())
+            match records.next() {
+                Some(old) if !old.is_empty() => Some(String::from_utf8_lossy(old).into_owned()),
+                _ => continue,
+            }
         } else {
             None
         };
@@ -1019,6 +1021,24 @@ mod tests {
                 },
             ]
         );
+    }
+
+    #[test]
+    fn cut_status_records_are_dropped() {
+        let paths = |output: &[u8]| -> Vec<(String, Option<String>)> {
+            parse_status_entries(output)
+                .into_iter()
+                .map(|entry| (entry.path, entry.original))
+                .collect()
+        };
+        let kept = || vec![("a.txt".to_owned(), None)];
+        // Cut inside a path: `src/comp` may name a folder.
+        assert_eq!(paths(b" M a.txt\0?? src/comp"), kept());
+        // Cut inside a rename's original path: `src` would reset a whole folder.
+        assert_eq!(paths(b" M a.txt\0R  src/new.rs\0src"), kept());
+        // Cut right after a rename's new path.
+        assert_eq!(paths(b" M a.txt\0C  copy.rs\0"), kept());
+        assert!(paths(b" M src/main").is_empty());
     }
 
     #[test]

@@ -1442,6 +1442,8 @@ const de = {
   "arena.errorMissing": "Der Worktree dieses Agenten existiert nicht mehr.",
   "arena.errorNothing": "Der Agent hat nichts geändert.",
   "arena.errorTooLarge": "Die Änderungen sind zu groß zum Übernehmen.",
+  "arena.errorProjectTooLarge":
+    "Im Projektordner sind zu viele nicht committete Dateien, um Überschneidungen zu prüfen. Committe sie oder nimm sie in .gitignore auf und versuch es noch einmal.",
   "arena.errorApply": "git konnte die Änderungen nicht anwenden.",
   "arena.errorCopy": "Eine Datei lässt sich nicht sicher übernehmen.",
   "arena.errorFileBecameFolder":
@@ -3767,6 +3769,8 @@ const en: Record<MessageKey, string> = {
   "arena.errorMissing": "This agent's worktree no longer exists.",
   "arena.errorNothing": "The agent changed nothing.",
   "arena.errorTooLarge": "The changes are too large to take over.",
+  "arena.errorProjectTooLarge":
+    "The project folder has too many uncommitted files to check for overlaps. Commit them or add them to .gitignore, then try again.",
   "arena.errorApply": "git could not apply the changes.",
   "arena.errorCopy": "A file cannot be taken over safely.",
   "arena.errorFileBecameFolder":
@@ -6105,6 +6109,8 @@ const el: Record<MessageKey, string> = {
   "arena.errorMissing": "Το worktree αυτού του πράκτορα δεν υπάρχει πια.",
   "arena.errorNothing": "Ο πράκτορας δεν άλλαξε τίποτα.",
   "arena.errorTooLarge": "Οι αλλαγές είναι πολύ μεγάλες για να μεταφερθούν.",
+  "arena.errorProjectTooLarge":
+    "Ο φάκελος του έργου έχει πάρα πολλά αρχεία χωρίς commit για να ελεγχθούν οι επικαλύψεις. Κάνε τους commit ή πρόσθεσέ τα στο .gitignore και δοκίμασε ξανά.",
   "arena.errorApply": "Το git δεν μπόρεσε να εφαρμόσει τις αλλαγές.",
   "arena.errorCopy": "Ένα αρχείο δεν μπορεί να μεταφερθεί με ασφάλεια.",
   "arena.errorFileBecameFolder":
@@ -8462,6 +8468,8 @@ const es: Record<MessageKey, string> = {
   "arena.errorMissing": "El worktree de este agente ya no existe.",
   "arena.errorNothing": "El agente no cambió nada.",
   "arena.errorTooLarge": "Los cambios son demasiado grandes para aplicarlos.",
+  "arena.errorProjectTooLarge":
+    "La carpeta del proyecto tiene demasiados archivos sin confirmar para comprobar si se solapan. Confírmalos o añádelos a .gitignore y vuelve a intentarlo.",
   "arena.errorApply": "git no pudo aplicar los cambios.",
   "arena.errorCopy": "Un archivo no se puede aplicar de forma segura.",
   "arena.errorFileBecameFolder":
@@ -10812,6 +10820,8 @@ const fr: Record<MessageKey, string> = {
   "arena.errorMissing": "Le worktree de cet agent n’existe plus.",
   "arena.errorNothing": "L’agent n’a rien modifié.",
   "arena.errorTooLarge": "Les modifications sont trop volumineuses pour être reprises.",
+  "arena.errorProjectTooLarge":
+    "Le dossier du projet contient trop de fichiers non validés pour vérifier les chevauchements. Valide-les ou ajoute-les à .gitignore, puis réessaie.",
   "arena.errorApply": "git n’a pas pu appliquer les modifications.",
   "arena.errorCopy": "Un fichier ne peut pas être repris en toute sécurité.",
   "arena.errorFileBecameFolder":
@@ -13168,6 +13178,8 @@ const it: Record<MessageKey, string> = {
   "arena.errorMissing": "Il worktree di questo agente non esiste più.",
   "arena.errorNothing": "L’agente non ha modificato nulla.",
   "arena.errorTooLarge": "Le modifiche sono troppo grandi per essere riprese.",
+  "arena.errorProjectTooLarge":
+    "La cartella del progetto ha troppi file senza commit per controllare le sovrapposizioni. Fanne il commit o aggiungili a .gitignore e riprova.",
   "arena.errorApply": "git non è riuscito ad applicare le modifiche.",
   "arena.errorCopy": "Un file non può essere ripreso in modo sicuro.",
   "arena.errorFileBecameFolder":
@@ -15514,6 +15526,8 @@ const ja: Record<MessageKey, string> = {
   "arena.errorMissing": "このエージェントの worktree はもう存在しません。",
   "arena.errorNothing": "エージェントは何も変更していません。",
   "arena.errorTooLarge": "変更が大きすぎて取り込めません。",
+  "arena.errorProjectTooLarge":
+    "プロジェクトフォルダーにコミットされていないファイルが多すぎて、重なりを確認できません。コミットするか .gitignore に追加してから、もう一度お試しください。",
   "arena.errorApply": "git が変更を適用できませんでした。",
   "arena.errorCopy": "安全に取り込めないファイルがあります。",
   "arena.errorFileBecameFolder":
@@ -17843,6 +17857,8 @@ const pl: Record<MessageKey, string> = {
   "arena.errorMissing": "Worktree tego agenta już nie istnieje.",
   "arena.errorNothing": "Agent niczego nie zmienił.",
   "arena.errorTooLarge": "Zmiany są za duże, aby je przejąć.",
+  "arena.errorProjectTooLarge":
+    "W folderze projektu jest zbyt wiele niezatwierdzonych plików, aby sprawdzić nakładanie się zmian. Zatwierdź je lub dodaj do .gitignore i spróbuj ponownie.",
   "arena.errorApply": "git nie mógł zastosować zmian.",
   "arena.errorCopy": "Jednego z plików nie da się bezpiecznie przejąć.",
   "arena.errorFileBecameFolder":
@@ -20166,6 +20182,8 @@ const pt: Record<MessageKey, string> = {
   "arena.errorMissing": "O worktree deste agente não existe mais.",
   "arena.errorNothing": "O agente não alterou nada.",
   "arena.errorTooLarge": "As alterações são grandes demais para serem aplicadas.",
+  "arena.errorProjectTooLarge":
+    "A pasta do projeto tem arquivos sem commit demais para verificar sobreposições. Faça commit deles ou adicione-os ao .gitignore e tente novamente.",
   "arena.errorApply": "O git não conseguiu aplicar as alterações.",
   "arena.errorCopy": "Um arquivo não pode ser aplicado com segurança.",
   "arena.errorFileBecameFolder":
@@ -22493,6 +22511,8 @@ const ru: Record<MessageKey, string> = {
   "arena.errorMissing": "Worktree этого агента больше не существует.",
   "arena.errorNothing": "Агент ничего не изменил.",
   "arena.errorTooLarge": "Изменения слишком большие, чтобы их перенести.",
+  "arena.errorProjectTooLarge":
+    "В папке проекта слишком много незакоммиченных файлов, чтобы проверить пересечения. Закоммить их или добавь в .gitignore и попробуй ещё раз.",
   "arena.errorApply": "git не смог применить изменения.",
   "arena.errorCopy": "Один из файлов нельзя безопасно перенести.",
   "arena.errorFileBecameFolder":
@@ -24794,6 +24814,8 @@ const tr: Record<MessageKey, string> = {
   "arena.errorMissing": "Bu ajanın worktree'si artık yok.",
   "arena.errorNothing": "Ajan hiçbir şeyi değiştirmedi.",
   "arena.errorTooLarge": "Değişiklikler aktarılamayacak kadar büyük.",
+  "arena.errorProjectTooLarge":
+    "Proje klasöründe çakışmaları denetlemek için çok fazla commit edilmemiş dosya var. Bunları commit et ya da .gitignore dosyasına ekle ve yeniden dene.",
   "arena.errorApply": "git değişiklikleri uygulayamadı.",
   "arena.errorCopy": "Bir dosya güvenli şekilde aktarılamıyor.",
   "arena.errorFileBecameFolder":
@@ -27030,6 +27052,8 @@ const zh: Record<MessageKey, string> = {
   "arena.errorMissing": "此代理的 worktree 已不存在。",
   "arena.errorNothing": "代理没有做任何更改。",
   "arena.errorTooLarge": "更改太大，无法接管。",
+  "arena.errorProjectTooLarge":
+    "项目文件夹中未提交的文件太多，无法检查重叠。请提交它们或将其加入 .gitignore，然后重试。",
   "arena.errorApply": "git 无法应用这些更改。",
   "arena.errorCopy": "有文件无法安全接管。",
   "arena.errorFileBecameFolder":

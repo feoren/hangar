@@ -152,11 +152,13 @@ fn kind_of(xy: &str) -> ChangeKind {
 
 /// Records: `# branch.oid <oid>|(initial)`, `1 XY sub mH mI mW hH hI path`,
 /// `2 XY sub mH mI mW hH hI Xscore path\0orig`, `u XY sub m1 m2 m3 mW h1 h2 h3 path`, `? path`,
-/// `! path`. Paths are not quoted with `-z`. An incomplete last record (cut output) is skipped
-/// when it has too few fields.
+/// `! path`. Paths are not quoted with `-z`. With `-z` git ends every record with NUL, headers
+/// and a rename's original path included (measured with git 2.56), so only
+/// [`crate::git::whole_records`] count: a cut path like `src/comp` would otherwise reach
+/// teammates as a claim. A rename whose original path did not arrive whole is dropped too.
 pub fn parse_status_v2(output: &[u8]) -> StatusScan {
     let mut scan = StatusScan::default();
-    let mut records = output.split(|b| *b == 0);
+    let mut records = crate::git::whole_records(output).split(|b| *b == 0);
     while let Some(record) = records.next() {
         let text = String::from_utf8_lossy(record);
         if let Some(oid) = text.strip_prefix("# branch.oid ") {
@@ -177,10 +179,10 @@ pub fn parse_status_v2(output: &[u8]) -> StatusScan {
             }
             _ => continue,
         };
-        if text.starts_with("2 ") {
-            // The original path follows as a record of its own (only with renames, which the
-            // rescan turns off).
-            records.next();
+        // The original path follows as a record of its own (only with renames, which the rescan
+        // turns off); without it the entry is cut.
+        if text.starts_with("2 ") && records.next().is_none() {
+            continue;
         }
         let parts: Vec<&str> = text.splitn(fields, ' ').collect();
         let (Some(xy), Some(path)) = (parts.get(1), parts.get(fields - 1)) else {
@@ -782,6 +784,31 @@ u UU N... 100644 100644 100644 100644 a b c both.rs\0\
         assert_eq!(initial.base, None);
         assert_eq!(initial.files.len(), 1);
         assert_eq!(parse_status_v2(b""), StatusScan::default());
+    }
+
+    #[test]
+    fn cut_status_v2_drops_the_unfinished_record() {
+        let paths = |output: &[u8]| -> Vec<String> {
+            parse_status_v2(output)
+                .files
+                .into_iter()
+                .map(|(path, _)| path)
+                .collect()
+        };
+        // A cut path must never reach teammates as a claim.
+        assert_eq!(paths(b"? a.txt\0? src/comp"), ["a.txt"]);
+        // Cut inside the path of an ordinary entry: all fields are there, the path is not.
+        assert_eq!(
+            paths(b"? a.txt\x001 .M N... 100644 100644 100644 aaaa bbbb src/ma"),
+            ["a.txt"]
+        );
+        // A rename whose original path never arrived.
+        assert_eq!(
+            paths(b"? a.txt\x002 R. N... 100644 100644 100644 aaaa aaaa R100 new.rs\0"),
+            ["a.txt"]
+        );
+        // A cut branch header gives no base.
+        assert_eq!(parse_status_v2(b"# branch.oid 0123456789ab").base, None);
     }
 
     #[test]

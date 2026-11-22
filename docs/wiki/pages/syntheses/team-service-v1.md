@@ -4,7 +4,7 @@ type: synthesis
 tags: [collaboration, teams, agents, server, e2e, git, worktree, hooks, claims]
 sources: ["[[claims-rescan-measurement]]", "[[claude-http-hook-measurement]]", "[[relay-interop-measurement]]"]
 created: 2026-11-09
-updated: 2026-11-15
+updated: 2026-11-22
 ---
 
 # Team service version 1: research results and build plan
@@ -179,7 +179,9 @@ and timing: [[claims-rescan-measurement]].
   a base commit and changes `diff -U0 --no-ext-diff --no-textconv --no-renames HEAD --`. Hunk
   headers only; a pure insertion after line `a` counts as lines `a` to `a + 1`. Whole file: new,
   deleted, untracked, conflicted, binary, more than 64 hunks, no hunks (mode only), no base, or
-  past the 4 MiB output limit. Never file contents.
+  past the 4 MiB output limit. A status list cut at that limit counts only up to its last NUL
+  (git ends every `-z` record with one, a rename's original path included; measured with git
+  2.56.0.windows.4), so a cut path never reaches teammates as a claim. Never file contents.
 - **Keys:** repository = git common folder, worktree = top folder, both resolved, `/`
   separators, lower case on Windows and macOS. File paths compare case-insensitively there too.
 - **Overlap levels:** `none`, `sameArea` (same first folder, no shared file in it), `sameFile`,

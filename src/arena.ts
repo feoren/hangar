@@ -419,6 +419,7 @@ const ERROR_MESSAGES: ReadonlyMap<string, MessageKey> = new Map<string, MessageK
   ["arena_missing", "arena.errorMissing"],
   ["arena_nothing_to_apply", "arena.errorNothing"],
   ["arena_too_large", "arena.errorTooLarge"],
+  ["arena_project_too_large", "arena.errorProjectTooLarge"],
   ["arena_apply", "arena.errorApply"],
   ["arena_copy", "arena.errorCopy"],
   ["arena_unsafe_path", "arena.errorUnsafePath"],

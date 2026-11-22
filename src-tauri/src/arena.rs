@@ -68,6 +68,8 @@ pub enum ArenaError {
     NothingToApply,
     #[error("The changes are too large to take over")]
     TooLarge,
+    #[error("The project folder has too many uncommitted changes to check for overlaps")]
+    ProjectTooLarge,
     #[error("git could not apply the changes: {0}")]
     Apply(String),
     #[error("{path} cannot be taken over: {reason}")]
@@ -104,6 +106,7 @@ impl ArenaError {
             Self::Missing => Some("arena_missing"),
             Self::NothingToApply => Some("arena_nothing_to_apply"),
             Self::TooLarge => Some("arena_too_large"),
+            Self::ProjectTooLarge => Some("arena_project_too_large"),
             Self::Apply(_) => Some("arena_apply"),
             Self::Copy { .. } => Some("arena_copy"),
             Self::UnsafePath(_) => Some("arena_unsafe_path"),
@@ -577,7 +580,12 @@ fn dirty_files(
         ],
     );
     let output = git.run(root, args, deadline, git::MAX_LIST_BYTES)?;
-    // A cut list could hide a conflict; only a complete one counts.
+    // A cut list could hide a conflict; only a complete one counts. git can exit cleanly after
+    // writing past the limit, before it is stopped, so `success` alone does not prove the list
+    // is whole.
+    if output.truncated {
+        return Err(ArenaError::ProjectTooLarge);
+    }
     if !output.success {
         return Err(output.failure().into());
     }
@@ -1243,6 +1251,7 @@ mod tests {
             (ArenaError::Missing, "arena_missing"),
             (ArenaError::NothingToApply, "arena_nothing_to_apply"),
             (ArenaError::TooLarge, "arena_too_large"),
+            (ArenaError::ProjectTooLarge, "arena_project_too_large"),
             (ArenaError::Apply("conflict".to_owned()), "arena_apply"),
             (
                 ArenaError::Copy {

@@ -1206,19 +1206,32 @@ pub(crate) fn cut_text(mut text: Vec<u8>, truncated: bool) -> String {
     String::from_utf8_lossy(&text).into_owned()
 }
 
+/// The NUL terminated records of a `-z` list up to the last NUL, without that NUL. git ends every
+/// record with NUL, so whatever follows the last one was cut at the output limit: a cut path
+/// like `src/comp` could name a real folder, and staging or resetting that would touch files
+/// nobody saw. Callers that accept a cut list ([`Output::usable`]) see only whole records.
+pub(crate) fn whole_records(output: &[u8]) -> &[u8] {
+    output
+        .iter()
+        .rposition(|b| *b == 0)
+        .map_or(&[][..], |end| &output[..end])
+}
+
 /// `git status --porcelain=v1 -z`: `XY path\0`, for renames and copies `XY new\0old\0`.
+///
+/// Only [`whole_records`] count; a rename or copy whose original path did not arrive whole is
+/// dropped too.
 pub fn parse_status(output: &[u8]) -> Vec<FileChange> {
     let mut files = Vec::new();
-    let mut records = output.split(|b| *b == 0);
+    let mut records = whole_records(output).split(|b| *b == 0);
     while let Some(record) = records.next() {
-        // An incomplete last record (cut output) has no path yet.
         if record.len() < 4 || record.get(2) != Some(&b' ') {
             continue;
         }
         let (code, path) = (&record[..2], &record[3..]);
-        if code.iter().any(|c| matches!(c, b'R' | b'C')) {
-            // The original path follows as a record of its own.
-            records.next();
+        if code.iter().any(|c| matches!(c, b'R' | b'C')) && records.next().is_none() {
+            // The original path follows as a record of its own; without it the entry is cut.
+            continue;
         }
         files.push(FileChange {
             path: String::from_utf8_lossy(path).into_owned(),
@@ -1524,6 +1537,21 @@ pub(crate) mod tests {
             ]
         );
         assert!(parse_status(b"").is_empty());
+    }
+
+    #[test]
+    fn cut_status_drops_the_unfinished_record() {
+        let paths = |output: &[u8]| -> Vec<String> {
+            parse_status(output).into_iter().map(|f| f.path).collect()
+        };
+        // Cut inside a path: "src/comp" may name a folder, staging it would stage its content.
+        assert_eq!(paths(b" M a.txt\0UU src/comp"), ["a.txt"]);
+        // Cut right after a rename's new path: its original never arrived.
+        assert_eq!(paths(b" M a.txt\0R  new.rs\0"), ["a.txt"]);
+        // Cut inside a rename's original path.
+        assert_eq!(paths(b" M a.txt\0C  copy.rs\0orig"), ["a.txt"]);
+        // Cut before the first NUL: nothing is whole.
+        assert!(paths(b" M src/main").is_empty());
     }
 
     #[test]

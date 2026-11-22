@@ -228,6 +228,10 @@ describe("arenaErrorText", () => {
       ["[arena_missing] The contestant's worktree no longer exists", de("arena.errorMissing")],
       ["[arena_nothing_to_apply] The contestant changed nothing", de("arena.errorNothing")],
       ["[arena_too_large] The changes are too large to take over", de("arena.errorTooLarge")],
+      [
+        "[arena_project_too_large] The project folder has too many uncommitted changes to check for overlaps",
+        de("arena.errorProjectTooLarge"),
+      ],
       ["[arena_apply] git could not apply the changes: patch failed", de("arena.errorApply")],
       ["[arena_copy] a.txt cannot be taken over: outside", de("arena.errorCopy")],
       ["[arena_unsafe_path] .git./x cannot be taken over", de("arena.errorUnsafePath")],

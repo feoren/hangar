@@ -183,7 +183,10 @@ access to the git folder, which already allows far more.
   `status` is the porcelain v1 XY code. `diff` is `git diff HEAD --no-color --no-ext-diff
   --no-textconv` (repositories without commits: `git diff --cached` plus working tree), at most
   2 MiB (`truncated` then true). Untracked files appear in `files` with status `??` and no
-  content.
+  content. The status list is cut at `MAX_LIST_BYTES` (4 MiB); `parse_status` (and
+  `parse_status_entries` for unstage and discard) then drops everything after the last NUL and a
+  rename or copy without its original path, because a cut path such as `src/comp` could name a
+  real folder that "Stage all" would stage, or unstage would reset, with its content.
 - `git_activity(folders: string[]) -> { commits: number[], truncated: boolean }`: author times
   (Unix seconds) of the user's own commits for the activity calendar in the empty window. At
   most 24 folders (more refuse the call). No session names these folders, so the backend keeps
