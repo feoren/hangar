@@ -4,8 +4,13 @@
 
 import { useEffect, useLayoutEffect, useRef, type RefObject } from "react";
 
-/** Longest the motion may take before the gate opens anyway (the CSS uses 220 ms). */
-export const SIDEBAR_MOTION_LIMIT_MS = 400;
+import { SAVING_CLASS } from "./power";
+
+/**
+ * Longest the sidebar's or the right panel's motion may take before the gate opens anyway (the
+ * CSS token `--panel-motion` is 280 ms).
+ */
+export const PANEL_MOTION_LIMIT_MS = 500;
 
 /** Holds fits back while the sidebar moves; each waiting fit runs once afterwards. */
 export class MotionGate {
@@ -39,6 +44,9 @@ export class MotionGate {
 }
 
 export const sidebarMotion = new MotionGate();
+
+/** Held while the right panel slides in or out (sidePanelMotion.ts), like the sidebar's gate. */
+export const sidePanelMotion = new MotionGate();
 
 /**
  * Held while a splitter is dragged or stepped by keyboard, between panes (PaneSplitters.tsx) as well
@@ -87,8 +95,13 @@ export function useWindowResizing(): void {
   useEffect(() => followResizes(window, windowResizing, WINDOW_RESIZE_SETTLE_MS), []);
 }
 
-function reducedMotion(): boolean {
-  return window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+/**
+ * Whether panels may glide: not with reduced motion and not while saving power on battery (the
+ * root's class, power.ts). Without motion they open and close at once.
+ */
+export function motionAllowed(): boolean {
+  if (document.documentElement.classList.contains(SAVING_CLASS)) return false;
+  return !window.matchMedia("(prefers-reduced-motion: reduce)").matches;
 }
 
 /**
@@ -112,7 +125,7 @@ export function useSidebarMotion(
     if (shown.current === collapsed) return;
     shown.current = collapsed;
     const element = app.current;
-    if (!element || reducedMotion()) return;
+    if (!element || !motionAllowed()) return;
     element.classList.add("sidebar-moving");
     sidebarMotion.setMoving(true);
     const settle = () => {
@@ -124,7 +137,7 @@ export function useSidebarMotion(
       if (event.target === element && event.propertyName === "grid-template-columns") settle();
     };
     // Fallback: no transition ran (the column kept its width) or its end event got lost.
-    const timer = window.setTimeout(settle, SIDEBAR_MOTION_LIMIT_MS);
+    const timer = window.setTimeout(settle, PANEL_MOTION_LIMIT_MS);
     element.addEventListener("transitionend", onEnd);
     element.addEventListener("transitioncancel", onEnd);
     return () => {

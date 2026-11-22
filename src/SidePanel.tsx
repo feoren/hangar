@@ -1,9 +1,13 @@
-import { useRef } from "react";
+import { useRef, type CSSProperties, type Ref } from "react";
 
 import { useT } from "./i18n";
 import { CloseIcon, DetachIcon, DockIcon } from "./icons";
 import { SIDE_TAB_LABELS, type SideTab } from "./layout";
 import { formatShortcut, SHORTCUT_LABELS } from "./shortcuts";
+import { panelMoving, type PanelPhase } from "./sidePanelMotion";
+
+/** The width as a custom property: the frame and, while it slides, its content take it. */
+type PanelStyle = CSSProperties & { "--side-width"?: string };
 
 interface Props {
   tab: SideTab;
@@ -15,6 +19,10 @@ interface Props {
   mode: "docked" | "overlay" | "window";
   /** Docked and overlay only; the detached window fills its window. */
   width?: number;
+  /** Sliding in or out (sidePanelMotion.ts); the detached window always rests `open`. */
+  phase?: PanelPhase;
+  /** Goes on the frame, so the end of its slide can be heard (sidePanelMotion.ts). */
+  frame?: Ref<HTMLElement>;
   /** "Open in own window": the button shows when this is given. */
   onDetach?: () => void;
   /** "Back into the main window": the button shows when this is given. */
@@ -37,7 +45,7 @@ const TABS: readonly SideTab[] = ["notes", "changes", "files"];
  * the content of the chosen tab. Docked next to the terminal, in a narrow window as an overlay
  * with a scrim (a click outside or Escape closes it), or detached as a window of its own.
  */
-export function SidePanel(props: Props) {
+export function SidePanel({ frame, ...props }: Props) {
   const { tab, mode } = props;
   const t = useT();
   const tabs = useRef(new Map<SideTab, HTMLButtonElement>());
@@ -49,16 +57,25 @@ export function SidePanel(props: Props) {
     return `${label(id)} (${formatShortcut(shortcut, t)})`;
   };
 
+  const phase = props.phase ?? "open";
+  const closing = phase === "closing";
+  const className = [
+    "side-panel",
+    mode === "overlay" ? "floating" : mode === "window" ? "window" : "",
+    panelMoving(phase) ? "moving" : "",
+    closing ? "side-out" : "",
+  ]
+    .filter(Boolean)
+    .join(" ");
+  const style: PanelStyle | undefined =
+    props.width === undefined ? undefined : { "--side-width": `${String(props.width)}px` };
+
   const panel = (
     <aside
-      className={
-        mode === "overlay"
-          ? "side-panel floating"
-          : mode === "window"
-            ? "side-panel window"
-            : "side-panel"
-      }
-      style={props.width === undefined ? undefined : { width: props.width }}
+      ref={frame}
+      className={className}
+      style={style}
+      inert={closing}
       aria-label={t("side.label")}
       onKeyDown={(event) => {
         if (event.key !== "Escape" || event.defaultPrevented) return;
@@ -168,7 +185,11 @@ export function SidePanel(props: Props) {
   if (mode !== "overlay") return panel;
   return (
     <>
-      <div className="side-scrim" aria-hidden="true" onClick={props.onClose} />
+      <div
+        className={closing ? "side-scrim side-out" : "side-scrim"}
+        aria-hidden="true"
+        onClick={props.onClose}
+      />
       {panel}
     </>
   );

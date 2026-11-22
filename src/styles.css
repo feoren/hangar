@@ -93,8 +93,11 @@
   --sidebar-width: 320px;
   /* Width of the collapsed sidebar; the same value as SIDEBAR_RAIL_WIDTH in layout.ts. */
   --sidebar-rail: 52px;
-  /* Folding the sidebar: quick, settles softly, no overshoot. */
-  --sidebar-motion: 220ms;
+  /* Opening and closing the sidebar and the right panel, both sides alike: long enough to follow,
+     a soft start that decelerates into place, no overshoot. PANEL_MOTION_LIMIT_MS in
+     sidebarMotion.ts must stay above the duration. */
+  --panel-motion: 280ms;
+  --panel-ease: cubic-bezier(0.32, 0.72, 0, 1);
   --ease-out: cubic-bezier(0.2, 0, 0, 1);
   /* Sidebar geometry: the round collapse toggle sits on the crossing of the sidebar's right border
      and the line below its header; both positions derive from these, in both sidebar states. */
@@ -293,7 +296,7 @@ select:focus-visible,
   display: grid;
   grid-template-columns: var(--sidebar-width) 1fr;
   height: 100%;
-  transition: grid-template-columns var(--sidebar-motion) var(--ease-out);
+  transition: grid-template-columns var(--panel-motion) var(--panel-ease);
 }
 
 /* Dragging the edge follows the pointer without lag. */
@@ -314,14 +317,14 @@ body.resizing-vertical .app {
 }
 
 .sidebar-moving > .sidebar > :not(.edge-toggle, .sidebar-edge) {
-  animation: sidebar-fade var(--sidebar-motion) var(--ease-out);
+  animation: panel-fade var(--panel-motion) var(--panel-ease);
 }
 
 .sidebar-moving > .body {
   background: var(--bg);
 }
 
-@keyframes sidebar-fade {
+@keyframes panel-fade {
   from {
     opacity: 0;
   }
@@ -335,6 +338,11 @@ body.resizing-vertical .app {
   .sidebar-moving > .sidebar > :not(.edge-toggle, .sidebar-edge) {
     animation: none;
   }
+}
+
+/* While saving power on battery, the sidebar folds at once as well (motionAllowed). */
+:root.power-saving .app {
+  transition: none;
 }
 
 /* Sidebar */
@@ -6442,6 +6450,7 @@ label.setting-line:hover {
   display: flex;
   flex: none;
   flex-direction: column;
+  width: var(--side-width);
   max-width: calc(100% - 320px);
   min-height: 0;
   background: var(--panel);
@@ -6461,6 +6470,83 @@ label.setting-line:hover {
   inset: 0;
   z-index: 39;
   background: var(--scrim);
+  transition: opacity var(--panel-motion) var(--panel-ease);
+}
+
+/*
+ * Opening and closing (sidePanelMotion.ts), with the sidebar's duration and easing. Docked, the
+ * frame grows from the right edge and takes its width from the terminal; its content keeps the
+ * final width and stays anchored on the right, so it slides in instead of reflowing every frame.
+ * As an overlay the frame slides in over the window and the scrim fades. The transition only
+ * lives while the panel moves, so dragging its splitter stays instant.
+ */
+.side-panel.moving {
+  transition:
+    width var(--panel-motion) var(--panel-ease),
+    transform var(--panel-motion) var(--panel-ease);
+}
+
+.side-panel.moving:not(.floating) {
+  overflow: hidden;
+  align-items: flex-end;
+}
+
+.side-panel.moving:not(.floating) > * {
+  width: var(--side-width);
+  min-width: var(--side-width);
+}
+
+/* Like the sidebar's content: the incoming content fades in with the motion. */
+.side-panel.moving:not(.side-out) > * {
+  animation: panel-fade var(--panel-motion) var(--panel-ease);
+}
+
+.side-panel.side-out:not(.floating) {
+  width: 0;
+}
+
+/* Past the right edge including the shadow, which falls to the left. */
+.side-panel.floating.side-out {
+  transform: translateX(calc(100% + 48px));
+}
+
+.side-scrim.side-out {
+  opacity: 0;
+  pointer-events: none;
+}
+
+@starting-style {
+  .side-panel.moving:not(.floating) {
+    width: 0;
+  }
+
+  .side-panel.floating.moving {
+    transform: translateX(calc(100% + 48px));
+  }
+
+  .side-scrim {
+    opacity: 0;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .side-panel.moving,
+  .side-scrim {
+    transition: none;
+  }
+
+  .side-panel.moving > * {
+    animation: none;
+  }
+}
+
+:root.power-saving .side-panel.moving,
+:root.power-saving .side-scrim {
+  transition: none;
+}
+
+:root.power-saving .side-panel.moving > * {
+  animation: none;
 }
 
 .side-header {

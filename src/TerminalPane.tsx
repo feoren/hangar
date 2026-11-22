@@ -7,7 +7,7 @@ import { SessionLook } from "./SessionLook";
 import { useT } from "./i18n";
 import type { BadgeLook } from "./programPrefs";
 import { SessionMarker } from "./SessionMarker";
-import { paneResizing, sidebarMotion, windowResizing } from "./sidebarMotion";
+import { paneResizing, sidebarMotion, sidePanelMotion, windowResizing } from "./sidebarMotion";
 import type { SessionView } from "./sessions";
 import { zoneRect, type LayoutId, type Ratios } from "./snapLayouts";
 import type { SessionTerminal } from "./terminal";
@@ -108,11 +108,12 @@ export function TerminalPane(props: Props) {
     const element = host.current;
     if (!element) return;
     terminal.mount(element);
-    // While the sidebar folds or a splitter moves, the fit waits for the end of the motion
-    // (sidebarMotion.ts). While the window is resized, only the panes on screen follow; hidden
-    // ones fit once it rests. One stable function, so it waits at most once per gate.
+    // While the sidebar folds, the right panel slides or a splitter moves, the fit waits for the
+    // end of the motion (sidebarMotion.ts). While the window is resized, only the panes on screen
+    // follow; hidden ones fit once it rests. One stable function, so it waits at most once per gate.
     const fit = () => {
       if (sidebarMotion.isMoving) sidebarMotion.whenSettled(fit);
+      else if (sidePanelMotion.isMoving) sidePanelMotion.whenSettled(fit);
       else if (paneResizing.isMoving) paneResizing.whenSettled(fit);
       else if (windowResizing.isMoving && !shown.current) windowResizing.whenSettled(fit);
       else terminal.fit();
@@ -124,6 +125,7 @@ export function TerminalPane(props: Props) {
       observer.disconnect();
       fitRef.current = null;
       sidebarMotion.forget(fit);
+      sidePanelMotion.forget(fit);
       paneResizing.forget(fit);
       windowResizing.forget(fit);
     };
