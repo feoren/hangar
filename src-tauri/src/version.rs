@@ -468,10 +468,9 @@ mod tests {
     #[test]
     fn a_failed_probe_is_cached_briefly_not_reprobed() {
         use std::fs;
-        let dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/.tmp");
-        fs::create_dir_all(&dir).unwrap();
+        let tmp = crate::test_support::TempDir::new("probe");
+        let dir = tmp.path().to_path_buf();
         let counter = dir.join("probe-count.txt");
-        let _ = fs::remove_file(&counter);
         let tool = dir.join("no-version.cmd");
         // Prints no version and records each run, so the number of probes can be counted.
         fs::write(
@@ -503,10 +502,11 @@ mod tests {
     fn wsl_entries_show_the_distribution_release() {
         let distro = crate::wsl::agent("Ubuntu");
         let cache = VersionCache::default();
+        let cwd = crate::test_support::TempDir::new("wsl-ver");
         let found = detect(
             &[(distro, PathBuf::from("does-not-exist"))],
             &cache,
-            &std::env::temp_dir(),
+            cwd.path(),
         );
         assert_eq!(
             found.get("wsl-ubuntu"),
@@ -523,11 +523,12 @@ mod tests {
         );
         agent.profile.version_args = Some(Vec::new());
         let cache = VersionCache::default();
+        let cwd = crate::test_support::TempDir::new("no-args");
         // A path that would surely fail at startup; empty arguments do not get that far.
         let result = detect(
             &[(agent, PathBuf::from("does-not-exist"))],
             &cache,
-            &std::env::temp_dir(),
+            cwd.path(),
         );
         assert_eq!(result.get("a"), Some(&None));
     }

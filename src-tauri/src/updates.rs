@@ -1507,8 +1507,8 @@ mod tests {
 
     #[test]
     fn cache_validity_and_force() {
-        let dir = std::env::temp_dir().join(format!("hangar-updates-{}", std::process::id()));
-        let _ = std::fs::remove_dir_all(&dir);
+        let tmp = crate::test_support::TempDir::new("updates");
+        let dir = tmp.path().to_path_buf();
         let now = 1_000_000_000_000;
         let a = Source::Npm("a".into());
         let b = Source::Pypi("b".into());

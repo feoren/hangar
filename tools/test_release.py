@@ -135,6 +135,7 @@ class SignatureProblemTest(unittest.TestCase):
 
 
 def test_folder(test, prefix):
+    """A fresh folder under tests/.tmp, removed after the test; never in the system temp folder."""
     tmp_root = Path(__file__).resolve().parent.parent / "tests" / ".tmp"
     tmp_root.mkdir(parents=True, exist_ok=True)
     folder = Path(tempfile.mkdtemp(prefix=prefix, dir=tmp_root))
@@ -981,7 +982,7 @@ class ProjectFiles:
 
 class SetVersionTest(unittest.TestCase):
     def test_sets_all_files_and_keeps_formatting(self):
-        with tempfile.TemporaryDirectory() as folder, ProjectFiles(folder) as files:
+        with ProjectFiles(test_folder(self, "release version ")) as files:
             release.set_version("0.2.0+57")
             self.assertEqual(files.text("TAURI_CONF"), TAURI_CONF_TEXT.replace("0.1.0", "0.2.0+57"))
             self.assertEqual(files.text("PACKAGE_JSON"), PACKAGE_JSON_TEXT.replace("0.1.0", "0.2.0+57"))
@@ -990,7 +991,7 @@ class SetVersionTest(unittest.TestCase):
             self.assertEqual(release.current_version(), "0.2.0+57")
 
     def test_nested_version_stays_untouched(self):
-        with tempfile.TemporaryDirectory() as folder, ProjectFiles(folder) as files:
+        with ProjectFiles(test_folder(self, "release version ")) as files:
             release.set_version("0.3.0")
             self.assertIn('version = "1", features', files.text("CARGO_TOML"))
             self.assertIn('name = "anyhow"\nversion = "1.0.0"', files.text("CARGO_LOCK"))
@@ -1004,9 +1005,7 @@ class VersionRuleTest(unittest.TestCase):
     """Rule "the code always carries the upcoming version" (ADR 0002)."""
 
     def setUp(self):
-        folder = tempfile.TemporaryDirectory()
-        self.addCleanup(folder.cleanup)
-        self.release_dir = Path(folder.name) / "release"
+        self.release_dir = test_folder(self, "release rule ") / "release"
         self.entries = [entry("0.2.0"), entry("0.1.0", "2026-11-07")]
 
     def problem(self, version, file_version="0.2.0", entries=None):
@@ -1052,9 +1051,7 @@ class VersionRuleTest(unittest.TestCase):
 
 class NextVersionTest(unittest.TestCase):
     def setUp(self):
-        folder = tempfile.TemporaryDirectory()
-        self.addCleanup(folder.cleanup)
-        self.release_dir = Path(folder.name) / "release"
+        self.release_dir = test_folder(self, "release rule ") / "release"
         self.released = [entry("0.2.0", "2026-11-08"), entry("0.1.0", "2026-11-07")]
 
     def problem(self, version, file_version="0.2.0+57", entries=None):
@@ -1081,7 +1078,7 @@ class NextVersionTest(unittest.TestCase):
         self.assertEqual(release.suggest_next("1.9.4"), "1.10.0")
 
     def test_writes_files_and_empty_entry(self):
-        with tempfile.TemporaryDirectory() as folder, ProjectFiles(folder, self.released) as files:
+        with ProjectFiles(test_folder(self, "release next "), self.released) as files:
             release.set_version("0.2.0+57")
             release.prepare_next("0.3.0")
             self.assertEqual(release.current_version(), "0.3.0")
@@ -1092,7 +1089,7 @@ class NextVersionTest(unittest.TestCase):
 
     def test_aborts_without_changing_anything(self):
         upcoming = [entry("0.2.0"), *self.released[1:]]
-        with tempfile.TemporaryDirectory() as folder, ProjectFiles(folder, upcoming) as files:
+        with ProjectFiles(test_folder(self, "release next "), upcoming) as files:
             before = files.text("CHANGELOG_JSON")
             with mock.patch("sys.stderr"), self.assertRaises(SystemExit):
                 release.prepare_next("0.3.0")
@@ -1128,12 +1125,11 @@ class VerifyScriptTest(unittest.TestCase):
     """Real call to Get-AuthenticodeSignature, so the script and its evaluation stay in sync."""
 
     def test_unsigned_file_with_spaces_in_path(self):
-        with tempfile.TemporaryDirectory() as folder:
-            # A .ps1 has an Authenticode format and reports NotSigned without a signature block; a
-            # made-up EXE would only yield UnknownError because it is not a valid PE file.
-            path = Path(folder) / "without signature.ps1"
-            path.write_text("Write-Output 1\n", encoding="utf-8")
-            problem = release.signature_problem(run_verify_script(path))
+        # A .ps1 has an Authenticode format and reports NotSigned without a signature block; a
+        # made-up EXE would only yield UnknownError because it is not a valid PE file.
+        path = test_folder(self, "release verify ") / "without signature.ps1"
+        path.write_text("Write-Output 1\n", encoding="utf-8")
+        problem = release.signature_problem(run_verify_script(path))
         self.assertIsNotNone(problem)
         self.assertIn("NotSigned", problem)
 
@@ -1184,10 +1180,7 @@ class GithubReleaseTest(unittest.TestCase):
 
 class ChecksumsTest(unittest.TestCase):
     def setUp(self):
-        tmp_root = Path(__file__).resolve().parent.parent / "tests" / ".tmp"
-        tmp_root.mkdir(parents=True, exist_ok=True)
-        self.folder = Path(tempfile.mkdtemp(prefix="release checksums ", dir=tmp_root))
-        self.addCleanup(shutil.rmtree, self.folder, ignore_errors=True)
+        self.folder = test_folder(self, "release checksums ")
 
     def test_sha256sum_format_with_lf_line_endings(self):
         (self.folder / "Hangar_0.2.0-31_x64-setup.exe").write_bytes(b"abc")

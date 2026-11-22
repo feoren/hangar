@@ -2817,13 +2817,14 @@ mod tests {
     #[cfg(windows)]
     #[test]
     fn a_network_folder_is_refused_before_it_is_touched() {
+        let home = crate::test_support::TempDir::new("mgr-unc");
         let manager = SessionManager::new(
             Vec::new(),
             crate::agent_catalog::parse(
                 "[[agent]]\nid = 'p'\nname = 'P'\ncommands = ['hangar-not-needed']\n",
             )
             .unwrap(),
-            std::env::temp_dir(),
+            home.path().to_path_buf(),
         );
         let size = TermSize { cols: 80, rows: 24 };
         // The host name is reserved (RFC 2606); the check comes before any lookup.

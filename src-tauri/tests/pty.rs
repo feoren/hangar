@@ -20,6 +20,8 @@ use hangar_lib::session::{GateStatus, SessionInfo, SessionKind, SessionMode, Sta
 use hangar_lib::updates::{CommandError, PlatformHint};
 use zeroize::Zeroizing;
 
+mod common;
+
 const TIMEOUT: Duration = Duration::from_secs(20);
 const SIZE: TermSize = TermSize { cols: 97, rows: 31 };
 
@@ -96,7 +98,7 @@ fn profiles() -> Vec<Profile> {
 }
 
 fn manager() -> SessionManager {
-    SessionManager::new(profiles(), Vec::new(), std::env::temp_dir())
+    SessionManager::new(profiles(), Vec::new(), common::home())
 }
 
 /// Plays the terminal: at startup ConPTY asks for the cursor position with `ESC[6n` and passes
@@ -209,7 +211,7 @@ fn execution_alias_starts_in_a_pty() {
             "Write-Output ('alias-' + 'ok'); exit 4",
         ],
     );
-    let manager = SessionManager::new(vec![alias], Vec::new(), std::env::temp_dir());
+    let manager = SessionManager::new(vec![alias], Vec::new(), common::home());
     let (tx, rx) = channel();
     let info = manager
         .create("alias", None, SIZE, move |e| tx.send(e).unwrap_or(()))
@@ -382,7 +384,7 @@ fn kill_and_restart() {
 fn errors_are_reported_clearly() {
     let mut list = profiles();
     list.push(profile("missing", "hangar-does-not-exist", &[]));
-    let manager = SessionManager::new(list, Vec::new(), std::env::temp_dir());
+    let manager = SessionManager::new(list, Vec::new(), common::home());
     assert!(matches!(
         manager.create("missing", None, SIZE, |_| {}),
         Err(ManagerError::CommandNotFound(_))
@@ -391,7 +393,7 @@ fn errors_are_reported_clearly() {
         manager.create("unknown", None, SIZE, |_| {}),
         Err(ManagerError::UnknownProfile(_))
     ));
-    let bad_cwd = std::env::temp_dir().join("hangar-folder-does-not-exist");
+    let bad_cwd = common::tmp_root().join("folder-does-not-exist");
     assert!(matches!(
         manager.create("echo", Some(bad_cwd), SIZE, |_| {}),
         Err(ManagerError::BadCwd(_))
@@ -404,7 +406,7 @@ fn errors_are_reported_clearly() {
     ));
     let mut relative = profile("relative", "hangar-does-not-exist", &[]);
     relative.cwd = Some("src".into());
-    let manager = SessionManager::new(vec![relative], Vec::new(), std::env::temp_dir());
+    let manager = SessionManager::new(vec![relative], Vec::new(), common::home());
     assert!(matches!(
         manager.create("relative", None, SIZE, |_| {}),
         Err(ManagerError::BadCwd(_))
@@ -455,7 +457,7 @@ fn catalog_agent_starts_with_first_found_command_and_restarts() {
         // A user profile with the same id wins; this entry must never start.
         catalog_agent("echo", &["hangar-does-not-exist"], &[]),
     ];
-    let manager = SessionManager::new(profiles(), catalog, std::env::temp_dir());
+    let manager = SessionManager::new(profiles(), catalog, common::home());
 
     let listed = manager.profiles();
     let entry = listed.iter().find(|p| p.id == "catalog").unwrap();
@@ -514,7 +516,7 @@ fn the_default_sub_agent_model_reaches_each_new_process() {
     );
     let catalog = agent_catalog::parse(&toml).unwrap();
     std::env::remove_var("CLAUDE_CODE_SUBAGENT_MODEL");
-    let manager = SessionManager::new(Vec::new(), catalog, std::env::temp_dir());
+    let manager = SessionManager::new(Vec::new(), catalog, common::home());
     let choice = |model: &str| ModelChoice {
         model: Some(model.to_owned()),
         effort: None,
@@ -568,7 +570,7 @@ fn update_session_runs_update_hint_and_restart_repeats_it() {
     let manager = SessionManager::new(
         vec![agent, pipeline, without, relative],
         Vec::new(),
-        std::env::temp_dir(),
+        common::home(),
     );
 
     let (tx, rx) = channel();
@@ -578,8 +580,8 @@ fn update_session_runs_update_hint_and_restart_repeats_it() {
     assert_eq!(info.kind, SessionKind::Update);
     assert_eq!(info.title, "Update: Prog");
     assert_eq!(info.profile_id, "prog");
-    // Without a fixed folder in the profile, the update runs in the user's home folder (here: temp).
-    assert_eq!(info.cwd, std::env::temp_dir());
+    // Without a fixed folder in the profile, the update runs in the user's home folder (here: tests/.tmp/home).
+    assert_eq!(info.cwd, common::home());
     let (output, code) = collect_until_exit(&manager, info.id, &rx);
     assert!(output.contains("hangar-update-ok"), "Output: {output:?}");
     assert_eq!(code, Some(0));
@@ -639,7 +641,7 @@ fn planned_update_runs_self_updater_of_resolved_program() {
         npm: Some("some-cli".into()),
         ..Packages::default()
     });
-    let manager = SessionManager::new(vec![prog, unknown], Vec::new(), std::env::temp_dir());
+    let manager = SessionManager::new(vec![prog, unknown], Vec::new(), common::home());
 
     let (_, plan) = manager.update_plan("selfup").unwrap();
     let command_text = plan.command().unwrap();
@@ -687,7 +689,7 @@ fn second_update_of_same_program_is_rejected() {
     prog.id = "slow".into();
     prog.name = "Slow".into();
     prog.update_hint = Some(hint(long));
-    let manager = SessionManager::new(vec![prog], Vec::new(), std::env::temp_dir());
+    let manager = SessionManager::new(vec![prog], Vec::new(), common::home());
 
     let (tx, rx) = channel();
     let first = manager
@@ -736,16 +738,15 @@ fn update_session_does_not_search_programs_in_working_folder() {
     // Some environments (Claude Code, for one) set the variable themselves; then the counter
     // check would prove nothing. No other test depends on it.
     std::env::remove_var("NoDefaultCurrentDirectoryInExePath");
-    let dir = std::env::temp_dir().join(format!("hangar-cwd-probe-{}", std::process::id()));
-    let _ = std::fs::remove_dir_all(&dir);
-    std::fs::create_dir_all(&dir).unwrap();
+    let tmp = common::TempDir::new("cwd-probe");
+    let dir = tmp.path().to_path_buf();
     std::fs::write(dir.join("probe.cmd"), "@echo HANGAR-FOLDER-PROBE\r\n").unwrap();
     let mut prog = profile("probe", "cmd", &["/d", "/c", "probe"]);
     prog.update_hint = Some(hint("cmd /d /c probe"));
     // A profile with a fixed folder: its update still runs in the home folder, where npm and
     // pip find no project configuration of a foreign repository.
     let mut fixed = profile("fixed", "cmd", &["/d", "/c", "exit 0"]);
-    fixed.cwd = Some(std::env::temp_dir());
+    fixed.cwd = Some(common::home());
     fixed.update_hint = Some(hint("cmd /d /c exit 0"));
     // The home folder holds the probe: an update starts there and must still not find it.
     let manager = SessionManager::new(vec![prog, fixed], Vec::new(), dir.clone());
@@ -778,7 +779,6 @@ fn update_session_does_not_search_programs_in_working_folder() {
         "Output: {output:?}"
     );
     assert_ne!(code, Some(0));
-    std::fs::remove_dir_all(&dir).unwrap();
 }
 
 // --- Resume (resume_args) and fallback to the normal start ---
@@ -835,11 +835,7 @@ fn resume_manager() -> SessionManager {
         shell_profile("r-none", &normal_ok, None),
     ];
     // "r-fail" can be a team session, so the gate test of the fallback can start one.
-    SessionManager::new(
-        profiles,
-        vec![hooked_program("r-fail")],
-        std::env::temp_dir(),
-    )
+    SessionManager::new(profiles, vec![hooked_program("r-fail")], common::home())
 }
 
 fn start(
@@ -990,31 +986,25 @@ fn resume_killed_by_user_is_no_fallback() {
 
 // --- .cmd/.bat launcher scripts (npm shims such as codex.cmd) ---
 
-/// Empty folder tree under temp that disappears when dropped.
+/// Empty folder tree under `tests/.tmp` that disappears when dropped.
 #[cfg(windows)]
-struct Scratch(std::path::PathBuf);
+struct Scratch(common::TempDir);
 
 #[cfg(windows)]
 impl Scratch {
     fn new(name: &str) -> Self {
-        let dir = std::env::temp_dir().join(format!("hangar-{name}-{}", std::process::id()));
-        let _ = std::fs::remove_dir_all(&dir);
-        std::fs::create_dir_all(&dir).unwrap();
-        Self(dir)
+        Self(common::TempDir::new(name))
+    }
+
+    fn path(&self) -> &std::path::Path {
+        self.0.path()
     }
 
     fn file(&self, relative: &str, content: &str) -> std::path::PathBuf {
-        let path = self.0.join(relative);
+        let path = self.path().join(relative);
         std::fs::create_dir_all(path.parent().unwrap()).unwrap();
         std::fs::write(&path, content).unwrap();
         path
-    }
-}
-
-#[cfg(windows)]
-impl Drop for Scratch {
-    fn drop(&mut self) {
-        let _ = std::fs::remove_dir_all(&self.0);
     }
 }
 
@@ -1044,7 +1034,7 @@ fn cmd_launcher_does_not_search_node_in_working_folder() {
         r"work\node.cmd",
         "@echo HANGAR-FOREIGN-NODE\r\n@type nul > node-ran.txt\r\n",
     );
-    let work = scratch.0.join("work");
+    let work = scratch.path().join("work");
     let mut agent = profile("agent", launcher.to_str().unwrap(), &[]);
     agent.cwd = Some(work.clone());
     let mut shell = profile("shell", "cmd", &["/d", "/c", "node --hangar-probe"]);
@@ -1055,11 +1045,7 @@ fn cmd_launcher_does_not_search_node_in_working_folder() {
     opt_out
         .env
         .insert("nodefaultcurrentdirectoryinexepath".into(), String::new());
-    let manager = SessionManager::new(
-        vec![agent, shell, opt_out],
-        Vec::new(),
-        std::env::temp_dir(),
-    );
+    let manager = SessionManager::new(vec![agent, shell, opt_out], Vec::new(), common::home());
 
     let (output, _) = run_to_exit(&manager, "agent");
     // If one .cmd calls another without CALL, it does not return; without the protection the
@@ -1112,7 +1098,7 @@ fn catalog_agent_does_not_search_programs_in_working_folder() {
             &["cmd"],
             &["/d", "/c", "marker"],
         )],
-        std::env::temp_dir(),
+        common::home(),
     );
     let run = |id: &str| {
         let (tx, rx) = channel();
@@ -1179,7 +1165,7 @@ fn user_profile_of_an_agent_does_not_search_programs_in_working_folder() {
             profile("shell", "cmd", &["/d", "/c", "marker"]),
         ],
         Vec::new(),
-        std::env::temp_dir(),
+        common::home(),
     );
     let run = |id: &str| {
         let (tx, rx) = channel();
@@ -1219,7 +1205,7 @@ fn close_kills_a_tree_that_ignores_sighup() {
     let manager = SessionManager::new(
         vec![profile("stubborn", "sh", &["-c", script.as_str()])],
         Vec::new(),
-        std::env::temp_dir(),
+        common::home(),
     );
     let (tx, rx) = channel();
     let info = manager
@@ -1258,7 +1244,7 @@ fn cmd_launcher_rejects_cmd_special_characters() {
     let echo = "@echo off\r\necho HANGAR-ARGS=[%*]\r\n";
     let launcher = scratch.file(r"bin\echoargs.cmd", echo);
     let amp_launcher = scratch.file(r"bin&x\echoargs.cmd", echo);
-    let amp_cwd = scratch.0.join("wo&rk");
+    let amp_cwd = scratch.path().join("wo&rk");
     std::fs::create_dir_all(&amp_cwd).unwrap();
     let launcher = launcher.to_str().unwrap();
 
@@ -1274,7 +1260,7 @@ fn cmd_launcher_rejects_cmd_special_characters() {
             profile("path", amp_launcher.to_str().unwrap(), &[]),
         ],
         Vec::new(),
-        std::env::temp_dir(),
+        common::home(),
     );
 
     let (output, code) = run_to_exit(&manager, "ok");
@@ -1414,7 +1400,7 @@ fn secret_variables_reach_the_child_on_start_and_restart() {
     let manager = SessionManager::new(
         vec![secret_profile("with-secret"), secret_profile("no-secret")],
         Vec::new(),
-        std::env::temp_dir(),
+        common::home(),
     )
     .with_secret_store(store);
 
@@ -1452,7 +1438,7 @@ fn secret_variables_reach_the_child_on_start_and_restart() {
 
 #[test]
 fn working_folder_argument_follows_the_profile_arguments() {
-    let manager = SessionManager::new(Vec::new(), Vec::new(), std::env::temp_dir());
+    let manager = SessionManager::new(Vec::new(), Vec::new(), common::home());
     let mut agent = agent_catalog::Agent::from_user(if cfg!(windows) {
         profile("folder-arg", "cmd", &["/d", "/c", "echo", "ARGS"])
     } else {
@@ -1461,7 +1447,7 @@ fn working_folder_argument_follows_the_profile_arguments() {
     agent.cwd_flag = Some("--cd");
     agent.source = agent_catalog::Source::Catalog;
     manager.set_wsl(vec![agent]);
-    let cwd = std::env::temp_dir();
+    let cwd = common::home();
     let (tx, rx) = channel();
     let info = manager
         .create("folder-arg", Some(cwd.clone()), SIZE, move |e| {
@@ -1513,7 +1499,7 @@ fn id_profile() -> Profile {
 
 #[test]
 fn fresh_start_gets_a_conversation_id_and_restart_a_new_one() {
-    let manager = SessionManager::new(vec![id_profile()], Vec::new(), std::env::temp_dir());
+    let manager = SessionManager::new(vec![id_profile()], Vec::new(), common::home());
     let (tx, rx) = channel();
     let info = manager
         .create("ids", None, SIZE, move |e| tx.send(e).unwrap_or(()))
@@ -1542,7 +1528,7 @@ fn fresh_start_gets_a_conversation_id_and_restart_a_new_one() {
 
 #[test]
 fn restore_resumes_the_stored_id_and_falls_back_under_the_same_id() {
-    let manager = SessionManager::new(vec![id_profile()], Vec::new(), std::env::temp_dir());
+    let manager = SessionManager::new(vec![id_profile()], Vec::new(), common::home());
     let (tx, rx) = channel();
     let upper = STORED_ID.to_uppercase();
     let info = manager
@@ -1609,7 +1595,7 @@ fn a_conversation_id_in_use_is_not_resumed_twice() {
     } else {
         vec!["-c".into(), "echo hangar-resume-id {id}; sleep 30".into()]
     });
-    let manager = SessionManager::new(vec![long], Vec::new(), std::env::temp_dir());
+    let manager = SessionManager::new(vec![long], Vec::new(), common::home());
     let first = manager
         .create_resuming(
             "ids-long",
@@ -1642,7 +1628,7 @@ fn a_conversation_id_in_use_is_not_resumed_twice() {
 
 #[test]
 fn invalid_conversation_id_is_refused_before_anything_starts() {
-    let manager = SessionManager::new(vec![id_profile()], Vec::new(), std::env::temp_dir());
+    let manager = SessionManager::new(vec![id_profile()], Vec::new(), common::home());
     for bad in ["", "../x", "0f8fad5b-d9cb-469f-a165-70867728950e x"] {
         let result = manager.create_resuming(
             "ids",
@@ -1751,7 +1737,7 @@ fn the_gate_can_put_options_before_the_profiles_arguments() {
     let manager = SessionManager::new(
         vec![profile("prepended", command, &["PROFILE"])],
         vec![hooked_program("prepended")],
-        std::env::temp_dir(),
+        common::home(),
     );
     manager.set_launch_gate(Arc::new(RecordingGate::default()));
     let (info, rx) = start_team(&manager, "prepended", false);
@@ -1801,7 +1787,7 @@ fn the_gate_adds_arguments_and_token_and_hears_of_every_end() {
             hooked_program("plain"),
             hooked_program("ungated"),
         ],
-        std::env::temp_dir(),
+        common::home(),
     );
     let gate = Arc::new(RecordingGate::default());
     manager.set_launch_gate(gate.clone());
@@ -1851,11 +1837,7 @@ fn the_gate_adds_arguments_and_token_and_hears_of_every_end() {
 #[test]
 fn a_team_session_needs_a_program_with_a_hook_format() {
     // No catalog entry: the profile's program takes no hooks Hangar can write.
-    let manager = SessionManager::new(
-        vec![gate_probe("no-hooks")],
-        Vec::new(),
-        std::env::temp_dir(),
-    );
+    let manager = SessionManager::new(vec![gate_probe("no-hooks")], Vec::new(), common::home());
     let team = manager.create_resuming(
         "no-hooks",
         None,
@@ -1882,16 +1864,12 @@ fn a_team_session_needs_a_program_with_a_hook_format() {
 
 #[test]
 fn a_team_session_refuses_a_profile_with_a_folder_of_its_own() {
-    let fixed = std::env::temp_dir();
+    let fixed = common::home();
     let worktree = std::env::current_dir().unwrap();
     assert_ne!(fixed, worktree);
     let mut probe = gate_probe("fixed");
     probe.cwd = Some(fixed.clone());
-    let manager = SessionManager::new(
-        vec![probe],
-        vec![hooked_program("fixed")],
-        std::env::temp_dir(),
-    );
+    let manager = SessionManager::new(vec![probe], vec![hooked_program("fixed")], common::home());
     // The profile's folder would win over the team session's worktree.
     for cwd in [Some(worktree), None] {
         let team = manager.create_resuming(
@@ -1928,7 +1906,7 @@ fn a_team_session_refuses_a_profile_with_a_folder_of_its_own() {
 
 #[test]
 fn a_private_session_never_gets_the_gate_not_even_after_a_restart() {
-    let manager = SessionManager::new(vec![gate_probe("gated")], Vec::new(), std::env::temp_dir());
+    let manager = SessionManager::new(vec![gate_probe("gated")], Vec::new(), common::home());
     let gate = Arc::new(RecordingGate::default());
     manager.set_launch_gate(gate.clone());
 
@@ -1981,7 +1959,7 @@ fn a_private_session_gets_the_notice_hooks_but_never_the_gate() {
             ],
         )
     };
-    let manager = SessionManager::new(vec![probe], Vec::new(), std::env::temp_dir());
+    let manager = SessionManager::new(vec![probe], Vec::new(), common::home());
     let gate = Arc::new(RecordingGate::default());
     manager.set_launch_gate(gate.clone());
     let (tx, rx) = channel();
@@ -2041,7 +2019,7 @@ fn a_program_below_the_gates_floor_is_not_offered_for_team_sessions() {
     let manager = SessionManager::new(
         vec![profile("floored", command, &[])],
         vec![floored],
-        std::env::temp_dir(),
+        common::home(),
     );
     let team_capable = |manager: &SessionManager| {
         manager
@@ -2090,7 +2068,7 @@ fn a_profile_with_its_own_settings_gets_no_second_one() {
             hooked_program("own-settings"),
             hooked_program("own-settings-joined"),
         ],
-        std::env::temp_dir(),
+        common::home(),
     );
     let gate = Arc::new(RecordingGate::default());
     manager.set_launch_gate(gate.clone());
@@ -2175,11 +2153,7 @@ fn start_requested(
 
 #[test]
 fn only_a_fresh_worktree_start_gets_the_first_prompt() {
-    let manager = SessionManager::new(
-        Vec::new(),
-        vec![prompt_probe("prompted")],
-        std::env::temp_dir(),
-    );
+    let manager = SessionManager::new(Vec::new(), vec![prompt_probe("prompted")], common::home());
     let worktree = StartRequest {
         prompt: Some(StartPrompt::Worktree),
         ..StartRequest::default()
@@ -2215,11 +2189,7 @@ fn only_a_fresh_worktree_start_gets_the_first_prompt() {
 
 #[test]
 fn a_sub_agent_session_keeps_its_agent_across_a_restart() {
-    let manager = SessionManager::new(
-        Vec::new(),
-        vec![prompt_probe("prompted")],
-        std::env::temp_dir(),
-    );
+    let manager = SessionManager::new(Vec::new(), vec![prompt_probe("prompted")], common::home());
     let request = StartRequest {
         sub_agent: Some("backend".into()),
         ..StartRequest::default()
@@ -2265,7 +2235,7 @@ fn a_sub_agent_session_keeps_its_agent_across_a_restart() {
             &[],
         )],
         Vec::new(),
-        std::env::temp_dir(),
+        common::home(),
     );
     let refused = plain.create_requested(
         "plain",

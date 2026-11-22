@@ -1310,9 +1310,7 @@ mod tests {
 
     impl TempNotes {
         fn new(name: &str) -> Self {
-            let dir =
-                std::env::temp_dir().join(format!("hangar-notes-{name}-{}", std::process::id()));
-            let _ = fs::remove_dir_all(&dir);
+            let dir = crate::test_support::new_dir(&format!("notes-{name}"));
             Self(NotesStore::new(&dir), dir)
         }
     }
@@ -1602,7 +1600,7 @@ mod tests {
         t.0.create_note(&general(), "z").unwrap();
         // A scope without notes does not show up.
         let empty = NoteFolder {
-            path: Some(std::env::temp_dir().join("hangar-empty")),
+            path: Some(t.1.join("empty")),
             ..NoteFolder::default()
         };
         let gone = t.0.create_note(&empty, "gone").unwrap();

@@ -68,7 +68,8 @@ mod tests {
 
     #[test]
     fn stamp_changes_with_content() {
-        let path = std::env::temp_dir().join(format!("hangar-stamp-{}", std::process::id()));
+        let dir = crate::test_support::TempDir::new("stamp");
+        let path = dir.path().join("stamp");
         std::fs::write(&path, b"a").unwrap();
         let first = FileStamp::of(&path).unwrap();
         std::fs::write(&path, b"ab").unwrap();

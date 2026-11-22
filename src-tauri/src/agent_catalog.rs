@@ -1402,11 +1402,7 @@ packages={ winget='x y' }
 
     impl TempDir {
         fn new(name: &str) -> Self {
-            let dir =
-                std::env::temp_dir().join(format!("hangar-catalog-{name}-{}", std::process::id()));
-            let _ = std::fs::remove_dir_all(&dir);
-            std::fs::create_dir_all(&dir).unwrap();
-            Self(dir)
+            Self(crate::test_support::new_dir(&format!("catalog-{name}")))
         }
         /// Creates a "program", on Windows with an extension from PATHEXT.
         fn program(&self, name: &str) -> PathBuf {

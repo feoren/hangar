@@ -95,11 +95,7 @@ mod tests {
 
     impl TempDir {
         fn new(name: &str) -> Self {
-            let dir =
-                std::env::temp_dir().join(format!("hangar-resolve-{name}-{}", std::process::id()));
-            let _ = std::fs::remove_dir_all(&dir);
-            std::fs::create_dir_all(&dir).unwrap();
-            Self(dir)
+            Self(crate::test_support::new_dir(&format!("resolve-{name}")))
         }
         fn touch(&self, file: &str) -> PathBuf {
             let path = self.0.join(file);

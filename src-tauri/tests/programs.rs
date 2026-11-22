@@ -11,6 +11,8 @@ use hangar_lib::profile::Profile;
 use hangar_lib::resolve::resolve_program;
 use hangar_lib::version::{self, VersionCache};
 
+mod common;
+
 fn find(command: &str) -> PathBuf {
     let path = std::env::var_os("PATH");
     let pathext = std::env::var_os("PATHEXT");
@@ -153,7 +155,7 @@ fn time_limit_kills_the_process_tree() {
 
 #[test]
 fn unknown_program_yields_no_version() {
-    let missing = std::env::temp_dir().join("hangar-does-not-exist-4711");
+    let missing = common::tmp_root().join("does-not-exist-4711");
     assert_eq!(
         version::probe(
             &missing,
@@ -212,7 +214,7 @@ fn detect_only_installed_and_with_cache() {
             profile("missing", "hangar-does-not-exist-4711", None),
         ],
         Vec::new(),
-        std::env::temp_dir(),
+        common::home(),
     );
     let installed = manager.installed();
     let cache = VersionCache::default();
@@ -273,7 +275,7 @@ fn redetect_bypasses_the_remembered_version() {
     present
         .env
         .insert("HANGAR_TEST_VERSION".into(), "7.7.7".into());
-    let manager = SessionManager::new(vec![present], Vec::new(), std::env::temp_dir());
+    let manager = SessionManager::new(vec![present], Vec::new(), common::home());
     let mut installed = manager.installed();
     let cache = VersionCache::default();
     let version_of = |found: HashMap<String, Option<String>>| found["present"].clone();
@@ -446,8 +448,8 @@ fn version_through_an_execution_alias() {
 
 #[test]
 fn script_shim_yields_no_icon() {
-    let dir = std::env::temp_dir().join(format!("hangar-shim-{}", std::process::id()));
-    std::fs::create_dir_all(&dir).unwrap();
+    let tmp = common::TempDir::new("shim");
+    let dir = tmp.path();
     let shim = dir.join("agent.cmd");
     std::fs::write(&shim, b"@echo off\r\nnode agent.js %*\r\n").unwrap();
     assert_eq!(icon::program_icon(&shim), None);
@@ -455,10 +457,9 @@ fn script_shim_yields_no_icon() {
     let manager = SessionManager::new(
         vec![profile("shim", shim.to_str().unwrap(), None)],
         Vec::new(),
-        std::env::temp_dir(),
+        common::home(),
     );
     let icons = icon::icons(&manager.installed(), &icon::IconCache::default());
-    std::fs::remove_dir_all(&dir).unwrap();
     // The search only checks whether the file exists, so the entry counts as installed everywhere.
     assert_eq!(icons.get("shim"), Some(&None));
 }
@@ -493,7 +494,7 @@ fn profile_names_skip_the_version_query() {
          hook_format = 'codex_config_flags', measured = true, min_version = '1.0.0' }}\n"
     ))
     .unwrap();
-    let manager = SessionManager::new(Vec::new(), catalog, std::env::temp_dir());
+    let manager = SessionManager::new(Vec::new(), catalog, common::home());
     let source = std::sync::Arc::new(CountingVersions(Default::default()));
     manager.set_version_source(source.clone());
     let count = || source.0.load(std::sync::atomic::Ordering::SeqCst);

@@ -4479,7 +4479,8 @@ mod tests {
     /// refused before git runs anywhere.
     #[test]
     fn git_reads_refuse_an_unknown_session() {
-        let manager = SessionManager::new(Vec::new(), Vec::new(), std::env::temp_dir());
+        let home = crate::test_support::TempDir::new("cmd-git");
+        let manager = SessionManager::new(Vec::new(), Vec::new(), home.path().to_path_buf());
         let error = session_folder(&manager, 42).unwrap_err();
         assert!(matches!(error, SessionGitError::UnknownSession(42)));
         assert_eq!(

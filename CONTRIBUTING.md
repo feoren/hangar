@@ -53,7 +53,9 @@ system keychain.
 - **Commits:** [Conventional Commits](https://www.conventionalcommits.org) in English
   (`feat:`, `fix:`, `refactor:`, `test:`, `docs:`, `chore:`), one logical change per commit.
 - **Tests:** new behavior comes with a test. A bug gets a failing test first, then the fix. Tests are
-  never weakened to make them pass.
+  never weakened to make them pass. Test files go under the git-ignored `tests/.tmp/`, never into the
+  system temp folder: `test_support::TempDir` in unit tests, `tests/common` in integration tests,
+  `test_folder` in the Python tools. Guard tests fail on new uses of the system temp folder.
 - **Rust:** no `unwrap`/`expect` outside tests unless an invariant is documented; `thiserror` in
   modules; `unsafe` only with a `// SAFETY:` comment.
 - **TypeScript:** `strict`, no `any`, no unchecked casts.
