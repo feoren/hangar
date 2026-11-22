@@ -382,6 +382,7 @@ import {
   type AppAction,
   type Shortcut,
 } from "./shortcuts";
+import { MainBar } from "./MainBar";
 import { Sidebar } from "./Sidebar";
 import { useSidebarMotion, useWindowResizing } from "./sidebarMotion";
 import { Splitter } from "./Splitter";
@@ -6583,12 +6584,6 @@ export function App() {
           badgeFor={badgeFor}
           versions={programs.versions}
           updates={programUpdates.updates}
-          sideTab={notesShown ? "notes" : changesShown ? "changes" : filesShown ? "files" : null}
-          onToggleSideTab={(tab) => {
-            if (tab === "notes") toggleNotes();
-            else if (tab === "changes") toggleChanges();
-            else toggleFiles();
-          }}
           filesOpen={filesShown}
           onToggleFiles={toggleFiles}
           devServers={devServers}
@@ -6782,6 +6777,19 @@ export function App() {
           }}
         />
         <main className="body">
+          <MainBar
+            title={
+              activeSession === undefined
+                ? null
+                : [activeSession.marker?.emoji, activeSession.title].filter(Boolean).join(" ")
+            }
+            sideTab={notesShown ? "notes" : changesShown ? "changes" : filesShown ? "files" : null}
+            onToggleSideTab={(tab) => {
+              if (tab === "notes") toggleNotes();
+              else if (tab === "changes") toggleChanges();
+              else toggleFiles();
+            }}
+          />
           {error && (
             <div className="error" role="alert">
               <span>{error}</span>

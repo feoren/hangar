@@ -6309,6 +6309,46 @@ label.setting-line:hover {
 
 /* Work area: terminals on the left, notes on the right */
 
+/* As tall as the sidebar's header plus the gap to its line: the line below both runs through at
+   one height. */
+.main-bar {
+  display: flex;
+  flex: none;
+  gap: 8px;
+  align-items: center;
+  height: calc(var(--sidebar-head) + var(--sidebar-rule-gap) + var(--hairline));
+  padding: 8px 8px 6px 16px;
+  background: var(--panel);
+  border-bottom: var(--hairline) solid var(--border);
+  user-select: none;
+}
+
+.main-bar-title {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  color: var(--muted);
+  font-size: 12px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.main-bar-tabs {
+  display: flex;
+  flex: none;
+  gap: 2px;
+}
+
+.main-bar-tab {
+  width: 30px;
+  height: 30px;
+}
+
+.main-bar-tab[aria-pressed="true"] {
+  color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 14%, transparent);
+}
+
 .workspace {
   position: relative;
   display: flex;
@@ -11675,23 +11715,6 @@ body.session-dragging .session-actions {
 }
 
 /* The right panel's tabs next to Settings: same size, the open tab marked like a pressed toggle. */
-.footer-side-tabs {
-  display: flex;
-  flex: none;
-  gap: 2px;
-}
-
-.footer-side-tab {
-  flex: none;
-  width: 30px;
-  height: 30px;
-}
-
-.footer-side-tab[aria-pressed="true"] {
-  color: var(--accent);
-  background: color-mix(in srgb, var(--accent) 14%, transparent);
-}
-
 /* State mark of the team: a dot connected, a ring not connected, a dot with a slow halo while
    something needs the person. The tooltip and the accessible name always say it in words. */
 .team-mark {

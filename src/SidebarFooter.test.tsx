@@ -57,8 +57,6 @@ function render(collapsed: boolean) {
           teamOpen={false}
           onToggleTeam={() => undefined}
           onOpenAccount={() => undefined}
-          sideTab={null}
-          onToggleSideTab={() => undefined}
           onOpenSettings={() => undefined}
           theme="dark"
           onToggleTheme={() => undefined}
