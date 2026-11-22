@@ -89,6 +89,9 @@ pub enum RecordKind {
     ClaimDetail,
     /// `blob.put` content.
     Blob(BlobKind),
+    /// `notes.keys.set` content: the team's notes key ring (record id: empty; ADR 0006, phase
+    /// 2, [`crate::notes::seal_notes_keys`]).
+    NotesKeys,
 }
 
 impl RecordKind {
@@ -102,6 +105,7 @@ impl RecordKind {
             RecordKind::Blob(BlobKind::Decision) => "blob/decision",
             RecordKind::Blob(BlobKind::Task) => "blob/task",
             RecordKind::Blob(BlobKind::Transcript) => "blob/transcript",
+            RecordKind::NotesKeys => "notes-keys",
         }
     }
 

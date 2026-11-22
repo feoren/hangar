@@ -2343,6 +2343,9 @@ const VECTOR_HISTORY: &str =
     "01c0c1c2c3c4c5c6c7c8c9cacbcccdcecfd0d1d2d3d4d5d6d7727996fdc22aa37d1a982b95a5d86bc3f93ed801bb75bb8647c4f177a22aacb1855b87285b9c5f587de1060daf284b54";
 const VECTOR_RECORD: &str =
     "AQAAAAAAAAADiAVxejreJipHbzqp4ZCfBXaMYfqx_oDX_X-hSkiz0A0AAAAAAAAAB-Dh4uPk5ebn6Onq6-zt7u_w8fLz9PX298VmEyuqm_tphctEJ9ZVlHSCUAXEQD7gjN0sDQbgfbWxMC6O0_ne7CbbHRAmtsUeIknkx2chX7iIHKwrvnEdS4oyBln0vVJIpbB9-XM1MR9pOxEC9--q2YrODA";
+const VECTOR_NOTES_KEYS: &str =
+    "AQAAAAAAAAADiAVxejreJipHbzqp4ZCfBXaMYfqx_oDX_X-hSkiz0A0AAAAAAAAAB_Dx8vP09fb3-Pn6-_z9_v8AAQIDBAUGB4LdY0p06vjQbDtFLVIy2xI5P4w1iqvB9qPGL63QX7HhfMLCDCt_WLEFKn5104AQ7hzdCjacKgCG9hdyWzqqROhy-DdubUl1XWF_bSZIRzH5BhdCRuhI7xkA11bea3Ov-W5vRei3IJo6s9TApXTITC4qUj00iXkQpdWezgbuvpWTVXZL3zhcWgdVG2mLQqC-GD2c_ff6Tbc9ddduxOc3vKIXAA";
+const VECTOR_TEAM_HINT: &str = "6025a8260ca5c3d3";
 const VECTOR_RECOVERY_CODE: &str = "0481-24GK-2GAH-C5RR-34D1-P70X-3RFW-2KAP";
 const VECTOR_RECOVERY_SIGN: &str =
     "6cbe236cc50eef0b3c6cfd4bdd01608f2e2be38e76f257d39cb609a135616a97";
@@ -2363,6 +2366,8 @@ struct Vectors {
     wrap: String,
     history: String,
     record: String,
+    notes_keys: String,
+    team_hint: String,
     recovery_code: String,
     recovery_sign: String,
     recovery_kem: String,
@@ -2380,6 +2385,15 @@ fn vector_phone() -> (Holder, DeviceIdentity) {
         holder("owner", "phone"),
         DeviceIdentity::generate(&mut FixedEntropy::counting(0x60, 64)).expect("id"),
     )
+}
+
+/// Key ids and keys `0x30..0x58` and `0x58..0x80`, oldest first.
+fn vector_notes_ring() -> crate::notes::KeyRing {
+    let mut ring =
+        crate::notes::KeyRing::generate(&mut FixedEntropy::counting(0x30, 40)).expect("rng");
+    ring.add_generated(&mut FixedEntropy::counting(0x58, 40))
+        .expect("room");
+    ring
 }
 
 fn vector_record_context(sender: &Holder) -> RecordContext<'_> {
@@ -2476,6 +2490,21 @@ fn compute_vectors() -> Vectors {
         )
         .expect("seal");
 
+    // The team's notes key ring (ADR 0006, phase 2): two keys, sealed by the owner's laptop.
+    let notes_keys = crate::notes::seal_notes_keys(
+        &cipher,
+        &owner_holder,
+        &owner,
+        &ChainHead {
+            index: 3,
+            hash: add_hash,
+        },
+        VECTOR_COUNTER,
+        &vector_notes_ring(),
+        &mut FixedEntropy::counting(0xf0, 24),
+    )
+    .expect("seal");
+
     let code = RecoveryCode::generate(&mut FixedEntropy::counting(0x10, 16)).expect("rng");
     let recovery = code.identity().expect("id").public_keys();
 
@@ -2493,6 +2522,8 @@ fn compute_vectors() -> Vectors {
         wrap: wrapped.data.as_str().to_owned(),
         history: hex(history.as_bytes()),
         record: record.data.as_str().to_owned(),
+        notes_keys: notes_keys.data.as_str().to_owned(),
+        team_hint: crate::notes::team_hint(&team),
         recovery_code: code.reveal().to_string(),
         recovery_sign: hex(recovery.sign.as_bytes()),
         recovery_kem: hex(recovery.kem.as_bytes()),
@@ -2524,6 +2555,8 @@ fn test_vectors() {
         ("VECTOR_WRAP", VECTOR_WRAP, &v.wrap),
         ("VECTOR_HISTORY", VECTOR_HISTORY, &v.history),
         ("VECTOR_RECORD", VECTOR_RECORD, &v.record),
+        ("VECTOR_NOTES_KEYS", VECTOR_NOTES_KEYS, &v.notes_keys),
+        ("VECTOR_TEAM_HINT", VECTOR_TEAM_HINT, &v.team_hint),
         (
             "VECTOR_RECOVERY_CODE",
             VECTOR_RECOVERY_CODE,
@@ -2999,4 +3032,338 @@ fn the_last_log_place_is_kept_for_the_rotation_a_removal_makes_due() {
     team.next_epoch(Who::Owner, None);
     assert_eq!(team.state().head().index, max);
     assert!(!team.state().rotation_due());
+}
+
+// ---------------------------------------------------------------------------------------------
+// The team's notes key ring (ADR 0006, phase 2)
+// ---------------------------------------------------------------------------------------------
+
+fn notes_ring(keys: usize) -> crate::notes::KeyRing {
+    let mut ring = crate::notes::KeyRing::generate(&mut OsEntropy).expect("rng");
+    for _ in 1..keys {
+        ring.add_generated(&mut OsEntropy).expect("room");
+    }
+    ring
+}
+
+fn seal_ring(
+    team: &Team,
+    who: Who,
+    secret: &TeamSecret,
+    epoch: Epoch,
+    ring: &crate::notes::KeyRing,
+) -> Sealed {
+    let state = team.state();
+    let cipher = EpochCipher::for_epoch(state, secret, epoch).expect("keys");
+    let device = team.device(who);
+    crate::notes::seal_notes_keys(
+        &cipher,
+        &device.holder,
+        &device.identity,
+        state.head(),
+        1,
+        ring,
+        &mut OsEntropy,
+    )
+    .expect("seal")
+}
+
+fn open_ring(
+    team: &Team,
+    secret: &TeamSecret,
+    epoch: Epoch,
+    sender: &Holder,
+    sealed: &Sealed,
+) -> Result<crate::notes::KeyRing, crate::notes::NotesKeysError> {
+    let state = team.state();
+    let cipher = EpochCipher::for_epoch(state, secret, epoch).expect("keys");
+    crate::notes::open_notes_keys(&cipher, state, sender, sealed)
+}
+
+#[test]
+fn notes_keys_open_only_from_owners_and_admins_in_their_own_context() {
+    use crate::notes::NotesKeysError;
+    let mut team = Team::new();
+    let first = team.next_epoch(Who::Owner, None);
+    let ring = notes_ring(2);
+
+    // An admin's ring opens on every device, whole.
+    let sealed = seal_ring(&team, Who::Admin, &first.secret, Epoch(1), &ring);
+    let admin = team.admin.holder.clone();
+    let opened = open_ring(&team, &first.secret, Epoch(1), &admin, &sealed).expect("open");
+    assert_eq!(opened.ids(), ring.ids());
+    assert!(opened.contains_all(&ring) && ring.contains_all(&opened));
+
+    // A member's ring is refused even though it is signed and sealed with the team key.
+    let by_member = seal_ring(&team, Who::Member, &first.secret, Epoch(1), &ring);
+    let member = team.member.holder.clone();
+    assert_eq!(
+        open_ring(&team, &first.secret, Epoch(1), &member, &by_member).err(),
+        Some(NotesKeysError::NotManager)
+    );
+    // The relay naming another writer fails the signature.
+    assert_eq!(
+        open_ring(&team, &first.secret, Epoch(1), &member, &sealed).err(),
+        Some(NotesKeysError::Open(OpenError::Signature))
+    );
+    // The same bytes do not open as another kind of record.
+    let cipher = EpochCipher::for_epoch(team.state(), &first.secret, Epoch(1)).expect("keys");
+    let as_status = RecordContext {
+        kind: RecordKind::PresenceStatus,
+        record: b"",
+        sender: &admin,
+    };
+    assert_eq!(
+        cipher
+            .open_verified(team.state(), &as_status, &sealed)
+            .err(),
+        Some(OpenError::Signature)
+    );
+
+    // Demoted, the admin's earlier ring no longer counts.
+    team.submit(
+        Who::Owner,
+        EntryKind::ChangeRole {
+            member: admin.member.clone(),
+            role: Role::Member,
+        },
+    )
+    .expect("demote");
+    assert_eq!(
+        open_ring(&team, &first.secret, Epoch(1), &admin, &sealed).err(),
+        Some(NotesKeysError::NotManager)
+    );
+}
+
+#[test]
+fn after_a_removal_the_ring_is_resealed_with_a_new_key_and_a_later_member_reads_every_key() {
+    let mut team = Team::new();
+    let first = team.next_epoch(Who::Owner, None);
+    let ring = notes_ring(1);
+    let owner = team.owner.holder.clone();
+    let sealed = seal_ring(&team, Who::Owner, &first.secret, Epoch(1), &ring);
+
+    // The member leaves; the admin rotates.
+    let member = team.member.holder.member.clone();
+    team.submit(Who::Admin, EntryKind::RemoveMember { member })
+        .expect("remove");
+    let second = team.next_epoch(Who::Admin, None);
+    // The old record does not open under the new epoch's key: it must be re-sealed.
+    let cipher = EpochCipher::for_epoch(team.state(), &second.secret, Epoch(2)).expect("keys");
+    assert!(matches!(
+        crate::notes::open_notes_keys(&cipher, team.state(), &owner, &sealed),
+        Err(crate::notes::NotesKeysError::Open(
+            OpenError::EpochMismatch { .. }
+        ))
+    ));
+    // The admin still holds epoch 1, opens the old ring, adds a key and seals it under epoch 2.
+    let mut renewed = open_ring(&team, &first.secret, Epoch(1), &owner, &sealed).expect("open");
+    let new_key = renewed.add_generated(&mut OsEntropy).expect("room");
+    let resealed = seal_ring(&team, Who::Admin, &second.secret, Epoch(2), &renewed);
+
+    // A member added afterwards gets only epoch 2's key and reads every notes key.
+    let carol = Device::new("carol", "laptop");
+    team.submit(
+        Who::Admin,
+        EntryKind::AddMember {
+            member: carol.holder.member.clone(),
+            role: Role::Member,
+            devices: vec![carol.entry()],
+        },
+    )
+    .expect("add");
+    let admin = team.admin.holder.clone();
+    let read = open_ring(&team, &second.secret, Epoch(2), &admin, &resealed).expect("open");
+    assert_eq!(read.len(), 2);
+    assert!(read.contains_all(&ring));
+    assert_eq!(read.newest().id(), new_key);
+    // The removed member's last ring lacks the new key.
+    assert!(!ring.contains_all(&read));
+}
+
+#[test]
+fn a_full_ring_fits_the_protocol_and_takes_no_more_keys() {
+    use crate::notes::{KeyRing, NotesCryptoError, MAX_KEYS};
+    let mut team = Team::new();
+    let first = team.next_epoch(Who::Owner, None);
+    let mut ring = notes_ring(MAX_KEYS);
+    assert_eq!(ring.len(), MAX_KEYS);
+    assert_eq!(
+        ring.add_generated(&mut OsEntropy).err(),
+        Some(NotesCryptoError::TooLarge)
+    );
+    let sealed = seal_ring(&team, Who::Owner, &first.secret, Epoch(1), &ring);
+    assert!(sealed.data.as_str().len() <= hangar_team_protocol::limits::MAX_INLINE_CIPHERTEXT_LEN);
+    let owner = team.owner.holder.clone();
+    let opened = open_ring(&team, &first.secret, Epoch(1), &owner, &sealed).expect("open");
+    assert_eq!(opened.len(), MAX_KEYS);
+
+    // The keychain caches only the newest keys; they are the ring's newest.
+    let cached = ring.newest_keys(12);
+    assert_eq!(cached.len(), 12);
+    assert_eq!(cached.newest().id(), ring.newest().id());
+    assert!(ring.contains_all(&cached) && !cached.contains_all(&ring));
+    assert_eq!(
+        KeyRing::from_keychain(&cached.to_keychain())
+            .expect("cache")
+            .ids(),
+        cached.ids()
+    );
+    assert_eq!(ring.newest_keys(0).len(), 1);
+    assert_eq!(ring.newest_keys(MAX_KEYS + 5).len(), MAX_KEYS);
+}
+
+#[test]
+fn notes_keys_vector_opens_for_the_owner() {
+    let team = TeamId::new(VECTOR_TEAM).expect("id");
+    let (owner_holder, _) = vector_owner();
+    let mut verifier = LogVerifier::new(team.clone());
+    let mut chain = MemberChain::new();
+    for (index, text) in [
+        (1, VECTOR_CREATE_ENTRY),
+        (2, VECTOR_ROTATE_ENTRY),
+        (3, VECTOR_ADD_DEVICE_ENTRY),
+    ] {
+        let append = MemberLogAppend {
+            index,
+            prev: chain.head().map(|h| h.hash),
+            entry: Ciphertext::new(text).expect("ct"),
+        };
+        let hash = chain.append(&append).expect("chain");
+        verifier
+            .apply(&MemberLogEntry {
+                index,
+                hash,
+                entry: append.entry,
+                by: owner_holder.clone(),
+                at: UnixMillis(0),
+            })
+            .expect("verify");
+    }
+    let state = verifier.state().expect("state");
+    let secret = TeamSecret::generate(&mut FixedEntropy::counting(0x40, 32)).expect("rng");
+    let cipher = EpochCipher::for_epoch(state, &secret, Epoch(1)).expect("keys");
+    let sealed = Sealed {
+        epoch: Epoch(1),
+        data: Ciphertext::new(VECTOR_NOTES_KEYS).expect("ct"),
+    };
+    let ring = crate::notes::open_notes_keys(&cipher, state, &owner_holder, &sealed).expect("open");
+    assert_eq!(ring.ids(), vector_notes_ring().ids());
+    assert!(ring.contains_all(&vector_notes_ring()));
+}
+
+#[test]
+fn notes_keys_of_a_removed_device_or_member_never_count_even_under_an_epoch_it_knew() {
+    use crate::notes::NotesKeysError;
+    let mut team = Team::new();
+    let first = team.next_epoch(Who::Owner, None);
+    // The admin's second device: lost later, while the admin stays admin.
+    let phone = Device::new("admin", "phone");
+    let desktop = Device {
+        holder: team.admin.holder.clone(),
+        identity: DeviceIdentity::import(&team.admin.identity.export()).expect("copy"),
+    };
+    team.add_device(Who::Admin, &phone, &desktop)
+        .expect("own device");
+    let head = *team.state().head();
+    team.submit(
+        Who::Owner,
+        EntryKind::RemoveDevice {
+            holder: phone.holder.clone(),
+        },
+    )
+    .expect("remove the phone");
+    let second = team.next_epoch(Who::Owner, Some(&first.secret));
+
+    // The phone still holds epoch 1's secret and its own keys: after its removal and the
+    // rotation it seals a ring with a key of its choosing under epoch 1, naming a log head from
+    // before its removal. A device that keeps epoch 1 must not take that key, or notes written
+    // afterwards would be open to the phone.
+    let state = team.state();
+    let cipher = EpochCipher::for_epoch(state, &first.secret, Epoch(1)).expect("keys");
+    let planted = notes_ring(1);
+    let sealed = crate::notes::seal_notes_keys(
+        &cipher,
+        &phone.holder,
+        &phone.identity,
+        &head,
+        7,
+        &planted,
+        &mut OsEntropy,
+    )
+    .expect("seal");
+    assert_eq!(
+        crate::notes::open_notes_keys(&cipher, state, &phone.holder, &sealed).err(),
+        Some(NotesKeysError::SenderRemoved)
+    );
+
+    // A removed member's device likewise (the member is gone from the log).
+    let member_holder = team.member.holder.clone();
+    let before_removal = *team.state().head();
+    let by_member = {
+        let state = team.state();
+        let cipher = EpochCipher::for_epoch(state, &second.secret, Epoch(2)).expect("keys");
+        crate::notes::seal_notes_keys(
+            &cipher,
+            &member_holder,
+            &team.member.identity,
+            &before_removal,
+            8,
+            &planted,
+            &mut OsEntropy,
+        )
+        .expect("seal")
+    };
+    team.submit(
+        Who::Admin,
+        EntryKind::RemoveMember {
+            member: member_holder.member.clone(),
+        },
+    )
+    .expect("remove");
+    let state = team.state();
+    let cipher = EpochCipher::for_epoch(state, &second.secret, Epoch(2)).expect("keys");
+    assert_eq!(
+        crate::notes::open_notes_keys(&cipher, state, &member_holder, &by_member).err(),
+        Some(NotesKeysError::NotManager)
+    );
+}
+
+#[test]
+fn a_changed_or_relabelled_notes_keys_record_does_not_open() {
+    use crate::notes::NotesKeysError;
+    let mut team = Team::new();
+    let first = team.next_epoch(Who::Owner, None);
+    let ring = notes_ring(2);
+    let sealed = seal_ring(&team, Who::Owner, &first.secret, Epoch(1), &ring);
+    let owner = team.owner.holder.clone();
+
+    // One changed character of the ciphertext.
+    let mut text = sealed.data.as_str().to_owned();
+    let at = text.len() / 2;
+    let swapped = if text.as_bytes()[at] == b'A' {
+        "B"
+    } else {
+        "A"
+    };
+    text.replace_range(at..=at, swapped);
+    let changed = Sealed {
+        epoch: Epoch(1),
+        data: Ciphertext::new(text).expect("ct"),
+    };
+    assert!(matches!(
+        open_ring(&team, &first.secret, Epoch(1), &owner, &changed),
+        Err(NotesKeysError::Open(_))
+    ));
+
+    // The same record presented as one of the next epoch.
+    let second = team.next_epoch(Who::Owner, Some(&first.secret));
+    let relabelled = Sealed {
+        epoch: Epoch(2),
+        data: sealed.data.clone(),
+    };
+    assert!(matches!(
+        open_ring(&team, &second.secret, Epoch(2), &owner, &relabelled),
+        Err(NotesKeysError::Open(_))
+    ));
 }

@@ -37,25 +37,45 @@
 //! ```
 //!
 //! 128 random bits need no password hashing: the code is drawn by the machine, not chosen.
+//!
+//! # Team mode (phase 2)
+//!
+//! A team's key ring travels as one sealed record of the kind `notes-keys`
+//! ([`crate::record::RecordKind::NotesKeys`], record id empty), sealed with
+//! [`crate::record::EpochCipher::seal`] under the current epoch and signed by the writing device;
+//! its plaintext is the key ring's binary form above. [`open_notes_keys`] accepts it only from a
+//! device the verified membership log lists now, whose member is owner or admin there now.
+//! `vault.json` names the team by a hint:
+//!
+//! ```text
+//! team hint = hex(first 8 bytes of SHA-256(field("hangar-notes/v1/team") || field(team id)))
+//! ```
 
 use std::fmt;
 
 use chacha20poly1305::aead::{Aead, Payload};
 use chacha20poly1305::{KeyInit, XChaCha20Poly1305, XNonce};
 use data_encoding::BASE64URL_NOPAD;
+use hangar_team_protocol::e2e::ChainHead;
 use hangar_team_protocol::hash::hkdf_sha256;
+use hangar_team_protocol::ids::{Sealed, TeamId};
+use hangar_team_protocol::wire::{Holder, Role};
+use sha2::{Digest as _, Sha256};
 use thiserror::Error;
 use zeroize::Zeroizing;
 
 use crate::encoding::{constant_time_eq, framed, Writer};
 use crate::entropy::{Entropy, EntropyError};
-use crate::identity::array24;
+use crate::identity::{array24, DeviceIdentity};
+use crate::memberlog::TeamState;
+use crate::record::{EpochCipher, OpenError, RecordContext, RecordKind, SealError};
 use crate::recovery::{decode_code, encode_code, RecoveryError, ENTROPY_LEN};
 
 const LABEL_FILE_KEY: &[u8] = b"hangar-notes/v1/file";
 const LABEL_NOTE: &[u8] = b"hangar-notes/v1/note";
 const LABEL_CODE_SLOT: &[u8] = b"hangar-notes/v1/code-slot";
 const LABEL_RECOVERY_CODE: &[u8] = b"hangar-notes/v1/recovery-code";
+const LABEL_TEAM_HINT: &[u8] = b"hangar-notes/v1/team";
 /// Version byte of the notes recovery code: its first character is `N`.
 const CODE_VERSION: u8 = 0xA8;
 /// The note file format this crate writes and reads.
@@ -72,8 +92,10 @@ const PAD_BLOCK: usize = 256;
 pub const MAX_PLAINTEXT: usize = 1024 * 1024 + 64 * 1024;
 /// The largest note file that can hold [`MAX_PLAINTEXT`]; anything longer is not a note.
 pub const MAX_FILE_LEN: usize = 2 * 1024 * 1024;
-/// Keys a ring holds at most. Solo mode never adds one; team mode adds one per removal.
-pub const MAX_KEYS: usize = 64;
+/// Keys a ring holds at most: the most a one-byte count holds. Solo mode never adds one; team mode
+/// adds one per key epoch. A sealed ring of this size stays within the protocol's inline
+/// ciphertext limit (a test checks it).
+pub const MAX_KEYS: usize = 255;
 
 /// Why a note, a key ring or a code slot was not sealed or opened.
 #[derive(Debug, Clone, PartialEq, Eq, Error)]
@@ -240,6 +262,33 @@ impl KeyRing {
     /// The ids, oldest first.
     pub fn ids(&self) -> Vec<KeyId> {
         self.keys.iter().map(|key| key.id).collect()
+    }
+
+    /// How many keys the ring holds (never 0).
+    pub fn len(&self) -> usize {
+        self.keys.len()
+    }
+
+    /// Never true: a ring always holds a key. Here for the `len` convention.
+    pub fn is_empty(&self) -> bool {
+        self.keys.is_empty()
+    }
+
+    /// Whether this ring holds every key of `other`, with the same bytes.
+    pub fn contains_all(&self, other: &KeyRing) -> bool {
+        other
+            .keys
+            .iter()
+            .all(|key| self.get(key.id).is_some_and(|known| known.same_key(key)))
+    }
+
+    /// The newest `count` keys (at least one), oldest of them first: what the keychain caches of
+    /// a team's ring, whose older keys come from the `notes-keys` record.
+    pub fn newest_keys(&self, count: usize) -> KeyRing {
+        let skip = self.keys.len().saturating_sub(count.max(1));
+        KeyRing {
+            keys: self.keys[skip..].to_vec(),
+        }
     }
 
     /// Adds a new random key, which becomes the newest.
@@ -657,6 +706,88 @@ pub fn open_code_slot(
             .map_err(|_| NotesCryptoError::Decrypt)?,
     );
     KeyRing::decode(&plain)
+}
+
+/// The hint `vault.json` names a team vault's team by: 16 lower case hex digits.
+pub fn team_hint(team: &TeamId) -> String {
+    let digest = Sha256::digest(framed(&[LABEL_TEAM_HINT, team.as_str().as_bytes()]));
+    hex(&digest[..8])
+}
+
+/// Why a team's `notes-keys` record was not accepted.
+#[derive(Debug, Clone, PartialEq, Eq, Error)]
+pub enum NotesKeysError {
+    /// The record did not open against the verified log (signature, sender, epoch, fork, ..).
+    #[error(transparent)]
+    Open(#[from] OpenError),
+    /// The sender's member is not an owner or admin in the verified log now.
+    #[error("the notes keys were written by a member who is not an owner or admin")]
+    NotManager,
+    /// The sending device is not in the verified log now (removed, or its id used again with
+    /// other keys). A removed device keeps the secrets of the epochs it had and could seal a key
+    /// ring under one of them, naming a log head from before its removal; its member's role
+    /// alone must not let that ring count.
+    #[error("the notes keys were written by a device the membership log no longer lists")]
+    SenderRemoved,
+    /// The plaintext is not a key ring of this version.
+    #[error(transparent)]
+    Ring(#[from] NotesCryptoError),
+}
+
+fn notes_keys_context(sender: &Holder) -> RecordContext<'_> {
+    RecordContext {
+        kind: RecordKind::NotesKeys,
+        record: b"",
+        sender,
+    }
+}
+
+/// Seals `ring` as the team's `notes-keys` record under `cipher`'s epoch, as `sender` (whose
+/// private keys `identity` holds) with its verified log head and next record counter.
+pub fn seal_notes_keys(
+    cipher: &EpochCipher,
+    sender: &Holder,
+    identity: &DeviceIdentity,
+    head: &ChainHead,
+    counter: u64,
+    ring: &KeyRing,
+    entropy: &mut impl Entropy,
+) -> Result<Sealed, SealError> {
+    cipher.seal(
+        &notes_keys_context(sender),
+        identity,
+        head,
+        counter,
+        &ring.encode(),
+        entropy,
+    )
+}
+
+/// Opens a team's `notes-keys` record that `sender` wrote: [`EpochCipher::open_verified`] against
+/// the verified log `state`, then the sender's member must be owner or admin in that log now and
+/// the sending device still listed with the keys that signed, so a member's device can never hand
+/// out keys, a demoted admin's record no longer counts, and neither does one a removed device
+/// sealed under an epoch it still knows.
+pub fn open_notes_keys(
+    cipher: &EpochCipher,
+    state: &TeamState,
+    sender: &Holder,
+    sealed: &Sealed,
+) -> Result<KeyRing, NotesKeysError> {
+    let opened = cipher.open_verified(state, &notes_keys_context(sender), sealed)?;
+    let manager = state
+        .member(&sender.member)
+        .is_some_and(|m| matches!(m.role, Role::Owner | Role::Admin));
+    if !manager {
+        return Err(NotesKeysError::NotManager);
+    }
+    let listed = state
+        .device(sender)
+        .is_some_and(|d| !d.recovery && d.keys.sign == opened.sign);
+    if !listed {
+        return Err(NotesKeysError::SenderRemoved);
+    }
+    Ok(KeyRing::decode(&opened.plaintext)?)
 }
 
 fn push_hex(out: &mut String, byte: u8) {

@@ -537,6 +537,34 @@ def compute():
         b"\x01" + head[0] + head[1] + counter + nonce + ciphertext + signature
     )
 
+    # ADR 0006 phase 2: the team's notes key ring as a `notes-keys` record (record id empty),
+    # sealed and signed like any record; the plaintext is the key ring's binary form.
+    ring = b"\x01\x02" + counting(0x30, 40) + counting(0x58, 40)
+    aad = framed(
+        b"hangar-team/v1/record",
+        b"\x01",
+        TEAM,
+        struct.pack(">I", 1),
+        b"notes-keys",
+        b"",
+        OWNER[0],
+        OWNER[1],
+        head[0],
+        head[1],
+        counter,
+    )
+    nonce = counting(0xF0, 24)
+    ciphertext = xchacha20poly1305_seal(seal_key, nonce, ring, aad)
+    signature = ed25519_sign(
+        sign_seed, framed(b"hangar-team/v1/record-sig", aad, nonce, ciphertext)
+    )
+    out["VECTOR_NOTES_KEYS"] = b64(
+        b"\x01" + head[0] + head[1] + counter + nonce + ciphertext + signature
+    )
+    out["VECTOR_TEAM_HINT"] = hashlib.sha256(framed(b"hangar-notes/v1/team", TEAM)).digest()[
+        :8
+    ].hex()
+
     entropy = counting(0x10, 16)
     check = hashlib.sha256(framed(b"hangar-team/v1/recovery-code", b"\x01", entropy)).digest()
     out["VECTOR_RECOVERY_CODE"] = crockford(b"\x01" + entropy + check[:3])

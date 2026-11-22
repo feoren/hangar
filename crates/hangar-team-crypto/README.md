@@ -14,16 +14,16 @@ compared in constant time (`subtle`), and never shown by `Debug`.
 
 ## Modules
 
-| Module      | Content                                                                                                                                                                                                                                       |
-| ----------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `identity`  | `DeviceIdentity` (Ed25519 + X25519), its versioned keychain format, `prove` (proof of possession, sent in `device.keys`), `endorse`, `safety_number` and `log_safety_number`                                                                  |
-| `memberlog` | `EntryBody` (canonical, versioned, signed), `LogVerifier` (`apply` on clients, `admit`, `admit_rotation` and `admit_device_remove` on the relay), `TeamState` (members with re-admission, roles, devices with key history and issuer, epochs) |
-| `relay`     | The relay's checks that need the verified log: `check_wrap` (`key.wrap`), `check_registered_keys` (device keys equal to the holder's own `device.keys`)                                                                                       |
-| `epoch`     | `TeamSecret`, `EpochCommitment`, `wrap`, `unwrap` and `unwrap_any` (HPKE RFC 9180), `HistoryLink` (previous secret under the new one)                                                                                                         |
-| `rotation`  | `plan_rotation` (`key.rotate` with the signed rotate epoch entry), `wrap_to_all` (reports failures per device), `wrap_for_device` (`key.wrap`)                                                                                                |
-| `record`    | `EpochCipher` (`for_epoch`, `seal`, `open_verified`), `RecordKind`, `SendCounter`, `ReplayGuard` (persistable high-water mark per sender and signing key)                                                                                     |
-| `recovery`  | `RecoveryCode`: 128 bits, Crockford base32 with checksum, derives an offline device that may only restore its member                                                                                                                          |
-| `notes`     | Encrypted project notes (ADR 0006): `KeyRing`, `seal_note` and `open_note` (one file per note, padded, bound to vault, note id and key id), `NotesRecoveryCode`, `seal_code_slot` and `open_code_slot`                                        |
+| Module      | Content                                                                                                                                                                                                                                                                                                                |
+| ----------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `identity`  | `DeviceIdentity` (Ed25519 + X25519), its versioned keychain format, `prove` (proof of possession, sent in `device.keys`), `endorse`, `safety_number` and `log_safety_number`                                                                                                                                           |
+| `memberlog` | `EntryBody` (canonical, versioned, signed), `LogVerifier` (`apply` on clients, `admit`, `admit_rotation` and `admit_device_remove` on the relay), `TeamState` (members with re-admission, roles, devices with key history and issuer, epochs)                                                                          |
+| `relay`     | The relay's checks that need the verified log: `check_wrap` (`key.wrap`), `check_registered_keys` (device keys equal to the holder's own `device.keys`)                                                                                                                                                                |
+| `epoch`     | `TeamSecret`, `EpochCommitment`, `wrap`, `unwrap` and `unwrap_any` (HPKE RFC 9180), `HistoryLink` (previous secret under the new one)                                                                                                                                                                                  |
+| `rotation`  | `plan_rotation` (`key.rotate` with the signed rotate epoch entry), `wrap_to_all` (reports failures per device), `wrap_for_device` (`key.wrap`)                                                                                                                                                                         |
+| `record`    | `EpochCipher` (`for_epoch`, `seal`, `open_verified`), `RecordKind`, `SendCounter`, `ReplayGuard` (persistable high-water mark per sender and signing key)                                                                                                                                                              |
+| `recovery`  | `RecoveryCode`: 128 bits, Crockford base32 with checksum, derives an offline device that may only restore its member                                                                                                                                                                                                   |
+| `notes`     | Encrypted project notes (ADR 0006): `KeyRing`, `seal_note` and `open_note` (one file per note, padded, bound to vault, note id and key id), `NotesRecoveryCode`, `seal_code_slot` and `open_code_slot`; team mode: `seal_notes_keys` and `open_notes_keys` (the `notes-keys` record, owner or admin only), `team_hint` |
 
 Byte formats are documented at the top of each module.
 
@@ -106,6 +106,13 @@ fn new_device() -> Result<(), Box<dyn std::error::Error>> {
 ```
 
 ## Changelog
+
+- **Unreleased:** the team's notes key ring (ADR 0006, phase 2): `RecordKind::NotesKeys`
+  (label `notes-keys`), `notes::seal_notes_keys` and `notes::open_notes_keys` (accepted only
+  from a device the verified log lists now, with the keys that signed, whose member is owner or
+  admin there now; `NotesKeysError::SenderRemoved` otherwise), `notes::team_hint`,
+  `KeyRing::len`, `contains_all` and `newest_keys`. `notes::MAX_KEYS` rises from 64 to 255.
+  New vectors `VECTOR_NOTES_KEYS` and `VECTOR_TEAM_HINT`, recomputed by `test_vectors.py`.
 
 - **Unreleased:** `record::sealed_header` reads the log head and counter a sealed record names
   without a key and without checking it, for high-water marks of records not opened yet.
