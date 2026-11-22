@@ -5657,7 +5657,9 @@ body.resizing-horizontal * {
   text-align: center;
 }
 
-/* The name stays on one line (the tooltip shows it in full), the version sits small below. */
+/* The name takes up to two lines, so a long one ("Eingabeaufforderung" in a narrow window) stays
+   readable; a single long word breaks where it must. Only beyond two lines it ends in an ellipsis
+   (the tooltip shows it in full). The version sits small below. */
 .program-name {
   display: flex;
   flex: 1 1 110px;
@@ -5667,9 +5669,16 @@ body.resizing-horizontal * {
 }
 
 .program-name .program-title {
+  display: -webkit-box;
+  min-width: 0;
   overflow: hidden;
-  white-space: nowrap;
-  text-overflow: ellipsis;
+  overflow-wrap: anywhere;
+  /* WebKit (macOS, Linux) still reads the prefixed form. */
+  -webkit-hyphens: auto;
+  hyphens: auto;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  line-clamp: 2;
 }
 
 .program-title {
