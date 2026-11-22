@@ -1504,3 +1504,11 @@ A device that was away when its reservation ran out heard nothing after a restar
 and a resync even reserved the task again. The engine now keeps its own holds in the state file
 (`ownHolds`), checks them against the relay's snapshot and tells each one that is gone once
 (`endedAway`). Updated: [[team-service-v1]], index.
+
+## [2026-11-22] decision | Team decisions as shared memory: amendment draft
+Checked whether decisions can travel on the current protocol: blobs have no listing or event and
+are bound to one epoch, team notes need ADR 0006 phase 2, plain text breaks end-to-end
+encryption. Filed a proposed amendment (crypto crate seal path, protocol version 2 with
+`blob.list`, `blob.stored`, `blob.delete`, unlogged live hints, limits, removed members, which
+agents get the context, why a decision is not a note) instead of a partial build. Updated:
+[[0005-team-collaboration]], [[0006-encrypted-project-notes]], [[team-service-v1]], index.

@@ -6,7 +6,7 @@ superseded_by:
 tags: [notes, e2e, git, teams, keychain, xchacha20poly1305, hkdf]
 sources: ["[[note-gitattributes-measurement]]"]
 created: 2026-11-10
-updated: 2026-11-13
+updated: 2026-11-22
 ---
 
 # ADR 0006: Encrypted project notes in the repository
@@ -271,7 +271,9 @@ crate, with test vectors in `test_vectors.py` like the other formats; the app pa
 ### 8. Non-goals
 Per-note sharing or access lists (it is all or nothing per project); sharing with people outside
 the team; live co-editing; a history browser beyond Git; encrypting other files of the repository;
-keys created on the website; giving agents decrypted shared notes automatically.
+keys created on the website; giving agents decrypted shared notes automatically. (Team
+decisions, which agents do get, are a separate kind written for that purpose and stored outside
+`.hangar/notes`; see the amendment draft in [[0005-team-collaboration]].)
 
 ## Consequences
 - ADR 0004 stays valid for private notes; this ADR adds a second, shared kind next to them.

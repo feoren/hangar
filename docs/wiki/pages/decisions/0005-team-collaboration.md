@@ -6,7 +6,7 @@ superseded_by:
 tags: [collaboration, teams, agents, server, e2e, git, worktree]
 sources: []
 created: 2026-11-08
-updated: 2026-11-09
+updated: 2026-11-22
 ---
 
 # ADR 0005: Team collaboration of people and agents
@@ -107,6 +107,133 @@ Answered by desk research on 2026-11-09 in [[team-service-v1]], which also holds
   how large it may get.
 - **Project profile:** the current non-goal "remote multiplexing like tmux" stays (no remote
   control of sessions), but Hangar gains a network service; the project rules must say so.
+
+## Amendment draft (2026-11-22): team decisions as shared memory
+Status: proposed, not built. The version 1 scope promises that every agent gets the team's
+decisions with their reasons before it starts; today it gets only reservations and files.
+
+### Context: what the context carries today
+Claude Code takes no http hook at `SessionStart`, so the facts go in through `UserPromptSubmit`
+before every turn ([[team-service-v1]], step B): `GateService::context` builds them with
+`gate::context_facts_full` (`src-tauri/src/gate.rs`) from memory, at most `MAX_CONTEXT_CHARS`
+(4000) characters, reservations first (at most `MAX_CONTEXT_TASKS` = 10 lines and half of the
+characters, `team_tasks::TeamTask` from `TeamService`), then the files of other sessions and of
+teammates (at most 30), one JSON line each with every string a `literal()`. The gate sends the
+text again only when it differs from the last one or the conversation is new (`Gate::tell`).
+### Why it cannot be built cleanly on the current protocol
+Checked in the code on 2026-11-22 (`crates/hangar-team-protocol/src/wire.rs`,
+`crates/hangar-team-crypto/src/record.rs`, `src-tauri/src/project_notes.rs`, the relay's
+`src/relay/store.rs`):
+1. **Blobs exist, a way to find them does not.** `blob.put` with `BlobKind::Decision` stores a
+   sealed blob (`RecordKind::Blob(Decision)`, up to about 128 KiB) and answers its id;
+   `blob.get` needs that id. There is no listing, no event that announces a new blob and no
+   delete. The relay keeps decision blobs without expiry, within the team's blob quota. The only
+   channel to pass ids would be the presence status, which is live state of online devices: a
+   decision of a teammate who is offline, or one a new member never saw announced, would not
+   reach anyone.
+2. **Sealed under one epoch.** A blob is sealed under the epoch of its writing. Members admitted
+   later hold only the current epoch, and every device keeps only the newest 8
+   (`team::KEPT_EPOCHS`), so decisions become unreadable after rotations unless someone re-seals
+   them, which is the churn [[0006-encrypted-project-notes]] rejected (option 2) for notes.
+3. **Encrypted project notes are solo only.** Team vaults need the `notes-keys` record and its
+   relay messages (phase 2 of [[0006-encrypted-project-notes]]); without them a decision written
+   as a note is readable on the writer's computers only. ADR 0006 also lists "giving agents
+   decrypted shared notes automatically" as a non-goal.
+4. **Plain text in the repository** (for example a decisions file) contradicts the requirement
+   that decisions are readable by the team only.
+
+Building any of these would ship decisions that silently miss people, so nothing is built until
+the protocol carries them.
+
+### Proposed protocol addition
+- **Key:** decisions are sealed with the newest key of the team's notes key ring
+  (`notes-keys`, [[0006-encrypted-project-notes]] phase 2), which is not bound to an epoch, so
+  new members read every decision and rotations re-encrypt nothing; each decision is signed by
+  the writing device and checked against the verified log like every record.
+- **Crypto crate change:** today `RecordKind::Blob(BlobKind::Decision)` (label `blob/decision`)
+  seals only through `EpochCipher`, whose key comes from the epoch secret. Sealing with a notes
+  key needs a new seal and open path in `crates/hangar-team-crypto` (a record kind
+  `decision`, label `decision/v1`, next to `notes.rs`): the key is
+  `HKDF-SHA256(ikm = notes key, info = field("hangar-decision/v1/key") || field(team))`, the
+  associated data binds label, team, notes key id, record id (the decision's UUID, so a blob
+  copied under another id does not open), sender device, log head and counter, and the device
+  signs it as `EpochCipher` records are signed. The envelope's `epoch` stays the current epoch at
+  the time of writing: it names the log head the signature is checked against and keeps the
+  relay's stale epoch check, but chooses no key. The unused `blob/decision` label goes. This is a
+  change to `hangar-team-crypto` and its test vectors, and to `hangar-team-protocol`
+  (messages below), so the server needs a vendor update and a new image.
+- **Messages:** `blob.list { kind, after }` answers `{blob, member, device, createdAt}` per blob of
+  the kind (paged, newest last); the event `blob.stored { kind, blob, member }` tells every
+  device of the team; `blob.delete { blob }` by its writer, an owner or an admin, with the event
+  `blob.deleted`. The relay keeps metadata only.
+- **Protocol version:** `PROTOCOL_VERSION` goes from 1 to 2, `ProtoRange::CURRENT` becomes
+  `{min: 1, max: 2}` on both sides, and `welcome.proto` names the version the connection speaks.
+  Checked in the code: a relay of version 1 answers an unknown kind such as `blob.list` with
+  `err badRequest` without an op id and closes the connection after more than 20 bad frames
+  (`MAX_BAD_FRAMES` in the server's `src/relay/conn.rs`), and an app of version 1 ends the connection on any unknown server kind
+  (`Engine::on_text`, `SessionEnd::Lost`). So: the app sends the new messages only on a
+  connection whose `welcome.proto` is 2, and the relay sends `blob.stored` and `blob.deleted`
+  only to connections of version 2. On a version 1 relay the Team view shows no "Decisions" block
+  and the agent context no decisions (only what works is offered); a quiet line under the tasks
+  says "Decisions need a newer team server" for owners and admins only, who can update it.
+- **Replay:** `blob.stored` and `blob.deleted` are live hints and are not logged: no `seq`, no
+  replay after a reconnect. What counts is `blob.list`: after every `welcome` (also after a
+  resync) the app lists from the newest blob it knows (`after`), and a live hint only triggers
+  the same list call. This keeps the event log free of a second kind of state and needs no
+  snapshot rules. `blob.list` returns at most 100 entries per page; a connection may start at
+  most one list every 5 s (more answer `rateLimited` with `retryAfterMs`), and pages of one
+  listing follow at once.
+- **Limits:** at most 200 decisions per team that are neither withdrawn nor superseded; a
+  superseded or withdrawn decision is deleted (`blob.delete`), so its bytes leave the quota. A
+  `blob.put` beyond 200, or beyond the team's blob quota (64 MiB by default on the self-hosted
+  relay, `BLOB_QUOTA_BYTES`), answers `err limit`; the form keeps its text and says "Your team
+  has as many decisions as it can keep. Withdraw an old one first." Nothing is dropped silently.
+- **Document** (plaintext inside the sealed blob): `{"v":1,"id":<uuid>,"decision":..,"reason":..,
+  "by":<display name>,"at":<Unix ms>,"repo":<root commit or null>,"supersedes":<id or null>}`,
+  decision at most 300 characters, reason at most 1000. A decision that supersedes another hides
+  it; nothing is edited in place.
+
+### Proposed client behaviour
+- **Team view:** a "Decisions" block below "Tasks" with one button "Record decision" (two fields:
+  what was decided, why) and the list, newest first, each with who and when and one action
+  (Withdraw for its writer, owners and admins).
+- **Agent context:** the newest decisions of the session's linked project (and of its
+  repository), before the reservations: at most 10 lines and 1200 characters, the rest counted
+  (`{"moreDecisions":n}`), one line each
+  `{"decision":..,"reason":..,"decidedBy":..,"at":"YYYY-MM-DD"}` with every string a `literal()`,
+  the reason cut to 300 characters. Reservations then take at most 1400 characters, the files the
+  rest of the 4000. Facts, not orders, as everything else in the context.
+- **Which agents get them:** the context reaches only agents whose catalog entry has
+  `context_inject = true`: today Claude Code (prompt hook `UserPromptSubmit`, measured) and Qwen
+  Code (same hook, not measured). Codex CLI, Gemini CLI, Copilot CLI, Cursor CLI, OpenCode, Pi,
+  Oh My Pi, Droid and private sessions get no decisions automatically; their person sees them in
+  the Team view and can send one to the session the way notes are sent to a terminal today
+  (`sendFromNotes`, which pastes into the session through `pasteIntoSession`). The start dialog promises decisions only
+  for the agents that get them. A new prompt hook in an adapter adds an agent; nothing writes an
+  instruction file into the repository for this.
+- **Not a note:** ADR 0006 keeps "giving agents decrypted shared notes automatically" as a
+  non-goal, and this draft does not change that. A note is free text a person writes for people
+  (drafts, credentials by mistake, anything up to 1 MiB); handing it to an agent unasked would
+  leak whatever it holds into the agent's provider. A decision is a short, structured statement
+  written for exactly this purpose: the form says that agents of the team read it, its fields
+  are capped at 300 and 1000 characters, and the writer chooses to share it. Decisions also do
+  not live in `.hangar/notes`, so no note ever reaches an agent through this path.
+- **Removed members:** a person who held the notes key ring keeps reading the decisions written
+  up to the removal (they saw them anyway). After a removal the rotating device adds a new notes
+  key (ADR 0006, section 3), so decisions written afterwards are closed to them. This is accepted
+  on purpose, as for notes and the Git history.
+- **Tests:** document limits and refusals, the context budget with many and long decisions,
+  hostile strings as literals, a superseded or withdrawn decision gone from the context, and two
+  people over real WebSockets (one records, the other's agent context shows it, also after a
+  rotation and for a member admitted later).
+
+### Consequences of the draft
+- Changes to both crates: `hangar-team-crypto` (decision seal and open path, test vectors) and
+  `hangar-team-protocol` (protocol version 2, `blob.list`, `blob.stored`, `blob.delete`,
+  `blob.deleted`); the server needs a vendor update, the new messages and a new image. It
+  depends on the `notes-keys` record of ADR 0006 phase 2, so both ship together.
+- Mixed versions work: version 1 apps and relays keep running, they only show no decisions.
+- The external crypto review ([[team-crypto]]) must cover the decision document and its seal.
 
 ## Consequences
 - macOS and Linux become release blockers before collaboration ships.

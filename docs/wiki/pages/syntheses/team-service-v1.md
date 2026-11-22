@@ -918,7 +918,8 @@ compare claims with the protocol crate's `ClaimBoard` and decide reservations wi
     reserve with an area, the gate's view on the other device, first wins, ask and hand over,
     sharing off and on restores the hold from the snapshot, release). Vitest for parsing, texts
     and the release request list.
-- **Not built yet:** shared decisions; a "Wait" answer
+- **Not built yet:** shared decisions (they need a protocol change; the draft and the reasons are
+  in [[0005-team-collaboration]], "Amendment draft (2026-11-22)"); a "Wait" answer
   of the gate; the gate for other agents than Claude Code; naming the area of a `sameArea`
   overlap (the relay sends only hashes); removing devices and members from the UI; a hint in the
   Team view when local claims are turned off (then no repository is offered).
