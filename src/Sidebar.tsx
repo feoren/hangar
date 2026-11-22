@@ -3,14 +3,11 @@ import { Fragment, useEffect, useId, useMemo, useRef, useState } from "react";
 import type { AgentCommand, Profile } from "./api";
 import { AppMenu, type MenuGroup } from "./AppMenu";
 import type { AttentionReason, AttentionState } from "./attention";
-import { AgentStartMenu, offersAgentStart } from "./agentStartMenu";
 import { Badge } from "./Badge";
 import { costNote } from "./costs";
 import { FolderMenu } from "./FolderMenu";
 import { distinctNames, elideMiddle, parentFolder } from "./folderSections";
 import { folderName, type FolderPrefs } from "./folders";
-import type { AgentDef } from "./subAgentLibrary";
-import { useSubAgentLibrary } from "./subAgentLibraryStore";
 import { SessionLook } from "./SessionLook";
 import { exitDetail } from "./format";
 import { gateHint } from "./gate";
@@ -207,13 +204,6 @@ interface Props {
   recentlyClosed: readonly ClosedSession[];
   /** Starts that closed session again: same program, folder, title and conversation. */
   onReopenClosed: (entry: ClosedSession) => void;
-  /**
-   * Sub-agent definitions a start in the target can run as (subAgentLibrary.ts `defsFor`),
-   * offered in a menu beside each program that takes one (Claude Code). Missing: none.
-   */
-  agentStarts?: readonly AgentDef[];
-  /** Starts the program in the target as that sub-agent. */
-  onStartAgent?: (profile: Profile, agent: string) => void;
   /** Profile IDs whose update session runs right now. */
   updatingPrograms: ReadonlySet<string>;
   /** Program whose update waits for "Update anyway" (it is running), otherwise `null`. */
@@ -373,14 +363,6 @@ export function Sidebar(props: Props) {
     setSelected(next);
     return true;
   };
-  /** The open "start as sub-agent" menu: its program and where it opens. */
-  const [agentMenu, setAgentMenu] = useState<{
-    profile: Profile;
-    x: number;
-    y: number;
-  } | null>(null);
-  const agentMenuButton = useRef<HTMLButtonElement | null>(null);
-  const agentLibrary = useSubAgentLibrary();
   const cwdButton = useRef<HTMLButtonElement>(null);
   /** "Starts in" menu, open at this position (below the button, or above it if space is short). */
   const [folderMenu, setFolderMenu] = useState<{ x: number; y: number; flipAbove: number } | null>(
@@ -1386,31 +1368,6 @@ export function Sidebar(props: Props) {
                     )}
                     <PlusIcon />
                   </button>
-                  {offersAgentStart(
-                    profile,
-                    props.onStartAgent !== undefined,
-                    props.agentStarts,
-                  ) && (
-                    <button
-                      type="button"
-                      className="profile-agents"
-                      aria-haspopup="menu"
-                      aria-expanded={agentMenu?.profile.id === profile.id}
-                      aria-label={t("subAgentLib.startHeading", { program: profile.name })}
-                      title={t("subAgentLib.startHeading", { program: profile.name })}
-                      onClick={(event) => {
-                        if (agentMenu !== null) {
-                          setAgentMenu(null);
-                          return;
-                        }
-                        agentMenuButton.current = event.currentTarget;
-                        const rect = event.currentTarget.getBoundingClientRect();
-                        setAgentMenu({ profile, x: rect.left, y: rect.bottom + 4 });
-                      }}
-                    >
-                      <ChevronIcon size={12} />
-                    </button>
-                  )}
                   {programUpdate !== undefined && (
                     <ProgramUpdateOffer
                       className="in-sidebar"
@@ -1431,21 +1388,6 @@ export function Sidebar(props: Props) {
               );
             })}
         </ul>
-        {agentMenu !== null && props.onStartAgent !== undefined && (
-          <AgentStartMenu
-            profile={agentMenu.profile}
-            starts={props.agentStarts ?? []}
-            library={agentLibrary.library}
-            figures={agentLibrary.figures}
-            position={{ x: agentMenu.x, y: agentMenu.y }}
-            anchor={agentMenuButton}
-            onStart={props.onStartAgent}
-            onClosed={() => {
-              setAgentMenu(null);
-            }}
-            onMenuClose={props.onMenuClose}
-          />
-        )}
         {mode === "team" && <TeamUnavailable profiles={startable} />}
       </GroupSection>
 

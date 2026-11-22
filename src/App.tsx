@@ -4665,8 +4665,6 @@ export function App() {
   useEffect(() => {
     setLibraryFolders(libraryKey === "" ? [] : libraryKey.split("\n"));
   }, [libraryKey]);
-  /** The definitions a start in the target folder can run as. */
-  const targetAgents = defsFor(agentLibrary.library, targetPath);
   const subAgentIcon = (def: AgentDef) => (
     <AgentFigure
       figure={defFigure(def, agentLibrary.library, agentLibrary.figures)}
@@ -4702,12 +4700,6 @@ export function App() {
       .finally(() => {
         reopening.current = false;
       });
-  };
-  /** Start Claude Code in the target as a sub-agent, in the mode the switch says. */
-  const startAgentHere = (profile: Profile, agent: string) => {
-    if (!prefsReady) return;
-    const mode = startModeFor(nextMode, profile) ?? "private";
-    void start(profile, undefined, mode, undefined, undefined, undefined, agent);
   };
 
   // Agent arena (arena.ts, ArenaDialog.tsx, backend arena.rs).
@@ -6724,8 +6716,6 @@ export function App() {
           onStart={startHere}
           recentlyClosed={closedShown}
           onReopenClosed={reopenClosed}
-          agentStarts={targetAgents}
-          onStartAgent={startAgentHere}
           updatingPrograms={updatingPrograms}
           confirmUpdate={confirmUpdate}
           onRequestUpdate={updateActions.request}

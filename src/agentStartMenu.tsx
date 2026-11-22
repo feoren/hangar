@@ -1,24 +1,10 @@
-// Entries of the "Start as sub-agent" menu beside a program that takes one (Claude Code) in the
-// sidebar's program list: per definition its face, name, origin and the first line of its
-// description. A project definition says so in words; one that overrides a global definition
-// of its name wears the neutral figure (subAgentLibrary.ts `defFigure`).
+// A sub-agent definition's origin in words, for the sub-agent settings and the start palette: a
+// project definition says so, one that overrides a global definition of its name says that too,
+// and what it brings beyond its prompt is named.
 
-import { AgentFigure } from "./AgentFigure";
-import type { Profile } from "./api";
 import { folderName } from "./folders";
-import { useT, type Translate } from "./i18n";
-import { PopupMenu, type PopupItem } from "./PopupMenu";
-import {
-  defFigure,
-  firstLine,
-  overridesGlobal,
-  type AgentDef,
-  type FigureView,
-  type Library,
-} from "./subAgentLibrary";
-
-/** Longest description shown in an entry; the tooltip holds the whole first line. */
-const DESCRIPTION_CHARS = 60;
+import type { Translate } from "./i18n";
+import { overridesGlobal, type AgentDef, type Library } from "./subAgentLibrary";
 
 /** Where a definition comes from, in words. */
 export function originText(def: AgentDef, library: Library, t: Translate): string {
@@ -44,96 +30,4 @@ export function withExtras(origin: string, def: AgentDef, t: Translate): string 
   return extras.length === 0
     ? origin
     : `${origin} · ${t("subAgentLib.brings", { fields: extras.join(", ") })}`;
-}
-
-export function agentStartItems(
-  profile: Profile,
-  defs: readonly AgentDef[],
-  library: Library,
-  figures: ReadonlyMap<string, FigureView>,
-  t: Translate,
-  start: (profile: Profile, agent: string) => void,
-): PopupItem[] {
-  const items: PopupItem[] = [
-    {
-      type: "heading",
-      key: "heading",
-      label: t("subAgentLib.startHeading", { program: profile.name }),
-    },
-  ];
-  for (const def of defs) {
-    const line = firstLine(def.description);
-    const short = line.length > DESCRIPTION_CHARS ? `${line.slice(0, DESCRIPTION_CHARS)}…` : line;
-    const origin = originText(def, library, t);
-    items.push({
-      type: "action",
-      key: `${def.scope}:${def.folder ?? ""}:${def.name}`,
-      label: def.name,
-      detail: [origin, short].filter((part) => part !== "").join(" · "),
-      title: [t("subAgentLib.startAs", { program: profile.name, agent: def.name }), origin, line]
-        .filter((part) => part !== "")
-        .join("\n"),
-      icon: <AgentFigure figure={defFigure(def, library, figures)} size={30} crop="full" />,
-      run: () => {
-        start(profile, def.name);
-      },
-    });
-  }
-  return items;
-}
-
-/**
- * The sidebar shows the "start as sub-agent" chevron beside a program only when that program
- * takes an agent (Claude Code), the window can start one and the target folder has definitions:
- * a chevron that opens an empty menu would be a dead end.
- */
-export function offersAgentStart(
-  profile: Pick<Profile, "takesAgent">,
-  canStart: boolean,
-  starts: readonly AgentDef[] | undefined,
-): boolean {
-  return profile.takesAgent === true && canStart && (starts ?? []).length > 0;
-}
-
-interface AgentStartMenuProps {
-  profile: Profile;
-  starts: readonly AgentDef[];
-  library: Library;
-  figures: ReadonlyMap<string, FigureView>;
-  position: { x: number; y: number };
-  /** The chevron that opened the menu; Escape and a click outside return the focus to it. */
-  anchor: React.RefObject<HTMLButtonElement | null>;
-  onStart: (profile: Profile, agent: string) => void;
-  /** The menu closed, for whatever reason. */
-  onClosed: () => void;
-  /** A start was chosen: the focus goes where the new session wants it. */
-  onMenuClose: () => void;
-}
-
-/** The "start as sub-agent" menu below a program's chevron in the sidebar. */
-export function AgentStartMenu({
-  profile,
-  starts,
-  library,
-  figures,
-  position,
-  anchor,
-  onStart,
-  onClosed,
-  onMenuClose,
-}: AgentStartMenuProps) {
-  const t = useT();
-  return (
-    <PopupMenu
-      items={agentStartItems(profile, starts, library, figures, t, onStart)}
-      label={t("subAgentLib.startHeading", { program: profile.name })}
-      position={position}
-      anchor={anchor}
-      onClose={(reason) => {
-        onClosed();
-        if (reason === "dismiss") anchor.current?.focus();
-        else onMenuClose();
-      }}
-    />
-  );
 }
