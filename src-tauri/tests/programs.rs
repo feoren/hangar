@@ -192,10 +192,21 @@ fn profile(id: &str, command: &str, version_args: Option<&[&str]>) -> Profile {
 
 #[test]
 fn detect_only_installed_and_with_cache() {
+    // Each start of the program adds a line to a file in its working folder (relative, so a
+    // path with spaces needs no quoting). A folder of its own: other tests probe in parallel.
     #[cfg(windows)]
-    let (program, list) = ("cmd", ["/d", "/c", "echo 7.7.7"]);
+    let (program, list) = ("cmd", ["/d", "/c", "echo 7.7.7 & echo run>>runs.txt"]);
     #[cfg(unix)]
-    let (program, list) = ("sh", ["-c", "echo 7.7.7"]);
+    let (program, list) = ("sh", ["-c", "echo 7.7.7; echo run >> runs.txt"]);
+    let base = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("..")
+        .join("tests")
+        .join(".tmp")
+        .join("detect-cache");
+    let _ = std::fs::remove_dir_all(&base);
+    let cwd = version::probe_folder(&base).unwrap();
+    let starts =
+        || std::fs::read_to_string(cwd.join("runs.txt")).map_or(0, |runs| runs.lines().count());
     let manager = SessionManager::new(
         vec![
             profile("present", program, Some(&list)),
@@ -206,14 +217,15 @@ fn detect_only_installed_and_with_cache() {
     );
     let installed = manager.installed();
     let cache = VersionCache::default();
-    let versions = version::detect(&installed, &cache, &probe_dir());
+    let versions = version::detect(&installed, &cache, &cwd);
     assert_eq!(versions.len(), 1);
     assert_eq!(versions["present"].as_deref(), Some("7.7.7"));
+    assert_eq!(starts(), 1);
 
     // The second call comes from the cache, without starting the program.
-    let started = Instant::now();
-    assert_eq!(version::detect(&installed, &cache, &probe_dir()), versions);
-    assert!(started.elapsed() < Duration::from_millis(50));
+    assert_eq!(version::detect(&installed, &cache, &cwd), versions);
+    assert_eq!(starts(), 1);
+    std::fs::remove_dir_all(&base).unwrap();
 }
 
 /// An npm launcher calls a bare `node`; cmd.exe would look for it in the working folder first.
