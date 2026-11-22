@@ -119,7 +119,9 @@ fn profile_env_reaches_the_query() {
 }
 
 /// The child prints the version and then hangs in a grandchild that keeps the pipes open.
-/// Only killing the whole tree delivers EOF; the partial output still counts.
+/// Only killing the whole tree delivers EOF; the partial output still counts. If only the
+/// direct child died, the readers would get no EOF within the grace period and the query would
+/// yield no version at all.
 #[test]
 fn time_limit_kills_the_process_tree() {
     // ping by its full path: cargo prepends every native library folder of the build to PATH
@@ -137,19 +139,16 @@ fn time_limit_kills_the_process_tree() {
     );
     #[cfg(unix)]
     let (program, list) = ("sh", ["-c", "echo 9.8.7; sleep 60; echo never"]);
+    // Long enough for a cmd.exe started under load to print before the kill (1 s was not).
+    let limit = Duration::from_secs(3);
     let started = Instant::now();
-    let version = version::probe(
-        &find(program),
-        &args(&list),
-        &no_env(),
-        Duration::from_secs(1),
-        &probe_dir(),
-    );
+    let version = version::probe(&find(program), &args(&list), &no_env(), limit, &probe_dir());
     let elapsed = started.elapsed();
     assert_eq!(version.as_deref(), Some("9.8.7"));
-    assert!(elapsed >= Duration::from_secs(1), "{elapsed:?}");
-    // Time limit plus grace period; if the grandchild kept holding the pipes, it would be 60 s.
-    assert!(elapsed < Duration::from_secs(4), "{elapsed:?}");
+    assert!(elapsed >= limit, "{elapsed:?}");
+    // Time limit plus grace period, with room for a loaded machine; still far below the 60 s
+    // the grandchild would hold the pipes if the query waited for it.
+    assert!(elapsed < Duration::from_secs(30), "{elapsed:?}");
 }
 
 #[test]
