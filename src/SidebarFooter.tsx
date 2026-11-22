@@ -1,11 +1,9 @@
 import { useEffect } from "react";
 
-import { api } from "./api";
-
 import { accountButtonText, isSignedIn } from "./account";
 import { Avatar } from "./Avatar";
 import { useT } from "./i18n";
-import { CoffeeIcon, GearIcon, MoonIcon, SunIcon, TeamIcon } from "./icons";
+import { GearIcon, MoonIcon, SunIcon, TeamIcon } from "./icons";
 import { formatShortcut, SHORTCUT_LABELS } from "./shortcuts";
 import { personName, releaseRequests } from "./team";
 import { meInitials, pillLabel, pillText, teamPill, type OnlinePerson } from "./teamOverview";
@@ -67,23 +65,6 @@ export function SidebarFooter(props: {
     </button>
   );
 
-  const coffeeLabel = t("sidebar.coffee");
-  const coffee = (
-    <button
-      type="button"
-      className="icon-button footer-coffee"
-      aria-label={coffeeLabel}
-      title={coffeeLabel}
-      onClick={() => {
-        api.openWebUrl(SUPPORT_URL).catch((error: unknown) => {
-          console.warn("could not open the support page", error);
-        });
-      }}
-    >
-      <CoffeeIcon />
-    </button>
-  );
-
   const settings = (
     <button
       type="button"
@@ -123,7 +104,6 @@ export function SidebarFooter(props: {
           <Avatar name="" text={meInitials(user)} src={avatar} size="small" />
         </button>
         {themeSwitch}
-        {coffee}
         {settings}
       </div>
     );
@@ -158,11 +138,7 @@ export function SidebarFooter(props: {
         </button>
       )}
       {themeSwitch}
-      {coffee}
       {settings}
     </div>
   );
 }
-
-/** The project's Buy Me a Coffee page, opened in the default browser. */
-export const SUPPORT_URL = "https://buymeacoffee.com/feoren";

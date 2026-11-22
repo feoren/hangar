@@ -1,13 +1,21 @@
 // @vitest-environment happy-dom
 
-// The bar above the work area: the active session's name and the one switch for the right panel.
+// The bar above the work area: the active session's name, the one switch for the right panel and
+// the support link, which opens the project's Buy Me a Coffee page through the backend.
 
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { createTranslator, I18nContext } from "./i18n";
-import { MainBar } from "./MainBar";
+import { MainBar, SUPPORT_URL } from "./MainBar";
+
+const openWebUrl = vi.hoisted(() => vi.fn<(url: string) => Promise<null>>());
+
+vi.mock("./api", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("./api")>();
+  return { ...actual, api: { ...actual.api, openWebUrl } };
+});
 
 Reflect.set(globalThis, "IS_REACT_ACT_ENVIRONMENT", true);
 
@@ -16,6 +24,7 @@ let root: Root;
 let host: HTMLDivElement;
 
 beforeEach(() => {
+  openWebUrl.mockResolvedValue(null);
   host = document.createElement("div");
   document.body.append(host);
   root = createRoot(host);
@@ -26,6 +35,7 @@ afterEach(() => {
     root.unmount();
   });
   host.remove();
+  vi.clearAllMocks();
 });
 
 function render(title: string | null, sideOpen: boolean, onToggle = vi.fn()) {
@@ -51,7 +61,6 @@ describe("MainBar", () => {
 
   it("has one switch for the right panel that shows whether it is open", () => {
     render(null, false);
-    expect(host.querySelectorAll("button")).toHaveLength(1);
     expect(toggle()?.getAttribute("aria-label")).toBe("Right panel");
     expect(toggle()?.getAttribute("aria-pressed")).toBe("false");
     render(null, true);
@@ -64,5 +73,21 @@ describe("MainBar", () => {
       toggle()?.click();
     });
     expect(onToggle).toHaveBeenCalledOnce();
+  });
+
+  it("puts the support link right before the panel switch, which ends the bar", () => {
+    render(null, false);
+    const coffee = host.querySelector<HTMLButtonElement>(".main-bar-coffee");
+    expect(coffee?.getAttribute("aria-label")).toBe("Buy me a coffee");
+    expect(coffee?.nextElementSibling).toBe(toggle());
+    expect(toggle()?.nextElementSibling).toBeNull();
+    act(() => {
+      coffee?.click();
+    });
+    expect(openWebUrl).toHaveBeenCalledWith(SUPPORT_URL);
+  });
+
+  it("points to the project's page over https", () => {
+    expect(SUPPORT_URL).toBe("https://buymeacoffee.com/feoren");
   });
 });

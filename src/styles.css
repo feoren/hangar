@@ -6365,10 +6365,17 @@ label.setting-line:hover {
   white-space: nowrap;
 }
 
-.main-bar-toggle {
+.main-bar-toggle,
+.main-bar-coffee {
   flex: none;
   width: 30px;
   height: 30px;
+}
+
+/* The support link in the brand's blue, so it reads as Hangar's own and not as a tool. */
+.main-bar-coffee,
+.main-bar-coffee:hover {
+  color: var(--accent);
 }
 
 .main-bar-toggle[aria-pressed="true"] {
@@ -11734,14 +11741,12 @@ body.session-dragging .session-actions {
   }
 }
 
-.footer-settings,
-.footer-coffee {
+.footer-settings {
   flex: none;
   width: 30px;
   height: 30px;
 }
 
-/* The right panel's tabs next to Settings: same size, the open tab marked like a pressed toggle. */
 /* State mark of the team: a dot connected, a ring not connected, a dot with a slow halo while
    something needs the person. The tooltip and the accessible name always say it in words. */
 .team-mark {
