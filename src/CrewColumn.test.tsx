@@ -187,6 +187,19 @@ describe("CrewColumn", () => {
     expect(label).toBe(`Explore, Arbeitet, ${text}`);
   });
 
+  it("shows the whole name and the state word in the tooltip, as the name tag cuts long names", () => {
+    const long = "hangar-social-media-campaign-planner";
+    view.current = { located: null, agents: [subAgent("a1", { agentType: long })] };
+    mount("column");
+    expect(buttons()[0]?.getAttribute("title")).toBe(`${long}, Arbeitet`);
+    expect(host.querySelector(".crew-name")?.textContent).toBe(long);
+  });
+
+  it("uses the same tooltip in the strip", () => {
+    mount("strip");
+    expect(buttons()[0]?.getAttribute("title")).toBe("Explore, Arbeitet");
+  });
+
   it("uses the same accessible name in the strip", () => {
     mount("strip");
     const text = host.querySelector(".crew-chip-say")?.textContent ?? "";

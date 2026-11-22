@@ -1,7 +1,7 @@
 // The crew beside a session's terminal (docs/wiki/pages/syntheses/crew-column.md): each running
-// sub-agent as a still whole figure on a round stage whose light ring shows its state, with a
-// speech bubble for what it does and its name on a tag below. In a narrow pane the same crew is a
-// strip of faces with one line of text.
+// sub-agent as a whole figure (no CSS moves it; a bundled one may play its own idle loop) on a
+// round stage whose light ring shows its state, with a speech bubble for what it does and its
+// name on a tag below. In a narrow pane the same crew is a strip of faces with one line of text.
 // Which sub-agents stand here, their states and texts are decided by crew.ts and crewText.ts.
 
 import { useState } from "react";
@@ -153,6 +153,9 @@ function CrewItem({
         type="button"
         className="crew-button"
         aria-label={`${name}, ${stateLabel}, ${text}`}
+        // The name tag cuts a long name; the tooltip shows it whole, with the state word that the
+        // stage tells by color alone.
+        title={`${name}, ${stateLabel}`}
         aria-current={picked ? "true" : undefined}
         onClick={(event) => {
           onShow(event.detail === 0);
