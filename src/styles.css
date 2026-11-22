@@ -1148,6 +1148,7 @@ h2 .beta-badge {
   --row-seconds: var(--look-working-seconds);
   --row-pulse: var(--look-working-pulse);
   --row-ring-pulse: var(--look-working-ring-pulse);
+  --row-pulsing: var(--look-working-pulsing);
 }
 
 .look-idle {
@@ -1160,6 +1161,7 @@ h2 .beta-badge {
   --row-seconds: var(--look-idle-seconds);
   --row-pulse: var(--look-idle-pulse);
   --row-ring-pulse: var(--look-idle-ring-pulse);
+  --row-pulsing: var(--look-idle-pulsing);
 }
 
 .look-done,
@@ -1184,6 +1186,7 @@ h2 .beta-badge {
   --row-seconds: var(--look-done-seconds);
   --row-pulse: var(--look-done-pulse);
   --row-ring-pulse: var(--look-done-ring-pulse);
+  --row-pulsing: var(--look-done-pulsing);
 }
 
 /* An error that still waits to be seen: it breathes in its own color, by default the theme's red. */
@@ -1199,6 +1202,7 @@ h2 .beta-badge {
   --row-seconds: var(--look-failed-seconds);
   --row-pulse: var(--look-failed-pulse);
   --row-ring-pulse: var(--look-failed-ring-pulse);
+  --row-pulsing: var(--look-failed-pulsing);
 }
 
 .look-asks {
@@ -1213,25 +1217,87 @@ h2 .beta-badge {
   --row-seconds: var(--look-asks-seconds);
   --row-pulse: var(--look-asks-pulse);
   --row-ring-pulse: var(--look-asks-ring-pulse);
+  --row-pulsing: var(--look-asks-pulsing);
 }
 
 /* The row breathes in its state's color, its edge (.edge-*) carries the same color, and the word
-   at the right end of the title line names the state. The tint is mixed onto the sidebar color. Without a pulse, a waiting row keeps a still tint (--row-fill);
-   working and pause then look plain. Single class on purpose: hover and the active row still win over the still tint. */
+   at the right end of the title line names the state. The tint is mixed onto the sidebar color.
+   Without a pulse, a waiting row keeps a still tint (--row-fill); working and pause then look
+   plain. Single class on purpose: hover and the active row still win over the still tint. */
+.look {
+  isolation: isolate;
+  background-color: var(--row-fill);
+}
+
+/* The breath (.row-pulse, a span in the row, in the rail's button and in the actions' strip) only
+   animates opacity, so a breathing row is composited, never painted again. Its layer lies over
+   the row's own background, border, hover shade and tint and copies all of them (inherit), with
+   the breath's low color as the base; its ::before, the same copy in the high color, fades in and
+   out over it. Whole copies give exactly the colors a breathing background gave under the same
+   border, shade and tint, and cover the hover color the breath also hid. The row's isolation
+   keeps the layer (z-index -1) above the row's own paint and below its content. */
+.row-pulse {
+  display: none;
+}
+
+.look > .row-pulse,
+.look .session-actions > .row-pulse {
+  --pulse-border: 0px;
+  --pulse-edge: 0px;
+  position: absolute;
+  inset: calc(-1 * var(--pulse-border)) calc(-1 * var(--pulse-border))
+    calc(-1 * var(--pulse-border)) calc(-1 * var(--pulse-edge));
+  z-index: -1;
+  display: block;
+  pointer-events: none;
+  background-color: color-mix(in srgb, var(--row-tint) var(--row-low), var(--panel));
+  background-image: inherit;
+  border: inherit;
+  border-radius: inherit;
+  box-shadow: inherit;
+  opacity: var(--row-pulsing, 0);
+}
+
+/* A session row's layer spans its border box, so the translucent border breathes as before. */
+.session.look > .row-pulse {
+  --pulse-border: var(--row-border-drawn);
+  --pulse-edge: var(--row-edge-drawn);
+}
+
+/* In the actions' strip it reaches 16 px further left and fades in there like the strip's own
+   fade, which hides while the layer shows (it carries only the still color). */
+.look .session-actions > .row-pulse {
+  inset: 0 0 0 -16px;
+  mask-image: linear-gradient(to right, transparent, #000 16px);
+}
+
+.look .session-actions::before {
+  opacity: calc(1 - var(--row-pulsing, 0));
+}
+
+.look .row-pulse::before {
+  position: absolute;
+  inset: calc(-1 * var(--pulse-border)) calc(-1 * var(--pulse-border))
+    calc(-1 * var(--pulse-border)) calc(-1 * var(--pulse-edge));
+  content: "";
+  background-color: color-mix(in srgb, var(--row-tint) var(--row-high), var(--panel));
+  background-image: inherit;
+  border: inherit;
+  border-radius: inherit;
+  box-shadow: inherit;
+  opacity: 0;
+  animation: var(--row-pulse) var(--row-seconds) ease-in-out infinite;
+}
+
 @keyframes row-breathe {
   0%,
   100% {
-    background-color: color-mix(in srgb, var(--row-tint) var(--row-low), var(--panel));
+    opacity: 0;
   }
 
   50% {
-    background-color: color-mix(in srgb, var(--row-tint) var(--row-high), var(--panel));
+    opacity: 1;
   }
-}
-
-.look {
-  background-color: var(--row-fill);
-  animation: var(--row-pulse) var(--row-seconds) ease-in-out infinite;
 }
 
 .look .dot.running {
@@ -1240,7 +1306,7 @@ h2 .beta-badge {
 
 /* The actions fade in at the right end of the row on hover or keyboard focus and lie over the
    text and info lines, so the row reserves no width for them. Their strip takes the row's own
-   background (also mid-breath, as the computed color is inherited) and fades in from the left, so
+   background (a breathing row's breath through its own .row-pulse) and fades in from the left, so
    the text beneath ends softly instead of being cut. They stay in the tab order (opacity, not
    display: none). Inside the row's border, so the colored edge stays whole. */
 .session-actions {
@@ -1551,8 +1617,13 @@ h2 .beta-badge {
   }
 
   /* No breathing: the still tint (strong for waiting rows) with a firmer ring instead. */
-  .look {
-    animation: none;
+  :root .look {
+    --row-pulsing: 0;
+  }
+
+  :root .look > .row-pulse,
+  :root .look .session-actions > .row-pulse {
+    display: none;
   }
 
   .session.attention {
@@ -1865,12 +1936,19 @@ h2 .beta-badge {
    scrolling sparklines (their poll is slower now). Spinners that show progress keep turning. The
    previews in the attention settings (.look-card) keep moving: they show what a choice will do
    once plugged in, and only while the settings are open. */
-:root.power-saving .look:not(.look-card *),
 :root.power-saving .look .state-dot:not(.look-card *),
 :root.power-saving .status-chip-dots span:not(.look-card *),
 :root.power-saving .subagent-dot.running,
-:root.power-saving .rail-session.attention .badge {
+:root.power-saving .rail-session.attention .badge::after {
   animation: none;
+}
+
+:root.power-saving .look:not(.look-card *) {
+  --row-pulsing: 0;
+}
+
+:root.power-saving .look:not(.look-card *) .row-pulse {
+  display: none;
 }
 
 :root.power-saving .session.attention:not(.look-card *) {
@@ -3937,23 +4015,32 @@ body.resizing-horizontal * {
   display: flex;
 }
 
-/* A waiting session in the rail: a ring breathes around its badge. */
+/* A waiting session in the rail: a ring breathes around its badge. The ring is its own layer
+   2 px off the badge and breathes in opacity only (45 % to full), so it is composited, never
+   painted again; without a pulse it stays at full strength. */
 .rail-session.attention .badge {
-  outline: 2px solid var(--attention-strong);
-  outline-offset: 2px;
+  position: relative;
+}
+
+.rail-session.attention .badge::after,
+.rail-session.attention .session-figure::after {
+  position: absolute;
+  inset: -4px;
+  content: "";
+  pointer-events: none;
+  border: 2px solid var(--attention-strong);
+  border-radius: 10px;
   animation: var(--row-ring-pulse) var(--row-seconds) ease-in-out infinite;
 }
 
 @keyframes rail-ring {
   0%,
   100% {
-    outline-color: color-mix(in srgb, var(--attention-strong) 45%, transparent);
-    outline-offset: 1px;
+    opacity: 0.45;
   }
 
   50% {
-    outline-color: var(--attention-strong);
-    outline-offset: 3px;
+    opacity: 1;
   }
 }
 
@@ -4037,9 +4124,10 @@ body.resizing-horizontal * {
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .rail-session.attention .badge {
+  .rail-session.attention .badge::after {
+    inset: -4.5px;
+    border-width: 2.5px;
     animation: none;
-    outline-width: 2.5px;
   }
 }
 
@@ -4101,6 +4189,18 @@ body.resizing-horizontal * {
 .rail-session.active .rail-overlap,
 .rail-session.attention .rail-overlap {
   background: inherit;
+}
+
+/* A button with a state's look breathes on its own layer (.row-pulse) below the content, so a
+   background here would stand still in the breath. The icon stays clear instead, and the marker's
+   stripe ends below it: the icon reaches 13 px down (top 1 px, 10 px plus 1 px padding on each
+   side), the stripe starts at 7 px. */
+.rail-session.look .rail-overlap {
+  background: transparent;
+}
+
+.rail-session.look:has(> .rail-overlap) > .rail-marker {
+  mask-image: linear-gradient(to bottom, transparent 6px, #000 6px);
 }
 
 .rail-new {
@@ -13649,26 +13749,29 @@ body.session-dragging .session-actions {
   --figure-height: 28px;
 }
 
-/* A waiting session in the rail: the ring breathes around the face, not the small badge. */
-.rail-session.attention .session-figure .agent-figure {
-  outline: 2px solid var(--attention-strong);
-  outline-offset: 2px;
-  animation: var(--row-ring-pulse) var(--row-seconds) ease-in-out infinite;
+/* A waiting session in the rail: the ring breathes around the face, not the small badge. The
+   figure clips its own content, so the ring belongs to its frame (.session-figure). */
+.rail-session.attention .session-figure::after {
+  border-radius: 4px;
 }
 
-.rail-session.attention .figure-corner .badge {
-  outline: none;
-  animation: none;
+.rail-session.attention .session-figure:has(> .agent-figure.initial.full)::after {
+  border-radius: 999px 999px 12px 12px;
 }
 
-:root.power-saving .rail-session.attention .session-figure .agent-figure {
+.rail-session.attention .figure-corner .badge::after {
+  display: none;
+}
+
+:root.power-saving .rail-session.attention .session-figure::after {
   animation: none;
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .rail-session.attention .session-figure .agent-figure {
+  .rail-session.attention .session-figure::after {
+    inset: -4.5px;
+    border-width: 2.5px;
     animation: none;
-    outline-width: 2.5px;
   }
 }
 

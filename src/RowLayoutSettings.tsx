@@ -776,6 +776,7 @@ export function RowLayoutPreview({ plan, language }: { plan: RowPlan; language: 
                   .filter(Boolean)
                   .join(" ")}
               >
+                <span className="row-pulse" aria-hidden="true" />
                 <span className="tree-guide" aria-hidden="true" />
                 <span className="session-main">
                   <SessionRowBody

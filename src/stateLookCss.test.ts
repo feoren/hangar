@@ -27,6 +27,11 @@ describe("lookVariables", () => {
     expect(vars["--look-working-pulse"]).toBe("none");
     expect(vars["--look-working-still"]).toBe("0%");
     expect(vars["--look-idle-pulse"]).toBe("none");
+    // The breath's layer shows only where the row breathes.
+    expect(vars["--look-done-pulsing"]).toBe("1");
+    expect(vars["--look-asks-pulsing"]).toBe("1");
+    expect(vars["--look-working-pulsing"]).toBe("0");
+    expect(vars["--look-idle-pulsing"]).toBe("0");
   });
 
   it("keeps the theme's green for working and pause until a color is chosen", () => {

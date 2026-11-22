@@ -27,18 +27,22 @@ const PREVIEWS = ":not(.look-card *)";
 describe("power saving styles", () => {
   it("stills every looping row and chip animation", () => {
     for (const target of [
-      `.look${PREVIEWS}`,
       `.look .state-dot${PREVIEWS}`,
       `.status-chip-dots span${PREVIEWS}`,
       ".subagent-dot.running",
-      ".rail-session.attention .badge",
+      ".rail-session.attention .badge::after",
     ]) {
       expect(declarations(`${ROOT} ${target}`).join(";"), target).toMatch(/animation:\s*none/);
     }
+    // A row breathes through its own layer, which goes away with the still tint left.
+    expect(declarations(`${ROOT} .look${PREVIEWS} .row-pulse`).join(";")).toMatch(
+      /display:\s*none/,
+    );
   });
 
   it("keeps the attention settings previews moving", () => {
-    for (const target of [".look", ".look .state-dot", ".status-chip-dots span"]) {
+    expect(declarations(`${ROOT} .look .row-pulse`)).toEqual([]);
+    for (const target of [".look .state-dot", ".status-chip-dots span"]) {
       expect(declarations(`${ROOT} ${target}`), target).toEqual([]);
       expect(declarations(`${ROOT} ${target}${PREVIEWS}`).join(";"), target).toMatch(
         /animation:\s*none/,

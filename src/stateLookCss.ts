@@ -50,6 +50,8 @@ function stateVariables(looks: StateLooks, state: LookState, theme: Theme): [str
     [`${prefix}-still`, percent(levels.still)],
     [`${prefix}-seconds`, `${String(look.seconds)}s`],
     [`${prefix}-pulse`, levels.animated ? "row-breathe" : "none"],
+    // Shows the breath's layer (styles.css .row-pulse) only while the state breathes.
+    [`${prefix}-pulsing`, levels.animated ? "1" : "0"],
     [`${prefix}-ring-pulse`, levels.animated ? "rail-ring" : "none"],
   ];
 }

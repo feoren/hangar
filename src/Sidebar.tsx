@@ -861,6 +861,7 @@ export function Sidebar(props: Props) {
                       openSessionMenu(event, session.id, props.onSessionMenu);
                     }}
                   >
+                    <span className="row-pulse" aria-hidden="true" />
                     <SessionLook look={badgeFor(session.profileId)} session={session} crop="full" />
                     {session.marker?.color != null && (
                       <span
@@ -1902,6 +1903,8 @@ function SessionItem({
       data-session-group={groupKey}
       {...peekEvents}
     >
+      {/* The breathing tint of a waiting row (styles.css .row-pulse); hidden on other rows. */}
+      <span className="row-pulse" aria-hidden="true" />
       {/* Guide line and elbow from the agent group's header, drawn like the sub-agent tree's. */}
       <span className="tree-guide" aria-hidden="true">
         <TreeFlowElbow sessionId={session.id} live={flow.live} end={flow.end} />
@@ -2034,6 +2037,7 @@ function SessionItem({
         </button>
       )}
       <div className="session-actions">
+        <span className="row-pulse" aria-hidden="true" />
         {!editing && (
           <CompactAction
             sessionId={session.id}

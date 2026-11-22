@@ -421,6 +421,7 @@ function LookRow({
               edgeClass(state),
             ].join(" ")}
           >
+            <span className="row-pulse" aria-hidden="true" />
             <span className="session-main">
               <Badge look={PREVIEW_BADGE} />
               <span className="session-text">
