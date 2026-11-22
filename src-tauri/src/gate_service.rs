@@ -204,6 +204,9 @@ struct Inner {
     permission: Mutex<PermissionWaits>,
     /// Announces a change of [`Inner::permission`], once the app set it.
     permission_signal: Mutex<Option<Signal>>,
+    /// The `gate-cleanup` threads, so a test can wait for them before it removes its folder.
+    #[cfg(test)]
+    cleanups: Mutex<Vec<thread::JoinHandle<()>>>,
 }
 
 /// The command guard: on by default; its rules come from the file, read again when it changed.
@@ -314,6 +317,8 @@ impl GateService {
                 messages: Mutex::new(None),
                 permission: Mutex::new(PermissionWaits::default()),
                 permission_signal: Mutex::new(None),
+                #[cfg(test)]
+                cleanups: Mutex::new(Vec::new()),
             }),
         }
     }
@@ -1124,8 +1129,12 @@ impl GateService {
                     let _ = std::fs::remove_dir_all(dir);
                 }
             });
-        if let Err(error) = removal {
-            eprintln!("hangar: agent gate folders not removed: {error}");
+        match removal {
+            #[cfg(test)]
+            Ok(handle) => lock(&self.inner.cleanups).push(handle),
+            #[cfg(not(test))]
+            Ok(_) => {}
+            Err(error) => eprintln!("hangar: agent gate folders not removed: {error}"),
         }
     }
 }
@@ -2424,6 +2433,27 @@ mod tests {
         events: Receiver<GateSnapshot>,
         root: PathBuf,
         settings: TempDir,
+    }
+
+    impl Drop for Fixture {
+        /// Every test leaves `tests/.tmp` as it found it. A session that ended has its folders
+        /// removed by a `gate-cleanup` thread; removing the whole tree while that thread still
+        /// works on it fails on Windows (both walk the same folders) and leaves `sessions`
+        /// behind. So the cleanups finish first.
+        fn drop(&mut self) {
+            let cleanups = std::mem::take(&mut *lock(&self.service.inner.cleanups));
+            for cleanup in cleanups {
+                let _ = cleanup.join();
+            }
+            let _ = std::fs::remove_dir_all(self.settings.path());
+            if !thread::panicking() {
+                assert!(
+                    !self.settings.path().exists(),
+                    "{:?} stayed behind",
+                    self.settings.path()
+                );
+            }
+        }
     }
 
     /// Short limits so the slow-client tests finish quickly.
