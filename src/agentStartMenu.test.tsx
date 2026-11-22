@@ -1,9 +1,13 @@
-import { renderToStaticMarkup } from "react-dom/server";
-import { describe, expect, it, vi } from "vitest";
+// @vitest-environment happy-dom
 
-import { agentStartItems, originText } from "./agentStartMenu";
+import { act, createRef } from "react";
+import { createRoot, type Root } from "react-dom/client";
+import { renderToStaticMarkup } from "react-dom/server";
+import { afterEach, describe, expect, it, vi } from "vitest";
+
+import { AgentStartMenu, agentStartItems, offersAgentStart, originText } from "./agentStartMenu";
 import type { Profile } from "./api";
-import { createTranslator } from "./i18n";
+import { createTranslator, I18nContext } from "./i18n";
 import type { PopupItem } from "./PopupMenu";
 import {
   BUILTIN_FIGURES,
@@ -121,5 +125,88 @@ describe("the start as sub-agent menu", () => {
     expect(figureName("contracts-02", createTranslator("de"))).toBe("Verträge 2");
     // Every bundled figure has a name in words.
     for (const id of BUILTIN_FIGURES) expect(figureName(id, t)).not.toBe(id);
+  });
+});
+
+describe("the sub-agent chevron beside a program", () => {
+  const starts = [def("hangar-backend")];
+
+  it("shows only for a program that takes an agent, with a way to start and definitions", () => {
+    expect(offersAgentStart(claude, true, starts)).toBe(true);
+    expect(offersAgentStart({ ...claude, takesAgent: false }, true, starts)).toBe(false);
+    expect(offersAgentStart({}, true, starts)).toBe(false);
+    expect(offersAgentStart(claude, false, starts)).toBe(false);
+    expect(offersAgentStart(claude, true, [])).toBe(false);
+    expect(offersAgentStart(claude, true, undefined)).toBe(false);
+  });
+});
+
+describe("closing the start as sub-agent menu", () => {
+  Reflect.set(globalThis, "IS_REACT_ACT_ENVIRONMENT", true);
+  let root: Root | null = null;
+  let host: HTMLElement | null = null;
+
+  afterEach(() => {
+    act(() => {
+      root?.unmount();
+    });
+    root = null;
+    host?.remove();
+    host = null;
+  });
+
+  function open(handlers: { onStart: () => void; onClosed: () => void; onMenuClose: () => void }) {
+    const anchor = createRef<HTMLButtonElement>();
+    host = document.createElement("div");
+    document.body.append(host);
+    root = createRoot(host);
+    act(() => {
+      root?.render(
+        <I18nContext.Provider value={t}>
+          <button type="button" ref={anchor}>
+            chevron
+          </button>
+          <AgentStartMenu
+            profile={claude}
+            starts={[def("hangar-backend")]}
+            library={EMPTY_LIBRARY}
+            figures={new Map()}
+            position={{ x: 0, y: 0 }}
+            anchor={anchor}
+            {...handlers}
+          />
+        </I18nContext.Provider>,
+      );
+    });
+    return anchor;
+  }
+
+  function press(key: string) {
+    const focused = document.activeElement;
+    act(() => {
+      focused?.dispatchEvent(new KeyboardEvent("keydown", { key, bubbles: true }));
+    });
+  }
+
+  it("returns the focus to the chevron after Escape", () => {
+    const handlers = { onStart: vi.fn(), onClosed: vi.fn(), onMenuClose: vi.fn() };
+    const anchor = open(handlers);
+    // The menu takes the focus on its first entry.
+    expect(document.activeElement?.textContent).toContain("hangar-backend");
+    press("Escape");
+    expect(handlers.onClosed).toHaveBeenCalledTimes(1);
+    expect(document.activeElement).toBe(anchor.current);
+    expect(handlers.onMenuClose).not.toHaveBeenCalled();
+    expect(handlers.onStart).not.toHaveBeenCalled();
+  });
+
+  it("leaves the focus to the new session after a start", () => {
+    const handlers = { onStart: vi.fn(), onClosed: vi.fn(), onMenuClose: vi.fn() };
+    const anchor = open(handlers);
+    press("Enter");
+    expect(handlers.onStart).toHaveBeenCalledWith(claude, "hangar-backend");
+    expect(handlers.onClosed).toHaveBeenCalledTimes(1);
+    expect(handlers.onMenuClose).toHaveBeenCalledTimes(1);
+    expect(document.activeElement).not.toBe(anchor.current);
   });
 });

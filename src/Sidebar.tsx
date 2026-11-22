@@ -3,7 +3,7 @@ import { Fragment, useEffect, useId, useMemo, useRef, useState } from "react";
 import type { AgentCommand, Profile } from "./api";
 import { AppMenu, type MenuGroup } from "./AppMenu";
 import type { AttentionReason, AttentionState } from "./attention";
-import { agentStartItems } from "./agentStartMenu";
+import { AgentStartMenu, offersAgentStart } from "./agentStartMenu";
 import { Badge } from "./Badge";
 import { costNote } from "./costs";
 import { FolderMenu } from "./FolderMenu";
@@ -1385,29 +1385,31 @@ export function Sidebar(props: Props) {
                     )}
                     <PlusIcon />
                   </button>
-                  {profile.takesAgent === true &&
-                    props.onStartAgent !== undefined &&
-                    (props.agentStarts ?? []).length > 0 && (
-                      <button
-                        type="button"
-                        className="profile-agents"
-                        aria-haspopup="menu"
-                        aria-expanded={agentMenu?.profile.id === profile.id}
-                        aria-label={t("subAgentLib.startHeading", { program: profile.name })}
-                        title={t("subAgentLib.startHeading", { program: profile.name })}
-                        onClick={(event) => {
-                          if (agentMenu !== null) {
-                            setAgentMenu(null);
-                            return;
-                          }
-                          agentMenuButton.current = event.currentTarget;
-                          const rect = event.currentTarget.getBoundingClientRect();
-                          setAgentMenu({ profile, x: rect.left, y: rect.bottom + 4 });
-                        }}
-                      >
-                        <ChevronIcon size={12} />
-                      </button>
-                    )}
+                  {offersAgentStart(
+                    profile,
+                    props.onStartAgent !== undefined,
+                    props.agentStarts,
+                  ) && (
+                    <button
+                      type="button"
+                      className="profile-agents"
+                      aria-haspopup="menu"
+                      aria-expanded={agentMenu?.profile.id === profile.id}
+                      aria-label={t("subAgentLib.startHeading", { program: profile.name })}
+                      title={t("subAgentLib.startHeading", { program: profile.name })}
+                      onClick={(event) => {
+                        if (agentMenu !== null) {
+                          setAgentMenu(null);
+                          return;
+                        }
+                        agentMenuButton.current = event.currentTarget;
+                        const rect = event.currentTarget.getBoundingClientRect();
+                        setAgentMenu({ profile, x: rect.left, y: rect.bottom + 4 });
+                      }}
+                    >
+                      <ChevronIcon size={12} />
+                    </button>
+                  )}
                   {programUpdate !== undefined && (
                     <ProgramUpdateOffer
                       className="in-sidebar"
@@ -1429,23 +1431,18 @@ export function Sidebar(props: Props) {
             })}
         </ul>
         {agentMenu !== null && props.onStartAgent !== undefined && (
-          <PopupMenu
-            items={agentStartItems(
-              agentMenu.profile,
-              props.agentStarts ?? [],
-              agentLibrary.library,
-              agentLibrary.figures,
-              t,
-              props.onStartAgent,
-            )}
-            label={t("subAgentLib.startHeading", { program: agentMenu.profile.name })}
+          <AgentStartMenu
+            profile={agentMenu.profile}
+            starts={props.agentStarts ?? []}
+            library={agentLibrary.library}
+            figures={agentLibrary.figures}
             position={{ x: agentMenu.x, y: agentMenu.y }}
             anchor={agentMenuButton}
-            onClose={(reason) => {
+            onStart={props.onStartAgent}
+            onClosed={() => {
               setAgentMenu(null);
-              if (reason === "dismiss") agentMenuButton.current?.focus();
-              else props.onMenuClose();
             }}
+            onMenuClose={props.onMenuClose}
           />
         )}
         {mode === "team" && <TeamUnavailable profiles={startable} />}

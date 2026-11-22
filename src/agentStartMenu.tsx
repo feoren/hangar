@@ -6,8 +6,8 @@
 import { AgentFigure } from "./AgentFigure";
 import type { Profile } from "./api";
 import { folderName } from "./folders";
-import type { Translate } from "./i18n";
-import type { PopupItem } from "./PopupMenu";
+import { useT, type Translate } from "./i18n";
+import { PopupMenu, type PopupItem } from "./PopupMenu";
 import {
   defFigure,
   firstLine,
@@ -80,4 +80,60 @@ export function agentStartItems(
     });
   }
   return items;
+}
+
+/**
+ * The sidebar shows the "start as sub-agent" chevron beside a program only when that program
+ * takes an agent (Claude Code), the window can start one and the target folder has definitions:
+ * a chevron that opens an empty menu would be a dead end.
+ */
+export function offersAgentStart(
+  profile: Pick<Profile, "takesAgent">,
+  canStart: boolean,
+  starts: readonly AgentDef[] | undefined,
+): boolean {
+  return profile.takesAgent === true && canStart && (starts ?? []).length > 0;
+}
+
+interface AgentStartMenuProps {
+  profile: Profile;
+  starts: readonly AgentDef[];
+  library: Library;
+  figures: ReadonlyMap<string, FigureView>;
+  position: { x: number; y: number };
+  /** The chevron that opened the menu; Escape and a click outside return the focus to it. */
+  anchor: React.RefObject<HTMLButtonElement | null>;
+  onStart: (profile: Profile, agent: string) => void;
+  /** The menu closed, for whatever reason. */
+  onClosed: () => void;
+  /** A start was chosen: the focus goes where the new session wants it. */
+  onMenuClose: () => void;
+}
+
+/** The "start as sub-agent" menu below a program's chevron in the sidebar. */
+export function AgentStartMenu({
+  profile,
+  starts,
+  library,
+  figures,
+  position,
+  anchor,
+  onStart,
+  onClosed,
+  onMenuClose,
+}: AgentStartMenuProps) {
+  const t = useT();
+  return (
+    <PopupMenu
+      items={agentStartItems(profile, starts, library, figures, t, onStart)}
+      label={t("subAgentLib.startHeading", { program: profile.name })}
+      position={position}
+      anchor={anchor}
+      onClose={(reason) => {
+        onClosed();
+        if (reason === "dismiss") anchor.current?.focus();
+        else onMenuClose();
+      }}
+    />
+  );
 }
