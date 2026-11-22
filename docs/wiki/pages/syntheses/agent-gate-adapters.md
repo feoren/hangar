@@ -2,7 +2,7 @@
 title: "Agent gate adapters: Codex, Gemini, Copilot, Qwen, Pi, Oh My Pi, OpenCode and Droid"
 type: synthesis
 tags: [gate, hooks, team, codex, gemini, copilot, qwen, pi, omp, opencode, droid, catalog, helper]
-sources: ["[[agent-hooks-per-session-research]]", "[[agent-hooks-remaining-agents-research]]", "[[gate-hook-helper-measurement]]", "[[codex-gate-live-measurement]]", "[[opencode-gate-live-measurement]]", "[[pi-gate-live-measurement]]", "[[copilot-gate-live-measurement]]", "[[opencode2-and-gemini-gate-findings]]", "[[claude-http-hook-measurement]]"]
+sources: ["[[agent-hooks-per-session-research]]", "[[agent-hooks-remaining-agents-research]]", "[[gate-hook-helper-measurement]]", "[[codex-gate-live-measurement]]", "[[opencode-gate-live-measurement]]", "[[pi-gate-live-measurement]]", "[[copilot-gate-live-measurement]]", "[[opencode2-and-gemini-gate-findings]]", "[[opencode2-gate-live-measurement]]", "[[agent-hooks-cursor-cline-gemini-opencode2-research]]", "[[claude-http-hook-measurement]]"]
 created: 2026-11-12
 updated: 2026-11-22
 ---
@@ -20,14 +20,17 @@ in-process extension and plugin), `gate_service.rs` (install, folders, cleanup),
 > [!note] What is offered
 > Team-capable besides Claude Code: **Codex CLI** from 0.167.2 ([[codex-gate-live-measurement]]),
 > **Copilot CLI** from 1.0.114 ([[copilot-gate-live-measurement]]), **OpenCode** 1.x from 1.19.5
-> ([[opencode-gate-live-measurement]]; 2.x is a rewrite the plugin does not reach,
-> `broken_from = "2.0.0"`, [[opencode2-and-gemini-gate-findings]]) and **Pi** from 1.5.2
+> ([[opencode-gate-live-measurement]]) and 2.x from 2.3.2 with a V2 plugin folder and
+> `--standalone` ([[opencode2-gate-live-measurement]]; 2.0.0 to 2.3.1 unmeasured, `version_gap`)
+> and **Pi** from 1.5.2
 > ([[pi-gate-live-measurement]]; live Pi process with a scripted model, as both stored sign-ins
 > had expired). Qwen Code, Oh My Pi and Droid have their recipe built and tested, but
 > `measured = false` keeps them off until each one is run live once (owner's decision: measure
 > first; they are not installed on the measuring machine). Gemini CLI's recipe cannot work from
-> 0.70.0: the system settings file must be owned by an administrator
-> ([[opencode2-and-gemini-gate-findings]]).
+> 0.60.0: the system settings file must be owned by an administrator
+> ([[opencode2-and-gemini-gate-findings]], [[agent-hooks-cursor-cline-gemini-opencode2-research]]).
+> Cursor CLI has a candidate route (`--plugin-dir`), Cline CLI none that leaves the user's setup
+> alone ([[agent-hooks-cursor-cline-gemini-opencode2-research]]).
 
 ## Shape
 
@@ -102,7 +105,8 @@ in-process extension and plugin), `gate_service.rs` (install, folders, cleanup),
 | Codex CLI | `codex_config_flags` | argv `--dangerously-bypass-hook-trust -c hooks.PreToolUse=[...]` first, `HANGAR_GATE` | matcher `apply_patch` |
 | Pi | `pi_extension` | argv `-e <folder>/hangar-gate.ts` first, `HANGAR_GATE` | `write`, `edit` in the extension |
 | Oh My Pi | `omp_extension` | argv `-e <folder>/hangar-gate.ts` first, `HANGAR_GATE` | `write`, `edit`, `ast_edit` in the extension |
-| OpenCode | `opencode_plugin` | env `OPENCODE_CONFIG_CONTENT={"plugin":["file:///<folder>/hangar-gate.ts"]}`, `HANGAR_GATE` | `write`, `edit`, `multiedit`, `patch`, `apply_patch` in the plugin |
+| OpenCode 1.x | `opencode_plugin` | env `OPENCODE_CONFIG_CONTENT={"plugin":["file:///<folder>/hangar-gate.ts"]}`, `HANGAR_GATE` | `write`, `edit`, `multiedit`, `patch`, `apply_patch` in the plugin |
+| OpenCode 2.x | `opencode_plugin` (version 2.0.0 or later) | argv `--standalone` first, env `OPENCODE_CONFIG_CONTENT={"plugins":["file:///<folder>/hangar-gate"]}` (folder with `index.ts`), `HANGAR_GATE` | `write`, `edit`, `multiedit`, `patch`, `apply_patch` and the shell tool `shell` in the plugin |
 | Droid | `droid_settings` | argv `--settings <folder>/droid-settings.json` first, `HANGAR_GATE` | matcher `Edit\|Create\|ApplyPatch` |
 
 - **Qwen Code.** The settings file has Claude Code's shape: `hooks.PreToolUse` with one `http`
@@ -243,7 +247,8 @@ could not be written). The window shows both like the other states; `profileSett
 | Gemini CLI: system settings file from `GEMINI_CLI_SYSTEM_SETTINGS_PATH` | skipped by 0.70.0 unless an administrator owns the file and its folders, [[opencode2-and-gemini-gate-findings]]; recipe unusable |
 | Copilot CLI: plugin loads from `--plugin-dir` headless and interactive (only the usual folder trust dialog), `exec` without a shell, `HANGAR_GATE` arrives, `apply_patch` with the patch string in `toolArgs`, deny (exit 2) stops the write, an empty answer lets add and update through | measured with 1.0.114, [[copilot-gate-live-measurement]] |
 | Copilot CLI: `edit` and `create` tool input shapes, first release with `exec` | not measured (the model used `apply_patch` only) |
-| OpenCode 2.x: plugin named in `OPENCODE_CONFIG_CONTENT` | not called by 2.3.2, a denied write went through, [[opencode2-and-gemini-gate-findings]] |
+| OpenCode 2.x: 1.x plugin named in `OPENCODE_CONFIG_CONTENT` | not called by 2.3.2, a denied write went through, [[opencode2-and-gemini-gate-findings]] |
+| OpenCode 2.x: V2 plugin folder in `plugins`, `--standalone`, `execute.before` holds `write`, `edit` and `shell`, nothing installed, headless and TUI | measured with 2.3.2, [[opencode2-gate-live-measurement]] |
 | Qwen Code: HTTP hook from the system settings file, `{}` read as no decision, first release with HTTP hooks | not measured (not installed) |
 | OpenCode: plugin loads from `OPENCODE_CONFIG_DIR/plugins` (with an npm install there) | measured with 1.19.5, three live turns, [[opencode-gate-live-measurement]]; no longer used |
 | OpenCode: plugin loads from an `OPENCODE_CONFIG_CONTENT` `file://` URL without any install, `HANGAR_GATE` and the token arrive, `write` (`filePath`) is held before it runs, a thrown deny stops it, an empty answer lets it run, the user's own plugins in `~/.config/opencode/plugins` still load | measured with 1.19.5, two live turns, [[opencode-gate-live-measurement]] |

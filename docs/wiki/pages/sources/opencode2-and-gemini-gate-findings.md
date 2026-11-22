@@ -36,12 +36,12 @@ code. Record: `raw/2026-11-22-opencode2-and-gemini-gate-findings.md`. Affects
 > per-session hook. Read from the 0.70.0 bundle: that file is skipped unless an administrator
 > owns it and its folders.
 
-> [!question] Unverified
-> The first Gemini CLI release with the ownership check, and the first OpenCode 2.x release
-> without `tool.execute.before`, are not known.
+The ownership check came with Gemini CLI 0.60.0, and OpenCode dropped V1 plugins with 2.0.0
+([[agent-hooks-cursor-cline-gemini-opencode2-research]]).
 
 ## Significance for Hangar
 
-- OpenCode gets `broken_from = "2.0.0"`: 2.x counts as not measured and is not offered for team
-  sessions until a 2.x recipe is measured. 1.x from 1.19.5 stays team-capable.
+- The cause on OpenCode 2.x was found and fixed: V2 plugin API, `plugins` with a folder, and the
+  shared background service; with a V2 plugin and `--standalone` the gate holds edits
+  ([[opencode2-gate-live-measurement]]). 1.x from 1.19.5 keeps its recipe.
 - Gemini CLI stays unmeasured; its recipe needs another per-session mechanism.

@@ -1429,3 +1429,11 @@ interactive and is now team-capable; OpenCode 2.3.2 never calls the 1.x plugin, 
 gains `broken_from = "2.0.0"`; Gemini CLI 0.70.0 skips a system settings file a normal user owns.
 New: [[copilot-gate-live-measurement]], [[opencode2-and-gemini-gate-findings]]. Updated:
 [[agent-gate-adapters]], index.
+
+## [2026-11-22] ingest | OpenCode 2.x gate and hook research for Cursor, Cline and Gemini
+Research found why the 1.x plugin fails on OpenCode 2.x (V2 API, `plugins` folder, shared
+background service); a V2 plugin with `--standalone` was measured live with 2.3.2 and Hangar now
+uses it from 2.0.0 (2.0.0 to 2.3.1 unmeasured). Cursor CLI has a candidate route, Cline CLI and
+Gemini CLI none that leaves the user's setup alone. New: [[opencode2-gate-live-measurement]],
+[[agent-hooks-cursor-cline-gemini-opencode2-research]]. Updated: [[agent-gate-adapters]],
+[[opencode2-and-gemini-gate-findings]], index.
