@@ -30,6 +30,20 @@
         "ru": "GitHub Copilot CLI, Cursor CLI и OpenCode 2 теперь могут работать как командные сессии.",
         "tr": "GitHub Copilot CLI, Cursor CLI ve OpenCode 2 artık takım oturumu olarak çalışabilir.",
         "zh": "GitHub Copilot CLI、Cursor CLI 和 OpenCode 2 现在可以作为团队会话运行。"
+      },
+      {
+        "de": "Der Aktivitätskalender auf der Startansicht hat jetzt einen Rahmen, Wochentage und eine Legende von wenig bis viel.",
+        "en": "The activity calendar on the home view now has a frame, weekday names and a legend from less to more.",
+        "el": "Το ημερολόγιο δραστηριότητας στην αρχική προβολή έχει πλέον πλαίσιο, ονόματα ημερών και υπόμνημα από λιγότερα σε περισσότερα.",
+        "es": "El calendario de actividad de la vista de inicio ahora tiene marco, días de la semana y una leyenda de menos a más.",
+        "fr": "Le calendrier d'activité de l'accueil a désormais un cadre, les jours de la semaine et une légende de moins à plus.",
+        "it": "Il calendario delle attività nella vista iniziale ora ha una cornice, i giorni della settimana e una legenda da meno a più.",
+        "ja": "ホーム表示のアクティビティカレンダーに枠、曜日名、少ないから多いへの凡例が付きました。",
+        "pl": "Kalendarz aktywności w widoku startowym ma teraz ramkę, dni tygodnia i legendę od mniej do więcej.",
+        "pt": "O calendário de atividade da tela inicial agora tem moldura, dias da semana e uma legenda de menos a mais.",
+        "ru": "Календарь активности на стартовом экране теперь в рамке, с днями недели и легендой от меньшего к большему.",
+        "tr": "Başlangıç görünümündeki etkinlik takvimi artık çerçeveli, gün adlarıyla ve azdan çoğa bir göstergeyle geliyor.",
+        "zh": "主页上的活动日历现在带有边框、星期名称和从少到多的图例。"
       }
     ]
   },

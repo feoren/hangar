@@ -11,6 +11,8 @@ import {
   monthLabels,
   parseGitActivity,
   recentWeeks,
+  weekdayRows,
+  dateOfWeekday,
   weeksThatFit,
   type ActivityDay,
 } from "./activity";
@@ -203,5 +205,21 @@ describe("monthLabels", () => {
       if (previous !== undefined) expect(label.week - previous.week).toBeGreaterThanOrEqual(3);
     });
     expect(monthLabels([])).toEqual([]);
+  });
+});
+
+describe("weekday labels", () => {
+  it("names Monday, Wednesday and Friday in a week that starts on Monday", () => {
+    expect(weekdayRows(1)).toEqual([1, null, 3, null, 5, null, null]);
+  });
+
+  it("names the same days in a week that starts on Sunday", () => {
+    expect(weekdayRows(7)).toEqual([null, 1, null, 3, null, 5, null]);
+  });
+
+  it("formats each weekday from a date that falls on it", () => {
+    for (let weekday = 0; weekday < 7; weekday += 1) {
+      expect(dateOfWeekday(weekday).getDay()).toBe(weekday);
+    }
   });
 });

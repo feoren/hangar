@@ -22,6 +22,27 @@ describe("ActivityCalendar", () => {
     expect(html).toContain("No commits of yours in the last year");
   });
 
+  it("frames the year with weekday names, the total and a legend", () => {
+    const html = render([]);
+    expect(html).toContain('class="activity-weekdays"');
+    for (const name of ["Mon", "Wed", "Fri"]) expect(html).toContain(`<span>${name}</span>`);
+    expect(html).not.toContain("<span>Tue</span>");
+    expect(html).toContain('class="activity-footer"');
+    expect(html).toMatch(
+      /<span>Less<\/span>(<span class="activity-day level-\d"><\/span>){5}<span>More<\/span>/,
+    );
+  });
+
+  it("drops the abbreviation dot of German weekday names", () => {
+    const html = renderToStaticMarkup(
+      <I18nContext.Provider value={createTranslator("de")}>
+        <ActivityCalendar folders={[]} language="de" />
+      </I18nContext.Provider>,
+    );
+    for (const name of ["Mo", "Mi", "Fr"]) expect(html).toContain(`<span>${name}</span>`);
+    expect(html).toContain("<span>Weniger</span>");
+  });
+
   it("shows the empty year while the commits load", () => {
     expect(render(["C:\\src\\hangar"])).toContain("No commits of yours in the last year");
   });

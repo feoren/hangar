@@ -179,6 +179,26 @@ export function recentWeeks(calendar: ActivityCalendar, count: number): Activity
   return calendar.weeks.slice(Math.max(0, calendar.weeks.length - Math.max(1, count)));
 }
 
+/** Weekdays named beside the rows, as GitHub does: Monday, Wednesday, Friday (`Date#getDay`). */
+const LABELED_WEEKDAYS: readonly number[] = [1, 3, 5];
+
+/**
+ * Per row of a column starting on `firstDay` (ISO, 1 Monday ... 7 Sunday): the weekday
+ * (`Date#getDay`, 0 Sunday) when the row carries a label, otherwise `null`.
+ */
+export function weekdayRows(firstDay: number): (number | null)[] {
+  return Array.from({ length: DAYS }, (_, row) => {
+    const weekday = (firstDay + row) % DAYS;
+    return LABELED_WEEKDAYS.includes(weekday) ? weekday : null;
+  });
+}
+
+/** A date that falls on `weekday` (`Date#getDay`), for formatting its name. */
+export function dateOfWeekday(weekday: number): Date {
+  // 2024-01-07 was a Sunday.
+  return new Date(2024, 0, 7 + weekday);
+}
+
 /** Weeks that fit into `width` pixels with cells of `cell` and gaps of `gap` pixels. */
 export function weeksThatFit(width: number, cell: number, gap: number): number {
   if (!(width > 0)) return CALENDAR_WEEKS;

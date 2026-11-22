@@ -472,6 +472,8 @@ const de = {
   "activity.dayNone": "Keine Commits am {date}",
   "activity.dayOne": "1 Commit am {date}",
   "activity.dayMany": "{count} Commits am {date}",
+  "activity.less": "Weniger",
+  "activity.more": "Mehr",
 
   "error.dismiss": "Meldung schließen",
   "error.unknown": "Unbekannter Fehler",
@@ -2792,6 +2794,8 @@ const en: Record<MessageKey, string> = {
   "activity.dayNone": "No commits on {date}",
   "activity.dayOne": "1 commit on {date}",
   "activity.dayMany": "{count} commits on {date}",
+  "activity.less": "Less",
+  "activity.more": "More",
 
   "error.dismiss": "Dismiss message",
   "error.unknown": "Unknown error",
@@ -5080,6 +5084,8 @@ const el: Record<MessageKey, string> = {
   "activity.dayNone": "Κανένα commit στις {date}",
   "activity.dayOne": "1 commit στις {date}",
   "activity.dayMany": "{count} commit στις {date}",
+  "activity.less": "Λιγότερα",
+  "activity.more": "Περισσότερα",
 
   "error.dismiss": "Κλείσιμο μηνύματος",
   "error.unknown": "Άγνωστο σφάλμα",
@@ -7424,6 +7430,8 @@ const es: Record<MessageKey, string> = {
   "activity.dayNone": "Sin commits el {date}",
   "activity.dayOne": "1 commit el {date}",
   "activity.dayMany": "{count} commits el {date}",
+  "activity.less": "Menos",
+  "activity.more": "Más",
 
   "error.dismiss": "Cerrar mensaje",
   "error.unknown": "Error desconocido",
@@ -9743,6 +9751,8 @@ const fr: Record<MessageKey, string> = {
   "activity.dayNone": "Aucun commit le {date}",
   "activity.dayOne": "1 commit le {date}",
   "activity.dayMany": "{count} commits le {date}",
+  "activity.less": "Moins",
+  "activity.more": "Plus",
 
   "error.dismiss": "Fermer le message",
   "error.unknown": "Erreur inconnue",
@@ -12085,6 +12095,8 @@ const it: Record<MessageKey, string> = {
   "activity.dayNone": "Nessun commit il {date}",
   "activity.dayOne": "1 commit il {date}",
   "activity.dayMany": "{count} commit il {date}",
+  "activity.less": "Meno",
+  "activity.more": "Più",
 
   "error.dismiss": "Chiudi messaggio",
   "error.unknown": "Errore sconosciuto",
@@ -14415,6 +14427,8 @@ const ja: Record<MessageKey, string> = {
   "activity.dayNone": "{date}: コミットなし",
   "activity.dayOne": "{date}: 1 件のコミット",
   "activity.dayMany": "{date}: {count} 件のコミット",
+  "activity.less": "少ない",
+  "activity.more": "多い",
 
   "error.dismiss": "メッセージを閉じる",
   "error.unknown": "不明なエラー",
@@ -16724,6 +16738,8 @@ const pl: Record<MessageKey, string> = {
   "activity.dayNone": "Brak commitów w dniu {date}",
   "activity.dayOne": "1 commit w dniu {date}",
   "activity.dayMany": "Commity w dniu {date}: {count}",
+  "activity.less": "Mniej",
+  "activity.more": "Więcej",
 
   "error.dismiss": "Zamknij komunikat",
   "error.unknown": "Nieznany błąd",
@@ -19019,6 +19035,8 @@ const pt: Record<MessageKey, string> = {
   "activity.dayNone": "Nenhum commit em {date}",
   "activity.dayOne": "1 commit em {date}",
   "activity.dayMany": "{count} commits em {date}",
+  "activity.less": "Menos",
+  "activity.more": "Mais",
 
   "error.dismiss": "Fechar mensagem",
   "error.unknown": "Erro desconhecido",
@@ -21327,6 +21345,8 @@ const ru: Record<MessageKey, string> = {
   "activity.dayNone": "{date}: нет коммитов",
   "activity.dayOne": "{date}: 1 коммит",
   "activity.dayMany": "Коммитов за {date}: {count}",
+  "activity.less": "Меньше",
+  "activity.more": "Больше",
 
   "error.dismiss": "Закрыть сообщение",
   "error.unknown": "Неизвестная ошибка",
@@ -23614,6 +23634,8 @@ const tr: Record<MessageKey, string> = {
   "activity.dayNone": "{date} tarihinde commit yok",
   "activity.dayOne": "{date} tarihinde 1 commit",
   "activity.dayMany": "{date} tarihinde {count} commit",
+  "activity.less": "Az",
+  "activity.more": "Çok",
 
   "error.dismiss": "Mesajı kapat",
   "error.unknown": "Bilinmeyen hata",
@@ -25873,6 +25895,8 @@ const zh: Record<MessageKey, string> = {
   "activity.dayNone": "{date}：无提交",
   "activity.dayOne": "{date}：1 次提交",
   "activity.dayMany": "{date}：{count} 次提交",
+  "activity.less": "少",
+  "activity.more": "多",
 
   "error.dismiss": "关闭消息",
   "error.unknown": "未知错误",
