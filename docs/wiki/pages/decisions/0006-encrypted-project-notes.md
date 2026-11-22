@@ -340,6 +340,218 @@ decisions, which agents do get, are a separate kind written for that purpose and
 - A conflicted note whose either side does not open here is left to Git (nothing would be lost,
   but nothing can be copied either).
 
+## Phase 2 design (2026-11-22)
+Approved by the owner with the board card "Notes phase 2: team mode". This section fixes what
+section 3 and 5 left open; where it differs from them, this section wins.
+
+### 1. Protocol version 2, shared with ADR 0005
+- **Two numbers, not one.** The envelope's `v` stays **1** (`ENVELOPE_VERSION`): every frame of
+  this generation keeps the envelope it has today, so a relay or app of version 1 never refuses a
+  frame for its `v`. Checked in the code: `envelope()` refuses any `v` other than its own before
+  it reads anything else, so raising `v` would cut every old peer off. The message set gets its
+  own number: `PROTOCOL_VERSION` becomes **2**, `MIN_PROTOCOL_VERSION` stays 1 and
+  `ProtoRange::CURRENT` is `{min: 1, max: 2}` on both sides. `hello.proto` offers the range,
+  `welcome.proto` names the version the relay chose for this team on this connection (the
+  highest both speak, `ProtoRange::negotiate`), and `check_welcome` already accepts any version
+  the client offered.
+- **Old peers.** A version 1 relay negotiates 1 with a new app (its range is `{1, 1}`); a new
+  relay negotiates 1 with a version 1 app. Nothing else changes for them: the new kinds below are
+  never sent to them, and no existing message gains a field.
+- **Who may send what.** Each message kind names the version that introduced it
+  (`ClientMessage::since`, `ServerMessage::since`). The app sends a kind of version 2 only on a
+  team whose `welcome.proto` is 2. The relay answers a kind newer than the team's negotiated
+  version with `err badRequest` (as an old relay does) and never sends such a kind to that
+  connection. Both rules hold in both directions, so mixed versions never meet a frame they
+  cannot decode.
+- **No new field in an existing message.** Server bodies are `deny_unknown_fields` and logged
+  events come back on replay ([[team-protocol]]), so the answer to `notes.keys.get` is a new
+  server message, not a new field of `ack`.
+- **ADR 0005's decisions draft** uses the same version 2 when it is built: its kinds join the
+  list of version 2 kinds, or a version 3 if they ship later than this. Nothing of it is built
+  here.
+
+### 2. Messages (version 2)
+| Direction | Type | Body | Answer, rules |
+| --- | --- | --- | --- |
+| client | `notes.keys.get` | none | `notes.keys`; any member's device |
+| client | `notes.keys.set` | `base` (the version the sender built on, 0 for none), `content` sealed | a device of the verified log whose member is owner or admin (the lower of log role and ticket role, as for `key.rotate`); `content.epoch` the current epoch (`staleEpoch`); `base` equal to the stored version, else `conflict`; at most `MAX_INLINE_CIPHERTEXT_LEN`; deduplicated by op id; `ack`, then `notes.keys.updated` to every connection of the team that speaks version 2 |
+| server | `notes.keys` | `record`: `{version, by {member, device}, content}` or null | the answer to `notes.keys.get`, carrying its op id; never logged |
+| server | `notes.keys.updated` | `version`, `by` | a live hint, never logged, no `seq`, no replay |
+
+- **One record per team** (all repositories linked to the team share it; the vault id keeps
+  their files apart). The relay stores the newest only, with a version number it counts up per
+  team (from 1). `base` makes the write a compare and set: two admins who turn on shared notes
+  in two repositories at once cannot overwrite each other's key ring. The loser gets `conflict`,
+  fetches, merges both rings and writes again.
+- **Replay without the log.** `notes.keys.updated` is a hint like `key.wrapped`: what counts is
+  `notes.keys.get`, which the app sends after every `welcome` of version 2 once the device holds
+  the current epoch's secret, and again on every hint. So the event log carries no new kind and
+  a version 1 app's replay never meets one.
+- **Removal.** The record goes with the team (project deleted). Removing a member or a device
+  touches it not: the next rotation re-seals it (section 4).
+- **Size.** A key ring of `MAX_KEYS` (255) keys is 2 + 255 x 40 bytes; sealed and encoded it
+  stays below 14 000 characters, within `MAX_INLINE_CIPHERTEXT_LEN` (16 KiB). About 1 KiB for a
+  team with a few keys.
+
+### 3. The record
+- **Kind** `RecordKind::NotesKeys`, label `notes-keys`, record id empty: sealed with
+  `EpochCipher::seal` under the current epoch, so team, epoch, kind, sender, log head and counter
+  are bound and the sending device signs it. The relay cannot move it to another team or present
+  it as another kind.
+- **Plaintext** the key ring's binary form of the code slot, unchanged:
+  `0x01 || count (u8) || count x (key id (8 bytes) || key (32 bytes))`, oldest first.
+  `MAX_KEYS` rises from 64 to 255, the most a one-byte count holds; solo vaults never have more
+  than one key, so no older Hangar meets a larger ring.
+- **Opening** (`notes::open_notes_keys`): `EpochCipher::open_verified` against the verified log
+  (sender's keys at its head, signature, epoch start, decryption, fork), then the sender's member
+  must be **owner or admin in the verified log now**, and the sending device must be **listed in
+  the verified log now with the keys that signed** (`NotesKeysError::SenderRemoved`). A record of
+  an admin who was demoted since no longer counts; an owner's or admin's device re-seals it
+  (section 4). Members never accept a ring from a member. The device check matters because a
+  removed device keeps the secrets of every epoch it had: under an epoch a member's device still
+  keeps, it could otherwise seal a ring with a key of its own, naming a log head from before its
+  removal, and that key would become the newest one everybody writes with (security review
+  2026-11-22).
+- **Monotonic.** A device keeps the union of every ring it accepted (`KeyRing::merge`). A record
+  with fewer keys, or an older one the relay shows again, adds nothing and takes nothing away. A
+  key id with other bytes than a known one is refused as forged, and the record with it.
+- **Not run through `ReplayGuard`:** the record is state the relay shows again on every fetch,
+  like a reservation note after a resync; the union rule makes an old copy harmless.
+
+### 4. Rotation and re-sealing
+- **Every rotation adds a key.** Epochs change only after a member or device left (or the first
+  one), so a re-seal under a newer epoch always adds one new notes key first: notes written
+  afterwards are closed to whoever left. Old notes keep their keys (section 3 of the decision).
+- **Who re-seals.** An owner's or admin's device, after every log fetch while connected with the
+  current epoch's secret on a version 2 relay, compares the record with what it holds and writes
+  a new one when:
+  1. the record's epoch is older than the current epoch (a rotation happened): add a key, seal;
+  2. there is no record, but this device holds a complete ring (it turned notes on, or the relay
+     lost the record): seal what it holds;
+  3. the record's sender is no longer owner or admin, or the ring holds keys the record lacks
+     (a lost race): seal the union.
+  The device that rotates does this right after its rotation lands, so the window in which a
+  member could still write with a key the removed person knows is one round trip when the
+  rotating device has the ring.
+- **Only with a complete ring.** A device re-seals only a ring that holds every key of the newest
+  record it opened, or one it created itself: the keychain caches only the newest keys (section
+  6), and sealing that subset would take older keys away from every member who joins later. A
+  manager without a complete ring waits for another owner's or admin's device.
+- **Conflicts.** `conflict` on `notes.keys.set` means another device wrote first: fetch, merge,
+  decide again. At most two refused writes per connection, then the device waits for the next
+  connection, as for `key.rotate`.
+- **At the cap.** A ring of 255 keys takes no new key: the re-seal under the new epoch keeps the
+  newest key, and the Team view logs nothing more. 255 removals in one team are far beyond any
+  team this product serves; the alternative (a second record) costs a format for a case that
+  does not occur. Accepted and documented.
+- **Writing while the key is old.** While the verified log names a removal whose rotation has not
+  landed (`TeamState::rotation_urgent`), or the ring's newest key was put in place under an older
+  epoch than the log's current one, shared notes stay readable but refuse to save ("Waiting for
+  an owner or admin to renew the notes key"; `NotesKeysView::renewing`). This is taken from the
+  verified log, not from the connection or the relay's answer, so a relay that answers "no
+  record", shows an old one or negotiates version 1 cannot keep the old key in use. A manager's
+  re-seal adds a key whenever the newest one predates the current epoch, whatever record the relay
+  shows. Only a device whose own log has not seen the removal yet (offline) writes with the newest
+  key it holds: it cannot know better, and refusing would make notes unusable offline.
+
+### 5. Rights
+| Who | Can |
+| --- | --- |
+| owner, admin | turn on shared notes for the team project (first record), switch a solo vault to the team, re-seal |
+| member | read and write the notes once its device is confirmed and holds the current epoch's secret |
+| new member | reads every earlier note: the record holds every key the team ever had (owner decision 3) |
+| removed member or device | keeps every key it had; never gets a key added after its removal |
+| relay | stores and serves one opaque blob per team; checks role, epoch and version; sees no key |
+| members of other teams | see "Shared notes of a team you are not in" |
+
+### 6. The keychain (phase 2 blocker)
+The Windows credential store takes at most 1280 UTF-16 units per entry; a ring entry takes
+2 + 82 per key. Decision: the team ring is **not** stored whole. The keychain (service
+`hangar-notes`, account `team/<team key>`, the same per server and project key the team uses)
+caches the **newest 12 keys** (986 units), enough to read and write offline everything written
+since the last 11 rotations. The whole ring lives in memory after the first `notes.keys` of a
+run. A note whose key is neither cached nor in memory counts as unreadable until the device is
+connected. A cache entry that cannot be read or is of a newer format is never overwritten (as
+for solo vaults). Solo vaults keep their one-key entry `notes/<vault id>` unchanged. The
+alternative, splitting the ring over several entries, keeps every key on disk but adds a
+second format and a partial write to recover from; the relay already keeps the ring.
+
+### 7. Files
+- **Team hint** in `vault.json`: `"team": hex(first 8 bytes of SHA-256(field("hangar-notes/v1/team")
+  || field(team id)))` (`notes::team_hint`). The hint tells a member's Hangar which of its teams
+  the vault belongs to; it does not let anyone outside find the team id behind it without
+  guessing ids.
+- Team vaults have no code slot. A vault switched from solo keeps its vault id and its note
+  files; only `vault.json` changes (`mode`, `team`, no `codeSlot`).
+
+### 8. States in the app
+| Situation | Shared side shows | Action |
+| --- | --- | --- |
+| team vault, linked, keys present | the notes | |
+| team vault, linked, key renewal pending (section 4) | the notes, read only, one quiet line | |
+| team vault, the hint names a team of this person, clone not linked | "These notes belong to *Project*." | **Link this folder** |
+| team vault, linked, device waits (confirmation, key, connection) | "Shared notes open once this computer is connected to *Project*." | |
+| team vault, linked, team server of version 1 | "Shared team notes need a newer team server." | |
+| team vault, no team of this person matches | "Shared notes of a team you are not in." | |
+| no vault, linked team project, owner or admin, version 2 relay | the setup line | **Turn on** (one dialog, no code) |
+| no vault, linked team project, member | "Ask an owner or admin of *Project* to turn on shared notes." | |
+| solo vault unlocked, linked team project, owner or admin, version 2 relay | a quiet line "Share with *Project*" | **Share with team** (one confirmation) |
+
+"Linked" means the team project links a clone of this repository (same root commit) whose main
+worktree is this vault's main worktree: the vault lives in the main worktree, and the person
+ticked one of its folders for the team. Linking from the notes side links the main worktree's
+folder.
+
+### 9. Solo to team
+An owner or admin with the solo vault unlocked confirms "Share with *Project*": the device fetches
+the team's record (if any), merges the solo ring into it, adds a new key, seals the union as the
+team's record (`base` from the fetch), and only after the relay's `ack` rewrites `vault.json` to
+team mode without the code slot and caches the ring under the team's keychain entry. The solo
+keychain entry stays: the notes recovery code still opens the history before the switch, as
+section 3 says. A refused write changes no file.
+
+### 10. Test vectors
+`crates/hangar-team-crypto/test_vectors.py` recomputes, independently with the Python standard
+library, the team hint of a fixed team id and a `notes-keys` record (fixed signing seed, epoch
+secret, log head, counter, nonce, two keys) byte for byte, including its signature; the Rust
+test pins the same strings.
+
+### 11. Threat model (additions)
+- **Relay:** cannot read the ring (sealed under the epoch key); cannot forge it (signed, sender
+  must be owner or admin in the verified log); cannot move it between teams or kinds (associated
+  data); cannot take keys away (union); cannot make a member accept a member's ring. It can
+  withhold the record or serve an old one: new devices then wait, nothing leaks. It can refuse
+  every write: members then keep writing with the newest key they hold until a write lands
+  (section 4, offline rule).
+- **A removed member** keeps every key up to its removal and the Git history; it gets no key added
+  afterwards, because the first re-seal after the rotation adds one under an epoch it does not
+  have.
+- **An owner or admin** can publish a ring with fewer keys; members keep the union, but members
+  who join afterwards would miss the dropped keys. Owners and admins are trusted with the team's
+  keys anyway (they rotate them).
+- **Window:** between a rotation and its re-seal, devices that do not know of the rotation yet
+  write with the old key. On the rotating device the re-seal follows at once; connected member
+  devices stop saving until it lands.
+
+## Phase 2 as built (2026-11-22, partial)
+- **Done:** protocol version 2 in `crates/hangar-team-protocol` (`ENVELOPE_VERSION` 1,
+  `PROTOCOL_VERSION` 2, `ProtoRange::CURRENT` `{1, 2}`, `since()`, the four `notes.keys` kinds);
+  the `notes-keys` record in `crates/hangar-team-crypto` (`seal_notes_keys`, `open_notes_keys`,
+  `team_hint`, `MAX_KEYS` 255, vectors `VECTOR_NOTES_KEYS` and `VECTOR_TEAM_HINT` recomputed by
+  `test_vectors.py`); the relay of the team server (per connection version filter in both
+  directions, compare and set, storage, tests); the app's engine part
+  (`src-tauri/src/team_engine/notes.rs`: fetch after every `welcome` of version 2, union, re-seal
+  with a new key after a rotation, compare and set with merge on `conflict`, turn-on and
+  solo-to-team requests as `Engine::notes_enable`, `NotesKeysView` with `renewing`), with engine
+  tests against an in-memory relay of version 1 and 2.
+- **Not built yet:** the worker and `TeamService` plumbing that hands `NotesKeysView` and
+  `notes_enable` to the window; team vaults in `src-tauri/src/project_notes.rs` (team hint,
+  keychain cache of the newest 12 keys under `team/<team key>`, linked check, link prompt,
+  states of section 8, refusing saves while `renewing`, solo to team after the `ack`); the UI and
+  its texts in `src/i18n.ts`; interop runs in `src-tauri/tests/relay_interop.rs` and
+  `src-tauri/tests/team.rs`. Until then team vaults stay locked as in phase 1 and nothing of
+  phase 2 reaches the window; the engine only fetches the record on relays of version 2.
+
 ## Evidence
 - [[note-gitattributes-measurement]]: `.gitattributes` behaviour and conflict stages on Windows.
 - Existing building blocks read in the code on 2026-11-10: `crates/hangar-team-crypto/src/record.rs`
@@ -348,11 +560,11 @@ decisions, which agents do get, are a separate kind written for that purpose and
   `src-tauri/src/team.rs` (`KEPT_EPOCHS`, `StoredKeys`, `LinkedRepo`, keychain service),
   `src-tauri/src/secrets.rs` (`MAX_VALUE_UNITS`), `src-tauri/src/notes.rs` and `src/notesScope.ts`.
 
-> [!warning] Phase 2 blocker
+> [!note] Phase 2 blocker (resolved by design)
 > The Windows credential store holds at most 1280 UTF-16 units per entry
 > (`secrets::MAX_VALUE_UNITS`); a key ring entry takes 2 + 82 units per key, so about 15 keys fit.
-> `remember` refuses a larger ring (`TooManyKeys`). Solo mode has one key; team mode, which adds a
-> key per removal, needs older keys fetched from the `notes-keys` record or a second entry.
+> Phase 2 caches only the newest 12 keys of a team ring and fetches the rest from the
+> `notes-keys` record ("Phase 2 design", section 6).
 
 > [!question] Unverified
 > Not yet measured: the `.gitattributes` behaviour on macOS and Linux (Windows is measured), and

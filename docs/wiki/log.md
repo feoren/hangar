@@ -1569,3 +1569,16 @@ motion, power saving, a hidden window and a figure off screen show the still fil
 face crop and own images never swap. Measured size, place and CPU with three test loops. The crew
 figure's button names the sub-agent in full in its tooltip. Added:
 [[figure-motion-measurement-2026-11-22]]. Updated: [[sub-agent-library]], [[crew-column]], index.
+
+## [2026-11-22] query | Shared notes phase 2: design and first build
+Wrote "Phase 2 design" into [[0006-encrypted-project-notes]] (protocol version 2 with a separate
+envelope version, `notes.keys` messages with compare and set, the `notes-keys` record, re-seal
+with a new key after every rotation, keychain cache of the newest 12 keys, states, threat model)
+and "Phase 2 as built (partial)". Updated: [[team-protocol]] (version negotiation), index.
+
+## [2026-11-22] query | Shared notes phase 2: security review
+Security review of the partial phase 2 build. [[0006-encrypted-project-notes]] now requires the
+`notes-keys` sender's device to be listed in the verified log (a removed device could plant a key
+under an epoch it knew), and takes "renewing" and the need for a new key from the verified log
+instead of the relay's answer (a lost record, an unreadable one or a pending rotation left the old
+key in use).

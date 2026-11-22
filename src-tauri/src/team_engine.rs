@@ -54,6 +54,8 @@
 //! The device identity is bound to the account it was first welcomed for: a `welcome` naming
 //! another member stops with [`AttentionReason::OtherAccount`] and touches no key.
 
+mod notes;
+
 use std::collections::{BTreeMap, BTreeSet, HashMap, VecDeque};
 
 use hangar_team_crypto::identity::{safety_number, DeviceIdentity, DevicePublicKeys};
@@ -102,6 +104,8 @@ use crate::team_tasks::{
     self, AttemptState, AttemptView, NoticeKind, RequestView, TaskNote, TaskNotice, TaskView,
     TeamTask, MAX_NOTICES, MAX_TITLE_CHARS,
 };
+
+pub use notes::NotesKeysView;
 
 /// What the worker does, in this order.
 #[derive(Debug)]
@@ -156,6 +160,10 @@ enum Op {
     AskRelease(KeyedHash),
     /// `task.release_answer` for this task.
     Answer(KeyedHash),
+    /// `notes.keys.get`.
+    NotesGet,
+    /// `notes.keys.set`.
+    NotesSet,
     Quiet,
 }
 
@@ -844,6 +852,8 @@ pub struct Engine {
     log_fetches: u64,
     /// A fetch after a signed newer head did not reach it: the relay holds back log entries.
     history_withheld: bool,
+    /// The team's notes key ring (ADR 0006, phase 2).
+    notes: notes::NotesKeys,
 }
 
 impl std::fmt::Debug for Engine {
@@ -976,6 +986,7 @@ impl Engine {
             ahead: None,
             log_fetches: 0,
             history_withheld: false,
+            notes: notes::NotesKeys::default(),
         }
     }
 
@@ -1149,6 +1160,7 @@ impl Engine {
         self.key_get = None;
         self.devices_get = false;
         self.inline.clear();
+        self.notes.new_connection();
         self.verifier = LogVerifier::with_max_entries(self.team.clone(), self.max_log_entries);
         self.status = TeamStatus::Connecting { retrying: false };
         // The relay keeps no claims or presence of a closed connection: everything goes again,
@@ -1358,6 +1370,7 @@ impl Engine {
                         effects.push(Effect::StoreDevice);
                     }
                 }
+                self.notes.welcome(welcome.proto);
                 self.cursor
                     .welcome(&welcome.stream, welcome.head, self.resyncing);
                 self.resyncing = false;
@@ -1434,6 +1447,8 @@ impl Engine {
             }
             ServerMessage::PresenceUpdate(update) => effects.extend(self.on_presence(update, true)),
             ServerMessage::ClaimOverlap(overlap) => effects.extend(self.on_overlap(overlap, true)),
+            ServerMessage::NotesKeys(answer) => effects.extend(self.on_notes_keys(answer)),
+            ServerMessage::NotesKeysUpdated(_) => effects.extend(self.on_notes_updated()),
             message @ (ServerMessage::TaskReserved(_)
             | ServerMessage::TaskReleased(_)
             | ServerMessage::ReservationExpiring(_)
@@ -1498,6 +1513,8 @@ impl Engine {
                 eprintln!("hangar: team key or device change refused ({code:?})");
                 self.sync_log()
             }
+            Some(Op::NotesGet) => self.on_notes_refused(false, code),
+            Some(Op::NotesSet) => self.on_notes_refused(true, code),
             Some(Op::Reserve(key)) => self.reserve_refused(&key, err),
             Some(Op::AskRelease(task)) => self.ask_refused(&task, code),
             Some(Op::Answer(task)) => {
@@ -1552,6 +1569,7 @@ impl Engine {
                 self.rotating = false;
                 self.sync_log()
             }
+            Some(Op::NotesSet) => self.on_notes_stored(),
             _ => Vec::new(),
         }
     }
@@ -1812,6 +1830,7 @@ impl Engine {
             effects.extend(self.share_now());
         }
         effects.extend(self.reconcile_members());
+        effects.extend(self.notes_step());
         effects
     }
 
@@ -4899,6 +4918,19 @@ mod tests {
         withhold: Option<(Holder, u64)>,
         /// `task.reserve` frames are recorded but never reach the book: lost with a connection.
         lose_reserves: bool,
+        /// The protocol version the relay negotiates (1: a relay from before the notes key
+        /// ring, which refuses its kinds).
+        proto: u16,
+        /// The team's notes key ring as stored.
+        notes_record: Option<hangar_team_protocol::wire::NotesKeysRecord>,
+        /// `notes.keys.*` frames received.
+        notes_frames: usize,
+        /// The next `notes.keys.set` meets another device's write first (`conflict`).
+        notes_race: bool,
+        /// Every `notes.keys.set` is refused.
+        refuse_notes: bool,
+        /// Every `key.rotate` is refused (no owner's or admin's rotation gets through).
+        refuse_rotate: bool,
     }
 
     fn team() -> TeamId {
@@ -4932,6 +4964,12 @@ mod tests {
                 reserves: Vec::new(),
                 withhold: None,
                 lose_reserves: false,
+                proto: 1,
+                notes_record: None,
+                notes_frames: 0,
+                notes_race: false,
+                refuse_notes: false,
+                refuse_rotate: false,
             }
         }
 
@@ -5109,7 +5147,7 @@ mod tests {
                         Some(id),
                         None,
                         ServerMessage::Welcome(Welcome {
-                            proto: 1,
+                            proto: self.proto,
                             stream: StreamId::new("s").unwrap(),
                             head: Seq(self.seq),
                             member: sender.member.clone(),
@@ -5117,6 +5155,60 @@ mod tests {
                         }),
                     ));
                     all.extend(self.presence_of(sender, true));
+                }
+                ClientMessage::NotesKeysGet | ClientMessage::NotesKeysSet(_) if self.proto < 2 => {
+                    self.notes_frames += 1;
+                    own.push(self.err(id, ErrorCode::BadRequest));
+                }
+                ClientMessage::NotesKeysGet => {
+                    self.notes_frames += 1;
+                    own.push(self.text(
+                        Some(id),
+                        None,
+                        ServerMessage::NotesKeys(hangar_team_protocol::wire::NotesKeys {
+                            record: self.notes_record.clone(),
+                        }),
+                    ));
+                }
+                ClientMessage::NotesKeysSet(set) => {
+                    self.notes_frames += 1;
+                    let state = self.verifier.state().unwrap();
+                    let manager = state
+                        .effective_role(&sender.member, role)
+                        .is_some_and(|r| matches!(r, Role::Owner | Role::Admin));
+                    let current = state.current_epoch().map(|e| e.epoch);
+                    let version = self.notes_record.as_ref().map_or(0, |r| r.version);
+                    if std::mem::take(&mut self.notes_race) {
+                        if let Some(record) = &mut self.notes_record {
+                            record.version += 1;
+                        }
+                        own.push(self.err(id, ErrorCode::Conflict));
+                    } else if self.refuse_notes {
+                        own.push(self.err(id, ErrorCode::BadRequest));
+                    } else if !manager {
+                        own.push(self.err(id, ErrorCode::Forbidden));
+                    } else if Some(set.content.epoch) != current {
+                        own.push(self.err(id, ErrorCode::StaleEpoch));
+                    } else if set.base != version {
+                        own.push(self.err(id, ErrorCode::Conflict));
+                    } else {
+                        self.notes_record = Some(hangar_team_protocol::wire::NotesKeysRecord {
+                            version: version + 1,
+                            by: sender.clone(),
+                            content: set.content,
+                        });
+                        own.push(self.ack(id, None));
+                        all.push(self.text(
+                            None,
+                            None,
+                            ServerMessage::NotesKeysUpdated(
+                                hangar_team_protocol::wire::NotesKeysUpdated {
+                                    version: version + 1,
+                                    by: sender.clone(),
+                                },
+                            ),
+                        ));
+                    }
                 }
                 ClientMessage::DeviceKeys(keys) => {
                     self.devices.retain(|d| d.holder != *sender);
@@ -5186,6 +5278,9 @@ mod tests {
                         }
                         Err(error) => own.push(self.err(id, error.code())),
                     }
+                }
+                ClientMessage::KeyRotate(_) if self.refuse_rotate => {
+                    own.push(self.err(id, ErrorCode::BadRequest));
                 }
                 ClientMessage::KeyRotate(rotate) => {
                     match self.verifier.admit_rotation(&rotate, sender, role) {
@@ -9643,5 +9738,333 @@ mod tests {
                 ..
             })
         )));
+    }
+
+    // -----------------------------------------------------------------------------------------
+    // The team's notes key ring (ADR 0006, phase 2)
+    // -----------------------------------------------------------------------------------------
+
+    fn notes_team() -> (Relay, Client, Client) {
+        let mut relay = Relay::new();
+        relay.proto = 2;
+        let mut a1 = client("alice", "a1", Role::Owner);
+        let mut b1 = client("bob", "b1", Role::Member);
+        let hello = a1.engine.hello(ticket());
+        run(&mut relay, &mut [&mut a1, &mut b1], vec![(0, hello)]);
+        let hello = b1.engine.hello(ticket());
+        run(&mut relay, &mut [&mut a1, &mut b1], vec![(1, hello)]);
+        let poll = a1.engine.poll_devices();
+        run(&mut relay, &mut [&mut a1, &mut b1], vec![(0, poll)]);
+        let bob = a1.engine.pending().into_iter().next().unwrap();
+        let confirm = a1.engine.confirm(&bob.id).unwrap();
+        run(&mut relay, &mut [&mut a1, &mut b1], vec![(0, confirm)]);
+        assert_eq!(connected(&b1), (1, 2, 2));
+        (relay, a1, b1)
+    }
+
+    fn ring_ids(client: &Client) -> Vec<String> {
+        client
+            .engine
+            .notes_view()
+            .ring
+            .map(|ring| ring.ids().iter().map(|id| id.to_hex()).collect())
+            .unwrap_or_default()
+    }
+
+    fn turn_on(relay: &mut Relay, a1: &mut Client, b1: &mut Client) {
+        let effects = a1.engine.notes_enable(None).unwrap();
+        run(relay, &mut [&mut *a1, &mut *b1], vec![(0, effects)]);
+        assert_eq!(a1.engine.take_notes_outcome(), Some(Ok(())));
+    }
+
+    #[test]
+    fn a_relay_of_version_one_is_never_asked_for_notes_keys() {
+        let (relay, mut a1, b1) = team_of_two();
+        assert_eq!(relay.notes_frames, 0);
+        let view = a1.engine.notes_view();
+        assert_eq!(view.speaks, Some(false));
+        assert_eq!(view.exists, None);
+        assert!(view.ring.is_none());
+        assert_eq!(
+            a1.engine.notes_enable(None).err(),
+            Some(TeamError::NotesUnsupported)
+        );
+        assert_eq!(b1.engine.notes_view().speaks, Some(false));
+        assert_eq!(relay.notes_frames, 0);
+    }
+
+    #[test]
+    fn the_owner_turns_shared_notes_on_and_the_member_gets_the_ring() {
+        let (mut relay, mut a1, mut b1) = notes_team();
+        // Both asked once and learned there is no ring yet.
+        assert_eq!(a1.engine.notes_view().exists, Some(false));
+        assert_eq!(b1.engine.notes_view().exists, Some(false));
+        assert!(a1.engine.notes_view().manager);
+        assert!(!b1.engine.notes_view().manager);
+        assert_eq!(
+            b1.engine.notes_enable(None).err(),
+            Some(TeamError::NotOwnerOrAdmin)
+        );
+
+        turn_on(&mut relay, &mut a1, &mut b1);
+        let record = relay.notes_record.clone().expect("stored");
+        assert_eq!(record.version, 1);
+        assert_eq!(record.by, a1.holder);
+        // The relay holds an opaque record, never the key.
+        let key_hex = ring_ids(&a1);
+        assert_eq!(key_hex.len(), 1);
+        assert!(!record.content.data.as_str().contains(&key_hex[0]));
+        // The hint made the member fetch and open it.
+        assert_eq!(ring_ids(&b1), key_hex);
+        assert_eq!(b1.engine.notes_view().exists, Some(true));
+        assert!(!b1.engine.notes_view().renewing);
+        // Turning on again changes nothing.
+        let again = a1.engine.notes_enable(None).unwrap();
+        run(&mut relay, &mut [&mut a1, &mut b1], vec![(0, again)]);
+        assert_eq!(a1.engine.take_notes_outcome(), Some(Ok(())));
+        assert_eq!(relay.notes_record.as_ref().map(|r| r.version), Some(1));
+    }
+
+    #[test]
+    fn a_removal_reseals_the_ring_with_a_new_key_and_a_later_member_reads_every_key() {
+        let (mut relay, mut a1, mut b1) = notes_team();
+        turn_on(&mut relay, &mut a1, &mut b1);
+        let before = ring_ids(&a1);
+        let bobs = ring_ids(&b1);
+        assert_eq!(bobs, before);
+
+        // The website no longer lists bob: removal, rotation, and the ring under the new epoch
+        // with one more key.
+        let _ = a1.engine.ping();
+        let alice = MemberId::new("alice").unwrap();
+        let effects = a1.engine.set_website(Website {
+            role: Role::Owner,
+            owner: Some(alice.clone()),
+            members: Some(vec![WebsiteMember {
+                member: alice,
+                role: Some(Role::Owner),
+            }]),
+        });
+        run(&mut relay, &mut [&mut a1, &mut b1], vec![(0, effects)]);
+        assert_eq!(connected(&a1).0, 2);
+        assert_eq!(b1.ended, Some(SessionEnd::Stop(StopReason::Removed)));
+        let after = ring_ids(&a1);
+        assert_eq!(after.len(), 2);
+        assert_eq!(after[0], before[0]);
+        let record = relay.notes_record.clone().expect("stored");
+        assert_eq!(record.content.epoch, Epoch(2));
+        assert_eq!(record.version, 2);
+        assert!(!a1.engine.notes_view().renewing);
+        // Bob's device never got the new key.
+        assert!(!ring_ids(&b1).contains(&after[1]));
+
+        // Carol, admitted afterwards with only epoch 2's key, reads every key.
+        let _ = a1.engine.ping();
+        let listed = a1.engine.set_website(website(
+            Role::Owner,
+            Some(listing(&[("alice", Role::Owner), ("carol", Role::Member)])),
+        ));
+        run(&mut relay, &mut [&mut a1, &mut b1], vec![(0, listed)]);
+        let mut c1 = carol_joins(&mut relay, &mut a1, &mut b1);
+        let effects = c1.engine.ping();
+        run(
+            &mut relay,
+            &mut [&mut a1, &mut b1, &mut c1],
+            vec![(2, effects)],
+        );
+        assert_eq!(ring_ids(&c1), after);
+    }
+
+    #[test]
+    fn while_the_relay_refuses_the_renewal_the_ring_shows_as_renewing() {
+        let (mut relay, mut a1, mut b1) = notes_team();
+        turn_on(&mut relay, &mut a1, &mut b1);
+        relay.refuse_notes = true;
+        let _ = a1.engine.ping();
+        let alice = MemberId::new("alice").unwrap();
+        let effects = a1.engine.set_website(Website {
+            role: Role::Owner,
+            owner: Some(alice.clone()),
+            members: Some(vec![WebsiteMember {
+                member: alice,
+                role: Some(Role::Owner),
+            }]),
+        });
+        let sets_before = relay.notes_frames;
+        run(&mut relay, &mut [&mut a1, &mut b1], vec![(0, effects)]);
+        assert_eq!(connected(&a1).0, 2);
+        let view = a1.engine.notes_view();
+        assert!(view.renewing, "the ring is still sealed under epoch 1");
+        // The new key was never stored, so it is not used.
+        assert_eq!(ring_ids(&a1).len(), 1);
+        // Bounded: the refusals do not loop.
+        assert!(relay.notes_frames - sets_before <= 10);
+    }
+
+    #[test]
+    fn a_solo_ring_joins_the_team_ring_also_after_a_lost_race() {
+        let (mut relay, mut a1, mut b1) = notes_team();
+        turn_on(&mut relay, &mut a1, &mut b1);
+        let team_key = ring_ids(&a1);
+        let solo = hangar_team_crypto::notes::KeyRing::generate(&mut OsEntropy).unwrap();
+        let solo_key = solo.ids()[0].to_hex();
+        relay.notes_race = true;
+        let effects = a1.engine.notes_enable(Some(solo)).unwrap();
+        run(&mut relay, &mut [&mut a1, &mut b1], vec![(0, effects)]);
+        assert_eq!(a1.engine.take_notes_outcome(), Some(Ok(())));
+        let ring = ring_ids(&a1);
+        // The team's key, the solo key and a new key for what follows.
+        assert_eq!(ring.len(), 3);
+        assert!(ring.contains(&team_key[0]) && ring.contains(&solo_key));
+        assert_eq!(ring_ids(&b1), ring);
+    }
+
+    #[test]
+    fn a_member_never_accepts_a_ring_a_member_wrote() {
+        let (mut relay, mut a1, mut b1) = notes_team();
+        turn_on(&mut relay, &mut a1, &mut b1);
+        // A relay that lets a member's device write: the record is signed and sealed, but bob is
+        // no owner or admin, so alice keeps her ring and does not take his key.
+        let state = b1.engine.verifier.state().unwrap().clone();
+        let secret = b1.engine.keys.epochs.get(&Epoch(1)).unwrap().clone();
+        let cipher = EpochCipher::for_epoch(&state, &secret, Epoch(1)).unwrap();
+        let forged = hangar_team_crypto::notes::KeyRing::generate(&mut OsEntropy).unwrap();
+        let sealed = hangar_team_crypto::notes::seal_notes_keys(
+            &cipher,
+            &b1.holder,
+            &b1.engine.identity,
+            state.head(),
+            u64::MAX / 2,
+            &forged,
+            &mut OsEntropy,
+        )
+        .unwrap();
+        relay.notes_record = Some(hangar_team_protocol::wire::NotesKeysRecord {
+            version: 7,
+            by: b1.holder.clone(),
+            content: sealed,
+        });
+        let mine = ring_ids(&a1);
+        let effects = a1.engine.on_notes_updated();
+        run(&mut relay, &mut [&mut a1, &mut b1], vec![(0, effects)]);
+        let now = ring_ids(&a1);
+        assert!(!now.contains(&forged.ids()[0].to_hex()));
+        assert!(mine.iter().all(|id| now.contains(id)));
+        // Alice is an owner: she writes her ring over the member's record.
+        let record = relay.notes_record.clone().unwrap();
+        assert_eq!(record.by, a1.holder);
+        assert_eq!(record.version, 8);
+    }
+
+    fn remove_bob(relay: &mut Relay, a1: &mut Client, b1: &mut Client) {
+        let _ = a1.engine.ping();
+        let alice = MemberId::new("alice").unwrap();
+        let effects = a1.engine.set_website(Website {
+            role: Role::Owner,
+            owner: Some(alice.clone()),
+            members: Some(vec![WebsiteMember {
+                member: alice,
+                role: Some(Role::Owner),
+            }]),
+        });
+        run(relay, &mut [&mut *a1, &mut *b1], vec![(0, effects)]);
+    }
+
+    /// Seals `ring` as `client`'s `notes-keys` record under epoch 1, naming `head`.
+    fn ring_record(
+        client: &Client,
+        head: &ChainHead,
+        ring: &hangar_team_crypto::notes::KeyRing,
+    ) -> hangar_team_protocol::wire::NotesKeysRecord {
+        let state = client.engine.verifier.state().unwrap().clone();
+        let secret = client.engine.keys.epochs.get(&Epoch(1)).unwrap().clone();
+        let cipher = EpochCipher::for_epoch(&state, &secret, Epoch(1)).unwrap();
+        let content = hangar_team_crypto::notes::seal_notes_keys(
+            &cipher,
+            &client.holder,
+            &client.engine.identity,
+            head,
+            u64::MAX / 2,
+            ring,
+            &mut OsEntropy,
+        )
+        .unwrap();
+        hangar_team_protocol::wire::NotesKeysRecord {
+            version: 9,
+            by: client.holder.clone(),
+            content,
+        }
+    }
+
+    #[test]
+    fn a_relay_that_lost_the_ring_still_gets_a_new_key_after_a_removal() {
+        let (mut relay, mut a1, mut b1) = notes_team();
+        turn_on(&mut relay, &mut a1, &mut b1);
+        let before = ring_ids(&a1);
+        // The relay loses the record (or says it never had one) before the removal.
+        relay.notes_record = None;
+        remove_bob(&mut relay, &mut a1, &mut b1);
+        assert_eq!(connected(&a1).0, 2);
+        let record = relay.notes_record.clone().expect("stored");
+        assert_eq!(record.content.epoch, Epoch(2));
+        let after = ring_ids(&a1);
+        // The ring under epoch 2 must carry a key bob never had: notes written from now on are
+        // closed to him.
+        assert_eq!(after.len(), 2, "no new key after the rotation");
+        assert!(!before.contains(&after[1]));
+        assert!(!a1.engine.notes_view().renewing);
+    }
+
+    #[test]
+    fn while_a_removal_waits_for_its_rotation_the_ring_shows_as_renewing() {
+        let (mut relay, mut a1, mut b1) = notes_team();
+        turn_on(&mut relay, &mut a1, &mut b1);
+        assert!(!a1.engine.notes_view().renewing);
+        // Bob is removed, but no rotation reaches the relay (as when no owner or admin is
+        // online to rotate): the current key is still in bob's hands.
+        relay.refuse_rotate = true;
+        remove_bob(&mut relay, &mut a1, &mut b1);
+        assert!(a1.engine.verifier.state().unwrap().rotation_urgent());
+        assert!(
+            a1.engine.notes_view().renewing,
+            "notes must not be written with a key the removed member holds"
+        );
+    }
+
+    #[test]
+    fn a_notes_keys_record_ahead_of_the_log_does_not_make_the_device_fetch_the_log_forever() {
+        let (mut relay, mut a1, mut b1) = notes_team();
+        turn_on(&mut relay, &mut a1, &mut b1);
+        // A record naming a log entry that does not exist (anyone can write such a head: it is
+        // checked before the signature).
+        let head = *a1.engine.verifier.state().unwrap().head();
+        let far = ChainHead {
+            index: head.index + 50,
+            hash: head.hash,
+        };
+        let ring = hangar_team_crypto::notes::KeyRing::generate(&mut OsEntropy).unwrap();
+        relay.notes_record = Some(ring_record(&a1, &far, &ring));
+        let effects = a1.engine.on_notes_updated();
+        // `run` panics when the clients never settle.
+        run(&mut relay, &mut [&mut a1, &mut b1], vec![(0, effects)]);
+        assert!(!ring_ids(&a1).contains(&ring.ids()[0].to_hex()));
+    }
+
+    #[test]
+    fn a_notes_keys_record_with_another_log_history_marks_its_sender_as_diverged() {
+        let (mut relay, mut a1, mut b1) = notes_team();
+        turn_on(&mut relay, &mut a1, &mut b1);
+        // Bob's device signs a record naming another hash at an entry both verified: the relay
+        // showed the two devices different logs.
+        let head = *b1.engine.verifier.state().unwrap().head();
+        let forked = ChainHead {
+            index: head.index,
+            hash: hangar_team_protocol::e2e::LogHash::from_bytes([7; 32]),
+        };
+        let ring = hangar_team_crypto::notes::KeyRing::generate(&mut OsEntropy).unwrap();
+        relay.notes_record = Some(ring_record(&b1, &forked, &ring));
+        let effects = a1.engine.on_notes_updated();
+        run(&mut relay, &mut [&mut a1, &mut b1], vec![(0, effects)]);
+        assert!(a1.engine.divergent.contains_key(&b1.holder));
     }
 }

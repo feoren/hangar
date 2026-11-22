@@ -255,6 +255,15 @@ pub enum TeamError {
     /// This device already tries to reserve as many tasks as the team allows.
     #[error("Too many tasks")]
     TaskLimit,
+    /// Shared team notes need a connected device that holds the team's current key.
+    #[error("Shared notes open once this computer is connected to the team")]
+    NotesNotReady,
+    /// The team server speaks protocol version 1, which has no notes key ring.
+    #[error("Shared team notes need a newer team server")]
+    NotesUnsupported,
+    /// Only an owner or admin may do this.
+    #[error("Only owners and admins can do this")]
+    NotOwnerOrAdmin,
 }
 
 impl TeamError {
@@ -272,6 +281,9 @@ impl TeamError {
             Self::InvalidTask => "invalidTask",
             Self::UnknownTask => "unknownTask",
             Self::TaskLimit => "taskLimit",
+            Self::NotesNotReady => "notesNotReady",
+            Self::NotesUnsupported => "notesUnsupported",
+            Self::NotOwnerOrAdmin => "notOwnerOrAdmin",
         }
     }
 

@@ -21,7 +21,7 @@ WebSocket reader refuses a larger message before decoding (the connection ends, 
 
 | Field | Client frame | Server frame |
 | --- | --- | --- |
-| `v` | protocol version, now 1 | the same |
+| `v` | envelope version (`ENVELOPE_VERSION`), always 1; the message set is negotiated per team in `hello.proto` and `welcome.proto` (protocol version 2 since 2026-11-22, see [[0006-encrypted-project-notes]], "Phase 2 design") | the same |
 | `id` | op id, required; chosen per intent, a retry repeats it | the op this answers, if any |
 | `seq` | never | position in the team's event log, only on loggable events |
 | `team` | required except on `ping` (also refused when encoding): the website's project id, opaque | the team the event belongs to |
@@ -34,6 +34,14 @@ then the envelope (unknown and duplicate fields rejected); then the body, parsed
 raw JSON into the message's type (`serde_json::value::RawValue`, no `Value` buffer), so unknown
 and duplicate fields are rejected at every level instead of the last duplicate silently winning;
 then the limits of lists and ciphertexts.
+
+**Protocol version 2.** `PROTOCOL_VERSION` is 2 and `ProtoRange::CURRENT` `{1, 2}`; the relay
+picks the highest common version per `hello`. Each kind names its version (`since()`): the relay
+answers a client kind newer than the team's negotiated version with `badRequest` and never sends
+a newer server kind to that connection; the app sends a version 2 kind only after a `welcome`
+with `proto` 2. Version 2 adds `notes.keys.get`, `notes.keys.set {base, content}` (compare and
+set, owner or admin device of the log, current epoch, deduplicated), `notes.keys {record}` and
+the live hint `notes.keys.updated {version, by}`; none is logged.
 
 Version errors: on the relay, a client older than the relay gets `outdatedClient`, a newer one
 `badRequest`; on the client, a newer relay means Hangar needs an update
