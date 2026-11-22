@@ -226,6 +226,7 @@ UI texts in `src/i18n.ts` are translated per language and are not bound by this 
 | Zwischenstand, Schnappschuss                    | snapshot                          | silent commit of the work tree after an agent step; side repository                  |
 | Auf diesen Stand zurück                         | go back (restore)                 | work tree to a snapshot, the current state saved first; `snapshot_restore`           |
 | Stagen, Unstagen                                | stage, unstage                    | a file into or out of the index; stage box per file, `git_stage`, `git_unstage`      |
+| Konflikt (Merge)                                | merge conflict                    | unmerged file (UU, AA, DD, AU, UA, DU, UD); "Stage all" skips it; `isConflict`       |
 | Verwerfen (Änderungen einer Datei)              | discard                           | back to HEAD, an untracked file is deleted; asks first; `git_discard`                |
 | Commit-Feld                                     | commit box                        | message and commit button above the uncommitted changes; `CommitBox.tsx`             |
 | Letzter Prompt (Leiste)                         | last prompt bar                   | the user's last prompt above an agent's terminal; click jumps there; `lastPrompt.ts` |

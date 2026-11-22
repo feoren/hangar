@@ -38,8 +38,11 @@ export interface FileActions {
   /** An action runs: boxes and buttons wait for it. */
   busy: boolean;
   onStage: (entry: ChangeEntry, stage: boolean) => void;
-  /** The header box: stage (`true`) or unstage these files in one go. */
-  onStageAll: (paths: string[], stage: boolean) => void;
+  /**
+   * The header box: stage (`true`) or unstage these files in one go; `conflicts` files in a merge
+   * conflict were left out.
+   */
+  onStageAll: (paths: string[], stage: boolean, conflicts: number) => void;
   /** The panel asks before anything is thrown away. */
   onDiscard: (entry: ChangeEntry) => void;
 }
@@ -193,7 +196,8 @@ function useIndeterminate(state: StageState) {
 
 /**
  * The box next to the file count: checked when every file is staged, mixed when some changes are.
- * A click stages every file not fully staged (untracked ones too) or, all staged, unstages all.
+ * A click stages every file not fully staged (untracked ones too, files in a merge conflict not)
+ * or, all staged, unstages all.
  */
 function StageAllCheckbox({
   entries,
@@ -219,7 +223,7 @@ function StageAllCheckbox({
       title={label}
       onChange={() => {
         if (actions.busy) return;
-        actions.onStageAll(all.paths, all.action === "stage");
+        actions.onStageAll(all.paths, all.action === "stage", all.conflicts);
       }}
     />
   );

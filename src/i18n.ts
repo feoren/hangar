@@ -1552,6 +1552,8 @@ const de = {
   "changes.unstage": "Unstagen",
   "changes.stageAll": "Alle stagen",
   "changes.unstageAll": "Alle unstagen",
+  "changes.conflictsLeft":
+    "Nicht gestagt, weil noch im Konflikt: {count}. Löse sie und stage sie dann einzeln.",
   "changes.discard": "Änderungen verwerfen",
   "changes.discardTitle": "Änderungen an {name} verwerfen?",
   "changes.discardBody":
@@ -3863,6 +3865,8 @@ const en: Record<MessageKey, string> = {
   "changes.unstage": "Unstage",
   "changes.stageAll": "Stage all",
   "changes.unstageAll": "Unstage all",
+  "changes.conflictsLeft":
+    "Not staged, still in conflict: {count}. Resolve them, then stage them one by one.",
   "changes.discard": "Discard changes",
   "changes.discardTitle": "Discard the changes to {name}?",
   "changes.discardBody":
@@ -6191,6 +6195,8 @@ const el: Record<MessageKey, string> = {
   "changes.unstage": "Unstage",
   "changes.stageAll": "Προσθήκη όλων στο stage",
   "changes.unstageAll": "Αφαίρεση όλων από το stage",
+  "changes.conflictsLeft":
+    "Δεν μπήκαν στο stage, έχουν ακόμη σύγκρουση: {count}. Επίλυσέ τα και πρόσθεσέ τα ένα ένα.",
   "changes.discard": "Απόρριψη αλλαγών",
   "changes.discardTitle": "Απόρριψη των αλλαγών στο {name};",
   "changes.discardBody":
@@ -8532,6 +8538,8 @@ const es: Record<MessageKey, string> = {
   "changes.unstage": "Quitar del stage",
   "changes.stageAll": "Preparar todo",
   "changes.unstageAll": "Quitar todo del stage",
+  "changes.conflictsLeft":
+    "Sin preparar, aún con conflictos: {count}. Resuélvelos y prepáralos uno a uno.",
   "changes.discard": "Descartar cambios",
   "changes.discardTitle": "¿Descartar los cambios en {name}?",
   "changes.discardBody":
@@ -10875,6 +10883,8 @@ const fr: Record<MessageKey, string> = {
   "changes.unstage": "Désindexer",
   "changes.stageAll": "Tout indexer",
   "changes.unstageAll": "Tout désindexer",
+  "changes.conflictsLeft":
+    "Non indexés, encore en conflit : {count}. Résous-les, puis indexe-les un par un.",
   "changes.discard": "Abandonner les modifications",
   "changes.discardTitle": "Abandonner les modifications de {name} ?",
   "changes.discardBody":
@@ -13212,6 +13222,8 @@ const it: Record<MessageKey, string> = {
   "changes.unstage": "Togli dallo stage",
   "changes.stageAll": "Aggiungi tutto allo stage",
   "changes.unstageAll": "Togli tutto dallo stage",
+  "changes.conflictsLeft":
+    "Non aggiunti allo stage, ancora in conflitto: {count}. Risolvili e aggiungili uno alla volta.",
   "changes.discard": "Scarta le modifiche",
   "changes.discardTitle": "Scartare le modifiche a {name}?",
   "changes.discardBody":
@@ -15547,6 +15559,8 @@ const ja: Record<MessageKey, string> = {
   "changes.unstage": "ステージ解除",
   "changes.stageAll": "すべてステージ",
   "changes.unstageAll": "すべてステージ解除",
+  "changes.conflictsLeft":
+    "競合が残っているためステージしていないファイル: {count}。解決してから 1 つずつステージしてください。",
   "changes.discard": "変更を破棄",
   "changes.discardTitle": "{name} の変更を破棄しますか？",
   "changes.discardBody": "前回のコミット以降の {path} への変更はすべて失われます。元に戻せません。",
@@ -17855,6 +17869,8 @@ const pl: Record<MessageKey, string> = {
   "changes.unstage": "Usuń ze stage",
   "changes.stageAll": "Dodaj wszystko do stage",
   "changes.unstageAll": "Usuń wszystko ze stage",
+  "changes.conflictsLeft":
+    "Nie dodano do stage, nadal w konflikcie: {count}. Rozwiąż je, a potem dodaj pojedynczo.",
   "changes.discard": "Odrzuć zmiany",
   "changes.discardTitle": "Odrzucić zmiany w {name}?",
   "changes.discardBody":
@@ -20169,6 +20185,8 @@ const pt: Record<MessageKey, string> = {
   "changes.unstage": "Tirar do stage",
   "changes.stageAll": "Preparar tudo",
   "changes.unstageAll": "Tirar tudo do stage",
+  "changes.conflictsLeft":
+    "Não preparados, ainda em conflito: {count}. Resolva-os e depois prepare um por um.",
   "changes.discard": "Descartar alterações",
   "changes.discardTitle": "Descartar as alterações em {name}?",
   "changes.discardBody":
@@ -22477,6 +22495,8 @@ const ru: Record<MessageKey, string> = {
   "changes.unstage": "Убрать из индекса",
   "changes.stageAll": "Всё в индекс",
   "changes.unstageAll": "Убрать всё из индекса",
+  "changes.conflictsLeft":
+    "Не добавлены в индекс, ещё в конфликте: {count}. Разреши конфликты и добавь файлы по одному.",
   "changes.discard": "Отменить изменения",
   "changes.discardTitle": "Отменить изменения в {name}?",
   "changes.discardBody":
@@ -24769,6 +24789,8 @@ const tr: Record<MessageKey, string> = {
   "changes.unstage": "Stage’den çıkar",
   "changes.stageAll": "Tümünü stage’e al",
   "changes.unstageAll": "Tümünü stage’den çıkar",
+  "changes.conflictsLeft":
+    "Hâlâ çakışmalı olduğu için stage’e alınmadı: {count}. Çakışmaları çöz, sonra tek tek stage’e al.",
   "changes.discard": "Değişiklikleri at",
   "changes.discardTitle": "{name} içindeki değişiklikler atılsın mı?",
   "changes.discardBody":
@@ -26990,6 +27012,7 @@ const zh: Record<MessageKey, string> = {
   "changes.unstage": "取消暂存",
   "changes.stageAll": "全部暂存",
   "changes.unstageAll": "全部取消暂存",
+  "changes.conflictsLeft": "仍有冲突，未暂存：{count}。请先解决，再逐个暂存。",
   "changes.discard": "放弃更改",
   "changes.discardTitle": "放弃对 {name} 的更改？",
   "changes.discardBody": "自上次提交以来对 {path} 的所有更改都将丢失，且无法撤销。",

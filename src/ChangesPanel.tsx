@@ -11,6 +11,7 @@ import { folderName } from "./folders";
 import {
   commitMode,
   discardDeletes,
+  isConflict,
   lineComment,
   parseCommitOutcome,
   pathBatches,
@@ -121,6 +122,8 @@ export function ChangesPanel(props: Props) {
   /** A git action runs; the panel reads the changes again when it ends. */
   const [busy, setBusy] = useState(false);
   const [actionError, setActionError] = useState<ForFolder | null>(null);
+  /** The folder in which "Stage all" left files in a merge conflict out. */
+  const [conflictNote, setConflictNote] = useState<string | null>(null);
   const [draft, setDraft] = useState<ForFolder | null>(null);
   /**
    * The commit that waits because its staged lines seem to hold secrets (ADR 0015), for the
@@ -194,6 +197,7 @@ export function ChangesPanel(props: Props) {
     if (target.sessionId === null || folder === null || busy) return;
     setBusy(true);
     setActionError(null);
+    setConflictNote(null);
     work(target.sessionId)
       .then(() => {
         done?.();
@@ -216,13 +220,18 @@ export function ChangesPanel(props: Props) {
               stage ? api.gitStage(id, [entry.path]) : api.gitUnstage(id, [entry.path]),
             );
           },
-          onStageAll: (paths, stage) => {
-            runAction(async (id) => {
-              // One call per batch; the backend takes a bounded number of paths per call.
-              for (const batch of pathBatches(paths)) {
-                await (stage ? api.gitStage(id, batch) : api.gitUnstage(id, batch));
-              }
-            });
+          onStageAll: (paths, stage, conflicts) => {
+            runAction(
+              async (id) => {
+                // One call per batch; the backend takes a bounded number of paths per call.
+                for (const batch of pathBatches(paths)) {
+                  await (stage ? api.gitStage(id, batch) : api.gitUnstage(id, batch));
+                }
+              },
+              () => {
+                if (conflicts > 0 && cwd !== null) setConflictNote(cwd);
+              },
+            );
           },
           onDiscard: (entry) => {
             setDiscarding(askFor(entry, sessionId, cwd));
@@ -236,6 +245,11 @@ export function ChangesPanel(props: Props) {
   const mode = commitMode(files);
   const message = draft !== null && draft.cwd === cwd ? draft.text : "";
   const error = actionError !== null && actionError.cwd === cwd ? actionError.text : null;
+  // Counted from the list as it is now, so a file staged in a terminal leaves the count; gone once
+  // no conflict is left.
+  const conflictCount = files.filter((file) => isConflict(file.status)).length;
+  const conflictsLeft =
+    conflictNote !== null && conflictNote === cwd && conflictCount > 0 ? conflictCount : null;
   const commit = (text: string, allowTree: string | null = null) => {
     // Like a commit with `-a`: changed and deleted files, never untracked ones.
     const paths = stageAllPaths(files);
@@ -371,6 +385,11 @@ export function ChangesPanel(props: Props) {
           )}
           {checkNote !== null && checkNote.cwd === cwd && (
             <CommitCheckNote checked={checkNote.checked} />
+          )}
+          {conflictsLeft !== null && (
+            <p className="changes-hint" role="status">
+              {t("changes.conflictsLeft", { count: conflictsLeft })}
+            </p>
           )}
           {error !== null && (
             <p className="changes-hint error-text selectable" role="alert">

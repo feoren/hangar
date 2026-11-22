@@ -4,7 +4,7 @@ type: synthesis
 tags: [git, changes-panel, contract, security]
 sources: []
 created: 2026-11-12
-updated: 2026-11-15
+updated: 2026-11-22
 ---
 
 # Commit history (contract)
@@ -182,10 +182,23 @@ above, plus the existing git errors.
 - Per file a stage box (checked: all staged, mixed: partly, empty: unstaged or untracked; a click
   on a fully staged file unstages it, otherwise it stages) and a discard button on hover. While an
   action runs the box is `aria-disabled`, not `disabled`, so it keeps the keyboard focus.
+- "Stage all", the box next to the file count (`stageAllBox`): with everything staged it unstages
+  everything, otherwise it stages every file not fully staged, untracked ones included, but never
+  a file in a merge conflict (`isConflict`: UU, AA, DD, AU, UA, DU, UD), because `git add` on such
+  a file marks it resolved. When it left conflicts out, a note under the commit box says how many
+  files are in conflict now (counted from the current list) and that they are staged one by one
+  once resolved; it goes with the next action or once no conflict is left. A conflicted file's own
+  box still stages it.
+- Which files "Stage all" covers: every file of the `git_diff` answer, including those beyond the
+  500 the list shows before "more files" (`FILE_PAGE`), so it can stage files not yet on screen.
+  Files `git status` listed beyond `MAX_LIST_BYTES` (4 MiB of `-z` output, `status_files` in
+  `src-tauri/src/git.rs`) are not in the answer and are not staged. `truncated` alone does not mean
+  files are missing: a cut diff (2 MiB) or numstat sets it too while the status list is whole.
 - The commit box sits at the top of the view while there are changes: "Commit" commits what is
   staged; with nothing staged the button reads "Stage changed and commit" and stages the changed
-  and deleted tracked files first, as a commit with `-a` would (`stageAllPaths`). Untracked files
-  only go in through their own box; with nothing but untracked files the box is hidden. In an agent session "Suggestion from the agent" pastes a request for a commit
+  and deleted tracked files first, as a commit with `-a` would (`stageAllPaths`, never a file in a
+  merge conflict; a conflict counts as partly staged, so the button then reads "Commit" anyway).
+  Untracked files only go in through their own box; with nothing but untracked files the box is hidden. In an agent session "Suggestion from the agent" pastes a request for a commit
   message (for `git diff --cached`, or `git diff HEAD` when nothing is staged) into its prompt
   without Enter; the answer appears in the terminal and is not read back.
 - Line comments, agent sessions only: a click on an added or unchanged diff line (or the comment

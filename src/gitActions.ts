@@ -5,7 +5,7 @@
 // `gitCommit` in api.ts).
 
 import type { FileChange } from "./gitDiff";
-import { lineKind } from "./gitDiff";
+import { changeKind, lineKind } from "./gitDiff";
 import { quotePath } from "./pathQuote";
 import { secretKinds, type SecretKind } from "./secretScan";
 
@@ -36,22 +36,39 @@ export interface StageAllBox {
   action: "stage" | "unstage";
   /** The files the click stages or unstages. */
   paths: string[];
+  /**
+   * Files in a merge conflict the click leaves out: staging one tells git it is resolved, so that
+   * stays a choice per file.
+   */
+  conflicts: number;
 }
 
 /**
  * The header box of the changes list; `null` without files. Anything not fully staged makes a
  * click stage the rest, untracked files included (the user picks "all", unlike the commit
- * button's `git commit -a`); only when everything is staged does a click unstage everything.
+ * button's `git commit -a`), but never a file in a merge conflict; only when everything is staged
+ * does a click unstage everything.
  */
 export function stageAllBox(files: readonly FileChange[]): StageAllBox | null {
   if (files.length === 0) return null;
   const states = files.map((file) => stageState(file.status));
   if (states.every((state) => state === "staged")) {
-    return { state: "staged", action: "unstage", paths: files.map((file) => file.path) };
+    return {
+      state: "staged",
+      action: "unstage",
+      paths: files.map((file) => file.path),
+      conflicts: 0,
+    };
   }
   const state = states.every((each) => each === "unstaged") ? "unstaged" : "partial";
-  const paths = files.filter((_, index) => states[index] !== "staged").map((file) => file.path);
-  return { state, action: "stage", paths };
+  const rest = files.filter((_, index) => states[index] !== "staged");
+  const paths = rest.filter((file) => !isConflict(file.status)).map((file) => file.path);
+  return { state, action: "stage", paths, conflicts: rest.length - paths.length };
+}
+
+/** A file git lists as unmerged (UU, AA, DD, AU, UA, DU, UD). */
+export function isConflict(status: string): boolean {
+  return changeKind(status) === "conflict";
 }
 
 /** Paths in calls of at most `size` each, so a huge list stays within the backend's limit. */
@@ -75,9 +92,15 @@ export function commitMode(files: readonly FileChange[]): CommitMode {
   return stageAllPaths(files).length > 0 ? "stageAll" : "none";
 }
 
-/** What "stage changed files and commit" stages: every listed file except untracked ones. */
+/**
+ * What "stage changed files and commit" stages: every listed file except untracked ones and files
+ * in a merge conflict. A conflict already makes `commitMode` say `commit`; the filter keeps that
+ * true should the stage states ever change.
+ */
 export function stageAllPaths(files: readonly FileChange[]): string[] {
-  return files.filter((file) => file.status !== "??").map((file) => file.path);
+  return files
+    .filter((file) => file.status !== "??" && !isConflict(file.status))
+    .map((file) => file.path);
 }
 
 /**

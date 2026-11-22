@@ -1456,3 +1456,9 @@ as `{ cause, detail }` (`changes`, `ignored`, `partly`, `unsafeFilters`, `notChe
 its 12 languages; only `gitFailed` carries git's own message. Changes are now read from the status
 Hangar runs before removing, so a git with translated messages no longer hides them.
 Pages changed: [[agent-workflow-features]].
+
+## [2026-11-22] query | What "Stage all" covers
+"Stage all" now leaves files in a merge conflict out and says how many are in conflict. Checked in
+the code whether it stages only listed files: it stages every file of the `git_diff` answer, also
+those beyond the 500 shown before "more files"; files cut from the status list at 4 MiB are not
+staged. Updated: [[commit-history]], glossary, index.

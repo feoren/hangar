@@ -6,6 +6,7 @@ import {
   diffKey,
   discardDeletes,
   GIT_MAX_PATHS,
+  isConflict,
   lineComment,
   newLineNumbers,
   parseCommitOutcome,
@@ -17,9 +18,9 @@ import {
 } from "./gitActions";
 
 describe("stage all", () => {
-  it("stages tracked changes only, as a commit with -a does", () => {
+  it("stages tracked changes only, as a commit with -a does, never a merge conflict", () => {
     const files = [file(" M", "a"), file(" D", "b"), file("??", "c"), file("UU", "d")];
-    expect(stageAllPaths(files)).toEqual(["a", "b", "d"]);
+    expect(stageAllPaths(files)).toEqual(["a", "b"]);
     expect(commitMode([file("??", "new")])).toBe("none");
     expect(commitMode([file("??", "new"), file(" M", "a")])).toBe("stageAll");
   });
@@ -31,7 +32,35 @@ describe("stageAllBox", () => {
       state: "unstaged",
       action: "stage",
       paths: ["a", "b"],
+      conflicts: 0,
     });
+  });
+
+  it("leaves files in a merge conflict out, since staging one marks it resolved", () => {
+    const codes = ["UU", "AA", "DD", "AU", "UA", "DU", "UD"];
+    const files = [file(" M", "a"), file("??", "b"), ...codes.map((code) => file(code, code))];
+    expect(stageAllBox(files)).toEqual({
+      state: "partial",
+      action: "stage",
+      paths: ["a", "b"],
+      conflicts: codes.length,
+    });
+    // With everything else staged the click stages nothing and only counts the conflicts.
+    expect(stageAllBox([file("M ", "a"), file("UU", "c")])).toEqual({
+      state: "partial",
+      action: "stage",
+      paths: [],
+      conflicts: 1,
+    });
+  });
+
+  it("tells conflicts from other changes", () => {
+    for (const code of ["UU", "AA", "DD", "AU", "UA", "DU", "UD"]) {
+      expect(isConflict(code)).toBe(true);
+    }
+    for (const code of ["M ", " M", "MM", "A ", "AM", " D", "D ", "R ", "??"]) {
+      expect(isConflict(code)).toBe(false);
+    }
   });
 
   it("is mixed and stages only the rest while some changes are staged", () => {
@@ -39,6 +68,7 @@ describe("stageAllBox", () => {
       state: "partial",
       action: "stage",
       paths: ["dir/", "c"],
+      conflicts: 0,
     });
     // One partly staged file alone is enough for the mixed look.
     expect(stageAllBox([file("MM", "a")])?.state).toBe("partial");
@@ -49,6 +79,7 @@ describe("stageAllBox", () => {
       state: "staged",
       action: "unstage",
       paths: ["a", "b", "c"],
+      conflicts: 0,
     });
   });
 
@@ -137,6 +168,14 @@ describe("commitMode", () => {
     expect(commitMode([file(" M"), file("??", "b")])).toBe("stageAll");
     expect(commitMode([file(" M"), file("A ", "b")])).toBe("commit");
     expect(commitMode([file("MM")])).toBe("commit");
+  });
+
+  it("never stages a file in a merge conflict before a commit", () => {
+    // A conflict counts as partly staged, so the button commits and git refuses the unmerged file.
+    for (const code of ["UU", "AA", "DD", "AU", "UA", "DU", "UD"]) {
+      expect(commitMode([file(code, "c"), file(" M", "a")])).toBe("commit");
+    }
+    expect(stageAllPaths([file(" M", "a"), file("UU", "c"), file("??", "n")])).toEqual(["a"]);
   });
 
   it("trims the message and refuses an empty one", () => {
