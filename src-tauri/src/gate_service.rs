@@ -37,12 +37,13 @@
 //!
 //! Connections: one thread each. Until its head is read and its token known, a connection holds
 //! one of [`MAX_UNAUTHENTICATED`] slots and has [`Limits::head`] in total for the head, however
-//! slowly it sends; when all slots are taken, the oldest of them is closed for the newcomer
-//! once it waited [`Limits::grace`] for its head (a hook sends its head at once, so a burst of
-//! hooks is never cut), and past [`MAX_HEAD_THREADS`] busy head threads with none of them
-//! silent that long a new connection is closed at once. A known session then moves to one of [`MAX_CONNECTIONS`]
-//! slots, at most [`MAX_PER_SESSION`] of them its own, with [`Limits::body`] for its body. The
-//! accept thread never reads or blocks. A held request checks every [`WAIT_TICK`] whether the
+//! slowly it sends; when all slots are taken, the oldest silent one is closed for the newcomer:
+//! silent means it waited [`Limits::grace`] for its head and nothing of it waits unread (a hook
+//! sends its head at once, so a burst of hooks is never cut, however late their threads run).
+//! Past [`MAX_HEAD_THREADS`] busy head threads with none of them silent a new connection is
+//! closed at once. A known session then moves to one of [`MAX_CONNECTIONS`] slots, at most
+//! [`MAX_PER_SESSION`] of them its own, with [`Limits::body`] for its body. The accept thread
+//! only peeks and never blocks. A held request checks every [`WAIT_TICK`] whether the
 //! agent still waits, so an interrupted agent does not leave a card behind.
 
 use std::collections::{HashMap, VecDeque};
@@ -50,7 +51,7 @@ use std::ffi::OsStr;
 use std::io::{self, BufReader, Read, Write};
 use std::net::{Ipv4Addr, Shutdown, SocketAddr, TcpListener, TcpStream};
 use std::path::{Component, Path, PathBuf};
-use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU8, AtomicUsize, Ordering};
 use std::sync::mpsc::{sync_channel, RecvTimeoutError, SyncSender};
 use std::sync::{Arc, Mutex};
 use std::thread;
@@ -94,8 +95,9 @@ const SIGNAL_EXPIRY_TICK: Duration = Duration::from_secs(30);
 /// is on (`Inner::overloaded`): an unanswered hook would let its call go ahead unchecked.
 pub const MAX_CONNECTIONS: usize = 128;
 /// Connections whose token is not known yet that may stay silent. With more open, a new one
-/// closes the oldest once that has waited [`HEAD_GRACE`] for its head: a hook sends its head at
-/// once, so silent clients cannot keep the hooks out, and a burst of parallel hooks is not cut.
+/// closes the oldest that has waited [`HEAD_GRACE`] for its head with nothing of it unread: a
+/// hook sends its head at once, so silent clients cannot keep the hooks out, and a burst of
+/// parallel hooks is not cut.
 pub const MAX_UNAUTHENTICATED: usize = 8;
 /// Threads reading a head at once, closed connections that have not noticed yet included; over
 /// it a new connection is closed unanswered unless a silent one makes room. Bounds what a flood
@@ -1293,13 +1295,94 @@ impl Drop for Slot {
     }
 }
 
+/// Where a connection reading its head stands, shared by its reader and the accept thread.
+///
+/// The reader takes bytes out of the socket only while it holds them (`HOLDING`, set with a
+/// compare and swap after a peek saw them), and the accept thread closes a connection only from
+/// `WAITING` with nothing in its socket. So a connection whose head has arrived is never closed
+/// as silent, however late its reader runs on a busy machine: the bytes are either still in the
+/// socket or already held.
+struct HeadState(AtomicU8);
+
+impl HeadState {
+    const WAITING: u8 = 0;
+    const HOLDING: u8 = 1;
+    const CLOSED: u8 = 2;
+
+    fn new() -> Self {
+        Self(AtomicU8::new(Self::WAITING))
+    }
+
+    /// A newer connection took this one's slot.
+    fn closed(&self) -> bool {
+        self.0.load(Ordering::SeqCst) == Self::CLOSED
+    }
+
+    /// The reader is done with what it held and waits for more; `false` once closed.
+    fn wait(&self) -> bool {
+        match self.0.compare_exchange(
+            Self::HOLDING,
+            Self::WAITING,
+            Ordering::SeqCst,
+            Ordering::SeqCst,
+        ) {
+            Ok(_) => true,
+            Err(current) => current == Self::WAITING,
+        }
+    }
+
+    /// The reader saw bytes and is about to take them; `false` once closed.
+    fn hold(&self) -> bool {
+        match self.0.compare_exchange(
+            Self::WAITING,
+            Self::HOLDING,
+            Ordering::SeqCst,
+            Ordering::SeqCst,
+        ) {
+            Ok(_) => true,
+            Err(current) => current == Self::HOLDING,
+        }
+    }
+
+    /// Closes a waiting connection; `false` when its reader holds bytes (or it is closed).
+    fn close_waiting(&self) -> bool {
+        self.0
+            .compare_exchange(
+                Self::WAITING,
+                Self::CLOSED,
+                Ordering::SeqCst,
+                Ordering::SeqCst,
+            )
+            .is_ok()
+    }
+}
+
+/// Nothing arrived on `stream` that its reader has not taken yet. Only asked under the
+/// [`Heads`] lock for a connection still reading its head, whose reader only reads (and treats a
+/// would-block as a timeout) while this switches the socket to non-blocking for a moment. When
+/// the socket cannot be asked, it counts as not silent: a hook is never cut on a guess.
+fn nothing_buffered(stream: &TcpStream) -> bool {
+    if stream.set_nonblocking(true).is_err() {
+        return false;
+    }
+    let mut probe = [0u8; 1];
+    let empty = match stream.peek(&mut probe) {
+        // Closed by the client: nothing will come.
+        Ok(0) => true,
+        Ok(_) => false,
+        Err(error) => error.kind() != io::ErrorKind::Interrupted,
+    };
+    let _ = stream.set_nonblocking(false);
+    empty
+}
+
 /// Connections whose head is still being read.
 #[derive(Default)]
 struct Heads {
     next: u64,
-    /// The ones holding a slot, oldest first: id, a handle to close it, its cancel flag, when
-    /// it was accepted.
-    open: VecDeque<(u64, TcpStream, Arc<AtomicBool>, Instant)>,
+    /// The ones holding a slot, oldest first: id, a handle to close it, its state, when it was
+    /// accepted.
+    open: VecDeque<(u64, TcpStream, Arc<HeadState>, Instant)>,
     /// Threads still reading a head, the closed ones that have not noticed yet included.
     alive: usize,
 }
@@ -1309,63 +1392,68 @@ struct Heads {
 struct HeadSlot {
     heads: Arc<Mutex<Heads>>,
     id: u64,
-    cancel: Arc<AtomicBool>,
+    state: Arc<HeadState>,
 }
 
 impl HeadSlot {
     /// A slot for `stream`. With [`MAX_UNAUTHENTICATED`] or more open, or every head thread
-    /// busy, the oldest connection is closed for this one once it waited `grace` for its head: a hook sends its head at once, a client that holds a slot silently does not,
-    /// so silent clients cannot keep the hooks out, while a burst of hooks arriving together
-    /// is never cut. `None` (closed unanswered) only when [`MAX_HEAD_THREADS`] threads are busy
-    /// and none of them has been silent that long. Each thread over that limit closed a silent
-    /// one, which ends within [`HEAD_POLL`], so the threads stay bounded.
+    /// busy, the oldest silent connection is closed for this one: silent means it waited
+    /// `grace` for its head and nothing of it has arrived that its reader has not handled. A
+    /// hook sends its head at once, a client that holds a slot silently does not, so silent
+    /// clients cannot keep the hooks out, while a hook whose head is there is never cut, not
+    /// even when its reader is late on a busy machine. `None` (closed unanswered) only when
+    /// [`MAX_HEAD_THREADS`] threads are busy and none of them is silent. Each thread over that
+    /// limit closed a silent one, which ends within [`HEAD_POLL`], so the threads stay bounded.
     fn take(heads: &Arc<Mutex<Heads>>, stream: &TcpStream, grace: Duration) -> Option<HeadSlot> {
         let handle = stream.try_clone().ok()?;
-        let cancel = Arc::new(AtomicBool::new(false));
+        let state = Arc::new(HeadState::new());
         let now = Instant::now();
         let (id, evicted) = {
             let mut list = lock(heads);
             let crowded = list.open.len() >= MAX_UNAUTHENTICATED || list.alive >= MAX_HEAD_THREADS;
-            let silent = list
-                .open
-                .front()
-                .is_some_and(|(_, _, _, since)| now.saturating_duration_since(*since) >= grace);
-            let evicted = if crowded && silent {
-                list.open.pop_front()
+            // Oldest first; the ones after the first within its grace are younger still.
+            let silent = if crowded {
+                list.open
+                    .iter()
+                    .take_while(|(_, _, _, since)| now.saturating_duration_since(*since) >= grace)
+                    .position(|(_, other, other_state, _)| {
+                        nothing_buffered(other) && other_state.close_waiting()
+                    })
             } else {
                 None
             };
+            let evicted = silent.and_then(|at| list.open.remove(at));
             if evicted.is_none() && list.alive >= MAX_HEAD_THREADS {
                 return None;
             }
             let id = list.next;
             list.next = list.next.wrapping_add(1);
-            list.open.push_back((id, handle, Arc::clone(&cancel), now));
+            list.open.push_back((id, handle, Arc::clone(&state), now));
             list.alive += 1;
             (id, evicted)
         };
-        if let Some((_, oldest, flag, _)) = evicted {
-            flag.store(true, Ordering::SeqCst);
-            // Wakes its reader where the platform does; the flag ends it within HEAD_POLL.
+        if let Some((_, oldest, _, _)) = evicted {
+            // Wakes its reader where the platform does; its state ends it within HEAD_POLL.
             let _ = oldest.shutdown(Shutdown::Both);
         }
         Some(HeadSlot {
             heads: Arc::clone(heads),
             id,
-            cancel,
+            state,
         })
     }
 }
 
 impl HeadSlot {
-    /// The head is read: this connection leaves the slots a newer one may take, under the lock,
-    /// before its request is looked at, so it is never closed while it is answered. `false`
-    /// when a newer one took its slot first (its stream is closed then).
+    /// Reading the head is over, read or failed: this connection leaves the slots a newer one
+    /// may take, under the lock, before its request is looked at or answered, so it is never
+    /// closed while it is answered. `false` when a newer one took its slot first (its stream is
+    /// closed then).
     fn head_read(&self) -> bool {
         let mut list = lock(&self.heads);
         let before = list.open.len();
         list.open.retain(|(id, _, _, _)| *id != self.id);
-        before != list.open.len() && !self.cancel.load(Ordering::SeqCst)
+        before != list.open.len() && !self.state.closed()
     }
 }
 
@@ -1415,8 +1503,10 @@ impl Drop for SessionSlot {
 struct Deadline<'a> {
     stream: &'a TcpStream,
     until: Instant,
-    /// Set when a newer connection took this one's slot: reading stops within [`HEAD_POLL`].
-    cancel: Option<Arc<AtomicBool>>,
+    /// Set while the head is read: bytes leave the socket only while they are held
+    /// ([`HeadState`]), and reading stops within [`HEAD_POLL`] once a newer connection took
+    /// this one's slot.
+    head: Option<Arc<HeadState>>,
 }
 
 impl<'a> Deadline<'a> {
@@ -1424,45 +1514,52 @@ impl<'a> Deadline<'a> {
         Self {
             stream,
             until: Instant::now() + limit,
-            cancel: None,
+            head: None,
         }
     }
 
     /// A fresh total from now, for the next part of the request.
     fn restart(&mut self, limit: Duration) {
         self.until = Instant::now() + limit;
-        self.cancel = None;
+        self.head = None;
     }
 }
 
 impl Read for Deadline<'_> {
     fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
+        if buf.is_empty() {
+            return Ok(0);
+        }
         loop {
-            if self
-                .cancel
-                .as_ref()
-                .is_some_and(|cancel| cancel.load(Ordering::SeqCst))
-            {
+            if self.head.as_ref().is_some_and(|head| !head.wait()) {
                 return Err(io::ErrorKind::ConnectionAborted.into());
             }
             let left = self.until.saturating_duration_since(Instant::now());
             if left.is_zero() {
                 return Err(io::ErrorKind::TimedOut.into());
             }
-            let slice = match self.cancel {
+            let slice = match self.head {
                 Some(_) => left.min(HEAD_POLL),
                 None => left,
             };
             self.stream.set_read_timeout(Some(slice))?;
             let mut stream = self.stream;
-            match stream.read(buf) {
+            let Some(head) = &self.head else {
+                return stream.read(buf);
+            };
+            // Peeked first, so the bytes stay in the socket until they are held: the accept
+            // thread sees them there or sees them held, never neither.
+            match stream.peek(buf) {
+                Ok(0) => return Ok(0),
+                Ok(_) if head.hold() => return stream.read(buf),
+                Ok(_) => return Err(io::ErrorKind::ConnectionAborted.into()),
+                // The accept thread may switch the socket to non-blocking for a moment.
                 Err(error)
-                    if self.cancel.is_some()
-                        && matches!(
-                            error.kind(),
-                            io::ErrorKind::WouldBlock | io::ErrorKind::TimedOut
-                        ) => {}
-                other => return other,
+                    if matches!(
+                        error.kind(),
+                        io::ErrorKind::WouldBlock | io::ErrorKind::TimedOut
+                    ) => {}
+                Err(error) => return Err(error),
             }
         }
     }
@@ -1506,15 +1603,15 @@ fn accept_loop(inner: &Arc<Inner>, listener: &TcpListener) {
 fn serve(inner: &Inner, stream: &TcpStream, unauthenticated: HeadSlot) {
     let _ = stream.set_write_timeout(Some(inner.limits.write));
     let mut deadline = Deadline::new(stream, inner.limits.head);
-    deadline.cancel = Some(Arc::clone(&unauthenticated.cancel));
+    deadline.head = Some(Arc::clone(&unauthenticated.state));
     let mut reader = BufReader::new(deadline);
     // Held until the connection closes, once the session is known.
     let mut _authenticated = None;
     let (status, body) = match hook_http::read_head(&mut reader) {
+        // Out of the slots before the answer is written: the accept thread switches the socket
+        // of a connection in them to non-blocking for a moment.
         Err(error) => match error.status() {
-            Some(status) if !unauthenticated.cancel.load(Ordering::SeqCst) => {
-                (status, String::new())
-            }
+            Some(status) if unauthenticated.head_read() => (status, String::new()),
             _ => return,
         },
         Ok(_) if !unauthenticated.head_read() => return,
@@ -2418,6 +2515,26 @@ mod tests {
         (fixture.service.port().unwrap(), token)
     }
 
+    /// Waits until `session` holds `count` connections of known sessions, so a test does not
+    /// depend on how fast the connection threads run on a busy machine.
+    fn wait_for_connections(fixture: &Fixture, session: SessionId, count: usize) {
+        let until = Instant::now() + Duration::from_secs(30);
+        loop {
+            let held = lock(&fixture.service.inner.per_session)
+                .get(&session)
+                .copied()
+                .unwrap_or(0);
+            if held == count {
+                return;
+            }
+            assert!(
+                Instant::now() < until,
+                "session {session} holds {held} connections, not {count}"
+            );
+            thread::sleep(Duration::from_millis(10));
+        }
+    }
+
     fn connect(port: u16) -> TcpStream {
         let stream = TcpStream::connect((Ipv4Addr::LOCALHOST, port)).unwrap();
         stream
@@ -3161,7 +3278,7 @@ mod tests {
         };
         // Session 1 has all but one of its connections open, each still sending its body.
         let mut held: Vec<TcpStream> = (0..MAX_PER_SESSION - 1).map(|_| hold()).collect();
-        thread::sleep(Duration::from_millis(300));
+        wait_for_connections(&fixture, 1, MAX_PER_SESSION - 1);
         // Its shell command in the last free slot is still checked by the guard.
         let risky = bash(&fixture.root, "git push --force");
         let waiting = {
@@ -3174,7 +3291,7 @@ mod tests {
         // With every slot taken, one more of session 1 is denied unread, never left
         // unanswered: an unanswered hook would let the command run unchecked.
         held.push(hold());
-        thread::sleep(Duration::from_millis(300));
+        wait_for_connections(&fixture, 1, MAX_PER_SESSION);
         let (code, answer) = post(port, ROUTE_PRE_TOOL_USE, Some(&token), &risky);
         assert_eq!(code, 200);
         assert_eq!(
@@ -3212,7 +3329,7 @@ mod tests {
         fixture.service.configure(true);
         // Once the held connections close, session 1 is checked as before.
         drop(held);
-        thread::sleep(Duration::from_millis(300));
+        wait_for_connections(&fixture, 1, 0);
         let waiting = thread::spawn(move || post(port, ROUTE_PRE_TOOL_USE, Some(&token), &risky));
         let snapshot = next_pending(&fixture.events);
         assert!(fixture.service.answer(snapshot.pending[0].id, Answer::Deny));
@@ -5028,14 +5145,50 @@ mod tests {
             let stream = accepted();
             others.push(HeadSlot::take(&heads, &stream, Duration::ZERO).unwrap());
         }
-        assert!(!first.cancel.load(Ordering::SeqCst));
-        assert!(others.iter().any(|slot| slot.cancel.load(Ordering::SeqCst)));
+        assert!(!first.state.closed());
+        assert!(others.iter().any(|slot| slot.state.closed()));
         // One that lost its slot before its head was read says so.
-        let evicted = others
-            .iter()
-            .find(|slot| slot.cancel.load(Ordering::SeqCst))
-            .unwrap();
+        let evicted = others.iter().find(|slot| slot.state.closed()).unwrap();
         assert!(!evicted.head_read());
+    }
+
+    #[test]
+    fn a_connection_whose_head_has_arrived_is_never_closed_as_silent() {
+        let listener = TcpListener::bind((Ipv4Addr::LOCALHOST, 0)).unwrap();
+        let port = listener.local_addr().unwrap().port();
+        let heads = Arc::new(Mutex::new(Heads::default()));
+        let mut clients = Vec::new();
+        let mut accepted = |head: &[u8]| {
+            let mut client = connect(port);
+            client.write_all(head).unwrap();
+            clients.push(client);
+            listener.accept().unwrap().0
+        };
+        let head = b"POST / HTTP/1.1\r\nHost: 127.0.0.1\r\n\r\n";
+        // A busy machine: the head is in the socket, but no reader has run yet.
+        let unread_stream = accepted(head);
+        let mut probe = [0u8; 1];
+        // Blocks until the bytes are there, so no timing decides the outcome.
+        assert_eq!(unread_stream.peek(&mut probe).unwrap(), 1);
+        let unread = HeadSlot::take(&heads, &unread_stream, Duration::ZERO).unwrap();
+        // Its reader took the head out of the socket but has not parsed it yet.
+        let taken_stream = accepted(head);
+        let mut buffer = [0u8; 256];
+        while taken_stream.peek(&mut buffer).unwrap() < head.len() {}
+        let taken = HeadSlot::take(&heads, &taken_stream, Duration::ZERO).unwrap();
+        let mut deadline = Deadline::new(&taken_stream, Duration::from_secs(5));
+        deadline.head = Some(Arc::clone(&taken.state));
+        assert_eq!(deadline.read(&mut buffer).unwrap(), head.len());
+        // Every slot taken and then some by silent clients, with no grace at all.
+        let mut silent = Vec::new();
+        for _ in 0..2 * MAX_UNAUTHENTICATED {
+            let stream = accepted(b"");
+            silent.push(HeadSlot::take(&heads, &stream, Duration::ZERO).unwrap());
+        }
+        assert!(silent.iter().any(|slot| slot.state.closed()));
+        // Neither hook is cut: each is answered once its head is parsed.
+        assert!(unread.head_read());
+        assert!(taken.head_read());
     }
 
     #[test]
