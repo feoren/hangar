@@ -2,7 +2,7 @@
 //! the time limit, and program icons.
 
 use std::collections::{BTreeMap, HashMap, HashSet};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
 
 use hangar_lib::icon;
@@ -33,14 +33,25 @@ fn no_env() -> BTreeMap<String, String> {
 /// itself has its own test.
 const PROBE_TIMEOUT: Duration = Duration::from_secs(60);
 
-/// Working folder of the version queries in these tests, like the app's own probe folder.
-fn probe_dir() -> PathBuf {
-    let base = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-        .join("..")
-        .join("tests")
-        .join(".tmp")
-        .join("programs");
-    version::probe_folder(&base).unwrap()
+/// Working folder of the version queries in these tests, like the app's own probe folder (below
+/// its data folder). One per test, removed when the returned guard drops.
+struct ProbeDir {
+    _data: common::TempDir,
+    dir: PathBuf,
+}
+
+impl std::ops::Deref for ProbeDir {
+    type Target = Path;
+
+    fn deref(&self) -> &Path {
+        &self.dir
+    }
+}
+
+fn probe_dir() -> ProbeDir {
+    let data = common::TempDir::new("programs");
+    let dir = version::probe_folder(data.path()).unwrap();
+    ProbeDir { _data: data, dir }
 }
 
 #[cfg(windows)]

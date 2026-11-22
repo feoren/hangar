@@ -19,6 +19,8 @@ use hangar_lib::gate_service::GateService;
 use hangar_lib::hook_recipes::{self, HELPER_ENV};
 use hangar_lib::manager::{GateLaunch, GatePlan, LaunchGate};
 
+mod common;
+
 const HELPER: &str = env!("CARGO_BIN_EXE_hangar");
 
 /// How long a helper run may take before the test kills it and fails.
@@ -59,18 +61,11 @@ fn guard_helper() {
 /// to be the full app finds an empty profile. Hangar has no data-dir override variable; these
 /// are the variables the platform's folder lookups honor on Unix and the common ones on Windows
 /// (the Windows known-folder API itself ignores them, so the marker check is the real guard).
-fn sandbox_env(command: &mut Command) {
-    static HOME: OnceLock<PathBuf> = OnceLock::new();
-    let home = HOME.get_or_init(|| {
-        let dir = Path::new(env!("CARGO_MANIFEST_DIR"))
-            .parent()
-            .unwrap()
-            .join("tests")
-            .join(".tmp")
-            .join("gate-hook-sandbox-home");
-        std::fs::create_dir_all(&dir).unwrap();
-        dir
-    });
+/// One folder per run, removed when the returned guard drops: PowerShell writes its startup
+/// profile data below it.
+fn sandbox_env(command: &mut Command) -> common::TempDir {
+    let scratch = common::TempDir::new("gate-hook-home");
+    let home = scratch.path();
     command
         .env("APPDATA", home.join("roaming"))
         .env("LOCALAPPDATA", home.join("local"))
@@ -78,6 +73,7 @@ fn sandbox_env(command: &mut Command) {
         .env("XDG_DATA_HOME", home.join("data"))
         .env("HOME", home)
         .env("USERPROFILE", home);
+    scratch
 }
 
 /// Kills `child` and everything it started (`cmd.exe`/`powershell.exe` run the helper below them).
@@ -212,7 +208,8 @@ fn gate_env(launch: &GateLaunch) -> String {
 /// Fails after `RUN_LIMIT` and kills the whole process tree.
 fn run(mut command: Command, gate: &str, input: &str) -> Output {
     guard_helper();
-    sandbox_env(&mut command);
+    // Removed when this function returns, after the child and its pipes are done.
+    let _home = sandbox_env(&mut command);
     command
         .env(HELPER_ENV, gate)
         .stdin(Stdio::piped())

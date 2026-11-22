@@ -21,10 +21,11 @@ pub fn tmp_root() -> PathBuf {
         .join(".tmp")
 }
 
-/// A shared folder for tests that need an existing home or working folder but write nothing into
-/// it. Never removed, so parallel tests can rely on it; it stays empty.
+/// A folder for tests that need an existing home or working folder but write nothing into it:
+/// the test root itself. It is never removed, so parallel tests can rely on it (a session's
+/// shell may still run in it when its test ends), and it leaves no folder of its own behind.
 pub fn home() -> PathBuf {
-    let dir = tmp_root().join("home");
+    let dir = tmp_root();
     fs::create_dir_all(&dir).unwrap();
     dir
 }
