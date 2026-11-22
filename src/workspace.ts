@@ -1,9 +1,10 @@
 // Workspace for restoring after a restart: which sessions were open in which order and which
-// one was active, plus trimming the saved scrollback.
+// one was active and the message queued for each, plus trimming the saved scrollback.
 // Pure logic without backend; contract: docs/wiki/pages/syntheses/session-restore.md.
 
 import type { SessionKind, Worktree } from "./api";
 import { normalizeMarkerColor, storedEmoji } from "./marker";
+import { cleanQueuedText } from "./messageQueue";
 import { validAgentName } from "./subAgentLibrary";
 import { parseWorktree } from "./worktree";
 
@@ -35,6 +36,11 @@ export interface SavedSession {
   cliSessionId: string | null;
   /** The sub-agent definition the session runs as, started as that one again; else `null`. */
   subAgent: string | null;
+  /**
+   * The message queued for the session (messageQueue.ts), as it is queued: not blank, at most
+   * MAX_QUEUED_CHARS; else `null`. Comes back disarmed after a restart.
+   */
+  queuedMessage: string | null;
 }
 
 export interface Workspace {
@@ -71,6 +77,43 @@ export interface SessionEntry {
   worktree?: Worktree | null | undefined;
   cliSessionId?: string | null | undefined;
   subAgent?: string | null | undefined;
+  queuedMessage?: string | null | undefined;
+}
+
+/** A queued message as the backend stores it: cleaned like the editor does, blank is `null`. */
+export function storedQueuedMessage(value: unknown): string | null {
+  if (typeof value !== "string") return null;
+  const clean = cleanQueuedText(value);
+  return clean.trim() === "" ? null : clean;
+}
+
+/** The queued messages of the workspace's sessions, by session key. */
+export function queuedMessagesOf(workspace: Workspace): Map<string, string> {
+  const messages = new Map<string, string>();
+  for (const session of workspace.sessions) {
+    if (session.queuedMessage !== null) messages.set(session.key, session.queuedMessage);
+  }
+  return messages;
+}
+
+/**
+ * Gives the sessions without a queued message the one `entries` holds for their key (texts kept
+ * elsewhere by an older Hangar); a message the workspace has already stays. Keys of sessions the
+ * workspace does not know are dropped: their message would never be sent.
+ */
+export function withQueuedMessages(
+  workspace: Workspace,
+  entries: Readonly<Record<string, string>>,
+): Workspace {
+  const byKey = new Map(Object.entries(entries).map(([key, text]) => [key.toLowerCase(), text]));
+  const sessions = workspace.sessions.map((session) => {
+    const text = storedQueuedMessage(byKey.get(session.key));
+    return session.queuedMessage !== null || text === null
+      ? session
+      : { ...session, queuedMessage: text };
+  });
+  const changed = sessions.some((session, index) => session !== workspace.sessions[index]);
+  return changed ? { ...workspace, sessions } : workspace;
 }
 
 /** A conversation id as the backend accepts it: a UUID, stored in lower case; else `null`. */
@@ -121,6 +164,7 @@ export function buildWorkspace(
       worktree: parseWorktree(entry.worktree ?? null),
       cliSessionId,
       subAgent: validAgentName(entry.subAgent) ? entry.subAgent : null,
+      queuedMessage: storedQueuedMessage(entry.queuedMessage),
     });
   }
   const active = activeKey?.toLowerCase() ?? null;
@@ -162,6 +206,8 @@ function savedSession(value: unknown): SavedSession | null {
     worktree,
     cliSessionId,
     subAgent: validAgentName(subAgent) ? subAgent : null,
+    // Missing before 0.14.0; a malformed message only costs the message.
+    queuedMessage: storedQueuedMessage(field("queuedMessage")),
   };
 }
 

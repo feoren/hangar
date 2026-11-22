@@ -1,6 +1,7 @@
 // Queued messages: the next instruction for an agent session, written while it still works and
 // sent by Hangar once the session is done. One message per session, keyed by the session's stable
-// key (workspace.ts), so it survives a restart of the process and of Hangar. Pure, so the state
+// key and saved with that session in the workspace (workspace.ts `queuedMessage`), so it survives
+// a restart of the process and of Hangar. Pure, so the state
 // machine can be tested; the app owns the state and does the sending (broadcast.ts).
 //
 // The rules:
@@ -13,10 +14,13 @@
 
 import type { AttentionReason, AttentionState } from "./attention";
 
-/** Longer text is cut; a prompt this long is pasted from a file anyway. */
+/**
+ * Longer text is cut; a prompt this long is pasted from a file anyway. The backend holds the
+ * workspace to the same limit (`persist.rs` `MAX_QUEUED_MESSAGE_UNITS`).
+ */
 export const MAX_QUEUED_CHARS = 20_000;
 
-/** localStorage key older versions kept the queued texts under; migrated once (mainStore.ts). */
+/** localStorage key versions before 0.10 kept the queued texts under; migrated once (mainStore.ts). */
 export const QUEUE_STORAGE_KEY = "hangar.queuedMessages";
 
 export interface QueuedMessage {
@@ -62,9 +66,18 @@ export function guardedEnd(end: PhaseEnd, showsQuestion: boolean): PhaseEnd {
   return end === "done" && showsQuestion ? "asks" : end;
 }
 
-/** Text as it is queued: trailing blank lines dropped, cut to MAX_QUEUED_CHARS. */
+/** Half of a surrogate pair without its other half. */
+const LONE_SURROGATE = /[\uD800-\uDBFF](?![\uDC00-\uDFFF])|(?<![\uD800-\uDBFF])[\uDC00-\uDFFF]/gu;
+
+/**
+ * Text as it is queued: trailing blank lines dropped, cut to MAX_QUEUED_CHARS without splitting a
+ * character. The text is saved with the workspace, and the backend's JSON parser refuses half a
+ * surrogate pair: one such text would stop the whole workspace from being saved.
+ */
 export function cleanQueuedText(text: string): string {
-  return text.replace(/\s+$/u, "").slice(0, MAX_QUEUED_CHARS);
+  const whole = text.replace(/\s+$/u, "").replace(LONE_SURROGATE, "�");
+  const cut = whole.slice(0, MAX_QUEUED_CHARS);
+  return /[\uD800-\uDBFF]$/u.test(cut) ? cut.slice(0, -1) : cut;
 }
 
 function withEntry(queue: MessageQueue, key: string, entry: QueuedMessage | null): MessageQueue {
@@ -167,16 +180,6 @@ export function parseStoredQueue(value: unknown): Map<string, string> {
   return stored;
 }
 
-/** What gets stored: the texts of the sessions `keep` accepts. */
-export function storedQueue(
-  queue: MessageQueue,
-  keep: (key: string) => boolean,
-): Record<string, string> {
-  const result: Record<string, string> = {};
-  for (const [key, entry] of queue) if (keep(key)) result[key] = entry.text;
-  return result;
-}
-
 /** A session key as the workspace makes them (`crypto.randomUUID`); the backend takes no other. */
 const SESSION_KEY = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/iu;
 
@@ -191,8 +194,8 @@ export function persistableQueue(entries: Record<string, string>): Record<string
 }
 
 /**
- * The texts an older Hangar kept in localStorage, read once for the migration to the backend
- * (mainStore.ts). The panel and file viewer windows share that storage, so nothing is read from
+ * The texts an older Hangar kept in localStorage, read once for the migration into the workspace
+ * (mainStore.ts `migrateQueuedMessages`). The panel and file viewer windows share that storage, so nothing is read from
  * there afterwards.
  */
 export function loadLegacyQueue(storage: Pick<Storage, "getItem">): Map<string, string> {

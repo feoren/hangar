@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 
+import { MAX_QUEUED_CHARS } from "./messageQueue";
 import {
   buildWorkspace,
   EMPTY_WORKSPACE,
@@ -7,11 +8,13 @@ import {
   mergeWorkspace,
   newSessionKey,
   parseWorkspace,
+  queuedMessagesOf,
   restorable,
   sameWorkspace,
   scrollbackDue,
   trimScrollback,
   utf8Length,
+  withQueuedMessages,
 } from "./workspace";
 
 const A = "0f8fad5b-d9cb-469f-a165-70867728950e";
@@ -49,6 +52,7 @@ describe("buildWorkspace", () => {
           worktree: null,
           cliSessionId: null,
           subAgent: null,
+          queuedMessage: null,
         },
         {
           ...entry(A, "a"),
@@ -58,6 +62,7 @@ describe("buildWorkspace", () => {
           worktree: null,
           cliSessionId: null,
           subAgent: null,
+          queuedMessage: null,
         },
       ],
       activeKey: A,
@@ -85,6 +90,7 @@ describe("buildWorkspace", () => {
       "key",
       "order",
       "profileId",
+      "queuedMessage",
       "subAgent",
       "title",
       "worktree",
@@ -114,6 +120,58 @@ describe("buildWorkspace", () => {
       activeKey: null,
     });
     expect(parsed?.sessions.map((s) => s.subAgent)).toEqual(["tester", null, null]);
+  });
+
+  it("writes the queued message as it is queued, blank as null", () => {
+    const workspace = buildWorkspace(
+      [
+        { ...entry(A), queuedMessage: "run the tests\n\n" },
+        { ...entry(B), queuedMessage: " \n " },
+        { ...entry(C), queuedMessage: "x".repeat(MAX_QUEUED_CHARS + 5) },
+      ],
+      null,
+    );
+    expect(workspace.sessions.map((s) => s.queuedMessage)).toEqual([
+      "run the tests",
+      null,
+      "x".repeat(MAX_QUEUED_CHARS),
+    ]);
+    expect(queuedMessagesOf(workspace)).toEqual(
+      new Map([
+        [A, "run the tests"],
+        [C, "x".repeat(MAX_QUEUED_CHARS)],
+      ]),
+    );
+  });
+
+  it("reads the queued message back, and older files without one", () => {
+    const parsed = parseWorkspace({
+      version: 1,
+      sessions: [
+        { ...entry(A), order: 0, queuedMessage: "commit then" },
+        { ...entry(B), order: 1, queuedMessage: 42 },
+        { ...entry(C), order: 2 },
+      ],
+      activeKey: null,
+    });
+    expect(parsed?.sessions.map((s) => s.queuedMessage)).toEqual(["commit then", null, null]);
+    // Round trip: what is written reads back the same.
+    expect(parsed && parseWorkspace(JSON.parse(JSON.stringify(parsed)))).toEqual(parsed);
+  });
+
+  it("fills in older messages only where the workspace has none", () => {
+    const current = buildWorkspace(
+      [{ ...entry(A), queuedMessage: "mine" }, entry(B), entry(C)],
+      null,
+    );
+    const filled = withQueuedMessages(current, {
+      [A]: "old",
+      [B.toUpperCase()]: "go\n",
+      [C]: "  ",
+      "16fd2706-0000-433b-82eb-8c7fada847da": "nobody's",
+    });
+    expect(filled.sessions.map((s) => s.queuedMessage)).toEqual(["mine", "go", null]);
+    expect(withQueuedMessages(current, { [A]: "old" })).toBe(current);
   });
 
   it("leaves out invalid and duplicate entries instead of dropping everything", () => {

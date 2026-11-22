@@ -1462,3 +1462,9 @@ Pages changed: [[agent-workflow-features]].
 the code whether it stages only listed files: it stages every file of the `git_diff` answer, also
 those beyond the 500 shown before "more files"; files cut from the status list at 4 MiB are not
 staged. Updated: [[commit-history]], glossary, index.
+
+## [2026-11-22] update | Queued messages move into workspace.json
+Each `SavedSession` carries an optional `queuedMessage` (at most 20 000 UTF-16 units, checked on
+saving and on loading, left out of the file when absent); the workspace commands answer the main
+window only. The texts of `queued-messages.json` (0.10 to 0.13) and of `localStorage` move in once.
+Updated: [[queued-messages-and-stall-hint]], [[session-restore]], index.

@@ -4,7 +4,7 @@ type: synthesis
 tags: [attention, sidebar, frontend]
 sources: ["[[agent-prompt-strings-reading]]"]
 created: 2026-11-14
-updated: 2026-11-15
+updated: 2026-11-22
 ---
 
 # Queued messages and the stall hint
@@ -60,21 +60,20 @@ listener), editor in `src/QueueDialog.tsx`.
   after a stall only when its start had reached the program.
 - The "done" that sends the message raises no chime, flash, desktop notification, phone push or
   done notice: the session goes on working.
-- Persistence: in the backend, `queued-messages.json` in the local app data folder (an object of
-  session key to text, `src-tauri/src/main_store.rs`), through `load_message_queue` and
-  `save_message_queue`, which only the main window may call. Not `localStorage`: the panel and
-  file viewer windows share it, and a compromised viewer could queue a text Hangar later pastes
-  into an agent session. Keys must be UUIDs, texts non-empty and at most 20 000 UTF-16 units, at
-  most 512 entries; a damaged file gives no messages. Written once the restore ran and the stored
-  messages were read, only for sessions that exist (or were remembered before a UI reload),
-  cleared when "Remember sessions" is off. The old `localStorage` key `hangar.queuedMessages` is
-  migrated once (while the backend has stored nothing) and then removed (`src/mainStore.ts`).
-
-> [!note] Why not in `workspace.json`
-> The backend's `Workspace` and `SavedSession` use `deny_unknown_fields`
-> (`src-tauri/src/persist.rs`), so a new field would make every save fail until the backend
-> knows it. A `queuedMessage: Option<String>` on `SavedSession` is the cleaner home; until then the
-> frontend keeps the texts beside the workspace, keyed the same way.
+- Persistence (since 0.14.0): with its session in `workspace.json`, field `queuedMessage`
+  ([[session-restore]]); not blank, at most 20 000 UTF-16 units, checked on saving and on loading.
+  `save_workspace` and `load_workspace` answer the main window only. Not `localStorage`: the panel
+  and file viewer windows share it, and a compromised viewer could queue a text Hangar later
+  pastes into an agent session. A changed queue saves the workspace; a message lives and goes
+  with its session, and "Remember sessions" off empties the workspace and with it the messages.
+- Migration (`migrateQueuedMessages` in `src/mainStore.ts`, once at start): Hangar 0.10 to 0.13
+  kept the texts in the backend's `queued-messages.json` (`load_message_queue`,
+  `save_message_queue`), older versions in the `localStorage` key `hangar.queuedMessages`. The
+  `localStorage` texts are taken over only while that file was never written. Texts for sessions
+  of the saved workspace that have no message yet move in; the workspace is saved first, then the
+  file is emptied (it stays as the mark that the migration ran, so a text a viewer writes to the
+  old key later is never taken over) and the `localStorage` key removed. A failed save leaves both
+  places as they were, and the next start tries again.
 
 ## Stall hint
 

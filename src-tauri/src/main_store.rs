@@ -1,5 +1,7 @@
 //! State only the main window may read and write: the security switches (local claims, the agent
-//! gate, the command guard), the queued messages per session, the settings that decide what
+//! gate, the command guard), the queued messages as Hangar 0.10 to 0.13 kept them (since 0.14 they live
+//! in `workspace.json`; the file is only read for their migration and stays as its marker,
+//! emptied), the settings that decide what
 //! reaches an agent or the machine ([`ProtectedSettings`]: the paste warning, automatic updates,
 //! HANGAR.md for every agent, the snippets), the workspace templates (program and folder of
 //! each session they start) and the start and notice preferences ([`MainPrefs`]: private or team
@@ -35,6 +37,8 @@ use crate::partners::PartnerBook;
 use crate::persist::{normalize_key, read_limited, write_atomic};
 
 pub const SWITCHES_FILE: &str = "security-switches.json";
+/// Legacy: read once to move the messages into `workspace.json`, then kept empty, so a value an
+/// older version left in `localStorage` is never migrated again (`mainStore.ts`).
 pub const QUEUE_FILE: &str = "queued-messages.json";
 pub const SETTINGS_FILE: &str = "protected-settings.json";
 pub const TEMPLATES_FILE: &str = "workspace-templates.json";
@@ -51,8 +55,8 @@ const MAX_PARTNERS_BYTES: usize = crate::partners::MAX_PROJECTS * (MAX_FOLDER_UN
 const MAX_SUB_AGENTS_BYTES: usize = 16 * 1024;
 /// Queued messages kept at most, one per session ([`crate::persist::MAX_SESSIONS`]).
 pub const MAX_QUEUED: usize = crate::persist::MAX_SESSIONS;
-/// Length of one queued message in UTF-16 units, as the window counts (`MAX_QUEUED_CHARS`).
-pub const MAX_QUEUED_UNITS: usize = 20_000;
+/// Length of one queued message in UTF-16 units, the same as in `workspace.json`.
+pub const MAX_QUEUED_UNITS: usize = crate::persist::MAX_QUEUED_MESSAGE_UNITS;
 /// Snippets kept at most, and the length of one in UTF-16 units, as the window bounds them
 /// (`snippets.ts`: `SNIPPET_LIMIT`, `SNIPPET_MAX_LENGTH`).
 pub const MAX_SNIPPETS: usize = 50;

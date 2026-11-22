@@ -1167,8 +1167,19 @@ async fn blocking<T: Send + 'static>(
         .map_err(|error| PersistError::Task(error.to_string()))?
 }
 
+/// The workspace holds the queued messages Hangar pastes into agent sessions, so only the main
+/// window may write or read it, like the main store (`main_store::check_main`).
+fn check_workspace_window(window: &tauri::Window) -> Result<(), PersistError> {
+    main_store::check_main(window.label()).map_err(|_| PersistError::WrongWindow)
+}
+
 #[tauri::command]
-pub async fn save_workspace(store: State<'_, Store>, state: Workspace) -> Result<(), PersistError> {
+pub async fn save_workspace(
+    window: tauri::Window,
+    store: State<'_, Store>,
+    state: Workspace,
+) -> Result<(), PersistError> {
+    check_workspace_window(&window)?;
     blocking(store, move |s| s.save_workspace(&state)).await
 }
 
@@ -1185,7 +1196,11 @@ pub fn last_exit_was_clean(
 
 /// `null` if nothing is stored or the file is unusable (reason in the log).
 #[tauri::command]
-pub async fn load_workspace(store: State<'_, Store>) -> Result<Option<Workspace>, PersistError> {
+pub async fn load_workspace(
+    window: tauri::Window,
+    store: State<'_, Store>,
+) -> Result<Option<Workspace>, PersistError> {
+    check_workspace_window(&window)?;
     blocking(store, |s| Ok(s.load_workspace())).await
 }
 

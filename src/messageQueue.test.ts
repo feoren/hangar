@@ -16,7 +16,6 @@ import {
   queueMessage,
   restoredQueue,
   saveMessage,
-  storedQueue,
   workStarted,
   type MessageQueue,
 } from "./messageQueue";
@@ -185,6 +184,15 @@ describe("text and storage", () => {
     expect(cleanQueuedText("x".repeat(MAX_QUEUED_CHARS + 5))).toHaveLength(MAX_QUEUED_CHARS);
   });
 
+  it("never leaves half a character, which the backend could not read", () => {
+    // The cut would fall between the two halves of the emoji: the whole emoji goes.
+    const cut = cleanQueuedText(`${"x".repeat(MAX_QUEUED_CHARS - 1)}\u{1F600}`);
+    expect(cut).toBe("x".repeat(MAX_QUEUED_CHARS - 1));
+    // A stray half from elsewhere becomes the replacement character; whole emoji stay.
+    expect(cleanQueuedText("a\uD83Db \uDE00c \u{1F600}")).toBe("a�b �c \u{1F600}");
+    expect(cleanQueuedText("go\uD83D")).toBe("go�");
+  });
+
   it("parses stored texts and drops malformed entries", () => {
     expect(parseStoredQueue(null).size).toBe(0);
     expect(parseStoredQueue([KEY]).size).toBe(0);
@@ -192,12 +200,9 @@ describe("text and storage", () => {
     expect([...stored]).toEqual([[KEY, "go"]]);
   });
 
-  it("stores only the sessions it is told to keep, and only what the backend takes", () => {
-    const queue = queueMessage(queueMessage(EMPTY_QUEUE, KEY, "go"), "gone", "old");
-    const entries = storedQueue(queue, (key) => key === KEY || key === "gone");
-    expect(entries).toEqual({ [KEY]: "go", gone: "old" });
+  it("migrates only what the backend takes", () => {
     // Only session keys (UUIDs) reach the backend.
-    expect(persistableQueue(entries)).toEqual({ [KEY]: "go" });
+    expect(persistableQueue({ [KEY]: "go\n\n", gone: "old" })).toEqual({ [KEY]: "go" });
     expect(persistableQueue({ [KEY]: " \n " })).toEqual({});
   });
 

@@ -281,7 +281,6 @@ import {
   saveMessage,
   queueMessage,
   restoredQueue,
-  storedQueue,
   workStarted,
   type MessageQueue,
   type QueuedMessage,
@@ -347,12 +346,11 @@ import {
   legacyMainPrefs,
   loadMainPrefs,
   loadProtectedSettings,
-  loadQueuedMessages,
   loadSecuritySwitches,
   loadStoredTemplates,
+  migrateQueuedMessages,
   saveMainPrefs,
   saveProtectedSettings,
-  saveQueuedMessages,
   saveStoredTemplates,
   type MainPrefs,
 } from "./mainStore";
@@ -532,6 +530,7 @@ import {
   EMPTY_WORKSPACE,
   mergeWorkspace,
   parseWorkspace,
+  queuedMessagesOf,
   restorable,
   sameWorkspace,
   scrollbackDue,
@@ -999,15 +998,14 @@ export function App() {
     queueRef.current = next;
     setQueue(next);
   }, []);
-  /** The stored messages are back from the backend; only then is the queue saved again. */
-  const [queueLoaded, setQueueLoaded] = useState(false);
-  useEffect(() => {
-    void loadQueuedMessages().then((stored) => {
+  /** Takes the messages the saved workspace holds (on restore, or remembered before a reload). */
+  const restoreQueue = useCallback(
+    (workspace: Workspace) => {
       // A message queued while the backend answered wins over the stored one.
-      changeQueue(new Map([...restoredQueue(stored), ...queueRef.current]));
-      setQueueLoaded(true);
-    });
-  }, [changeQueue]);
+      changeQueue(new Map([...restoredQueue(queuedMessagesOf(workspace)), ...queueRef.current]));
+    },
+    [changeQueue],
+  );
   /** The queued message editor: for which session, and where the menu was (`null`: centered). */
   const [queueEditor, setQueueEditor] = useState<{
     id: number;
@@ -3250,6 +3248,7 @@ export function App() {
               worktree: session.worktree ?? null,
               cliSessionId: session.cliSessionId ?? null,
               subAgent: session.subAgent ?? null,
+              queuedMessage: queueRef.current.get(terminal.key)?.text ?? null,
             },
           ]
         : [];
@@ -3414,6 +3413,21 @@ export function App() {
     if (!profilesReady || !protectedReady || !prefsReady || restoreStarted) return;
     restoreStarted = true;
     /**
+     * The saved workspace with the queued messages an older Hangar kept elsewhere moved in
+     * (once); its messages go into the queue. Without "Remember sessions" nothing comes back,
+     * so the old places are only emptied.
+     */
+    const loadSaved = async (): Promise<Workspace | null> => {
+      if (!settingsRef.current.restoreSessions) {
+        await migrateQueuedMessages(EMPTY_WORKSPACE, api.saveWorkspace);
+        return null;
+      }
+      const loaded = parseWorkspace(await api.loadWorkspace());
+      const workspace = await migrateQueuedMessages(loaded ?? EMPTY_WORKSPACE, api.saveWorkspace);
+      restoreQueue(workspace);
+      return loaded === null ? null : workspace;
+    };
+    /**
      * `false`: after a reload the saved state could not be read. Saving then stays off
      * (with a visible error message), because it would otherwise overwrite that state.
      */
@@ -3421,22 +3435,24 @@ export function App() {
       const running = await api.listSessions();
       if (running.length > 0) {
         setOrphans(backgroundSessions(running, new Set()));
-        if (!settingsRef.current.restoreSessions) return true;
         try {
-          rememberedWorkspace.current = parseWorkspace(await api.loadWorkspace());
+          rememberedWorkspace.current = await loadSaved();
         } catch (e) {
           showError(e);
           return false;
         }
         return true;
       }
-      if (!settingsRef.current.restoreSessions) return true;
+      if (!settingsRef.current.restoreSessions) {
+        await loadSaved();
+        return true;
+      }
       // How the previous run ended, as the backend read it at this start; an error means no notice.
       const cleanBefore = await api
         .lastExitWasClean()
         .then((clean) => clean !== false)
         .catch(() => true);
-      const workspace = parseWorkspace(await api.loadWorkspace());
+      const workspace = await loadSaved();
       if (!workspace || workspace.sessions.length === 0) return true;
       // Claude Code sessions get the gate only if the backend knows the setting before they start.
       await gateReady;
@@ -3474,8 +3490,9 @@ export function App() {
         savingAllowed.current = true;
         setRestored(true);
       });
-  }, [profilesReady, protectedReady, prefsReady, restoreSession, showError]);
+  }, [profilesReady, protectedReady, prefsReady, restoreSession, restoreQueue, showError]);
 
+  // Queued messages are saved with their sessions in the workspace, so a changed queue saves it.
   useEffect(() => {
     if (!restored || !settings.restoreSessions) return;
     const timer = window.setTimeout(() => {
@@ -3484,24 +3501,7 @@ export function App() {
     return () => {
       window.clearTimeout(timer);
     };
-  }, [state.sessions, state.activeId, restored, settings.restoreSessions, saveWorkspaceNow]);
-
-  // Queued messages come back with their sessions: stored per session key, only for sessions that
-  // are restored (or were remembered before a reload), and only once the restore has run.
-  useEffect(() => {
-    if (!restored || !queueLoaded) return;
-    if (!settings.restoreSessions) {
-      saveQueuedMessages({}).catch(() => undefined);
-      return;
-    }
-    const keys = new Set<string>();
-    for (const session of state.sessions) {
-      const key = terminals.get(session.id)?.key;
-      if (key !== undefined) keys.add(key);
-    }
-    for (const saved of rememberedWorkspace.current?.sessions ?? []) keys.add(saved.key);
-    saveQueuedMessages(storedQueue(queue, (key) => keys.has(key))).catch(() => undefined);
-  }, [queue, state.sessions, restored, queueLoaded, settings.restoreSessions]);
+  }, [state.sessions, state.activeId, queue, restored, settings.restoreSessions, saveWorkspaceNow]);
 
   useEffect(() => {
     if (!restored || !settings.restoreSessions) return;

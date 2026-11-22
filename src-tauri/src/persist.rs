@@ -30,8 +30,15 @@ const TEMP_EXT: &str = "tmp";
 pub const WORKSPACE_VERSION: u32 = 1;
 /// Upper limit per scrollback in UTF-8 bytes. Trimming older content is the frontend's job.
 pub const MAX_SCROLLBACK_BYTES: usize = 2 * 1024 * 1024;
-pub const MAX_WORKSPACE_BYTES: usize = 1024 * 1024;
 pub const MAX_SESSIONS: usize = 512;
+/// Length of one queued message in UTF-16 units: the editor cuts there (`MAX_QUEUED_CHARS` in
+/// `messageQueue.ts`) and counts the way JavaScript does, so every text it accepts is stored and
+/// nothing longer is. A prompt that long is pasted from a file anyway.
+pub const MAX_QUEUED_MESSAGE_UNITS: usize = 20_000;
+/// Room for the sessions themselves, plus every session's queued message at its longest with
+/// each UTF-16 unit escaped as `\uXXXX` (six bytes). A workspace that passes [`validate`] thus
+/// always fits, and a crafted file stays bounded.
+pub const MAX_WORKSPACE_BYTES: usize = 1024 * 1024 + MAX_SESSIONS * MAX_QUEUED_MESSAGE_UNITS * 6;
 /// One emoji with modifiers and joiners fits; a sentence does not.
 pub const MAX_EMOJI_BYTES: usize = 16;
 
@@ -74,6 +81,11 @@ pub struct SavedSession {
     /// one again on restore. Absent in files from before 0.9.0.
     #[serde(default)]
     pub sub_agent: Option<String>,
+    /// The next instruction Hangar sends once the agent is done (`messageQueue.ts`): not blank,
+    /// at most [`MAX_QUEUED_MESSAGE_UNITS`]. Absent in files from before 0.14.0 and left out when
+    /// there is none, so such a workspace still reads in an older Hangar.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub queued_message: Option<String>,
 }
 
 #[derive(Debug, thiserror::Error)]
@@ -82,6 +94,8 @@ pub enum PersistError {
     InvalidKey,
     #[error("Scrollback too large: {size} bytes, at most {max} allowed")]
     TooLarge { size: usize, max: usize },
+    #[error("Only the main window may do this")]
+    WrongWindow,
     #[error("Invalid workspace: {0}")]
     InvalidWorkspace(&'static str),
     #[error("File {path} cannot be read or written: {source}")]
@@ -176,6 +190,11 @@ pub fn validate(workspace: &Workspace) -> Result<(), PersistError> {
             .is_some_and(|name| !crate::agent_defs::valid_name(name))
         {
             return invalid("subAgent is no valid sub-agent name");
+        }
+        if let Some(text) = &session.queued_message {
+            if text.trim().is_empty() || text.encode_utf16().count() > MAX_QUEUED_MESSAGE_UNITS {
+                return invalid("queuedMessage must be neither blank nor too long");
+            }
         }
     }
     if let Some(active) = &workspace.active_key {
@@ -806,6 +825,7 @@ mod tests {
             worktree: None,
             cli_session_id: None,
             sub_agent: None,
+            queued_message: None,
         }
     }
 
@@ -986,7 +1006,80 @@ mod tests {
         assert!(loaded.sessions.iter().all(|s| s.color.is_none()
             && s.emoji.is_none()
             && s.worktree.is_none()
-            && s.cli_session_id.is_none()));
+            && s.cli_session_id.is_none()
+            && s.queued_message.is_none()));
+    }
+
+    #[test]
+    fn queued_messages_round_trip_and_stay_out_when_absent() {
+        let store = TempStore::new("ws-queued");
+        let mut w = workspace();
+        w.sessions[0].queued_message = Some("run the tests\nthen commit \u{1F680}".into());
+        store.0.save_workspace(&w).unwrap();
+        assert_eq!(store.0.load_workspace(), Some(w));
+        let json: serde_json::Value =
+            serde_json::from_slice(&fs::read(store.0.dir().join(WORKSPACE_FILE)).unwrap()).unwrap();
+        assert_eq!(
+            json["sessions"][0]["queuedMessage"],
+            "run the tests\nthen commit \u{1F680}"
+        );
+        // Without a message the file looks as before, so an older Hangar still reads it.
+        assert!(json["sessions"][1].get("queuedMessage").is_none());
+    }
+
+    #[test]
+    fn queued_message_limit_holds_on_saving_and_loading() {
+        let store = TempStore::new("ws-queued-limit");
+        let at_limit = "a".repeat(MAX_QUEUED_MESSAGE_UNITS);
+        // An astral character is two UTF-16 units, as the editor counts it.
+        let over_in_units = "\u{1F600}".repeat(MAX_QUEUED_MESSAGE_UNITS / 2 + 1);
+        let mut w = workspace();
+        w.sessions[0].queued_message = Some(at_limit);
+        assert!(validate(&w).is_ok());
+        for text in [
+            String::new(),
+            " \n\t".into(),
+            "a".repeat(MAX_QUEUED_MESSAGE_UNITS + 1),
+            over_in_units,
+        ] {
+            let mut w = workspace();
+            w.sessions[0].queued_message = Some(text);
+            assert!(matches!(
+                store.0.save_workspace(&w),
+                Err(PersistError::InvalidWorkspace(_))
+            ));
+        }
+        assert!(!store.0.dir().join(WORKSPACE_FILE).exists());
+
+        // A file written by hand with a message over the limit is not loaded either.
+        fs::create_dir_all(store.0.dir()).unwrap();
+        let long = "a".repeat(MAX_QUEUED_MESSAGE_UNITS + 1);
+        let file = format!(
+            r#"{{"version":1,"sessions":[{{"key":"{KEY}","profileId":"claude","cwd":"c",
+                "title":"t","order":0,"queuedMessage":"{long}"}}]}}"#
+        );
+        fs::write(store.0.dir().join(WORKSPACE_FILE), file).unwrap();
+        assert_eq!(store.0.load_workspace(), None);
+    }
+
+    #[test]
+    fn the_largest_valid_workspace_fits_the_file_limit() {
+        // Control characters are escaped to six bytes each, the worst case for the file size.
+        let text = "\u{1}".repeat(MAX_QUEUED_MESSAGE_UNITS);
+        let sessions = (0..MAX_SESSIONS)
+            .map(|i| {
+                let mut s = session(&format!("00000000-0000-4000-8000-{i:012x}"), i as u32);
+                s.queued_message = Some(format!("x{}", &text[1..]));
+                s
+            })
+            .collect();
+        let w = Workspace {
+            version: WORKSPACE_VERSION,
+            sessions,
+            active_key: None,
+        };
+        assert!(validate(&w).is_ok());
+        assert!(serde_json::to_vec_pretty(&w).unwrap().len() <= MAX_WORKSPACE_BYTES);
     }
 
     #[test]

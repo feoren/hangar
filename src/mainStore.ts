@@ -1,5 +1,6 @@
 // What the main window keeps in the backend instead of localStorage: the security switches
-// (claims, gate, command guard), the queued messages, the protected settings (paste warning,
+// (claims, gate, command guard), the queued messages until 0.13 (since then in the workspace,
+// migrateQueuedMessages), the protected settings (paste warning,
 // automatic updates, HANGAR.md, snippets), the workspace templates and the start and notice
 // preferences (private or team start, last program, folders, session restore, notices, the daily
 // budget with its early warning and the day and level its notice last showed, the morning summary
@@ -66,6 +67,7 @@ import {
 } from "./startMode";
 import { legacyTemplates, parseTemplates, TEMPLATES_STORAGE_KEY } from "./templates";
 import type { WorkspaceTemplate } from "./templates";
+import { withQueuedMessages, type Workspace } from "./workspace";
 
 /** The backend commands this module needs; replaced in tests. */
 export interface MainBackend {
@@ -177,35 +179,51 @@ export async function loadSecuritySwitches(
 }
 
 /**
- * The stored queued messages per session key. While the backend has none stored yet, the texts
- * an older version kept in localStorage are taken over once; the localStorage copy is removed
- * either way.
+ * Moves the queued messages an older Hangar kept elsewhere into the workspace, where they live
+ * now (`queuedMessage` of each session). Hangar 0.10 to 0.13 kept them in the backend's own
+ * file; before that in localStorage, taken over only while that file was never written. A
+ * session that has a message in the workspace already keeps it. The workspace with the moved
+ * messages is saved before the old places are emptied, so a failed save loses nothing and the
+ * next start tries again. The emptied backend file stays as the mark that the migration ran: a
+ * text a viewer writes to the old localStorage key later is never taken over. Returns the
+ * workspace with the moved messages.
  */
-export async function loadQueuedMessages(
+export async function migrateQueuedMessages(
+  workspace: Workspace,
+  saveWorkspace: (workspace: Workspace) => Promise<unknown>,
   backend: MainBackend = api,
   storage: LegacyStorage | null = browserStorage(),
-): Promise<Map<string, string>> {
+): Promise<Workspace> {
   let answer: unknown;
   try {
     answer = await backend.loadMessageQueue();
   } catch {
-    return new Map<string, string>();
+    return workspace;
   }
-  let stored = parseStoredQueue(answer);
-  if (answer === null && storage !== null) {
-    const legacy = loadLegacyQueue(storage);
-    const entries = persistableQueue(Object.fromEntries(legacy));
-    // Saved even when empty: from now on the backend has a queue stored, so a viewer that
-    // writes the old key later never gets a message migrated.
-    await backend.saveMessageQueue(entries).catch(() => undefined);
-    stored = new Map(Object.entries(entries));
+  const backendQueue = parseStoredQueue(answer);
+  const legacy =
+    answer === null
+      ? storage === null
+        ? new Map<string, string>()
+        : loadLegacyQueue(storage)
+      : backendQueue;
+  const migrated = withQueuedMessages(workspace, persistableQueue(Object.fromEntries(legacy)));
+  if (migrated !== workspace) {
+    try {
+      await saveWorkspace(migrated);
+    } catch {
+      return migrated;
+    }
+  }
+  if (answer === null || backendQueue.size > 0) {
+    await backend.saveMessageQueue({}).catch(() => undefined);
   }
   try {
     storage?.removeItem(QUEUE_STORAGE_KEY);
   } catch {
     // Blocked storage: nothing there is read again anyway.
   }
-  return stored;
+  return migrated;
 }
 
 /**
@@ -304,14 +322,6 @@ export function saveStoredTemplates(
   backend: MainBackend = api,
 ): Promise<unknown> {
   return backend.saveTemplates(parseTemplates(templates));
-}
-
-/** Stores the queued messages; what the backend would refuse is left out. */
-export function saveQueuedMessages(
-  entries: Record<string, string>,
-  backend: MainBackend = api,
-): Promise<unknown> {
-  return backend.saveMessageQueue(persistableQueue(entries));
 }
 
 /** The preferences before anything was chosen: private start, home folder, every notice on. */

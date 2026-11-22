@@ -5,15 +5,14 @@ import {
   legacyMainPrefs,
   loadMainPrefs,
   loadProtectedSettings,
-  loadQueuedMessages,
   loadSecuritySwitches,
   loadStoredTemplates,
+  migrateQueuedMessages,
   parseProtected,
   parseMainPrefs,
   parseSwitches,
   saveMainPrefs,
   saveProtectedSettings,
-  saveQueuedMessages,
   saveStoredTemplates,
   type MainBackend,
   type MainPrefs,
@@ -22,6 +21,7 @@ import { QUEUE_STORAGE_KEY } from "./messageQueue";
 import { SETTINGS_STORAGE_KEY, type ProtectedSettings, type SecuritySwitches } from "./settings";
 import { defaultSnippets } from "./snippets";
 import { TEMPLATES_STORAGE_KEY, type WorkspaceTemplate } from "./templates";
+import { buildWorkspace, EMPTY_WORKSPACE, type Workspace } from "./workspace";
 
 const KEY = "0b0e7c1e-5d3a-4c1b-9a3e-2f6d8e9a1b2c";
 const ON: SecuritySwitches = { claimsEnabled: true, gateEnabled: true, commandGuardEnabled: true };
@@ -139,36 +139,114 @@ describe("security switches", () => {
 });
 
 describe("queued messages", () => {
-  it("migrates the old texts once, then only the backend counts", async () => {
+  const OTHER = "7c9e6679-7425-40de-944b-e07fc1f90ae7";
+  const UNKNOWN = "16fd2706-8baf-433b-82eb-8c7fada847da";
+  const session = (key: string, queuedMessage: string | null = null) => ({
+    key,
+    profileId: "claude",
+    cwd: "C:\\Users\\x\\project",
+    title: "Claude Code",
+    queuedMessage,
+  });
+  const workspace = (...sessions: ReturnType<typeof session>[]) => buildWorkspace(sessions, null);
+  /** Records every workspace the migration saves; `fail` makes the save reject. */
+  const workspaceSaver = (fail = false) => {
+    const saves: Workspace[] = [];
+    const save = (value: Workspace) => {
+      saves.push(value);
+      return fail ? Promise.reject(new Error("disk full")) : Promise.resolve(null);
+    };
+    return { saves, save };
+  };
+  const messages = (value: Workspace) => value.sessions.map((s) => s.queuedMessage);
+
+  it("moves the localStorage texts into the workspace once and then forgets them", async () => {
     const storage = memoryStorage({
-      [QUEUE_STORAGE_KEY]: JSON.stringify({ [KEY]: "go", "not-a-key": "x" }),
+      [QUEUE_STORAGE_KEY]: JSON.stringify({
+        [KEY.toUpperCase()]: "go\n\n",
+        [UNKNOWN]: "nobody's",
+        "not-a-key": "x",
+      }),
     });
     const { fake, saved } = backend(null, null);
-    expect([...(await loadQueuedMessages(fake, storage))]).toEqual([[KEY, "go"]]);
-    expect(saved.queues).toEqual([{ [KEY]: "go" }]);
+    const { saves, save } = workspaceSaver();
+    const migrated = await migrateQueuedMessages(
+      workspace(session(KEY), session(OTHER)),
+      save,
+      fake,
+      storage,
+    );
+    expect(messages(migrated)).toEqual(["go", null]);
+    // Saved before the old places are emptied; the emptied file marks the migration as done.
+    expect(saves).toEqual([migrated]);
+    expect(saved.queues).toEqual([{}]);
     expect(storage.store.has(QUEUE_STORAGE_KEY)).toBe(false);
   });
 
-  it("ignores and removes texts written to localStorage after the migration", async () => {
-    const storage = memoryStorage({ [QUEUE_STORAGE_KEY]: JSON.stringify({ [KEY]: "injected" }) });
+  it("moves the backend file of 0.10 to 0.13 and ignores what a viewer wrote", async () => {
+    const storage = memoryStorage({ [QUEUE_STORAGE_KEY]: JSON.stringify({ [OTHER]: "injected" }) });
     const { fake, saved } = backend(null, { [KEY]: "mine" });
-    expect([...(await loadQueuedMessages(fake, storage))]).toEqual([[KEY, "mine"]]);
+    const { saves, save } = workspaceSaver();
+    const migrated = await migrateQueuedMessages(
+      workspace(session(KEY), session(OTHER)),
+      save,
+      fake,
+      storage,
+    );
+    expect(messages(migrated)).toEqual(["mine", null]);
+    expect(saves).toEqual([migrated]);
+    expect(saved.queues).toEqual([{}]);
+    expect(storage.store.has(QUEUE_STORAGE_KEY)).toBe(false);
+  });
+
+  it("does nothing more once migrated, and a message in the workspace wins", async () => {
+    const storage = memoryStorage({ [QUEUE_STORAGE_KEY]: JSON.stringify({ [KEY]: "injected" }) });
+    const { fake, saved } = backend(null, {});
+    const { saves, save } = workspaceSaver();
+    const current = workspace(session(KEY, "stored"));
+    expect(await migrateQueuedMessages(current, save, fake, storage)).toBe(current);
+    expect(saves).toEqual([]);
     expect(saved.queues).toEqual([]);
     expect(storage.store.has(QUEUE_STORAGE_KEY)).toBe(false);
+
+    const old = backend(null, { [KEY]: "old" });
+    const kept = await migrateQueuedMessages(current, save, old.fake, memoryStorage());
+    expect(messages(kept)).toEqual(["stored"]);
+    expect(saves).toEqual([]);
+    expect(old.saved.queues).toEqual([{}]);
   });
 
-  it("stores an empty queue when there was nothing to migrate", async () => {
+  it("marks the migration as done even when there was nothing to move", async () => {
     // Otherwise the backend stays "never stored" and a text a viewer writes to the old key
     // later would be migrated on the next start.
     const { fake, saved } = backend(null, null);
-    expect([...(await loadQueuedMessages(fake, memoryStorage()))]).toEqual([]);
+    const { saves, save } = workspaceSaver();
+    await migrateQueuedMessages(EMPTY_WORKSPACE, save, fake, memoryStorage());
+    expect(saves).toEqual([]);
     expect(saved.queues).toEqual([{}]);
   });
 
-  it("saves only what the backend takes", async () => {
+  it("keeps the old places when the workspace cannot be saved", async () => {
+    const storage = memoryStorage({ [QUEUE_STORAGE_KEY]: JSON.stringify({ [KEY]: "go" }) });
     const { fake, saved } = backend(null, null);
-    await saveQueuedMessages({ [KEY]: "go\n\n", other: "x" }, fake);
-    expect(saved.queues).toEqual([{ [KEY]: "go" }]);
+    const { save } = workspaceSaver(true);
+    const migrated = await migrateQueuedMessages(workspace(session(KEY)), save, fake, storage);
+    expect(messages(migrated)).toEqual(["go"]);
+    expect(saved.queues).toEqual([]);
+    expect(storage.store.has(QUEUE_STORAGE_KEY)).toBe(true);
+  });
+
+  it("touches nothing without a backend", async () => {
+    const storage = memoryStorage({ [QUEUE_STORAGE_KEY]: JSON.stringify({ [KEY]: "go" }) });
+    const fake: MainBackend = {
+      ...backend(null, null).fake,
+      loadMessageQueue: () => Promise.reject(new Error("no backend")),
+    };
+    const { saves, save } = workspaceSaver();
+    const current = workspace(session(KEY));
+    expect(await migrateQueuedMessages(current, save, fake, storage)).toBe(current);
+    expect(saves).toEqual([]);
+    expect(storage.store.has(QUEUE_STORAGE_KEY)).toBe(true);
   });
 });
 

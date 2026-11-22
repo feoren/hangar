@@ -4,7 +4,7 @@ type: synthesis
 tags: [sessions, persistence, resume, contract]
 sources: ["[[resume-measurement]]", "[[resume-id-measurement]]"]
 created: 2026-11-07
-updated: 2026-11-20
+updated: 2026-11-22
 ---
 
 # Restoring sessions after a restart
@@ -62,6 +62,18 @@ background service, a non-goal). Backend: `src-tauri/src/persist.rs`, `src-tauri
 - `cliSessionId` (optional, since 0.3.0, unique across entries): conversation id of the agent
   CLI, a UUID like `key`
   ([[resume]]). Missing or `null` for older files and programs without `session_id_args`.
+- `queuedMessage` (optional, since 0.14.0): the message queued for the session
+  ([[queued-messages-and-stall-hint]]), not blank, at most 20 000 UTF-16 units (the editor's
+  `MAX_QUEUED_CHARS`, counted the way JavaScript counts). Checked on saving and on loading; a file
+  with a longer one is not loaded. Left out of the file when there is none, so a workspace without
+  queued messages still reads in an older Hangar. With one, an older Hangar refuses the file
+  (`deny_unknown_fields`), starts without the saved sessions and overwrites it with its own;
+  accepted, because the updater never goes back and every earlier new field (`cliSessionId`,
+  `subAgent`) broke a downgrade for every workspace. The file limit is 1 MiB plus room for every
+  session's message at its longest with each unit escaped (`MAX_WORKSPACE_BYTES`), so a valid
+  workspace always fits.
+- `save_workspace` and `load_workspace` answer the main window only (also checked in the
+  command, not only through the capability): the workspace holds text Hangar pastes into agents.
 - Event on the session channel:
   `{ "type": "resumeFallback", "code": number | null, "cliSessionId": string | null, "subAgents": bool }`. Sent when the
   launch with `resume_args` or `resume_id_args` exited with a nonzero code within 5 s and the user
