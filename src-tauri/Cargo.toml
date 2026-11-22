@@ -236,4 +236,4 @@ objc2-user-notifications = { version = "0.3", default-features = false, features
 # default features, through keyring and tauri-plugin-single-instance, so it adds no code.
 # Alternatives: notify-rust 4.19 (MIT/Apache-2.0) pulls zbus 6, a second D-Bus stack;
 # tauri-plugin-notification has no "replace by session" and would be a second Windows path.
-zbus = "5.19"
+zbus = "6.3"
