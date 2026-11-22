@@ -72,8 +72,8 @@ use crate::gate::{
 use crate::gate_rules::{self, GateRule, RuleAnswer, RuleBook, RuleEffect, RuleScope};
 use crate::hook_http::{self, Head, Status};
 use crate::hook_recipes::{
-    self as recipes, Shell, AGENT_CODEX, AGENT_DROID, AGENT_GEMINI, EVENT_BEFORE_TOOL,
-    EVENT_PRE_TOOL_USE, HELPER_ENV,
+    self as recipes, Shell, AGENT_CODEX, AGENT_CURSOR, AGENT_DROID, AGENT_GEMINI,
+    EVENT_BEFORE_TOOL, EVENT_PRE_TOOL_USE, HELPER_ENV,
 };
 use crate::lock;
 use crate::manager::{GateLaunch, GatePlan, LaunchGate};
@@ -830,6 +830,45 @@ impl GateService {
                 let config = recipes::opencode_config(&plugin).ok_or(GateStatus::HookFiles)?;
                 Install {
                     env: vec![(recipes::OPENCODE_CONFIG_CONTENT_ENV.to_owned(), config)],
+                    helper: true,
+                    ..Install::default()
+                }
+            }
+            HookFormat::CursorPlugin => {
+                // Cursor runs the hook command in PowerShell on Windows (measured through
+                // cursor-agent.cmd with 2026.11.19), in the shell elsewhere.
+                let command = recipes::helper_command(
+                    &self.helper()?,
+                    AGENT_CURSOR,
+                    EVENT_PRE_TOOL_USE,
+                    Shell::for_agent(true),
+                    false,
+                )
+                .map_err(|_| GateStatus::InstallPath)?;
+                let dir = self.session_dir(port, session)?;
+                let plugin = dir.join(recipes::CURSOR_DIR);
+                let plugin_text = path_text(&plugin);
+                // The launcher is cursor-agent.cmd, which gets the folder as an argument.
+                if batch && !crate::batch::argument_ok(&plugin_text) {
+                    return Err(GateStatus::Launcher);
+                }
+                let manifest_dir = plugin.join(recipes::CURSOR_MANIFEST_DIR);
+                let hooks_dir = plugin.join(recipes::CURSOR_HOOKS_DIR);
+                for folder in [&plugin, &manifest_dir, &hooks_dir] {
+                    create_private_dir(folder).map_err(|_| GateStatus::HookFiles)?;
+                }
+                write_file(
+                    &manifest_dir,
+                    recipes::CURSOR_MANIFEST,
+                    &recipes::cursor_manifest(),
+                )?;
+                write_file(
+                    &hooks_dir,
+                    recipes::CURSOR_HOOKS,
+                    &recipes::cursor_hooks(&command),
+                )?;
+                Install {
+                    prepend: vec![recipes::CURSOR_PLUGIN_FLAG.to_owned(), plugin_text],
                     helper: true,
                     ..Install::default()
                 }
@@ -4774,6 +4813,50 @@ mod tests {
         assert_token_only_in_env(&fixture, &launch);
         fixture.service.ended(14);
         wait_until_gone(file.parent().unwrap());
+    }
+
+    #[test]
+    fn cursor_gets_a_plugin_folder_whose_hook_runs_the_helper() {
+        let fixture = fixture(DECISION_TIMEOUT);
+        fixture.service.configure(true);
+        fixture.service.set_helper(helper_exe(true));
+        let launch = launched(fixture.service.prepare(
+            16,
+            &agent_in("cursor_plugin", false),
+            Path::new("cursor-agent.exe"),
+            &["--resume".to_owned()],
+            None,
+        ));
+        assert_eq!(launch.prepend[0], "--plugin-dir");
+        assert_eq!(launch.prepend.len(), 2);
+        assert!(launch.args.is_empty());
+        let plugin = PathBuf::from(&launch.prepend[1]);
+        assert!(plugin.starts_with(fixture.settings.path().join(SESSIONS_DIR)));
+        let manifest = plugin.join(".cursor-plugin").join("plugin.json");
+        assert_eq!(
+            std::fs::read_to_string(&manifest).unwrap(),
+            recipes::cursor_manifest()
+        );
+        let hooks: serde_json::Value = serde_json::from_str(
+            &std::fs::read_to_string(plugin.join("hooks").join("hooks.json")).unwrap(),
+        )
+        .unwrap();
+        let hook = &hooks["hooks"]["preToolUse"][0];
+        assert_eq!(hook["matcher"], "Write|Delete");
+        let command = hook["command"].as_str().unwrap();
+        assert!(
+            command.contains(helper_exe(true).to_str().unwrap()),
+            "{command}"
+        );
+        assert!(
+            command.ends_with("gate-hook cursor pre-tool-use"),
+            "{command}"
+        );
+        assert!(env_of(&launch, HELPER_ENV).is_some());
+        assert_token_only_in_env(&fixture, &launch);
+        let dir = plugin.parent().unwrap().to_path_buf();
+        fixture.service.ended(16);
+        wait_until_gone(&dir);
     }
 
     #[test]

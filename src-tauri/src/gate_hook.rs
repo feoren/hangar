@@ -1,5 +1,5 @@
 //! `hangar gate-hook <agent> <event>`: the agent gate's command hook for agent CLIs without HTTP
-//! hooks (Gemini CLI, Copilot CLI, Codex CLI, Droid; recipes in `hook_recipes.rs`).
+//! hooks (Gemini CLI, Copilot CLI, Codex CLI, Droid, Cursor CLI; recipes in `hook_recipes.rs`).
 //!
 //! The agent starts the Hangar executable in this mode with the hook's JSON on stdin. The helper
 //! reads the paths the tool is about to change, asks the running Hangar's endpoint
@@ -27,8 +27,8 @@ use serde_json::Value;
 
 use crate::gate::{DECISION_TIMEOUT, MAX_FIELD_BYTES, ROUTE_PRE_TOOL_USE};
 use crate::hook_recipes::{
-    AGENT_CODEX, AGENT_COPILOT, AGENT_DROID, AGENT_GEMINI, EVENT_BEFORE_TOOL, EVENT_PRE_TOOL_USE,
-    HELPER_ENV,
+    AGENT_CODEX, AGENT_COPILOT, AGENT_CURSOR, AGENT_DROID, AGENT_GEMINI, EVENT_BEFORE_TOOL,
+    EVENT_PRE_TOOL_USE, HELPER_ENV,
 };
 
 /// How long the helper waits in total, below the hooks' own limit (660 s,
@@ -51,6 +51,7 @@ pub enum HookAgent {
     Copilot,
     Codex,
     Droid,
+    Cursor,
 }
 
 impl HookAgent {
@@ -61,6 +62,7 @@ impl HookAgent {
             (AGENT_COPILOT, EVENT_PRE_TOOL_USE) => Some(HookAgent::Copilot),
             (AGENT_CODEX, EVENT_PRE_TOOL_USE) => Some(HookAgent::Codex),
             (AGENT_DROID, EVENT_PRE_TOOL_USE) => Some(HookAgent::Droid),
+            (AGENT_CURSOR, EVENT_PRE_TOOL_USE) => Some(HookAgent::Cursor),
             _ => None,
         }
     }
@@ -69,7 +71,7 @@ impl HookAgent {
 #[derive(Debug, thiserror::Error)]
 pub enum HelperError {
     #[error(
-        "usage: hangar gate-hook <gemini before-tool | copilot pre-tool-use | codex pre-tool-use | droid pre-tool-use>"
+        "usage: hangar gate-hook <gemini before-tool | copilot pre-tool-use | codex pre-tool-use | droid pre-tool-use | cursor pre-tool-use>"
     )]
     Usage,
     #[error("the hook input could not be read: {0}")]
@@ -224,6 +226,8 @@ fn string_field(input: &Value, keys: &[&str]) -> Option<String> {
 /// (`Create` with `file_path`; `Edit` and `ApplyPatch` not documented, so any path key or patch
 /// text counts); Copilot CLI sends `toolName`,
 /// `toolArgs` (object or JSON string) and `cwd`, or the snake case shape for its PascalCase events.
+/// Cursor CLI sends `tool_name` (`Write`, `Delete`) and `tool_input` with an absolute `file_path`,
+/// no `cwd` but `workspace_roots` (measured with 2026.11.19).
 pub fn parse_call(agent: HookAgent, input: &[u8]) -> Result<ToolCall, HelperError> {
     let json: Value = serde_json::from_slice(input).map_err(|_| HelperError::Shape)?;
     if !json.is_object() {
@@ -231,9 +235,16 @@ pub fn parse_call(agent: HookAgent, input: &[u8]) -> Result<ToolCall, HelperErro
     }
     let (tool_keys, args_keys): (&[&str], &[&str]) = match agent {
         HookAgent::Copilot => (&["toolName", "tool_name"], &["toolArgs", "tool_input"]),
-        HookAgent::Gemini | HookAgent::Codex | HookAgent::Droid => {
+        HookAgent::Gemini | HookAgent::Codex | HookAgent::Droid | HookAgent::Cursor => {
             (&["tool_name"], &["tool_input"])
         }
+    };
+    let workspace = || {
+        json.get("workspace_roots")
+            .and_then(Value::as_array)
+            .and_then(|roots| roots.first())
+            .and_then(Value::as_str)
+            .map(str::to_owned)
     };
     let tool = string_field(&json, tool_keys).ok_or(HelperError::Shape)?;
     let args = args_keys
@@ -243,7 +254,7 @@ pub fn parse_call(agent: HookAgent, input: &[u8]) -> Result<ToolCall, HelperErro
     Ok(ToolCall {
         tool,
         paths: argument_paths(args),
-        cwd: string_field(&json, &["cwd"]),
+        cwd: string_field(&json, &["cwd"]).or_else(workspace),
     })
 }
 
@@ -278,7 +289,8 @@ pub fn read_verdict(body: &str) -> Result<Verdict, HelperError> {
 }
 
 /// The verdict in the agent's own words. Gemini CLI and Codex have no usable "ask" (Codex fails
-/// open on it), so for them Hangar's "please confirm" becomes a deny that says so.
+/// open on it), and Cursor's is not measured, so for them Hangar's "please confirm" becomes a deny
+/// that says so.
 pub fn reply(agent: HookAgent, verdict: &Verdict) -> Reply {
     let (reason, ask) = match verdict {
         Verdict::Allow => {
@@ -337,6 +349,13 @@ pub fn reply(agent: HookAgent, verdict: &Verdict) -> Reply {
         // was measured to fail open on exit 2 with JSON, so Droid gets the JSON with exit 0
         // (Droid itself is not measured: not installed).
         HookAgent::Droid => json_only(claude_shape("deny")),
+        // Measured live with Cursor CLI 2026.11.19 through cursor-agent.cmd and PowerShell: this
+        // JSON with exit 0 rejects the tool, and the agent gets `agent_message`.
+        HookAgent::Cursor => json_only(serde_json::json!({
+            "permission": "deny",
+            "user_message": reason,
+            "agent_message": reason,
+        })),
         // Copilot CLI reads exit 2 as a deny even when stdout says otherwise (docs, not measured).
         HookAgent::Copilot => Reply {
             stdout: serde_json::json!({
@@ -621,6 +640,44 @@ mod tests {
     }
 
     #[test]
+    fn cursor_input_names_its_file_and_takes_the_workspace_as_cwd() {
+        // The shape Cursor CLI 2026.11.19 sent (measured), trimmed.
+        for (tool, args) in [
+            (
+                "Write",
+                serde_json::json!({ "file_path": r"E:\repo\hello.txt", "content": "hi" }),
+            ),
+            (
+                "Delete",
+                serde_json::json!({ "file_path": r"E:\repo\old.txt" }),
+            ),
+        ] {
+            let input = serde_json::json!({
+                "conversation_id": "c", "generation_id": "g", "model": "default",
+                "tool_name": tool, "tool_input": args, "tool_use_id": "t",
+                "hook_event_name": "preToolUse", "cursor_version": "2026.11.19-f005e9d",
+                "workspace_roots": [r"E:\repo"], "transcript_path": null,
+            });
+            let call = parse_call(HookAgent::Cursor, input.to_string().as_bytes()).unwrap();
+            assert_eq!(call.tool, tool);
+            assert_eq!(call.paths.len(), 1);
+            assert!(call.paths[0].starts_with(r"E:\repo\"));
+            assert_eq!(call.cwd.as_deref(), Some(r"E:\repo"));
+        }
+        // A `cwd` of its own wins over the workspace.
+        let input = serde_json::json!({
+            "tool_name": "Write", "tool_input": { "file_path": "a" },
+            "cwd": "/x", "workspace_roots": ["/y"],
+        });
+        let call = parse_call(HookAgent::Cursor, input.to_string().as_bytes()).unwrap();
+        assert_eq!(call.cwd.as_deref(), Some("/x"));
+        assert_eq!(
+            HookAgent::parse("cursor", "pre-tool-use"),
+            Some(HookAgent::Cursor)
+        );
+    }
+
+    #[test]
     fn copilot_arguments_come_as_object_or_string() {
         let object = serde_json::json!({
             "sessionId": "s", "timestamp": 1, "cwd": "/repo", "toolName": "edit",
@@ -690,6 +747,19 @@ mod tests {
         assert_eq!(json["permissionDecisionReason"], "Hangar: no");
         assert_eq!(copilot.code, 2);
 
+        // Cursor: exit 0 with its own deny JSON, measured live; the agent reads agent_message.
+        let cursor = reply(HookAgent::Cursor, &deny);
+        assert_eq!((cursor.code, cursor.stderr.as_str()), (0, ""));
+        let json: Value = serde_json::from_str(&cursor.stdout).unwrap();
+        assert_eq!(
+            json,
+            serde_json::json!({
+                "permission": "deny",
+                "user_message": "Hangar: no",
+                "agent_message": "Hangar: no",
+            })
+        );
+
         let codex = reply(HookAgent::Codex, &deny);
         let json: Value = serde_json::from_str(&codex.stdout).unwrap();
         assert_eq!(json["hookSpecificOutput"]["hookEventName"], "PreToolUse");
@@ -702,7 +772,11 @@ mod tests {
         let copilot = reply(HookAgent::Copilot, &ask);
         assert_eq!(copilot.code, 0);
         assert!(copilot.stdout.contains("\"ask\""));
-        for (agent, code) in [(HookAgent::Gemini, 0), (HookAgent::Codex, 0)] {
+        for (agent, code) in [
+            (HookAgent::Gemini, 0),
+            (HookAgent::Codex, 0),
+            (HookAgent::Cursor, 0),
+        ] {
             let answer = reply(agent, &ask);
             assert_eq!(answer.code, code);
             assert!(answer.stdout.contains("deny"));
@@ -712,6 +786,7 @@ mod tests {
             HookAgent::Copilot,
             HookAgent::Codex,
             HookAgent::Droid,
+            HookAgent::Cursor,
         ] {
             let allow = reply(agent, &Verdict::Allow);
             assert_eq!((allow.code, allow.stdout.as_str()), (0, ""));

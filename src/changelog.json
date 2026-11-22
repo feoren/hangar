@@ -18,18 +18,18 @@
         "zh": "Hangar 会询问一次是否发送匿名使用统计。默认关闭，不含项目名或人名、路径或内容，可随时关闭。"
       },
       {
-        "de": "GitHub Copilot CLI und OpenCode 2 können jetzt als Team-Session laufen.",
-        "en": "GitHub Copilot CLI and OpenCode 2 can now run as team sessions.",
-        "el": "Το GitHub Copilot CLI και το OpenCode 2 μπορούν πλέον να τρέχουν ως ομαδικές συνεδρίες.",
-        "es": "GitHub Copilot CLI y OpenCode 2 ya pueden ejecutarse como sesiones de equipo.",
-        "fr": "GitHub Copilot CLI et OpenCode 2 peuvent désormais tourner en sessions d'équipe.",
-        "it": "GitHub Copilot CLI e OpenCode 2 ora possono girare come sessioni di team.",
-        "ja": "GitHub Copilot CLI と OpenCode 2 をチームセッションとして実行できるようになりました。",
-        "pl": "GitHub Copilot CLI i OpenCode 2 mogą teraz działać jako sesje zespołowe.",
-        "pt": "O GitHub Copilot CLI e o OpenCode 2 agora podem rodar como sessões de equipe.",
-        "ru": "GitHub Copilot CLI и OpenCode 2 теперь могут работать как командные сессии.",
-        "tr": "GitHub Copilot CLI ve OpenCode 2 artık takım oturumu olarak çalışabilir.",
-        "zh": "GitHub Copilot CLI 和 OpenCode 2 现在可以作为团队会话运行。"
+        "de": "GitHub Copilot CLI, Cursor CLI und OpenCode 2 können jetzt als Team-Session laufen.",
+        "en": "GitHub Copilot CLI, Cursor CLI and OpenCode 2 can now run as team sessions.",
+        "el": "Τα GitHub Copilot CLI, Cursor CLI και OpenCode 2 μπορούν πλέον να τρέχουν ως ομαδικές συνεδρίες.",
+        "es": "GitHub Copilot CLI, Cursor CLI y OpenCode 2 ya pueden ejecutarse como sesiones de equipo.",
+        "fr": "GitHub Copilot CLI, Cursor CLI et OpenCode 2 peuvent désormais tourner en sessions d'équipe.",
+        "it": "GitHub Copilot CLI, Cursor CLI e OpenCode 2 ora possono girare come sessioni di team.",
+        "ja": "GitHub Copilot CLI、Cursor CLI、OpenCode 2 をチームセッションとして実行できるようになりました。",
+        "pl": "GitHub Copilot CLI, Cursor CLI i OpenCode 2 mogą teraz działać jako sesje zespołowe.",
+        "pt": "O GitHub Copilot CLI, o Cursor CLI e o OpenCode 2 agora podem rodar como sessões de equipe.",
+        "ru": "GitHub Copilot CLI, Cursor CLI и OpenCode 2 теперь могут работать как командные сессии.",
+        "tr": "GitHub Copilot CLI, Cursor CLI ve OpenCode 2 artık takım oturumu olarak çalışabilir.",
+        "zh": "GitHub Copilot CLI、Cursor CLI 和 OpenCode 2 现在可以作为团队会话运行。"
       }
     ]
   },

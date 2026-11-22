@@ -48,7 +48,8 @@
 #                    hook_format: how Hangar writes its hooks for one session:
 #                    "claude_settings" (Claude Code's `--settings`), "qwen_system_settings",
 #                    "gemini_system_settings", "copilot_plugin", "codex_config_flags",
-#                    "pi_extension", "omp_extension", "opencode_plugin" or "droid_settings"
+#                    "pi_extension", "omp_extension", "opencode_plugin", "droid_settings" or
+#                    "cursor_plugin"
 #                    (recipes in src-tauri/src/hook_recipes.rs and
 #                    docs/wiki/pages/syntheses/agent-gate-adapters.md); measured: the recipe was
 #                    run once against the live program and held an edit; min_version: oldest
@@ -277,6 +278,14 @@ id = "cursor"
 name = "Cursor CLI"
 commands = ["cursor-agent", "agent"]
 resume_args = ["--continue"]
+# preToolUse on Write and Delete from a local plugin loaded with --plugin-dir that runs
+# `hangar gate-hook cursor pre-tool-use` (PowerShell form on Windows). Measured live with
+# 2026.11.19 through cursor-agent.cmd, headless and interactive (after Cursor's usual workspace
+# trust question): the hook fires, HANGAR_GATE arrives, edits come as Write with an absolute
+# file_path, a deny JSON with exit 0 rejects the tool, the matcher keeps reads and shell calls
+# out. Cursor loads local plugins only when signed in:
+# docs/wiki/pages/sources/cursor-gate-live-measurement.md.
+capabilities = { pre_edit_block = true, context_inject = false, per_session_config = true, hook_format = "cursor_plugin", measured = true, min_version = "2026.11.19" }
 icon = "Cu"
 homepage = "https://cursor.com/cli"
 install_windows = "irm 'https://cursor.com/install?win32=true' | iex"

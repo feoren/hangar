@@ -53,6 +53,9 @@ pub const OPENCODE_SERVER_FLAG: &str = "--server";
 pub const OPENCODE_V2_FROM: &str = "2.0.0";
 /// Droid applies a settings file on top of the user's for one process.
 pub const DROID_SETTINGS_FLAG: &str = "--settings";
+/// Cursor CLI loads a local plugin (with its hooks) from this folder for one run; only when
+/// signed in (measured with 2026.11.19).
+pub const CURSOR_PLUGIN_FLAG: &str = "--plugin-dir";
 
 /// Qwen Code's tool ids for file edits (`write-file.ts`, `edit.ts`).
 pub const QWEN_EDIT_MATCHER: &str = "^(write_file|edit)$";
@@ -65,12 +68,16 @@ pub const COPILOT_EDIT_MATCHER: &str = "edit|create|apply_patch";
 pub const CODEX_EDIT_MATCHER: &str = "apply_patch";
 /// Droid's file editing tools (hooks guide: `Edit`, `Create`, `ApplyPatch`).
 pub const DROID_EDIT_MATCHER: &str = "Edit|Create|ApplyPatch";
+/// Cursor CLI's file changing tools: `Write` (also for edits) and `Delete` (measured with
+/// 2026.11.19; reads and shell calls do not reach the hook with this matcher).
+pub const CURSOR_EDIT_MATCHER: &str = "Write|Delete";
 
 /// The helper's agent names, as the hook commands pass them (`hangar gate-hook <agent> <event>`).
 pub const AGENT_GEMINI: &str = "gemini";
 pub const AGENT_COPILOT: &str = "copilot";
 pub const AGENT_CODEX: &str = "codex";
 pub const AGENT_DROID: &str = "droid";
+pub const AGENT_CURSOR: &str = "cursor";
 /// The helper's event names.
 pub const EVENT_BEFORE_TOOL: &str = "before-tool";
 pub const EVENT_PRE_TOOL_USE: &str = "pre-tool-use";
@@ -90,6 +97,13 @@ pub const OPENCODE_FILE: &str = "hangar-gate.ts";
 pub const OPENCODE2_DIR: &str = "hangar-gate";
 pub const OPENCODE2_FILE: &str = "index.ts";
 pub const DROID_FILE: &str = "droid-settings.json";
+/// Cursor's plugin folder: the manifest in `.cursor-plugin/plugin.json`, the hooks in
+/// `hooks/hooks.json`.
+pub const CURSOR_DIR: &str = "cursor-plugin";
+pub const CURSOR_MANIFEST_DIR: &str = ".cursor-plugin";
+pub const CURSOR_MANIFEST: &str = "plugin.json";
+pub const CURSOR_HOOKS_DIR: &str = "hooks";
+pub const CURSOR_HOOKS: &str = "hooks.json";
 
 /// The shared part of the in-process gate (request, paths, fail-open policy) and each agent's
 /// entry. Plain JavaScript, which is valid TypeScript, so the agents' loaders (jiti for Pi, Bun
@@ -376,6 +390,30 @@ pub fn opencode2_config(plugin_dir: &Path) -> Option<String> {
     Some(serde_json::json!({ "plugins": [url.as_str()] }).to_string())
 }
 
+/// `.cursor-plugin/plugin.json` of the Cursor CLI plugin that carries the gate's hook.
+pub fn cursor_manifest() -> String {
+    pretty(&serde_json::json!({
+        "name": "hangar-gate",
+        "version": "1.0.0",
+        "description": "Hangar's agent gate for this session",
+    }))
+}
+
+/// `hooks/hooks.json` of that plugin: a `preToolUse` command hook on the file changing tools that
+/// runs the helper. Cursor runs the command in a shell (PowerShell on Windows, measured).
+pub fn cursor_hooks(command: &str) -> String {
+    pretty(&serde_json::json!({
+        "version": 1,
+        "hooks": {
+            "preToolUse": [{
+                "command": command,
+                "matcher": CURSOR_EDIT_MATCHER,
+                "timeout": HOOK_TIMEOUT_SECS,
+            }],
+        },
+    }))
+}
+
 /// Droid's settings for one process: a `PreToolUse` command hook on the edit tools that runs the
 /// helper; Droid takes the timeout in seconds.
 pub fn droid_settings(command: &str) -> String {
@@ -435,6 +473,7 @@ mod tests {
             HookFormat::PiExtension,
             HookFormat::OmpExtension,
             HookFormat::DroidSettings,
+            HookFormat::CursorPlugin,
         ] {
             assert!(default_system_settings(format).is_none());
             assert!(system_settings_env(format).is_none());
@@ -722,6 +761,21 @@ mod tests {
             serde_json::from_str(&opencode_config(Path::new(plugin)).unwrap()).unwrap();
         assert_eq!(json, serde_json::json!({ "plugin": [expected] }));
         assert_eq!(opencode_config(Path::new("relative.ts")), None);
+    }
+
+    #[test]
+    fn cursor_plugin_runs_the_helper_on_the_file_changing_tools() {
+        let manifest: serde_json::Value = serde_json::from_str(&cursor_manifest()).unwrap();
+        assert_eq!(manifest["name"], "hangar-gate");
+        let command = r"& 'C:\h\hangar.exe' gate-hook cursor pre-tool-use";
+        let hooks: serde_json::Value = serde_json::from_str(&cursor_hooks(command)).unwrap();
+        assert_eq!(hooks["version"], 1);
+        let hook = &hooks["hooks"]["preToolUse"][0];
+        assert_eq!(hook["command"], command);
+        assert_eq!(hook["matcher"], "Write|Delete");
+        assert_eq!(hook["timeout"], HOOK_TIMEOUT_SECS);
+        // No token in either file.
+        assert!(!cursor_hooks(command).contains("HANGAR_GATE="));
     }
 
     #[test]

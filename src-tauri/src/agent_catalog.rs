@@ -309,6 +309,9 @@ pub enum HookFormat {
     OpencodePlugin,
     /// Droid: `--settings <file>` with a `PreToolUse` command hook running `hangar gate-hook`.
     DroidSettings,
+    /// Cursor CLI: `--plugin-dir <folder>` with a local plugin whose `preToolUse` hook runs
+    /// `hangar gate-hook` through the hook shell.
+    CursorPlugin,
 }
 
 impl HookFormat {
@@ -347,8 +350,9 @@ impl HookFormat {
                         || key.starts_with("hooks.PreToolUse.")
                 })
             }),
-            // Extensions add up: Pi loads every `-e`, also with `--no-extensions`.
-            HookFormat::CopilotPlugin | HookFormat::PiExtension => false,
+            // Extensions add up: Pi loads every `-e`, also with `--no-extensions`; Copilot and
+            // Cursor take `--plugin-dir` more than once.
+            HookFormat::CopilotPlugin | HookFormat::CursorPlugin | HookFormat::PiExtension => false,
             // Oh My Pi refuses `--trusted-extension` together with `-e`.
             HookFormat::OmpExtension => args.iter().any(|arg| {
                 arg == crate::hook_recipes::OMP_TRUSTED_FLAG
@@ -1690,6 +1694,7 @@ packages={ winget='x y' }
             ("pi", HookFormat::PiExtension, true, "1.5.2"),
             ("omp", HookFormat::OmpExtension, false, "18.19.0"),
             ("droid", HookFormat::DroidSettings, false, "0.174.0"),
+            ("cursor", HookFormat::CursorPlugin, true, "2026.11.19"),
         ] {
             let caps = caps(id);
             assert_eq!(caps.hook_format, Some(format), "{id}");
@@ -1701,7 +1706,7 @@ packages={ winget='x y' }
         // Context goes in through Qwen's HTTP prompt hook only; the helper hands none yet.
         assert!(caps("qwen").context_inject);
         for id in [
-            "codex", "gemini", "copilot", "opencode", "pi", "omp", "droid",
+            "codex", "gemini", "copilot", "opencode", "pi", "omp", "droid", "cursor",
         ] {
             assert!(!caps(id).context_inject, "{id}");
         }
@@ -1712,7 +1717,10 @@ packages={ winget='x y' }
             .filter(|a| a.capabilities.gate())
             .map(|a| a.id.as_str())
             .collect();
-        assert_eq!(gated, ["claude", "codex", "copilot", "opencode", "pi"]);
+        assert_eq!(
+            gated,
+            ["claude", "codex", "copilot", "cursor", "opencode", "pi"]
+        );
         // OpenCode 2.x before the measured 2.3.2 is not offered; 1.x and 2.3.2 on are.
         let opencode = caps("opencode");
         assert!(opencode.team_ready(Some("1.19.5"), false));
@@ -2052,6 +2060,7 @@ commands=['x']
             ("omp_extension", HookFormat::OmpExtension),
             ("opencode_plugin", HookFormat::OpencodePlugin),
             ("droid_settings", HookFormat::DroidSettings),
+            ("cursor_plugin", HookFormat::CursorPlugin),
         ] {
             let text = format!(
                 "{base}capabilities = {{ pre_edit_block = true, per_session_config = true, hook_format = '{name}', measured = true }}
