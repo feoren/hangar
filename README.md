@@ -18,6 +18,7 @@
   <a href="https://github.com/feoren/hangar/actions/workflows/ci.yml"><img alt="CI" src="https://github.com/feoren/hangar/actions/workflows/ci.yml/badge.svg"></a>
   <a href="https://github.com/feoren/hangar/releases/latest"><img alt="Latest release" src="https://img.shields.io/github/v/release/feoren/hangar"></a>
   <a href="LICENSE"><img alt="License: MIT" src="https://img.shields.io/badge/license-MIT-blue"></a>
+  <a href="https://buymeacoffee.com/feoren"><img alt="Buy me a coffee" src="https://img.shields.io/badge/buy%20me%20a%20coffee-support-ffdd00?logo=buymeacoffee&logoColor=black"></a>
 </p>
 
 AI coding agents are fast. Put a whole team of people behind them and the hard part is no longer
@@ -443,6 +444,11 @@ to get them. Development builds can run next to an installed Hangar.
 Bug reports, ideas and pull requests are welcome. [CONTRIBUTING.md](CONTRIBUTING.md) explains the
 check suite and the guidelines, [`docs/wiki`](docs/wiki/index.md) records how things work and why.
 Please report security issues privately as described in [SECURITY.md](SECURITY.md).
+
+## Support
+
+Hangar is free and made in spare time, without investors, ads or tracking. If it saves you
+time, you can [buy me a coffee](https://buymeacoffee.com/feoren). Thank you!
 
 ## License
 
