@@ -42,6 +42,15 @@ pub const OMP_TRUSTED_FLAG: &str = "--trusted-extension";
 /// plugin. Measured with 1.19.5: the plugin loads next to the user's own plugins, and unlike a
 /// configuration folder (`OPENCODE_CONFIG_DIR`) nothing is installed with npm.
 pub const OPENCODE_CONFIG_CONTENT_ENV: &str = "OPENCODE_CONFIG_CONTENT";
+/// OpenCode 2.x runs the session on a private server that inherits the session's environment;
+/// without it the TUI talks to a shared background service that never sees
+/// OPENCODE_CONFIG_CONTENT or HANGAR_GATE (measured with 2.3.2).
+pub const OPENCODE_STANDALONE_FLAG: &str = "--standalone";
+/// OpenCode 2.x's flag for connecting to some other server, which never sees the session's
+/// environment either.
+pub const OPENCODE_SERVER_FLAG: &str = "--server";
+/// First OpenCode release of the 2.x line, which takes the V2 plugin.
+pub const OPENCODE_V2_FROM: &str = "2.0.0";
 /// Droid applies a settings file on top of the user's for one process.
 pub const DROID_SETTINGS_FLAG: &str = "--settings";
 
@@ -77,6 +86,9 @@ pub const COPILOT_MANIFEST: &str = "plugin.json";
 pub const COPILOT_HOOKS: &str = "hooks.json";
 pub const PI_FILE: &str = "hangar-gate.ts";
 pub const OPENCODE_FILE: &str = "hangar-gate.ts";
+/// OpenCode 2.x takes a plugin folder, not a file, and loads its `index.ts`.
+pub const OPENCODE2_DIR: &str = "hangar-gate";
+pub const OPENCODE2_FILE: &str = "index.ts";
 pub const DROID_FILE: &str = "droid-settings.json";
 
 /// The shared part of the in-process gate (request, paths, fail-open policy) and each agent's
@@ -85,6 +97,7 @@ pub const DROID_FILE: &str = "droid-settings.json";
 const PLUGIN_CORE: &str = include_str!("gate_plugins/core.js");
 const PI_ENTRY: &str = include_str!("gate_plugins/pi.js");
 const OPENCODE_ENTRY: &str = include_str!("gate_plugins/opencode.js");
+const OPENCODE2_ENTRY: &str = include_str!("gate_plugins/opencode2.js");
 
 /// Every environment variable the gate sets for a session, of any format. A Hangar started
 /// inside a gated session must not hand them on to its own children (`child_env.rs`).
@@ -338,6 +351,29 @@ pub fn opencode_plugin() -> String {
 pub fn opencode_config(plugin: &Path) -> Option<String> {
     let url = url::Url::from_file_path(plugin).ok()?;
     Some(serde_json::json!({ "plugin": [url.as_str()] }).to_string())
+}
+
+/// Whether an OpenCode `version` belongs to the 2.x line and so takes the V2 plugin. An unknown
+/// version is never offered for team sessions, so it falls to the 1.x recipe only in tests.
+pub fn opencode_v2(version: Option<&str>) -> bool {
+    let from = crate::agent_catalog::MinVersion::parse(OPENCODE_V2_FROM);
+    version
+        .and_then(crate::agent_catalog::MinVersion::parse)
+        .is_some_and(|installed| from.is_some_and(|from| installed >= from))
+}
+
+/// The OpenCode 2.x plugin (`index.ts` of a plugin folder): a `tool` hook "execute.before" for
+/// the edit tools and the shell that throws Hangar's reason on a deny.
+pub fn opencode2_plugin() -> String {
+    format!("{PLUGIN_CORE}{OPENCODE2_ENTRY}")
+}
+
+/// OpenCode 2.x's inline configuration: the plugin folder in `plugins` as a `file://` URL
+/// without a trailing slash (measured form; a file there is skipped). `None` when the path is not
+/// absolute.
+pub fn opencode2_config(plugin_dir: &Path) -> Option<String> {
+    let url = url::Url::from_file_path(plugin_dir).ok()?;
+    Some(serde_json::json!({ "plugins": [url.as_str()] }).to_string())
 }
 
 /// Droid's settings for one process: a `PreToolUse` command hook on the edit tools that runs the
@@ -619,6 +655,54 @@ mod tests {
         // Pi takes the default export; OpenCode calls every export, so each has exactly one.
         assert_eq!(pi_extension().matches("export ").count(), 1);
         assert_eq!(opencode_plugin().matches("export ").count(), 1);
+    }
+
+    #[test]
+    fn opencode_2_plugin_uses_the_v2_tool_hook_and_only_the_hosts_modules() {
+        let text = opencode2_plugin();
+        assert!(text.contains("ctx.tool.hook(\"execute.before\""));
+        assert!(text.contains("process.env[GATE_ENV]"));
+        assert!(!text.contains("\"tool.execute.before\""));
+        // node: modules and the plugin API OpenCode serves itself; nothing to install.
+        for line in text.lines().filter(|l| l.starts_with("import ")) {
+            assert!(
+                line.contains("\"node:") || line.ends_with("from \"@opencode/plugin\";"),
+                "{line}"
+            );
+        }
+        assert!(!text.contains("fetch("));
+        // OpenCode 2.x takes the default export as the plugin.
+        assert_eq!(text.matches("export ").count(), 1);
+        assert!(text.contains("export default Plugin.define("));
+        assert!(text.is_ascii());
+    }
+
+    #[test]
+    fn opencode_2_config_names_the_plugin_folder_in_plugins() {
+        let (dir, expected) = if cfg!(windows) {
+            (
+                r"C:\Users\Ann Lee\AppData\Local\Hangar\gate\sessions\1-2-0\hangar-gate",
+                "file:///C:/Users/Ann%20Lee/AppData/Local/Hangar/gate/sessions/1-2-0/hangar-gate",
+            )
+        } else {
+            (
+                "/home/ann lee/.local/share/hangar/gate/sessions/1-2-0/hangar-gate",
+                "file:///home/ann%20lee/.local/share/hangar/gate/sessions/1-2-0/hangar-gate",
+            )
+        };
+        let json: serde_json::Value =
+            serde_json::from_str(&opencode2_config(Path::new(dir)).unwrap()).unwrap();
+        assert_eq!(json, serde_json::json!({ "plugins": [expected] }));
+        assert_eq!(opencode2_config(Path::new("relative")), None);
+    }
+
+    #[test]
+    fn opencode_line_follows_the_installed_version() {
+        assert!(!opencode_v2(Some("1.19.6")));
+        assert!(opencode_v2(Some("2.0.0")));
+        assert!(opencode_v2(Some("2.3.2")));
+        assert!(!opencode_v2(None));
+        assert!(!opencode_v2(Some("garbage")));
     }
 
     #[test]

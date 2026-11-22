@@ -41,7 +41,7 @@
 #   capabilities     Optional. What Hangar's agent gate can do with the program (team service
 #                    step B, docs/wiki/pages/syntheses/team-service-v1.md, section 1), all false by
 #                    default: { pre_edit_block, context_inject, per_session_config,
-#                    hook_format, measured, min_version, broken_from }.
+#                    hook_format, measured, min_version, version_gap }.
 #                    pre_edit_block: a hook can stop an edit before it happens; context_inject: a
 #                    hook can hand the agent facts as context; per_session_config: hooks can be
 #                    given to one session without touching the user's settings files;
@@ -53,8 +53,8 @@
 #                    docs/wiki/pages/syntheses/agent-gate-adapters.md); measured: the recipe was
 #                    run once against the live program and held an edit; min_version: oldest
 #                    version the recipe is known to work with (checked with the version query of
-#                    ADR 0003); broken_from: first version the recipe was measured to fail
-#                    with (from it on the program counts as not measured). Hangar installs its
+#                    ADR 0003); version_gap: { from, below }, versions between two measured
+#                    ones that are not measured themselves (they count as not measured). Hangar installs its
 #                    gate, and lists the program for team
 #                    sessions, only where pre_edit_block, per_session_config and measured are
 #                    true, hook_format is set, the installed version reaches min_version (an
@@ -222,8 +222,11 @@ commands = ["gemini"]
 resume_args = ["--resume"]
 # BeforeTool on write_file and replace from a per-session system settings file
 # (GEMINI_CLI_SYSTEM_SETTINGS_PATH) that runs `hangar gate-hook gemini before-tool`; the session's
-# folder is trusted for the session (GEMINI_CLI_TRUST_WORKSPACE). Recipe built, live measurement
-# pending (measured = false keeps it off): docs/wiki/pages/syntheses/agent-gate-adapters.md.
+# folder is trusted for the session (GEMINI_CLI_TRUST_WORKSPACE). Stays off (measured = false):
+# since 0.60.0 Gemini skips a system settings file unless an administrator owns it and every
+# folder above it, which a session file of Hangar's never is
+# (docs/wiki/pages/sources/opencode2-and-gemini-gate-findings.md); no other per-session route
+# leaves the user's setup alone (docs/wiki/pages/sources/agent-hooks-cursor-cline-gemini-opencode2-research.md).
 capabilities = { pre_edit_block = true, context_inject = false, per_session_config = true, hook_format = "gemini_system_settings", measured = false, min_version = "0.68.0" }
 # From the vendor's command reference (not installed here, so not read from a binary):
 # docs/wiki/pages/sources/agent-commands-measurement.md.
@@ -336,10 +339,13 @@ resume_args = ["--continue"]
 # install in such a folder on every start. Measured live with 1.19.5 (hook fires before the write,
 # HANGAR_GATE arrives, a deny keeps the file from being written, the user's own plugins still
 # load, nothing is installed): docs/wiki/pages/sources/opencode-gate-live-measurement.md. Shell
-# writes are not hooked. OpenCode 2.x is a rewrite without `tool.execute.before`: measured with
-# 2.3.2 (@opencode/cli), the plugin never ran and a denied write went through, so broken_from keeps
-# 2.x out of team sessions until a recipe for it is measured.
-capabilities = { pre_edit_block = true, context_inject = false, per_session_config = true, hook_format = "opencode_plugin", measured = true, min_version = "1.19.5", broken_from = "2.0.0" }
+# writes are not hooked. OpenCode 2.x is a rewrite: V1 plugins do not run, the key is `plugins`
+# and names a folder, and the TUI talks to a shared background service that never sees the
+# session's environment. From 2.0.0 Hangar therefore writes a V2 plugin folder
+# (`tool` hook "execute.before") and starts with `--standalone`. Measured live with 2.3.2
+# (headless and interactive, deny and allow, edit and shell calls):
+# docs/wiki/pages/sources/opencode2-gate-live-measurement.md. 2.x before 2.3.2 is not measured.
+capabilities = { pre_edit_block = true, context_inject = false, per_session_config = true, hook_format = "opencode_plugin", measured = true, min_version = "1.19.5", version_gap = { from = "2.0.0", below = "2.3.2" } }
 icon = "OC"
 homepage = "https://opencode.ai"
 install_windows = "npm install -g @opencode/cli"

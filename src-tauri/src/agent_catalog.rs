@@ -139,11 +139,24 @@ pub struct Capabilities {
     /// below it, or with the version unknown, the program is not offered for team sessions.
     #[serde(default)]
     pub min_version: Option<MinVersion>,
-    /// First program version the recipe was measured not to work with (a new major line that
-    /// dropped the hook). From it on the recipe would install but never hold an edit, so the
-    /// program counts as not measured until a recipe for that line is measured.
+    /// Versions the recipe is not measured for although older and newer ones are (OpenCode 2.x
+    /// before the measured 2.x release); the program counts as not measured there.
     #[serde(default)]
-    pub broken_from: Option<MinVersion>,
+    pub version_gap: Option<VersionGap>,
+}
+
+/// The versions from `from` up to, not including, `below`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct VersionGap {
+    pub from: MinVersion,
+    pub below: MinVersion,
+}
+
+impl VersionGap {
+    pub fn contains(self, version: MinVersion) -> bool {
+        self.from <= version && version < self.below
+    }
 }
 
 impl Capabilities {
@@ -173,8 +186,8 @@ impl Capabilities {
 
     /// Why the program cannot be a team session on this machine, `None` when it can
     /// ([`Capabilities::team_ready`]). Checked in the order the catalog and then the host decide:
-    /// no recipe, recipe not measured, administrator settings in the way, version unknown, at or
-    /// above [`Capabilities::broken_from`] (counts as not measured), or below the floor.
+    /// no recipe, recipe not measured, administrator settings in the way, version unknown, inside
+    /// [`Capabilities::version_gap`] (counts as not measured), or below the floor.
     pub fn team_block(self, version: Option<&str>, admin_settings: bool) -> Option<TeamBlock> {
         if !(self.pre_edit_block && self.per_session_config) || self.hook_format.is_none() {
             return Some(TeamBlock::NoHooks);
@@ -189,7 +202,7 @@ impl Capabilities {
         let Some(installed) = version.and_then(MinVersion::parse) else {
             return Some(TeamBlock::UnknownVersion);
         };
-        if self.broken_from.is_some_and(|broken| installed >= broken) {
+        if self.version_gap.is_some_and(|gap| gap.contains(installed)) {
             return Some(TeamBlock::NotMeasured);
         }
         (installed < min).then(|| TeamBlock::BelowMinVersion {
@@ -342,8 +355,15 @@ impl HookFormat {
                     || arg.starts_with("--trusted-extension=")
             }),
             // Hangar's plugin travels in OPENCODE_CONFIG_CONTENT, which would replace the
-            // profile's own.
-            HookFormat::OpencodePlugin => has_env(crate::hook_recipes::OPENCODE_CONFIG_CONTENT_ENV),
+            // profile's own. OpenCode 2.x with `--server` talks to a server that never sees the
+            // session's environment, so the plugin would not load.
+            HookFormat::OpencodePlugin => {
+                has_env(crate::hook_recipes::OPENCODE_CONFIG_CONTENT_ENV)
+                    || args.iter().any(|arg| {
+                        arg == crate::hook_recipes::OPENCODE_SERVER_FLAG
+                            || arg.starts_with("--server=")
+                    })
+            }
             HookFormat::DroidSettings => args
                 .iter()
                 .any(|arg| arg == "--settings" || arg.starts_with("--settings=")),
@@ -1693,8 +1713,12 @@ packages={ winget='x y' }
             .map(|a| a.id.as_str())
             .collect();
         assert_eq!(gated, ["claude", "codex", "copilot", "opencode", "pi"]);
-        // OpenCode 2.x dropped `tool.execute.before`; measured with 2.3.2, the plugin never ran.
-        assert_eq!(caps("opencode").broken_from, MinVersion::parse("2.0.0"));
+        // OpenCode 2.x before the measured 2.3.2 is not offered; 1.x and 2.3.2 on are.
+        let opencode = caps("opencode");
+        assert!(opencode.team_ready(Some("1.19.5"), false));
+        assert!(!opencode.team_ready(Some("2.0.0"), false));
+        assert!(!opencode.team_ready(Some("2.3.1"), false));
+        assert!(opencode.team_ready(Some("2.3.2"), false));
     }
 
     #[test]
@@ -1729,17 +1753,21 @@ packages={ winget='x y' }
         assert!(!caps.team_ready(Some("unknown"), false));
         assert!(!caps.team_ready(Some("0.168.0"), true));
         // From a version the recipe was measured to fail with, the program is not offered again.
-        let broken_line = Capabilities {
-            broken_from: MinVersion::parse("2.0.0"),
+        // Inside a version gap the program counts as not measured; around it the floor applies.
+        let gap = Capabilities {
+            version_gap: Some(VersionGap {
+                from: MinVersion::parse("2.0.0").unwrap(),
+                below: MinVersion::parse("2.3.2").unwrap(),
+            }),
             ..caps
         };
-        assert!(broken_line.team_ready(Some("1.99.3"), false));
-        assert!(!broken_line.team_ready(Some("2.0.0"), false));
-        assert!(!broken_line.team_ready(Some("2.3.2"), false));
+        assert!(gap.team_ready(Some("1.99.3"), false));
+        assert!(!gap.team_ready(Some("2.0.0"), false));
         assert_eq!(
-            broken_line.team_block(Some("2.3.2"), false),
+            gap.team_block(Some("2.3.1"), false),
             Some(TeamBlock::NotMeasured)
         );
+        assert!(gap.team_ready(Some("2.3.2"), false));
         // Without a floor the version does not matter; unmeasured is never ready.
         let no_floor = Capabilities {
             min_version: None,
@@ -1859,7 +1887,7 @@ commands=['x']
             hook_format: Some(HookFormat::ClaudeSettings),
             measured: true,
             min_version: None,
-            broken_from: None,
+            version_gap: None,
         };
         let same = merge(vec![user("claude", "claude")], vec![with_gate.clone()]);
         assert!(same[0].capabilities.gate());
@@ -1969,7 +1997,7 @@ commands=['x']
             hook_format: None,
             measured: true,
             min_version: None,
-            broken_from: None,
+            version_gap: None,
         };
         assert_eq!(view(&agent)["teamCapable"], false);
         // A format alone is not enough either.
@@ -1980,7 +2008,7 @@ commands=['x']
             hook_format: Some(HookFormat::ClaudeSettings),
             measured: true,
             min_version: None,
-            broken_from: None,
+            version_gap: None,
         };
         assert_eq!(view(&agent)["teamCapable"], false);
         agent.capabilities.pre_edit_block = true;

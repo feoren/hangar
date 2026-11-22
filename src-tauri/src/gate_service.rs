@@ -798,6 +798,30 @@ impl GateService {
                     ..Install::default()
                 }
             }
+            // 2.x: a V2 plugin folder in `plugins`, and a private server that inherits the
+            // session's environment (measured with 2.3.2; nothing is installed in the folder).
+            HookFormat::OpencodePlugin if recipes::opencode_v2(version) => {
+                let dir = self.session_dir(port, session)?;
+                let plugin = dir.join(recipes::OPENCODE2_DIR);
+                create_private_dir(&plugin).map_err(|_| GateStatus::HookFiles)?;
+                write_file(
+                    &plugin,
+                    recipes::OPENCODE2_FILE,
+                    &recipes::opencode2_plugin(),
+                )?;
+                let config = recipes::opencode2_config(&plugin).ok_or(GateStatus::HookFiles)?;
+                let standalone = recipes::OPENCODE_STANDALONE_FLAG;
+                Install {
+                    prepend: if user_args.iter().any(|arg| arg == standalone) {
+                        Vec::new()
+                    } else {
+                        vec![standalone.to_owned()]
+                    },
+                    env: vec![(recipes::OPENCODE_CONFIG_CONTENT_ENV.to_owned(), config)],
+                    helper: true,
+                    ..Install::default()
+                }
+            }
             HookFormat::OpencodePlugin => {
                 // Named inline rather than through a configuration folder: OpenCode runs an npm
                 // install in every configuration folder it starts with (measured).
@@ -4671,6 +4695,51 @@ mod tests {
         assert_token_only_in_env(&fixture, &launch);
         fixture.service.ended(13);
         wait_until_gone(&dir);
+    }
+
+    #[test]
+    fn opencode_2_gets_a_plugin_folder_and_a_private_server() {
+        let fixture = fixture(DECISION_TIMEOUT);
+        fixture.service.configure(true);
+        let launch = launched(fixture.service.prepare(
+            14,
+            &agent_in("opencode_plugin", false),
+            Path::new("opencode.exe"),
+            &["--continue".to_owned()],
+            Some("2.3.2"),
+        ));
+        // Before the user's arguments, so `--continue` resumes on the private server.
+        assert_eq!(launch.prepend, ["--standalone"]);
+        assert!(launch.args.is_empty());
+        let config: serde_json::Value =
+            serde_json::from_str(env_of(&launch, recipes::OPENCODE_CONFIG_CONTENT_ENV).unwrap())
+                .unwrap();
+        assert!(config.get("plugin").is_none());
+        let url = url::Url::parse(config["plugins"][0].as_str().unwrap()).unwrap();
+        assert!(!url.as_str().ends_with('/'), "{url}");
+        let plugin = url.to_file_path().unwrap();
+        assert!(plugin.is_dir(), "{plugin:?}");
+        assert!(plugin.starts_with(fixture.settings.path().join(SESSIONS_DIR)));
+        assert_eq!(
+            std::fs::read_to_string(plugin.join("index.ts")).unwrap(),
+            recipes::opencode2_plugin()
+        );
+        let dir = plugin.parent().unwrap().to_path_buf();
+        assert_eq!(files_below(&dir).len(), 1);
+        assert!(env_of(&launch, HELPER_ENV).is_some());
+        assert_token_only_in_env(&fixture, &launch);
+        fixture.service.ended(14);
+        wait_until_gone(&dir);
+        // A user's own `--standalone` is not given twice.
+        let launch = launched(fixture.service.prepare(
+            15,
+            &agent_in("opencode_plugin", false),
+            Path::new("opencode.exe"),
+            &["--standalone".to_owned()],
+            Some("2.3.2"),
+        ));
+        assert!(launch.prepend.is_empty());
+        fixture.service.ended(15);
     }
 
     #[test]

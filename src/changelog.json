@@ -18,18 +18,18 @@
         "zh": "Hangar 会询问一次是否发送匿名使用统计。默认关闭，不含项目名或人名、路径或内容，可随时关闭。"
       },
       {
-        "de": "GitHub Copilot CLI kann jetzt als Team-Session laufen. OpenCode 2 bleibt vorerst eine private Session, bis Hangar seine Änderungen dort wieder anhalten kann.",
-        "en": "GitHub Copilot CLI can now run as a team session. OpenCode 2 stays private for now, until Hangar can hold its edits there again.",
-        "el": "Το GitHub Copilot CLI τρέχει πλέον ως ομαδική συνεδρία. Το OpenCode 2 μένει ιδιωτικό, μέχρι το Hangar να κρατά ξανά τις αλλαγές του.",
-        "es": "GitHub Copilot CLI ya puede ejecutarse como sesión de equipo. OpenCode 2 sigue privado por ahora, hasta que Hangar pueda volver a retener sus cambios.",
-        "fr": "GitHub Copilot CLI peut désormais tourner en session d'équipe. OpenCode 2 reste privé tant que Hangar ne peut pas à nouveau retenir ses modifications.",
-        "it": "GitHub Copilot CLI ora può girare come sessione di team. OpenCode 2 resta privato per ora, finché Hangar non potrà di nuovo trattenere le sue modifiche.",
-        "ja": "GitHub Copilot CLI をチームセッションとして実行できるようになりました。OpenCode 2 は、Hangar が再び編集を止められるようになるまで、当面プライベートのままです。",
-        "pl": "GitHub Copilot CLI może teraz działać jako sesja zespołowa. OpenCode 2 na razie pozostaje prywatny, dopóki Hangar znów nie będzie mógł wstrzymywać jego zmian.",
-        "pt": "O GitHub Copilot CLI agora pode rodar como sessão de equipe. O OpenCode 2 fica privado por enquanto, até o Hangar conseguir reter suas alterações de novo.",
-        "ru": "GitHub Copilot CLI теперь может работать как командная сессия. OpenCode 2 пока остаётся частным, пока Hangar снова не сможет придерживать его правки.",
-        "tr": "GitHub Copilot CLI artık takım oturumu olarak çalışabilir. OpenCode 2, Hangar değişikliklerini yeniden durdurabilene kadar şimdilik özel kalır.",
-        "zh": "GitHub Copilot CLI 现在可以作为团队会话运行。在 Hangar 能再次拦住其修改之前，OpenCode 2 暂时只能作为私人会话。"
+        "de": "GitHub Copilot CLI und OpenCode 2 können jetzt als Team-Session laufen.",
+        "en": "GitHub Copilot CLI and OpenCode 2 can now run as team sessions.",
+        "el": "Το GitHub Copilot CLI και το OpenCode 2 μπορούν πλέον να τρέχουν ως ομαδικές συνεδρίες.",
+        "es": "GitHub Copilot CLI y OpenCode 2 ya pueden ejecutarse como sesiones de equipo.",
+        "fr": "GitHub Copilot CLI et OpenCode 2 peuvent désormais tourner en sessions d'équipe.",
+        "it": "GitHub Copilot CLI e OpenCode 2 ora possono girare come sessioni di team.",
+        "ja": "GitHub Copilot CLI と OpenCode 2 をチームセッションとして実行できるようになりました。",
+        "pl": "GitHub Copilot CLI i OpenCode 2 mogą teraz działać jako sesje zespołowe.",
+        "pt": "O GitHub Copilot CLI e o OpenCode 2 agora podem rodar como sessões de equipe.",
+        "ru": "GitHub Copilot CLI и OpenCode 2 теперь могут работать как командные сессии.",
+        "tr": "GitHub Copilot CLI ve OpenCode 2 artık takım oturumu olarak çalışabilir.",
+        "zh": "GitHub Copilot CLI 和 OpenCode 2 现在可以作为团队会话运行。"
       }
     ]
   },
