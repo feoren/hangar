@@ -247,6 +247,9 @@ pub enum NoticeKind {
     Expiring,
     /// The person's reservation ran out.
     Expired,
+    /// A reservation of this device was gone from the relay's snapshot after it came back
+    /// (restart or resync): it ran out or was ended while the device was away.
+    EndedAway,
     /// An owner or admin ended the person's reservation.
     ForceReleased,
     /// The person holds as many tasks as the team allows.

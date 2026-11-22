@@ -1498,3 +1498,9 @@ names the waiting sub-agents on each decision and the crew column marks exactly 
 decision that names nobody is the main agent's and nothing is guessed any more (the column exists
 only for Claude Code, which sends `agent_id` since 2.1.69). New: [[claude-hook-agent-id-measurement]]. Updated: [[crew-column]],
 [[claude-http-hook-measurement]], index.
+
+## [2026-11-22] decision | Team reservations: notice for a hold that ended while away
+A device that was away when its reservation ran out heard nothing after a restart or a resync,
+and a resync even reserved the task again. The engine now keeps its own holds in the state file
+(`ownHolds`), checks them against the relay's snapshot and tells each one that is gone once
+(`endedAway`). Updated: [[team-service-v1]], index.

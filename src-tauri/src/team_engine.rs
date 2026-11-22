@@ -91,8 +91,8 @@ use crate::claims::{LineRange, OverlapLevel};
 use crate::session::SessionId;
 use crate::team::{
     hex, safety_groups, AttentionReason, DetailMark, HolderMark, KeyChangeWait, LocalState,
-    PendingConfirmation, PendingKind, ReplayMark, SessionEnd, StopReason, StoredDevice, StoredKeys,
-    TeamError, TeamStatus,
+    OwnHold, PendingConfirmation, PendingKind, ReplayMark, SessionEnd, StopReason, StoredDevice,
+    StoredKeys, TeamError, TeamStatus,
 };
 use crate::team_share::{
     self, DivergentDevice, LocalShare, LogSafety, OtherDetail, OwnDevice, PeerStatus, PeerView,
@@ -810,6 +810,10 @@ pub struct Engine {
     note_marks_rose: bool,
     /// The holds before a `resync_required`, checked against the snapshot after it.
     before_resync: BTreeMap<KeyedHash, Hold>,
+    /// A `resync_required` came: this device's holds as last settled
+    /// (`LocalState::own_holds`, also from before a restart) wait for the snapshot, which tells
+    /// which of them ended while the device was away.
+    own_check: bool,
     notices: VecDeque<TaskNotice>,
     notice_seq: u64,
     /// This engine took the relay's state of the reservations once (a resync on its first
@@ -959,6 +963,7 @@ impl Engine {
             task_queue: Vec::new(),
             note_marks_rose: false,
             before_resync: BTreeMap::new(),
+            own_check: false,
             notices: VecDeque::new(),
             notice_seq: 0,
             book_known: false,
@@ -3433,6 +3438,7 @@ impl Engine {
         for (task, hold) in std::mem::take(&mut self.holds) {
             self.before_resync.entry(task).or_insert(hold);
         }
+        self.own_check = true;
         self.task_queue.clear();
         for attempt in self.attempts.values_mut() {
             attempt.blocked = None;
@@ -3592,6 +3598,7 @@ impl Engine {
             .attempts
             .iter()
             .filter(|(_, a)| a.blocked.is_none())
+            .filter(|(key, a)| !self.awaits_own_check(key, a))
             .filter(|(_, a)| {
                 let held = a
                     .hash
@@ -3885,7 +3892,9 @@ impl Engine {
         if !self.synced || self.syncing || !self.task_queue.is_empty() {
             return self.queue_task(message);
         }
-        self.apply_task(message, true)
+        let mut effects = self.apply_task(message, true);
+        effects.extend(self.remember_own_holds());
+        effects
     }
 
     fn queue_task(&mut self, message: ServerMessage) -> Vec<Effect> {
@@ -3955,6 +3964,9 @@ impl Engine {
                 self.mark_ended(&task, &hold);
             }
         }
+        if self.own_check && !self.resyncing {
+            effects.extend(self.check_own_holds());
+        }
         // A conflict named a holder the log did not list: listed now, it counts; still not
         // listed, the relay's word was empty and the attempt ends with a notice.
         let waiting: Vec<(String, Holder)> = self
@@ -4005,8 +4017,115 @@ impl Engine {
                 NoteOpen::Keep => hold.unopened = None,
             }
         }
+        effects.extend(self.remember_own_holds());
         effects.extend(self.marks_raised_if_dirty());
         effects
+    }
+
+    /// The normalized task id of a title (the key of [`Engine::attempts`]).
+    fn task_key(title: &str) -> Option<String> {
+        TaskId::normalize(title)
+            .ok()
+            .map(|id| id.as_str().to_owned())
+    }
+
+    /// After the relay's snapshot (a resync, also the first connection after a restart): a hold
+    /// this device had before that no hold of this person stands for now, under its hash or
+    /// its title, ended while the device was away. The person gets a notice, and its attempt
+    /// goes, so it is not reserved again without the person knowing. A hold that still stands
+    /// under an earlier epoch moves to the current hash.
+    fn check_own_holds(&mut self) -> Vec<Effect> {
+        self.own_check = false;
+        let Some(me) = self.me.clone() else {
+            return Vec::new();
+        };
+        let epoch = self.current_cipher().map(|(_, _, epoch)| epoch);
+        let mut effects = Vec::new();
+        let before: Vec<OwnHold> = self
+            .local
+            .own_holds
+            .iter()
+            .take(MAX_RESERVATIONS_PER_MEMBER)
+            .cloned()
+            .collect();
+        for own in before {
+            let key = Self::task_key(&own.title);
+            let standing = self
+                .holds
+                .iter()
+                .find(|(task, hold)| {
+                    hold.holder.member == me.member
+                        && (record_task_id(task) == own.task
+                            || (key.is_some()
+                                && hold.note.as_ref().and_then(|n| Self::task_key(&n.title))
+                                    == key))
+                })
+                .map(|(_, hold)| (hold.holder.clone(), hold.epoch));
+            match standing {
+                Some((holder, held_in)) => {
+                    let older = epoch.is_some_and(|current| held_in < current);
+                    if holder == me && older {
+                        if let Some(key) = key.filter(|k| self.attempts.contains_key(k)) {
+                            effects.extend(self.send_reserve(&key));
+                        }
+                    }
+                }
+                None => {
+                    let session = key
+                        .and_then(|k| self.attempts.remove(&k))
+                        .and_then(|attempt| attempt.session);
+                    self.notice(NoticeKind::EndedAway, own.title, None, None, session);
+                    effects.push(Effect::Changed);
+                }
+            }
+        }
+        effects
+    }
+
+    /// Keeps [`LocalState::own_holds`] in step with this device's holds once they are settled:
+    /// not while a snapshot is still to come or to be checked. A hold whose note did not open
+    /// keeps the title it had.
+    fn remember_own_holds(&mut self) -> Vec<Effect> {
+        if self.own_check || self.resyncing || !self.synced {
+            return Vec::new();
+        }
+        let Some(me) = self.me.clone() else {
+            return Vec::new();
+        };
+        let own: Vec<OwnHold> = self
+            .holds
+            .iter()
+            .filter(|(_, hold)| hold.holder == me)
+            .filter_map(|(task, hold)| {
+                let id = record_task_id(task);
+                let title = hold.note.as_ref().map(|n| n.title.clone()).or_else(|| {
+                    self.local
+                        .own_holds
+                        .iter()
+                        .find(|own| own.task == id)
+                        .map(|own| own.title.clone())
+                })?;
+                Some(OwnHold { task: id, title })
+            })
+            .take(MAX_RESERVATIONS_PER_MEMBER)
+            .collect();
+        if own == self.local.own_holds {
+            return Vec::new();
+        }
+        self.local.own_holds = own;
+        vec![Effect::StoreLocal]
+    }
+
+    /// An attempt for a hold of this device that waits for the snapshot's check: sending it
+    /// again before would reserve a task that ran out meanwhile without the person knowing.
+    fn awaits_own_check(&self, key: &str, attempt: &Attempt) -> bool {
+        self.own_check
+            && self.local.own_holds.iter().any(|own| {
+                attempt
+                    .hash
+                    .is_some_and(|hash| record_task_id(&hash) == own.task)
+                    || Self::task_key(&own.title).as_deref() == Some(key)
+            })
     }
 
     /// The live marks rose while handling task events: stored like any other rise.
@@ -4778,6 +4897,8 @@ mod tests {
         /// Log entries after this index are never handed to this device (a relay holding back
         /// part of the history).
         withhold: Option<(Holder, u64)>,
+        /// `task.reserve` frames are recorded but never reach the book: lost with a connection.
+        lose_reserves: bool,
     }
 
     fn team() -> TeamId {
@@ -4810,6 +4931,7 @@ mod tests {
                 task_events: Vec::new(),
                 reserves: Vec::new(),
                 withhold: None,
+                lose_reserves: false,
             }
         }
 
@@ -5192,6 +5314,7 @@ mod tests {
                         targeted.push((notice.to.holder, text));
                     }
                 }
+                ClientMessage::TaskReserve(_) if self.lose_reserves => {}
                 ClientMessage::TaskReserve(reserve) => {
                     self.reserves.push(reserve.clone());
                     let note = (sender.clone(), reserve.note.clone());
@@ -8353,6 +8476,164 @@ mod tests {
         assert!(bobs.attempts.is_empty());
     }
 
+    /// `client`'s connection drops and its holds run out while it hears nothing; the others
+    /// see it happen.
+    fn runs_out_while_away(relay: &mut Relay, away: &mut Client, other: &mut Client) {
+        let holder = away.holder.clone();
+        let mut texts = relay.presence_of(&holder, false);
+        texts.extend(relay.tick(31 * 60_000));
+        other.inbox.extend(texts);
+        run(relay, &mut [away, other], Vec::new());
+    }
+
+    /// The app quits and starts again: a new engine from what the device stored.
+    fn restart(client: &mut Client) {
+        let text = serde_json::to_string(client.engine.local_to_store()).unwrap();
+        let local: LocalState = serde_json::from_str(&text).unwrap();
+        let keys = StoredKeys::decode(&client.engine.keys().encode()).unwrap();
+        let identity = DeviceIdentity::import(&client.engine.identity.export()).unwrap();
+        let read = Arc::clone(&client.clock);
+        client.engine = Engine::new(EngineSetup {
+            project: "p1".to_owned(),
+            team: team(),
+            device: client.holder.device.clone(),
+            identity,
+            member: client.engine.member().cloned(),
+            account: Some(client.holder.member.clone()),
+            website_role: client.role,
+            owner: Some(MemberId::new("alice").unwrap()),
+            keys,
+            local,
+            now: Box::new(move || read.load(std::sync::atomic::Ordering::SeqCst)),
+            entropy: Box::new(Scripted(Arc::clone(&client.fail_draw))),
+            website_every_ms: WEBSITE_CHECK_EVERY_MS,
+            members_every_ms: MEMBERS_CHECK_EVERY_MS,
+        });
+    }
+
+    /// A new connection whose answer is `resync_required` with `snapshot` (the relay's
+    /// `hello` itself is not sent: its welcome would skip the snapshot).
+    fn come_back(relay: &mut Relay, clients: &mut [&mut Client], at: usize, snapshot: &[String]) {
+        let hello = clients[at].engine.hello(ticket());
+        assert!(hello.iter().any(|e| matches!(e, Effect::Send(_))));
+        resync_with(relay, clients, at, snapshot);
+    }
+
+    fn ended_away(client: &Client) -> Vec<String> {
+        client
+            .engine
+            .activity()
+            .notices
+            .iter()
+            .filter(|n| n.kind == NoticeKind::EndedAway)
+            .map(|n| n.title.clone())
+            .collect()
+    }
+
+    #[test]
+    fn a_reservation_that_ran_out_while_away_is_told_after_a_resync_and_not_taken_again() {
+        let (mut relay, mut a1, mut b1) = team_sharing();
+        reserve(&mut relay, &mut [&mut a1, &mut b1], 0, "Fix login", None);
+        assert_eq!(a1.engine.local().own_holds.len(), 1);
+        assert_eq!(a1.engine.local().own_holds[0].title, "Fix login");
+        runs_out_while_away(&mut relay, &mut a1, &mut b1);
+        assert!(b1.engine.activity().tasks.is_empty());
+        assert!(ended_away(&a1).is_empty(), "she heard nothing yet");
+
+        come_back(&mut relay, &mut [&mut a1, &mut b1], 0, &[]);
+        assert_eq!(ended_away(&a1), ["Fix login"]);
+        let hers = a1.engine.activity();
+        assert!(
+            hers.tasks.is_empty(),
+            "not reserved again without her knowing"
+        );
+        assert!(hers.attempts.is_empty());
+        assert!(a1.engine.local().own_holds.is_empty());
+        assert!(b1.engine.activity().tasks.is_empty());
+
+        // Once told: the next resync says nothing more.
+        come_back(&mut relay, &mut [&mut a1, &mut b1], 0, &[]);
+        assert_eq!(ended_away(&a1).len(), 1);
+    }
+
+    #[test]
+    fn a_reservation_that_ran_out_before_a_restart_is_told_after_it() {
+        let (mut relay, mut a1, mut b1) = team_sharing();
+        reserve(&mut relay, &mut [&mut a1, &mut b1], 0, "Fix login", None);
+        reserve(&mut relay, &mut [&mut a1, &mut b1], 0, "Write docs", None);
+        runs_out_while_away(&mut relay, &mut a1, &mut b1);
+        restart(&mut a1);
+        assert!(a1.engine.activity().notices.is_empty());
+
+        come_back(&mut relay, &mut [&mut a1, &mut b1], 0, &[]);
+        let mut told = ended_away(&a1);
+        told.sort();
+        assert_eq!(told, ["Fix login", "Write docs"]);
+        assert!(a1.engine.local().own_holds.is_empty());
+    }
+
+    #[test]
+    fn a_reservation_that_still_stands_after_a_restart_or_a_resync_is_not_told() {
+        let (mut relay, mut a1, mut b1) = team_sharing();
+        reserve(&mut relay, &mut [&mut a1, &mut b1], 0, "Fix login", None);
+        let held = relay
+            .task_events
+            .iter()
+            .rev()
+            .find(|t| t.contains("task.reserved"))
+            .cloned()
+            .unwrap();
+        come_back(
+            &mut relay,
+            &mut [&mut a1, &mut b1],
+            0,
+            std::slice::from_ref(&held),
+        );
+        restart(&mut a1);
+        come_back(&mut relay, &mut [&mut a1, &mut b1], 0, &[held]);
+        assert!(ended_away(&a1).is_empty());
+        let hers = a1.engine.activity();
+        assert_eq!(hers.tasks.len(), 1);
+        assert!(hers.tasks[0].mine);
+        assert_eq!(a1.engine.local().own_holds.len(), 1);
+    }
+
+    #[test]
+    fn a_reservation_that_ran_out_while_online_is_told_once_not_again_after_a_resync() {
+        let (mut relay, mut a1, mut b1) = team_sharing();
+        reserve(&mut relay, &mut [&mut a1, &mut b1], 0, "Fix login", None);
+        let alice = a1.holder.clone();
+        let mut texts = relay.presence_of(&alice, false);
+        texts.extend(relay.tick(31 * 60_000));
+        deliver(&mut relay, &mut [&mut a1, &mut b1], texts);
+        assert!(a1
+            .engine
+            .activity()
+            .notices
+            .iter()
+            .any(|n| n.kind == NoticeKind::Expired));
+        assert!(a1.engine.local().own_holds.is_empty());
+        come_back(&mut relay, &mut [&mut a1, &mut b1], 0, &[]);
+        assert!(ended_away(&a1).is_empty());
+    }
+
+    #[test]
+    fn own_holds_in_the_state_file_read_back_and_older_files_have_none() {
+        let local = LocalState {
+            own_holds: vec![OwnHold {
+                task: "ab".repeat(32),
+                title: "Fix login".to_owned(),
+            }],
+            ..LocalState::default()
+        };
+        let text = serde_json::to_string(&local).unwrap();
+        assert!(text.contains("\"ownHolds\""), "{text}");
+        assert_eq!(serde_json::from_str::<LocalState>(&text).unwrap(), local);
+        let older: LocalState = serde_json::from_str("{\"counter\":3}").unwrap();
+        assert!(older.own_holds.is_empty());
+        assert!(!serde_json::to_string(&older).unwrap().contains("ownHolds"));
+    }
+
     /// Re-sends a logged frame with the next sequence number.
     fn again(relay: &mut Relay, text: &str) -> String {
         let mut frame = decode_server(text).unwrap();
@@ -8764,6 +9045,112 @@ mod tests {
         // A task nobody held under the old epoch names no old hash.
         reserve(&mut relay, &mut [&mut a1, &mut b1], 0, "Brand new", None);
         assert!(relay.reserves.last().unwrap().prev.is_empty());
+    }
+
+    #[test]
+    fn a_hold_still_standing_under_an_older_epoch_after_coming_back_moves_to_the_current_hash() {
+        let (mut relay, mut a1, mut b1) = team_of_two();
+        // Alice's second device, so the team rotates while her first one is away.
+        let mut a2 = client("alice", "a2", Role::Owner);
+        let hello = a2.engine.hello(ticket());
+        run(
+            &mut relay,
+            &mut [&mut a1, &mut b1, &mut a2],
+            vec![(2, hello)],
+        );
+        let poll = a1.engine.poll_devices();
+        run(
+            &mut relay,
+            &mut [&mut a1, &mut b1, &mut a2],
+            vec![(0, poll)],
+        );
+        let own = a1.engine.pending().into_iter().next().unwrap();
+        let confirm = a1.engine.confirm(&own.id).unwrap();
+        run(
+            &mut relay,
+            &mut [&mut a1, &mut b1, &mut a2],
+            vec![(0, confirm)],
+        );
+        assert_eq!(connected(&a2).0, 1);
+        reserve(
+            &mut relay,
+            &mut [&mut a1, &mut b1, &mut a2],
+            0,
+            "Fix login",
+            None,
+        );
+        let held = relay
+            .task_events
+            .iter()
+            .rev()
+            .find(|t| t.contains("task.reserved"))
+            .cloned()
+            .unwrap();
+
+        // Away: Bob leaves and the second device rotates to epoch 2 without her first one.
+        let remove = a2
+            .engine
+            .remove_member(&MemberId::new("bob").unwrap())
+            .unwrap();
+        run(&mut relay, &mut [&mut a2, &mut b1], vec![(0, remove)]);
+        assert_eq!(connected(&a2).0, 2);
+        let sent = relay.reserves.len();
+
+        // Back with a snapshot that still has her hold under epoch 1.
+        come_back(&mut relay, &mut [&mut a1, &mut a2], 0, &[held]);
+        assert!(ended_away(&a1).is_empty());
+        assert_eq!(connected(&a1).0, 2);
+        let moved: Vec<&TaskReserve> = relay.reserves[sent..]
+            .iter()
+            .filter(|r| r.epoch == Epoch(2))
+            .collect();
+        assert_eq!(moved.len(), 1, "{:?}", relay.reserves[sent..].to_vec());
+        assert_eq!(moved[0].prev.len(), 1, "the old hash of her hold");
+        let own = &a1.engine.local().own_holds;
+        assert_eq!(own.len(), 1);
+        assert_eq!(own[0].task, record_task_id(&moved[0].task));
+        assert_eq!(own[0].title, "Fix login");
+    }
+
+    #[test]
+    fn a_move_to_the_current_epoch_lost_with_the_connection_goes_again_after_the_check() {
+        let (mut relay, mut a1, mut b1) = team_of_two();
+        reserve(&mut relay, &mut [&mut a1, &mut b1], 0, "Fix login", None);
+        let held = relay
+            .task_events
+            .iter()
+            .rev()
+            .find(|t| t.contains("task.reserved"))
+            .cloned()
+            .unwrap();
+        let before = a1.engine.local().own_holds.clone();
+        // Bob leaves: her device rotates to epoch 2, but its move of the hold is lost with the
+        // connection.
+        relay.lose_reserves = true;
+        let remove = a1
+            .engine
+            .remove_member(&MemberId::new("bob").unwrap())
+            .unwrap();
+        run(&mut relay, &mut [&mut a1, &mut b1], vec![(0, remove)]);
+        relay.lose_reserves = false;
+        assert_eq!(connected(&a1).0, 2);
+        assert_eq!(a1.engine.local().own_holds, before, "still under epoch 1");
+        let sent = relay.reserves.len();
+
+        // Back with the hold still under epoch 1. The device holds epoch 2's key already, so
+        // the share on the new connection runs before the check and holds the attempt back;
+        // the check moves it.
+        come_back(&mut relay, &mut [&mut a1], 0, &[held]);
+        assert!(ended_away(&a1).is_empty());
+        let moved: Vec<&TaskReserve> = relay.reserves[sent..]
+            .iter()
+            .filter(|r| r.epoch == Epoch(2))
+            .collect();
+        assert_eq!(moved.len(), 1, "{:?}", relay.reserves[sent..].to_vec());
+        assert_eq!(moved[0].prev.len(), 1, "the old hash of her hold");
+        let own = &a1.engine.local().own_holds;
+        assert_eq!(own.len(), 1);
+        assert_eq!(own[0].task, record_task_id(&moved[0].task));
     }
 
     #[test]

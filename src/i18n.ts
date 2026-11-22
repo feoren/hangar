@@ -2295,6 +2295,7 @@ const de = {
   "team.notice.expiring":
     "Deine Reservierung „{title}“ läuft um {time} ab, wenn dein Gerät nicht zurückkommt.",
   "team.notice.expired": "Deine Reservierung „{title}“ ist abgelaufen.",
+  "team.notice.endedAway": "Während du weg warst, wurde deine Reservierung „{title}“ beendet.",
   "team.notice.forceReleased": "Ein Inhaber oder Admin hat deine Reservierung „{title}“ beendet.",
   "team.notice.limit":
     "Du hältst schon so viele Aufgaben, wie das Team erlaubt. Gib zuerst eine frei.",
@@ -4602,6 +4603,7 @@ const en: Record<MessageKey, string> = {
   "team.notice.expiring":
     "Your reservation “{title}” runs out at {time} unless your device comes back.",
   "team.notice.expired": "Your reservation “{title}” ran out.",
+  "team.notice.endedAway": "While you were away, your reservation “{title}” ended.",
   "team.notice.forceReleased": "An owner or admin ended your reservation “{title}”.",
   "team.notice.limit": "You hold as many tasks as the team allows. Release one first.",
   "team.notice.askRefused":
@@ -6968,6 +6970,7 @@ const el: Record<MessageKey, string> = {
   "team.notice.expiring":
     "Η δέσμευσή σου «{title}» λήγει στις {time}, αν η συσκευή σου δεν επιστρέψει.",
   "team.notice.expired": "Η δέσμευσή σου «{title}» έληξε.",
+  "team.notice.endedAway": "Όσο έλειπες, η δέσμευσή σου «{title}» τερματίστηκε.",
   "team.notice.forceReleased": "Ένας κάτοχος ή διαχειριστής τερμάτισε τη δέσμευσή σου «{title}».",
   "team.notice.limit": "Έχεις όσες εργασίες επιτρέπει η ομάδα. Αποδέσμευσε πρώτα μία.",
   "team.notice.askRefused": "«{title}»: κάποιος ρώτησε ήδη ή μόλις ρώτησες. Δοκίμασε αργότερα.",
@@ -9318,6 +9321,7 @@ const es: Record<MessageKey, string> = {
   "team.notice.releaseTimedOut": "{person} no respondió sobre «{title}».",
   "team.notice.expiring": "Tu reserva «{title}» caduca a las {time} si tu dispositivo no vuelve.",
   "team.notice.expired": "Tu reserva «{title}» caducó.",
+  "team.notice.endedAway": "Mientras no estabas, tu reserva «{title}» terminó.",
   "team.notice.forceReleased": "Un propietario o admin terminó tu reserva «{title}».",
   "team.notice.limit": "Tienes tantas tareas como permite el equipo. Libera una primero.",
   "team.notice.askRefused":
@@ -11681,6 +11685,7 @@ const fr: Record<MessageKey, string> = {
   "team.notice.expiring":
     "Ta réservation « {title} » expire à {time} si ton appareil ne revient pas.",
   "team.notice.expired": "Ta réservation « {title} » a expiré.",
+  "team.notice.endedAway": "Pendant ton absence, ta réservation « {title} » a pris fin.",
   "team.notice.forceReleased":
     "Un propriétaire ou un admin a mis fin à ta réservation « {title} ».",
   "team.notice.limit": "Tu as autant de tâches que l'équipe le permet. Libères-en une d'abord.",
@@ -14029,6 +14034,7 @@ const it: Record<MessageKey, string> = {
   "team.notice.expiring":
     "La tua prenotazione «{title}» scade alle {time} se il tuo dispositivo non torna.",
   "team.notice.expired": "La tua prenotazione «{title}» è scaduta.",
+  "team.notice.endedAway": "Mentre eri via, la tua prenotazione «{title}» è terminata.",
   "team.notice.forceReleased":
     "Un proprietario o admin ha terminato la tua prenotazione «{title}».",
   "team.notice.limit": "Hai tante attività quante il team ne consente. Rilasciane prima una.",
@@ -16373,6 +16379,7 @@ const ja: Record<MessageKey, string> = {
   "team.notice.releaseTimedOut": "{person} は「{title}」に応答しませんでした。",
   "team.notice.expiring": "デバイスが戻らない場合、予約「{title}」は {time} に期限切れになります。",
   "team.notice.expired": "予約「{title}」は期限切れになりました。",
+  "team.notice.endedAway": "離れている間に、予約「{title}」は終了しました。",
   "team.notice.forceReleased": "オーナーまたは管理者が予約「{title}」を終了しました。",
   "team.notice.limit": "チームで許可される数のタスクを保持しています。先に一つ解放してください。",
   "team.notice.askRefused":
@@ -18696,6 +18703,7 @@ const pl: Record<MessageKey, string> = {
   "team.notice.expiring":
     "Twoja rezerwacja „{title}” wygaśnie o {time}, jeśli twoje urządzenie nie wróci.",
   "team.notice.expired": "Twoja rezerwacja „{title}” wygasła.",
+  "team.notice.endedAway": "Gdy cię nie było, twoja rezerwacja „{title}” się zakończyła.",
   "team.notice.forceReleased": "Właściciel lub administrator zakończył twoją rezerwację „{title}”.",
   "team.notice.limit": "Masz tyle zadań, ile pozwala zespół. Najpierw zwolnij jedno.",
   "team.notice.askRefused":
@@ -21031,6 +21039,7 @@ const pt: Record<MessageKey, string> = {
   "team.notice.releaseTimedOut": "{person} não respondeu sobre “{title}”.",
   "team.notice.expiring": "Sua reserva “{title}” expira às {time} se seu dispositivo não voltar.",
   "team.notice.expired": "Sua reserva “{title}” expirou.",
+  "team.notice.endedAway": "Enquanto você estava fora, sua reserva “{title}” terminou.",
   "team.notice.forceReleased": "Um proprietário ou admin encerrou sua reserva “{title}”.",
   "team.notice.limit": "Você tem tantas tarefas quanto a equipe permite. Libere uma primeiro.",
   "team.notice.askRefused": "“{title}”: alguém já pediu ou você acabou de pedir. Tente mais tarde.",
@@ -23344,6 +23353,7 @@ const ru: Record<MessageKey, string> = {
   "team.notice.expiring":
     "Твоя резервация «{title}» истечёт в {time}, если твоё устройство не вернётся.",
   "team.notice.expired": "Твоя резервация «{title}» истекла.",
+  "team.notice.endedAway": "Пока тебя не было, твоя резервация «{title}» завершилась.",
   "team.notice.forceReleased": "Владелец или администратор завершил твою резервацию «{title}».",
   "team.notice.limit": "У тебя столько задач, сколько разрешает команда. Сначала освободи одну.",
   "team.notice.askRefused":
@@ -25643,6 +25653,7 @@ const tr: Record<MessageKey, string> = {
   "team.notice.releaseTimedOut": "{person} “{title}” için yanıt vermedi.",
   "team.notice.expiring": "Cihazın geri gelmezse “{title}” rezervasyonun {time} sona erer.",
   "team.notice.expired": "“{title}” rezervasyonun sona erdi.",
+  "team.notice.endedAway": "Sen yokken “{title}” rezervasyonun sonlandı.",
   "team.notice.forceReleased": "Bir sahip veya yönetici “{title}” rezervasyonunu sonlandırdı.",
   "team.notice.limit": "Ekibin izin verdiği kadar görevin var. Önce birini bırak.",
   "team.notice.askRefused":
@@ -27820,6 +27831,7 @@ const zh: Record<MessageKey, string> = {
   "team.notice.releaseTimedOut": "{person} 未就“{title}”作出回应。",
   "team.notice.expiring": "如果你的设备不回来，你对“{title}”的预留将于 {time} 到期。",
   "team.notice.expired": "你对“{title}”的预留已到期。",
+  "team.notice.endedAway": "你离开期间，你对“{title}”的预留已结束。",
   "team.notice.forceReleased": "所有者或管理员结束了你对“{title}”的预留。",
   "team.notice.limit": "你持有的任务数已达团队上限。请先释放一个。",
   "team.notice.askRefused": "“{title}”：已有人请求，或你刚刚请求过。请稍后再试。",

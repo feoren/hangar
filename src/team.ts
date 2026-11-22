@@ -215,6 +215,7 @@ export type TaskNoticeKind =
   | "releaseTimedOut"
   | "expiring"
   | "expired"
+  | "endedAway"
   | "forceReleased"
   | "limit"
   | "askRefused"
@@ -664,6 +665,7 @@ const NOTICE_KINDS: readonly TaskNoticeKind[] = [
   "releaseTimedOut",
   "expiring",
   "expired",
+  "endedAway",
   "forceReleased",
   "limit",
   "askRefused",
@@ -1341,6 +1343,7 @@ const NOTICE_TEXTS: Record<TaskNoticeKind, MessageKey> = {
   releaseTimedOut: "team.notice.releaseTimedOut",
   expiring: "team.notice.expiring",
   expired: "team.notice.expired",
+  endedAway: "team.notice.endedAway",
   forceReleased: "team.notice.forceReleased",
   limit: "team.notice.limit",
   askRefused: "team.notice.askRefused",

@@ -505,8 +505,10 @@ real relay yet; tested against an in-test relay built from both crates.
   newest eight secrets, under 700 of the 1280 UTF-16 units the Windows store allows). Chosen over
   an encrypted local file: the OS already protects the entry, there is no second key and file
   format to get right, and the head's integrity matters as much as the secrets' confidentiality.
-  The event log cursor, the send counter, the replay marks and rejected requests (nothing secret)
-  are in `<local data>/team/<service>/<key>.json`, the enabled projects in `<config>/team.json`
+  The event log cursor, the send counter, the replay marks, rejected requests (no keys) and,
+  since 2026-11-22, this device's own reservations with their titles in plain text (`ownHolds`,
+  the relay sees titles only sealed; the file goes with the keys when the team ends for the
+  device) are in `<local data>/team/<service>/<key>.json`, the enabled projects in `<config>/team.json`
   under `enabledByService.<service>`: debug and release builds have separate keychain services,
   so they are separate devices and must not share cursor, counter or marks. A missing device entry
   creates a new device; one that is there but does not decode stops with "keychain" and is never
@@ -830,7 +832,8 @@ compare claims with the protocol crate's `ClaimBoard` and decide reservations wi
     epoch stands (this device's own, or a teammate's who keeps the task while offline), never
     every old hash of the title, which would only tell the relay which hashes of two epochs
     belong together. Expired and force released notices come only when a hold was there.
-  - **Restart:** reservations are kept in memory only, the note marks in the state file
+  - **Restart:** reservations are kept in memory only (since 2026-11-22 this device's own ones
+    also as record id and title for the away notice below), the note marks in the state file
     (`noteMarks`, `noteFloors`: per device and note, at most 64 with a floor, like the claim
     details, but the marks of holds and signed requests that still run are never the ones
     dropped); a hold that is missing from the snapshot after a resync counts as ended, and a hold
@@ -841,6 +844,28 @@ compare claims with the protocol crate's `ClaimBoard` and decide reservations wi
     waits with that check until the snapshot is complete; the first `hello` of an engine sends no cursor, so the relay's snapshot (`task.reserved` per hold, plus `reservation.expiring` and
     `task.release_requested`) restores them; later reconnects of the same engine resume. Attempts
     that waited for someone else are forgotten on a restart; own holds come back with their note.
+  - **Away notice (2026-11-22):** found in the interop run of 2026-11-09: a device that was away
+    when its hold ran out heard nothing, since a reconnect that resumes gets `reservation.expired`
+    but a restart or a resync starts from a snapshot that simply lacks the hold; worse, a resync
+    sent the attempt again, so the task was reserved anew without the person knowing. Now the
+    engine keeps this device's holds, as settled after every task event and log fetch, in the
+    state file (`LocalState::own_holds`: the task's record id and the title as typed, at most 32,
+    never while a snapshot is still to come). After the snapshot of a resync (also the first
+    connection after a restart) each remembered hold that no hold of this person stands for, by
+    hash or by title, gets one quiet notice `endedAway` ("While you were away, your reservation
+    ... ended.", in the window and in the background as a desktop notification like the other
+    notices) and its attempt goes; until that check, `resend_attempts` holds back the attempts of
+    remembered holds. The wording says "ended", not "ran out": from a snapshot the device cannot
+    tell an expiry from an owner's force release. A hold that still stands under an older epoch
+    moves to the current hash: when the device lacks the new epoch's key on return, the share
+    after the key arrives moves it (the check is done by then); when it holds the key already
+    (its move was lost with the connection), the share runs before the check and holds back, so
+    the check sends the move itself. The titles stay on this device, in the same folder as the
+    other team state. Tests: engine tests for a resync after the hold ran out (told once, not
+    reserved again), a restart (two holds told), a hold that still stands across a resync and a
+    restart (nothing told), a live expiry followed by a resync (only `expired`), a hold under
+    epoch 1 after another device rotated to 2, a move to epoch 2 lost with the connection (the
+    check sends it, with `prev`), the state file field; Vitest for parsing and the text.
   - **Gate and context:** `gate::assess_with_tasks` pauses an edit inside the area of a
     teammate's reservation (same root commit, path within the folder, compared as the team
     compares paths) in a clone linked to that project, like a teammate's file

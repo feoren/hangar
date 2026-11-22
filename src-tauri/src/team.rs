@@ -841,9 +841,11 @@ pub struct HolderMark {
     pub counter: u64,
 }
 
-/// The team's state file (nothing secret): where the event log was read up to, the last record
-/// counter used, the replay marks, the high-water marks of the live state shown (presence
-/// status and claim details), and the confirmation requests the person rejected.
+/// The team's state file (no keys): where the event log was read up to, the last record counter
+/// used, the replay marks, the high-water marks of the live state shown (presence status and
+/// claim details), the confirmation requests the person rejected, and this device's own
+/// reservations with the titles the person typed (in plain text, like the device's other local
+/// data; the relay only ever sees them sealed).
 ///
 /// The counter only rises: besides this file, every start raises it to [`counter_floor`] of the
 /// clock, so a backup put back or a file that went missing cannot make the device repeat one.
@@ -883,8 +885,21 @@ pub struct LocalState {
     pub note_marks: Vec<DetailMark>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub note_floors: Vec<HolderMark>,
+    /// This device's reservations as last settled, so the relay's snapshot after a restart or a
+    /// resync can tell which of them ended while the device was away.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub own_holds: Vec<OwnHold>,
     #[serde(default)]
     pub rejected: Vec<String>,
+}
+
+/// A reservation this device held: the task's record id (64 hex digits of its keyed hash under
+/// the epoch it was held in) and its title as the person typed it. The title stays on this
+/// device; it is the only way to name a hold whose note the relay no longer has.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct OwnHold {
+    pub task: String,
+    pub title: String,
 }
 
 /// Rejected requests remembered per team, newest last.

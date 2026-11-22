@@ -833,6 +833,15 @@ describe("reservations", () => {
     expect(fresh).toHaveLength(1);
     expect(freshTaskNotices(new Set(fresh.map((entry) => entry.key)), activities)).toEqual([]);
   });
+
+  it("reads and tells a reservation that ended while this device was away", () => {
+    const away = { ...NOTICE, id: 3, kind: "endedAway" };
+    const read = snapshot({ ...ACTIVITY, notices: [away] });
+    expect(read?.teams[0]?.activity.notices).toEqual([away]);
+    expect(
+      taskNoticeText({ ...NOTICE, kind: "endedAway", member: "", name: "" }, t, () => ""),
+    ).toBe("While you were away, your reservation “Docs” ended.");
+  });
 });
 
 describe("reservation review fixes", () => {
