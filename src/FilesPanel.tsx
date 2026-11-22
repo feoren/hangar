@@ -30,7 +30,7 @@ import {
   filterDelay,
   filteredStep,
   filterHighlight,
-  filterTree,
+  filterTreeOnce,
   filterWords,
   folderKeyOf,
   folderPeople,
@@ -325,7 +325,7 @@ function SessionTree(props: Props & { session: { id: number; cwd: string } }) {
   }, [query, delay]);
   const searched = delay === 0 || settled.trim() === "" ? query : settled;
   const filtered = useMemo(
-    () => (source === null ? null : filterTree(source, searched)),
+    () => (source === null ? null : filterTreeOnce(source, searched)),
     [source, searched],
   );
   const words = useMemo(() => filterWords(searched), [searched]);
@@ -561,17 +561,27 @@ function SessionTree(props: Props & { session: { id: number; cwd: string } }) {
       return;
     }
     if (event.key === "ArrowDown" || event.key === "Enter") {
+      // Enter during the typing pause searches what is typed now instead of the last pause's
+      // result; the render that follows shows the same result (filterTreeOnce keeps it).
+      const pending = event.key === "Enter" && source !== null && searched !== query;
+      const result = pending ? filterTreeOnce(source, query) : filtered;
+      if (pending) setSettled(query);
+      const resultRows = pending ? (result?.rows ?? []) : itemRows;
       // Into the results: Enter to the best match, ArrowDown to the first one on screen (or the
       // tree's first row).
-      const bestPath = event.key === "Enter" ? (filtered?.best ?? null) : null;
-      const best = bestPath === null ? undefined : itemRows.find((row) => row.path === bestPath);
-      const first = best ?? itemRows.find((row) => row.context !== true) ?? itemRows[0];
+      const bestPath = event.key === "Enter" ? (result?.best ?? null) : null;
+      const best = bestPath === null ? undefined : resultRows.find((row) => row.path === bestPath);
+      const first = best ?? resultRows.find((row) => row.context !== true) ?? resultRows[0];
       if (first === undefined) return;
       event.preventDefault();
       wantFocus.current = true;
       dispatch({ type: "focus", path: first.path });
-      // Already focused in the state: the effect does not run, so focus the row here.
-      if (state.focused === first.path) items.current.get(first.path)?.focus();
+      // Already focused in the state: the effect does not run, so focus the row here, or once it
+      // shows when the new result is still to render.
+      if (state.focused === first.path) {
+        if (pending) revealFocus.current = first.path;
+        else items.current.get(first.path)?.focus();
+      }
     }
   };
 

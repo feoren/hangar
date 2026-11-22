@@ -694,6 +694,118 @@ describe("tree filter", () => {
     expect(kept).not.toContain("deep/x10.txt");
   });
 
+  it("keeps the same best matches as sorting every match", () => {
+    // Many ties on score and depth, folders among files, numbers in names: the collator decides.
+    const mixed: PathEntry[] = [];
+    for (let index = 0; index < 3000; index += 1) {
+      const depth = index % 3;
+      const folder = ["a", "a/b", "a/b/c"][depth] ?? "a";
+      const kind = index % 7 === 0 ? "dir" : "file";
+      mixed.push({ path: `${folder}/item${String((index * 7919) % 3000)}`, kind });
+    }
+    const words = filterWords("item");
+    const collator = new Intl.Collator(undefined, { numeric: true, sensitivity: "base" });
+    const reference = mixed
+      .map((entry) => ({
+        entry,
+        score: filterScore(entry.path, words) ?? 0,
+        depth: entry.path.split("/").length - 1,
+      }))
+      .sort(
+        (a, b) =>
+          b.score - a.score ||
+          a.depth - b.depth ||
+          (a.entry.kind === "dir" ? 0 : 1) - (b.entry.kind === "dir" ? 0 : 1) ||
+          collator.compare(a.entry.path, b.entry.path),
+      )
+      .slice(0, 40)
+      .map((item) => item.entry.path);
+    const result = filterTree(mixed, "item", 40);
+    const kept = result.rows.filter((row) => row.context !== true).map((row) => row.path);
+    expect(new Set(kept)).toEqual(new Set(reference));
+    expect(result.best).toBe(reference[0]);
+  });
+
+  it("keeps the same best matches as sorting every match, for any limit", () => {
+    // Random names with case-only twins (the collator calls them equal, the code point order
+    // decides), repeated paths, folders and files at several depths, and limits around the
+    // buffer's cut (twice the limit).
+    let seed = 7;
+    const next = (below: number) => {
+      seed = (seed * 1_103_515_245 + 12_345) % 2_147_483_648;
+      return seed % below;
+    };
+    const naming = new Intl.Collator(undefined, { numeric: true, sensitivity: "base" });
+    const order = (a: PathEntry, b: PathEntry) =>
+      (a.kind === "dir" ? 0 : 1) - (b.kind === "dir" ? 0 : 1) ||
+      naming.compare(a.path, b.path) ||
+      (a.path < b.path ? -1 : a.path > b.path ? 1 : 0);
+    for (let round = 0; round < 40; round += 1) {
+      const entries: PathEntry[] = [];
+      for (let index = 0; index < 400; index += 1) {
+        const folder = ["", "a/", "a/b/", "A/b/"][next(4)] ?? "";
+        const name = `${["item", "Item", "ITEM", "other"][next(4)] ?? "item"}${String(next(60))}`;
+        entries.push({ path: `${folder}${name}`, kind: next(5) === 0 ? "dir" : "file" });
+      }
+      const query = ["item", "it 1", "item2", "e"][round % 4] ?? "item";
+      const max = [1, 2, 3, 7, 40, 500][round % 6] ?? 1;
+      const words = filterWords(query);
+      const seen = new Set<string>();
+      const reference = entries
+        .filter((entry) => !seen.has(entry.path) && seen.add(entry.path))
+        .flatMap((entry) => {
+          const score = filterScore(entry.path, words);
+          return score === null ? [] : [{ entry, score, depth: entry.path.split("/").length }];
+        })
+        .sort((a, b) => b.score - a.score || a.depth - b.depth || order(a.entry, b.entry))
+        .slice(0, max)
+        .map((item) => item.entry.path);
+      const result = filterTree(entries, query, max);
+      const kept = result.rows.filter((row) => row.context !== true).map((row) => row.path);
+      expect(new Set(kept), `${query} ${String(max)}`).toEqual(new Set(reference));
+      expect(result.best).toBe(reference[0] ?? null);
+    }
+  });
+
+  it("filters 100,000 paths quickly enough for a first key", () => {
+    // Every path matches a single common letter, the worst case for ranking. Ranking only the
+    // best matches with the collator must stay well below sorting every match on the same
+    // machine, which keeps the check meaningful on fast and slow CI runners alike; the fixed
+    // ceiling is the budget for a key press. The fastest of several runs keeps a garbage
+    // collection or a cold JIT from failing it.
+    const entries: PathEntry[] = Array.from({ length: 100_000 }, (_, index) => ({
+      path: `src/part${String(index % 50)}/group${String(index % 7)}/file${String(index)}.ts`,
+      kind: "file",
+    }));
+    const fastest = (runs: number, work: () => void) => {
+      let best = Number.POSITIVE_INFINITY;
+      for (let run = 0; run < runs; run += 1) {
+        const start = performance.now();
+        work();
+        best = Math.min(best, performance.now() - start);
+      }
+      return best;
+    };
+    const filtering = fastest(5, () => {
+      expect(filterTree(entries, "e").matched).toBe(100_000);
+    });
+    const words = filterWords("e");
+    const naming = new Intl.Collator(undefined, { numeric: true, sensitivity: "base" });
+    const scored = entries.map((entry) => ({
+      path: entry.path,
+      score: filterScore(entry.path, words) ?? 0,
+      depth: entry.path.split("/").length,
+    }));
+    const sortingAll = fastest(3, () => {
+      [...scored].sort(
+        (a, b) => b.score - a.score || a.depth - b.depth || naming.compare(a.path, b.path),
+      );
+    });
+    // About a third to a quarter of it here; ranking every match again comes out above it.
+    expect(filtering).toBeLessThan(sortingAll / 1.5);
+    expect(filtering).toBeLessThan(250);
+  });
+
   it("searches what the tree has read until the index is in", () => {
     const state = run([
       { type: "loaded", path: "", listing: listing([dir("src"), file("a.md")]) },

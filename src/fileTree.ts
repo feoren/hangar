@@ -663,6 +663,44 @@ function depthOf(path: string): number {
   return depth;
 }
 
+interface Scored {
+  entry: PathEntry;
+  score: number;
+  depth: number;
+}
+
+/** Result order: best score, then shallower, then folders first in natural order. */
+function compareScored(a: Scored, b: Scored): number {
+  return b.score - a.score || a.depth - b.depth || compareEntries(a.entry, b.entry);
+}
+
+/**
+ * The best `max` items in result order. A first key typed in a large index matches nearly every
+ * path, and sorting them all with the collator took about half a second at 100,000 paths. Here
+ * only a buffer of at most twice `max` is ever sorted; once it is cut back to `max`, its worst item
+ * turns most of the rest away by score and depth alone, and the collator runs only on ties with it.
+ */
+function bestScored(items: readonly Scored[], max: number): Scored[] {
+  if (max <= 0) return [];
+  let kept: Scored[] = [];
+  /** The worst of the best `max` so far: nothing that is not better can make the cut. */
+  let worst: Scored | null = null;
+  for (const item of items) {
+    if (worst !== null) {
+      // Cheap keys first: most items lose on score or depth without touching the collator.
+      if (item.score !== worst.score ? item.score < worst.score : item.depth > worst.depth)
+        continue;
+      if (compareScored(item, worst) >= 0) continue;
+    }
+    kept.push(item);
+    if (kept.length >= max * 2) {
+      kept = kept.sort(compareScored).slice(0, max);
+      worst = kept[kept.length - 1] ?? null;
+    }
+  }
+  return kept.sort(compareScored).slice(0, max);
+}
+
 /**
  * The filtered tree: the best `max` matches with the folders that lead to them, those folders
  * open. Paths appear once even when the source names them twice.
@@ -673,7 +711,7 @@ export function filterTree(
   max = MAX_FILTER_MATCHES,
 ): FilterResult {
   const words = filterWords(query);
-  const scored: { entry: PathEntry; score: number; depth: number }[] = [];
+  const scored: Scored[] = [];
   const seen = new Set<string>();
   for (const entry of entries) {
     if (seen.has(entry.path)) continue;
@@ -681,8 +719,7 @@ export function filterTree(
     const score = filterScore(entry.path, words);
     if (score !== null) scored.push({ entry, score, depth: depthOf(entry.path) });
   }
-  scored.sort((a, b) => b.score - a.score || a.depth - b.depth || compareEntries(a.entry, b.entry));
-  const kept = scored.slice(0, max).map((item) => item.entry);
+  const kept = bestScored(scored, max).map((item) => item.entry);
 
   const shown = new Map<string, { entry: PathEntry; matched: boolean }>();
   for (const entry of kept) shown.set(entry.path, { entry, matched: true });
@@ -725,6 +762,18 @@ export function filterTree(
   };
   walk("", 0);
   return { rows, matched: scored.length, best: kept[0]?.path ?? null };
+}
+
+/** The last search per source, so a result computed early (Enter) is not searched again. */
+const lastFilters = new WeakMap<readonly PathEntry[], { query: string; result: FilterResult }>();
+
+/** `filterTree` with the default limit, remembering the last query per source array. */
+export function filterTreeOnce(entries: readonly PathEntry[], query: string): FilterResult {
+  const last = lastFilters.get(entries);
+  if (last !== undefined && last.query === query) return last.result;
+  const result = filterTree(entries, query);
+  lastFilters.set(entries, { query, result });
+  return result;
 }
 
 /**
