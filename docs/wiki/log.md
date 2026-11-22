@@ -1545,3 +1545,19 @@ Gemini CLI's trust dialog takes the paste. Listed `hangar-send` in the AppImage,
 .dmg of the last CI run; a copy without its executable bit is now replaced at startup. New:
 [[paste-opencode-gemini-measurement]], [[hangar-send-bundles-reading]]. Updated:
 [[0012-cross-project-messages]], [[0014-session-links]], index.
+
+## [2026-11-22] ingest | Claude Code and Codex in one team project
+Integration test over the in-test relay with each device's own gate and both agents' real hook
+paths (recorded inputs), plus a live run of `claude -p` and `codex exec` against `hangar-server`
+0.5.1 in self-host mode: claimed files and reservations hold the other person's edit in both
+directions, Claude Code's context names the Codex teammate's file and reservation, Codex gets no
+context and learns only from a deny. The short member id's ellipsis reaches agents as `<U+2026>`
+(reproduced, red). New: raw `2026-11-22-mixed-team-live-run.md`, [[mixed-team-live-measurement]].
+Updated: [[agent-gate-adapters]], [[team-service-v1]], [[overview]], index.
+
+## [2026-11-22] decision | Reservation deny wording; ellipsis in teammate names
+The gate's deny reasons name a teammate's reservation as a reserved task ("the file is in a task
+a teammate reserved", `Reserved tasks: ["Fix checkout" by "#alice"]`) instead of a session
+changing the file, and name both when an edit meets a claimed file and a reservation.
+`gate::literal` keeps U+2026, so a shortened member id reaches agents as the window shows it.
+Updated: [[agent-gate-adapters]], [[mixed-team-live-measurement]], index.

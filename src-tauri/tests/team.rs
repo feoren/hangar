@@ -2231,3 +2231,618 @@ fn a_reservation_goes_to_the_first_and_is_handed_over_on_request() {
         b1.team.shutdown();
     });
 }
+
+// ------------------------------------------------------------------------------------------
+// A mixed team: a Claude Code session and a Codex session in one shared project
+// ------------------------------------------------------------------------------------------
+
+/// The real Hangar executable, which Codex's hook command starts as `hangar gate-hook`.
+const HELPER: &str = env!("CARGO_BIN_EXE_hangar");
+
+/// Text only a build with the `gate-hook` helper contains. A stale `hangar.exe` from a shared
+/// target dir lacks it, and starting that would launch the whole app (as in `tests/gate_hook.rs`).
+const HELPER_MARKER: &[u8] = b"usage: hangar gate-hook <gemini before-tool";
+
+fn guard_helper() {
+    static CHECKED: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+    let found = *CHECKED.get_or_init(|| {
+        let bytes = std::fs::read(HELPER).unwrap();
+        bytes
+            .windows(HELPER_MARKER.len())
+            .any(|window| window == HELPER_MARKER)
+    });
+    assert!(
+        found,
+        "stale hangar binary without the gate helper: {HELPER}"
+    );
+}
+
+/// One device's agent gate, wired to its team service the way `lib.rs` wires the app's: the
+/// teammates' files and the team's reservations come from `TeamService`, the device's own
+/// worktree and claims from the arguments.
+struct DeviceGate {
+    service: hangar_lib::gate_service::GateService,
+    work: TempDir,
+    _settings: TempDir,
+}
+
+fn device_gate(
+    device: &Device,
+    name: &str,
+    session: u64,
+    title: &str,
+    root: &str,
+    files: &[&str],
+) -> DeviceGate {
+    let work = TempDir::new(&format!("{name}-work"));
+    let settings = TempDir::new(&format!("{name}-gate"));
+    let worktrees = Arc::new(vec![hangar_lib::claims::WorktreeClaims {
+        repo: FOLDER.to_owned(),
+        root_key: hangar_lib::git::path_key(&work.0),
+        name: "shop".to_owned(),
+        root_commit: Some(root.to_owned()),
+        base: Some("b".repeat(40)),
+        sessions: vec![session],
+        claims: files
+            .iter()
+            .map(|path| Claim {
+                path: (*path).to_owned(),
+                kind: ChangeKind::Modified,
+                whole_file: false,
+                ranges: vec![LineRange { start: 1, end: 2 }],
+                area: path.split_once('/').map(|(area, _)| area.to_owned()),
+            })
+            .collect(),
+        truncated: false,
+    }]);
+    let title = title.to_owned();
+    let service = hangar_lib::gate_service::GateService::new(
+        settings.0.clone(),
+        move || Arc::clone(&worktrees),
+        move || [(session, title.clone())].into_iter().collect(),
+        |_| {},
+    );
+    service.configure(true);
+    service.set_helper(PathBuf::from(HELPER));
+    let teammates = device.team.clone();
+    service.set_teammates(move |repo, folder| teammates.teammate_files(repo, folder));
+    let tasks = device.team.clone();
+    service.set_team_tasks(move |repo, folder| tasks.team_tasks(repo, folder));
+    DeviceGate {
+        service,
+        work,
+        _settings: settings,
+    }
+}
+
+/// The catalog's own entry, as the app starts it: nothing switched on for the test.
+fn shipped_agent(id: &str) -> hangar_lib::agent_catalog::Agent {
+    let entry = hangar_lib::agent_catalog::builtin()
+        .unwrap()
+        .into_iter()
+        .find(|a| a.id == id)
+        .unwrap();
+    hangar_lib::agent_catalog::Agent::from_catalog(entry)
+}
+
+fn launch_of(plan: hangar_lib::manager::GatePlan) -> hangar_lib::manager::GateLaunch {
+    match plan {
+        hangar_lib::manager::GatePlan::Launch(launch) => launch,
+        hangar_lib::manager::GatePlan::Skip => panic!("skipped"),
+        hangar_lib::manager::GatePlan::Unavailable(status) => panic!("unavailable: {status:?}"),
+    }
+}
+
+fn launch_env(launch: &hangar_lib::manager::GateLaunch, name: &str) -> String {
+    launch
+        .env
+        .iter()
+        .find(|(n, _)| n == name)
+        .map(|(_, value)| value.to_string())
+        .unwrap()
+}
+
+/// A Codex session's start: its `-c` hook layer and the command Codex's hook runs.
+struct CodexStart {
+    hooks: toml::Value,
+    command: String,
+    gate: String,
+}
+
+fn codex_start(gate: &DeviceGate, session: u64) -> CodexStart {
+    use hangar_lib::manager::LaunchGate as _;
+    let launch = launch_of(gate.service.prepare(
+        session,
+        &shipped_agent("codex"),
+        std::path::Path::new("codex.exe"),
+        &[],
+        Some("0.171.0"),
+    ));
+    assert_eq!(launch.prepend[0], "--dangerously-bypass-hook-trust");
+    assert_eq!(launch.prepend[1], "-c");
+    let (key, value) = launch.prepend[2].split_once('=').unwrap();
+    assert_eq!(key, "hooks.PreToolUse", "{:?}", launch.prepend);
+    let parsed: toml::Table = toml::from_str(&format!("v = {value}")).unwrap();
+    let hooks = parsed["v"].clone();
+    let command = hooks[0]["hooks"][0]["command"].as_str().unwrap().to_owned();
+    CodexStart {
+        hooks,
+        command,
+        gate: launch_env(&launch, hangar_lib::hook_recipes::HELPER_ENV),
+    }
+}
+
+/// A Claude Code session's start: its `--settings` hooks and the token of its HTTP hooks.
+struct ClaudeStart {
+    settings: serde_json::Value,
+    token: String,
+    port: u16,
+}
+
+fn claude_start(gate: &DeviceGate, session: u64) -> ClaudeStart {
+    use hangar_lib::manager::LaunchGate as _;
+    let launch = launch_of(gate.service.prepare(
+        session,
+        &shipped_agent("claude"),
+        std::path::Path::new("claude.exe"),
+        &[],
+        None,
+    ));
+    assert_eq!(launch.args[0], "--settings");
+    ClaudeStart {
+        settings: serde_json::from_str(&launch.args[1]).unwrap(),
+        token: launch_env(&launch, "HANGAR_HOOK_TOKEN"),
+        port: gate.service.port().unwrap(),
+    }
+}
+
+/// Codex's hook input for an `apply_patch`, in the shape recorded live with Codex 0.167.2
+/// (docs/wiki/raw/2026-11-12-codex-gate-live-measurement.md): LF line ends, paths relative to
+/// `cwd`.
+fn codex_input(cwd: &std::path::Path, patch: &str) -> String {
+    serde_json::json!({
+        "session_id": "01a1d106-0000-7000-8000-000000000001",
+        "turn_id": "01a1d106-0000-7000-8000-000000000002",
+        "transcript_path": "rollout-test.jsonl",
+        "cwd": cwd,
+        "hook_event_name": "PreToolUse",
+        "model": "gpt-test",
+        "permission_mode": "bypassPermissions",
+        "tool_name": "apply_patch",
+        "tool_input": { "command": patch },
+        "tool_use_id": "exec-1",
+    })
+    .to_string()
+}
+
+/// Claude Code's `PreToolUse` input for a `Write`, in the shape recorded live
+/// (docs/wiki/raw/2026-11-09-claude-http-hook-measurement.md): an absolute `file_path` with the
+/// platform's separators.
+fn claude_write(cwd: &std::path::Path, file: &str) -> String {
+    let path = cwd.join(file.replace('/', std::path::MAIN_SEPARATOR_STR));
+    serde_json::json!({
+        "session_id": "0f8fad5b-d9cb-469f-a165-70867728950e",
+        "transcript_path": "session.jsonl",
+        "cwd": cwd,
+        "permission_mode": "acceptEdits",
+        "effort": { "level": "medium" },
+        "hook_event_name": "PreToolUse",
+        "tool_name": "Write",
+        "tool_input": { "file_path": path, "content": "one" },
+        "tool_use_id": "toolu_1",
+    })
+    .to_string()
+}
+
+/// Claude Code's `UserPromptSubmit` input, with the keys the live measurement recorded.
+fn claude_prompt(cwd: &std::path::Path) -> String {
+    serde_json::json!({
+        "session_id": "0f8fad5b-d9cb-469f-a165-70867728950e",
+        "transcript_path": "session.jsonl",
+        "cwd": cwd,
+        "hook_event_name": "UserPromptSubmit",
+        "permission_mode": "acceptEdits",
+        "prompt": "Continue.",
+        "prompt_id": "prompt-1",
+    })
+    .to_string()
+}
+
+/// What a hook command gave its agent: exit code, stdout, stderr.
+type HookOutput = (Option<i32>, String, String);
+
+/// Runs Codex's hook command the way Codex 0.167.2 starts it (`cmd.exe /C` on Windows, `sh -c`
+/// elsewhere), with `HANGAR_GATE` set and `input` on stdin. Killed after 60 s.
+fn run_codex_hook(command_line: &str, gate: &str, input: &str) -> HookOutput {
+    guard_helper();
+    #[cfg(windows)]
+    let mut command = {
+        use std::os::windows::process::CommandExt as _;
+        let mut command = std::process::Command::new("cmd.exe");
+        command.raw_arg(format!("/D /S /C \"{command_line}\""));
+        command
+    };
+    #[cfg(not(windows))]
+    let mut command = {
+        let mut command = std::process::Command::new("sh");
+        command.args(["-c", command_line]);
+        command
+    };
+    command
+        .env(hangar_lib::hook_recipes::HELPER_ENV, gate)
+        .stdin(std::process::Stdio::piped())
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::piped());
+    let mut child = command.spawn().unwrap();
+    let mut stdin = child.stdin.take().unwrap();
+    let input = input.to_owned();
+    std::thread::spawn(move || {
+        let _ = stdin.write_all(input.as_bytes());
+    });
+    let mut out = child.stdout.take().unwrap();
+    let mut err = child.stderr.take().unwrap();
+    let stdout = std::thread::spawn(move || {
+        let mut text = String::new();
+        let _ = out.read_to_string(&mut text);
+        text
+    });
+    let stderr = std::thread::spawn(move || {
+        let mut text = String::new();
+        let _ = err.read_to_string(&mut text);
+        text
+    });
+    let deadline = Instant::now() + Duration::from_secs(60);
+    let status = loop {
+        if let Some(status) = child.try_wait().unwrap() {
+            break status;
+        }
+        if Instant::now() >= deadline {
+            #[cfg(windows)]
+            let _ = std::process::Command::new("taskkill")
+                .args(["/T", "/F", "/PID", &child.id().to_string()])
+                .status();
+            let _ = child.kill();
+            panic!("the Codex hook did not finish within 60 s");
+        }
+        std::thread::sleep(Duration::from_millis(20));
+    };
+    (
+        status.code(),
+        stdout.join().unwrap(),
+        stderr.join().unwrap(),
+    )
+}
+
+/// One POST to the gate endpoint as Claude Code's HTTP hook sends it; status and body.
+fn post_claude_hook(port: u16, route: &str, token: &str, body: &str) -> (u16, String) {
+    let mut stream = TcpStream::connect(("127.0.0.1", port)).unwrap();
+    stream
+        .set_read_timeout(Some(Duration::from_secs(60)))
+        .unwrap();
+    let request = format!(
+        "POST {route} HTTP/1.1\r\nHost: 127.0.0.1:{port}\r\n\
+         Authorization: Bearer {token}\r\nContent-Type: application/json\r\n\
+         Content-Length: {}\r\nConnection: close\r\n\r\n{body}",
+        body.len()
+    );
+    stream.write_all(request.as_bytes()).unwrap();
+    let mut answer = String::new();
+    let _ = stream.read_to_string(&mut answer);
+    let (head, body) = answer.split_once("\r\n\r\n").unwrap_or((&answer, ""));
+    let status = head
+        .split(' ')
+        .nth(1)
+        .and_then(|code| code.parse().ok())
+        .unwrap_or(0);
+    (status, body.to_owned())
+}
+
+/// Waits until `gate` holds an edit, checks it with `held`, answers it with a deny and returns
+/// what the hook (`hook`, still waiting for that answer) gave its agent. A hook that ends
+/// before its edit is held fails with its own output.
+async fn deny_held<T: std::fmt::Debug + Send + 'static>(
+    gate: &DeviceGate,
+    hook: std::thread::JoinHandle<T>,
+    held: impl Fn(&hangar_lib::gate::PendingDecision),
+) -> T {
+    let deadline = Instant::now() + Duration::from_secs(30);
+    let pending = loop {
+        if let Some(pending) = gate.service.snapshot().pending.first().cloned() {
+            break pending;
+        }
+        if hook.is_finished() {
+            let output = hook.join().unwrap();
+            panic!("the hook ended without the gate holding its edit: {output:?}");
+        }
+        assert!(Instant::now() < deadline, "no held edit");
+        tokio::time::sleep(Duration::from_millis(20)).await;
+    };
+    held(&pending);
+    assert!(gate
+        .service
+        .answer(pending.id, hangar_lib::gate::Answer::Deny));
+    while !hook.is_finished() {
+        tokio::time::sleep(Duration::from_millis(20)).await;
+    }
+    hook.join().unwrap()
+}
+
+/// The reason in Codex's deny: exit 0, the JSON on stdout, nothing on stderr (the answer Codex
+/// 0.167.2 was measured to block on).
+fn codex_denied(output: &HookOutput) -> String {
+    let (code, stdout, stderr) = output;
+    assert_eq!(*code, Some(0), "{output:?}");
+    assert!(stderr.is_empty(), "{output:?}");
+    let json: serde_json::Value = serde_json::from_str(stdout).unwrap();
+    let decision = &json["hookSpecificOutput"];
+    assert_eq!(decision["hookEventName"], "PreToolUse", "{json}");
+    assert_eq!(decision["permissionDecision"], "deny", "{json}");
+    decision["permissionDecisionReason"]
+        .as_str()
+        .unwrap()
+        .to_owned()
+}
+
+/// The reason in Claude Code's deny over HTTP.
+fn claude_denied(output: &(u16, String)) -> String {
+    assert_eq!(output.0, 200, "{output:?}");
+    let json: serde_json::Value = serde_json::from_str(&output.1).unwrap();
+    assert_eq!(json["hookSpecificOutput"]["permissionDecision"], "deny");
+    json["hookSpecificOutput"]["permissionDecisionReason"]
+        .as_str()
+        .unwrap()
+        .to_owned()
+}
+
+/// Alice runs a Claude Code session, Bob a Codex session, both in clones of the same repository
+/// linked to one shared project. Each device runs its own agent gate fed by its own team
+/// service, and each agent's hook runs as that agent starts it: Claude Code's HTTP hooks from its
+/// `--settings`, Codex's command from its `-c` layer through the real `hangar gate-hook codex`
+/// helper. A file the other person's session changes, and the area of the other person's
+/// reservation, hold the edit in both directions until the person answers; the agent reads who
+/// and why in the deny. Claude Code also gets the teammates' files and reservations as context
+/// with every prompt; Codex has no context hook in its start (`context_inject = false`), so it
+/// learns of them only from a deny.
+#[test]
+fn a_claude_code_and_a_codex_session_hold_each_others_files_and_reservations() {
+    run(async {
+        let relay = Relay::start().await;
+        let website = Website::start(relay.port);
+        {
+            let mut mock = guard(&website.state);
+            mock.roles.insert("alice".to_owned(), "owner");
+            mock.roles.insert("bob".to_owned(), "member");
+        }
+        let a1 = Device::new(&website, "alice", "mix-a1");
+        a1.team.enable(PROJECT).await.unwrap();
+        a1.connected(1, 1, 1).await;
+        let b1 = Device::new(&website, "bob", "mix-b1");
+        b1.team.enable(PROJECT).await.unwrap();
+        b1.waiting().await;
+        let pending = a1.pending(1).await;
+        a1.team.confirm(&pending[0].id).await.unwrap();
+        b1.connected(1, 2, 2).await;
+
+        // Alice's Claude Code session changes src/auth.rs, Bob's Codex session docs/notes.md.
+        let root = "a".repeat(40);
+        a1.team.set_local(vec![local(
+            1,
+            "Claude Code",
+            &root,
+            &[("src/auth.rs", 1, 2)],
+        )]);
+        b1.team
+            .set_local(vec![local(5, "Codex", &root, &[("docs/notes.md", 1, 2)])]);
+        a1.team.link_repo(PROJECT, &root, FOLDER, true).unwrap();
+        b1.team.link_repo(PROJECT, &root, FOLDER, true).unwrap();
+        let alice = device_gate(
+            &a1,
+            "mix-a",
+            1,
+            "Claude Code at work",
+            &root,
+            &["src/auth.rs"],
+        );
+        let bob = device_gate(&b1, "mix-b", 5, "Codex at work", &root, &["docs/notes.md"]);
+        until("each device knows the other's file", || {
+            b1.team
+                .teammate_files(&root, FOLDER)
+                .iter()
+                .any(|f| f.key == "src/auth.rs")
+                && a1
+                    .team
+                    .teammate_files(&root, FOLDER)
+                    .iter()
+                    .any(|f| f.key == "docs/notes.md")
+        })
+        .await;
+
+        // Both start as the catalog ships them: Codex with its edit hook and no context hook,
+        // Claude Code with the edit hook and the prompt hook for context.
+        let codex = codex_start(&bob, 5);
+        assert!(!shipped_agent("codex").capabilities.context_inject);
+        assert_eq!(codex.hooks.as_array().unwrap().len(), 1);
+        assert_eq!(codex.hooks[0]["matcher"].as_str(), Some("apply_patch"));
+        let claude = claude_start(&alice, 1);
+        assert!(shipped_agent("claude").capabilities.context_inject);
+        assert!(
+            claude.settings["hooks"]["UserPromptSubmit"].is_array(),
+            "{}",
+            claude.settings
+        );
+
+        // Codex: a patch of a file nobody else changes goes ahead at once, silently.
+        let free = run_codex_hook(
+            &codex.command,
+            &codex.gate,
+            &codex_input(
+                &bob.work.0,
+                "*** Begin Patch\n*** Add File: src/new.rs\n+x\n*** End Patch",
+            ),
+        );
+        assert_eq!(free.0, Some(0), "{free:?}");
+        assert!(free.1.is_empty(), "{free:?}");
+
+        // Codex -> Claude Code: Bob's Codex patches Alice's file; Bob's gate holds it, naming
+        // Alice's session, and Bob says no.
+        let hook = {
+            let (command, gate) = (codex.command.clone(), codex.gate.clone());
+            let input = codex_input(
+                &bob.work.0,
+                "*** Begin Patch\n*** Update File: src/auth.rs\n@@\n-a\n+b\n*** End Patch",
+            );
+            std::thread::spawn(move || run_codex_hook(&command, &gate, &input))
+        };
+        let output = deny_held(&bob, hook, |held| {
+            assert_eq!(held.session_id, 5);
+            assert_eq!(held.teammates, ["#alice (Claude Code)"], "{held:?}");
+        })
+        .await;
+        let reason = codex_denied(&output);
+        assert!(
+            reason.contains("src/auth.rs") && reason.contains("#alice (Claude Code)"),
+            "{reason}"
+        );
+
+        // Claude Code -> Codex: Alice's Claude Code writes Bob's file; Alice's gate holds it.
+        let hook = {
+            let body = claude_write(&alice.work.0, "docs/notes.md");
+            let (port, token) = (claude.port, claude.token.clone());
+            std::thread::spawn(move || post_claude_hook(port, "/v1/pre-tool-use", &token, &body))
+        };
+        let output = deny_held(&alice, hook, |held| {
+            assert_eq!(held.session_id, 1);
+            assert_eq!(held.teammates, ["#bob (Codex)"], "{held:?}");
+        })
+        .await;
+        let reason = claude_denied(&output);
+        assert!(
+            reason.contains("docs/notes.md") && reason.contains("#bob (Codex)"),
+            "{reason}"
+        );
+
+        // Reservations, one each, with the folder they cover.
+        a1.team
+            .reserve_task(
+                PROJECT,
+                hangar_lib::team_service::Task {
+                    title: "Fix checkout".to_owned(),
+                    session: Some(1),
+                    area: Some("src/pay".to_owned()),
+                },
+            )
+            .await
+            .unwrap();
+        b1.team
+            .reserve_task(
+                PROJECT,
+                hangar_lib::team_service::Task {
+                    title: "Write the guide".to_owned(),
+                    session: Some(5),
+                    area: Some("docs/guide".to_owned()),
+                },
+            )
+            .await
+            .unwrap();
+        until("both reservations on both devices", || {
+            [&a1, &b1].iter().all(|device| {
+                let tasks = device.team.team_tasks(&root, FOLDER);
+                tasks.len() == 2 && tasks.iter().filter(|t| t.mine).count() == 1
+            })
+        })
+        .await;
+
+        // Codex inside Alice's reservation: held, the reason names the task and its holder.
+        let hook = {
+            let (command, gate) = (codex.command.clone(), codex.gate.clone());
+            let input = codex_input(
+                &bob.work.0,
+                "*** Begin Patch\n*** Add File: src/pay/cart.rs\n+x\n*** End Patch",
+            );
+            std::thread::spawn(move || run_codex_hook(&command, &gate, &input))
+        };
+        let output = deny_held(&bob, hook, |held| {
+            assert_eq!(held.reserved.len(), 1, "{held:?}");
+            assert_eq!(held.reserved[0].title, "Fix checkout");
+            assert_eq!(held.reserved[0].who, "#alice");
+        })
+        .await;
+        let reason = codex_denied(&output);
+        // Told as a reserved task, not as a change: nobody changes the file. For Codex, which
+        // takes no context, this reason is the only place it learns of the reservation.
+        assert!(
+            reason.contains("File: \"src/pay/cart.rs\".")
+                && reason.contains("in a task a teammate reserved")
+                && reason.contains("Reserved tasks: [\"Fix checkout\" by \"#alice\"]."),
+            "{reason}"
+        );
+        assert!(
+            !reason.contains("changing") && !reason.contains("Other sessions"),
+            "{reason}"
+        );
+        // Codex inside Bob's own reservation goes ahead.
+        let own = run_codex_hook(
+            &codex.command,
+            &codex.gate,
+            &codex_input(
+                &bob.work.0,
+                "*** Begin Patch\n*** Add File: docs/guide/intro.md\n+x\n*** End Patch",
+            ),
+        );
+        assert_eq!(own.0, Some(0), "{own:?}");
+        assert!(own.1.is_empty(), "{own:?}");
+
+        // Claude Code inside Bob's reservation: held the same way.
+        let hook = {
+            let body = claude_write(&alice.work.0, "docs/guide/setup.md");
+            let (port, token) = (claude.port, claude.token.clone());
+            std::thread::spawn(move || post_claude_hook(port, "/v1/pre-tool-use", &token, &body))
+        };
+        let output = deny_held(&alice, hook, |held| {
+            assert_eq!(held.reserved.len(), 1, "{held:?}");
+            assert_eq!(held.reserved[0].title, "Write the guide");
+            assert_eq!(held.reserved[0].who, "#bob");
+        })
+        .await;
+        let reason = claude_denied(&output);
+        assert!(
+            reason.contains("Reserved tasks: [\"Write the guide\" by \"#bob\"].")
+                && !reason.contains("changing"),
+            "{reason}"
+        );
+        // Claude Code inside Alice's own reservation goes ahead.
+        assert_eq!(
+            post_claude_hook(
+                claude.port,
+                "/v1/pre-tool-use",
+                &claude.token,
+                &claude_write(&alice.work.0, "src/pay/total.rs"),
+            ),
+            (200, String::new())
+        );
+
+        // Context: Claude Code's prompt hook names Bob's Codex file and both reservations.
+        let (status, body) = post_claude_hook(
+            claude.port,
+            "/v1/user-prompt-submit",
+            &claude.token,
+            &claude_prompt(&alice.work.0),
+        );
+        assert_eq!(status, 200, "{body}");
+        let json: serde_json::Value = serde_json::from_str(&body).unwrap();
+        let context = json["hookSpecificOutput"]["additionalContext"]
+            .as_str()
+            .unwrap();
+        for expected in [
+            "docs/notes.md",
+            "#bob (Codex)",
+            "Write the guide",
+            "Fix checkout",
+        ] {
+            assert!(context.contains(expected), "{expected} missing: {context}");
+        }
+
+        a1.team.shutdown();
+        b1.team.shutdown();
+    });
+}

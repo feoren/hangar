@@ -2,7 +2,7 @@
 title: "Agent gate adapters: Codex, Gemini, Copilot, Qwen, Pi, Oh My Pi, OpenCode and Droid"
 type: synthesis
 tags: [gate, hooks, team, codex, gemini, copilot, qwen, pi, omp, opencode, droid, catalog, helper]
-sources: ["[[agent-hooks-per-session-research]]", "[[agent-hooks-remaining-agents-research]]", "[[gate-hook-helper-measurement]]", "[[codex-gate-live-measurement]]", "[[opencode-gate-live-measurement]]", "[[pi-gate-live-measurement]]", "[[copilot-gate-live-measurement]]", "[[opencode2-and-gemini-gate-findings]]", "[[opencode2-gate-live-measurement]]", "[[agent-hooks-cursor-cline-gemini-opencode2-research]]", "[[cursor-gate-live-measurement]]", "[[claude-http-hook-measurement]]"]
+sources: ["[[agent-hooks-per-session-research]]", "[[agent-hooks-remaining-agents-research]]", "[[gate-hook-helper-measurement]]", "[[codex-gate-live-measurement]]", "[[opencode-gate-live-measurement]]", "[[pi-gate-live-measurement]]", "[[copilot-gate-live-measurement]]", "[[opencode2-and-gemini-gate-findings]]", "[[opencode2-gate-live-measurement]]", "[[agent-hooks-cursor-cline-gemini-opencode2-research]]", "[[cursor-gate-live-measurement]]", "[[claude-http-hook-measurement]]", "[[mixed-team-live-measurement]]"]
 created: 2026-11-12
 updated: 2026-11-22
 ---
@@ -260,7 +260,52 @@ could not be written). The window shows both like the other states; `profileSett
 | Pi: `edit` live, Hangar's "ask" in the TUI, a real model's reaction to the reason | not measured (Node test of the extension in `tests/gate_hook.rs`) |
 | Oh My Pi: `-e` without trust prompt, `tool_call` block, edit modes and their path fields, `node:http` under Bun | not measured (not installed) |
 | Droid: `--settings` carries `hooks` in the REPL, `Edit` and `ApplyPatch` input, JSON deny with exit 0, hook shell on Windows | not measured (not installed); helper round trip through cmd.exe or `sh -c` in `tests/gate_hook.rs` |
+| Mixed team: a Claude Code and a Codex session of two people hold each other's claimed file, each through its own hook path, and the deny stops the edit; Claude Code's context names the Codex teammate's file and reservation | measured live with Claude Code 2.1.330 and Codex 0.171.0 against `hangar-server` 0.5.1, [[mixed-team-live-measurement]]; files and reservations in both directions in `tests/team.rs` |
 
 Minimum versions are enforced from the catalog's `min_version` (see Shape). Context injection
 stays off for the helper CLIs and the in-process extensions until their output shapes are
 measured; Qwen Code gets it through its HTTP prompt hook once it is offered.
+
+## Mixed team: Claude Code and Codex
+
+Owner's open point "Claude + Codex in one team project", settled on 2026-11-22.
+
+- **Integration test** `a_claude_code_and_a_codex_session_hold_each_others_files_and_reservations`
+  (`src-tauri/tests/team.rs`): two people over the in-test relay, each device with its own
+  `GateService` wired to its `TeamService` as `lib.rs` wires it, both agents started from their
+  shipped catalog entries. Claude Code's hooks go over HTTP from its `--settings` (there is no
+  `hangar gate-hook claude`); Codex's command from its `-c` layer runs the real
+  `hangar gate-hook codex pre-tool-use` through cmd.exe (`sh -c` elsewhere), with the hook inputs
+  recorded live ([[codex-gate-live-measurement]], [[claude-http-hook-measurement]]). Held in both
+  directions: the other person's claimed file and the area of the other person's reservation;
+  the decision names the teammate (`#alice (Claude Code)`, `#bob (Codex)`) or the reservation
+  (title `Fix checkout`, holder `#alice`), the agent reads it in the deny (Codex: JSON with exit
+  0, nothing on stderr). An edit in one's own reservation and a file nobody claims go ahead at once. A check
+  with the teammate lookup cut off fails the test.
+- **Live run** ([[mixed-team-live-measurement]]): real `claude -p` and `codex exec` against
+  `hangar-server` 0.5.1; both claimed-file directions held and stopped, files unchanged, Claude
+  Code's context carried the Codex teammate's file and reservation.
+- **Context for Codex:** none. Codex has `context_inject = false` and its start carries only the
+  `PreToolUse` hook; it has no `UserPromptSubmit` and Hangar does not use its `SessionStart`
+  `additionalContext` ([[team-service-v1]] section 1). A Codex session learns of a teammate's
+  file or reservation only when an edit is held and denied; a reservation it has not touched yet
+  stays unknown to it. Claude Code gets the teammates' files and reservations with every prompt.
+- **Reservation wording** (fixed 2026-11-22): an edit inside a teammate's reservation was
+  denied with the file wording ("another running session in this repository is changing the
+  file", the reservation listed under "Other sessions"), although nobody changes that file; for
+  Codex the deny is the only place the reservation shows. The reasons (`gate::denied_reason`,
+  `rule_denied_reason`, `timeout_reason`, `full_reason`) now take the reservations apart from the
+  sessions. A reservation alone reads "the file is in a task a teammate reserved", lists
+  `Reserved tasks: ["Fix checkout" by "#alice"]` instead of "Other sessions" and ends "To work on
+  a reserved task, ask the person who reserved it first."; an edit that meets both a claimed file
+  and a reservation names both causes and both lists. Title and holder stay `gate::literal`
+  JSON strings, at most three listed, the rest counted. Unit tests in `src-tauri/src/gate.rs`,
+  end to end in the mixed team test above.
+- **Ellipsis in names** (fixed 2026-11-22): without a display name a teammate is named by the
+  shortened member id (`team_share::person_tag`, `#u_jyQLRz…`), and `gate::literal` marked
+  Hangar's own ellipsis as `<U+2026>`, which agents repeated. U+2026 is now a plain name
+  character: bidi-neutral punctuation, no quote, no control, not invisible, so it cannot leave
+  the literal or reorder text. In a sender's own display name it can at most pretend that the
+  name was cut; imitating a member tag was already possible with `#`, and the real tag from the
+  verified log always follows the name. Unit tests `a_shortened_member_id_reads_the_same_*` in
+  `src-tauri/src/gate.rs`.

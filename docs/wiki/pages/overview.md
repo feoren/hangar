@@ -4,7 +4,7 @@ type: overview
 tags: []
 sources: []
 created: 2026-11-07
-updated: 2026-11-21
+updated: 2026-11-22
 ---
 
 # Overview
@@ -48,6 +48,11 @@ One run against a self-hosted relay showed the live protocol compatible and its 
 different from the website API the app speaks ([[relay-interop-measurement]],
 [[hangar-account-api]]). Open: a run that includes task reservations, and an account API the
 self-hosted relay and the app share.
+On 2026-11-22 a real Claude Code and a real Codex session of two people ran against
+`hangar-server` 0.5.1: each held the other's claimed file, a reservation reached the other
+device and Claude Code's context, and Codex gets no context ([[mixed-team-live-measurement]],
+[[agent-gate-adapters]]). Open: reservation pauses with live agents, the members list the
+self-hosted relay does not serve.
 
 ## Shared project notes (ADR 0006)
 Phase 1 (solo mode) is built: notes encrypted in `.hangar/notes/` of the main worktree, key ring in

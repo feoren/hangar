@@ -2,7 +2,7 @@
 title: "Team service version 1: research results and build plan"
 type: synthesis
 tags: [collaboration, teams, agents, server, e2e, git, worktree, hooks, claims]
-sources: ["[[claims-rescan-measurement]]", "[[claude-http-hook-measurement]]", "[[relay-interop-measurement]]"]
+sources: ["[[claims-rescan-measurement]]", "[[claude-http-hook-measurement]]", "[[relay-interop-measurement]]", "[[mixed-team-live-measurement]]"]
 created: 2026-11-09
 updated: 2026-11-22
 ---
@@ -951,6 +951,14 @@ shared claims stay agent-independent: they come from git, the program is only a 
   [[claude-http-hook-measurement]]); still open whether sub-agent tool calls pass `PreToolUse`
   and how the interactive mode behaves while a hook waits.
 - Codex, Gemini, Copilot and Qwen Code live hook runs: the open rows of [[agent-gate-adapters]].
+- Mixed teams: a Claude Code and a Codex session of two people (2026-11-22). Claimed files hold
+  each other's edit in both directions live against `hangar-server` 0.5.1, and Claude Code's
+  context names the Codex teammate's file and reservation ([[mixed-team-live-measurement]]);
+  files and reservations in both directions are in `tests/team.rs`
+  (`a_claude_code_and_a_codex_session_hold_each_others_files_and_reservations`). Codex gets no
+  context and learns of a teammate's file or reservation only from a deny; details and open
+  points in [[agent-gate-adapters]], "Mixed team". Reservation pauses with live agents are not
+  run.
 - Cost of `git status` and `git diff -U0` on a large repository on Windows: measured, see
   [[claims-rescan-measurement]]. macOS and Linux still open.
 - Exact versions of `chacha20poly1305` and the dalek crates before pinning.

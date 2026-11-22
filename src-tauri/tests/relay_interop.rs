@@ -1303,3 +1303,439 @@ fn hangar_against_a_self_hosted_relay() {
         );
     });
 }
+
+// ------------------------------------------------------------------------------------------
+// Live agents: a real Claude Code and a real Codex in one team project
+// ------------------------------------------------------------------------------------------
+
+/// The real Hangar executable, which Codex's hook command starts as `hangar gate-hook`.
+const HELPER: &str = env!("CARGO_BIN_EXE_hangar");
+
+/// One device's agent gate, wired to its team service as `lib.rs` wires the app's.
+fn live_gate(
+    app: &App,
+    settings: &std::path::Path,
+    work: &std::path::Path,
+    session: u64,
+    root: &str,
+    claimed: &str,
+) -> hangar_lib::gate_service::GateService {
+    let worktrees = Arc::new(vec![hangar_lib::claims::WorktreeClaims {
+        repo: FOLDER.to_owned(),
+        root_key: hangar_lib::git::path_key(work),
+        name: "shop".to_owned(),
+        root_commit: Some(root.to_owned()),
+        base: Some("b".repeat(40)),
+        sessions: vec![session],
+        claims: vec![Claim {
+            path: claimed.to_owned(),
+            kind: ChangeKind::Modified,
+            whole_file: false,
+            ranges: vec![LineRange { start: 1, end: 2 }],
+            area: claimed.split_once('/').map(|(area, _)| area.to_owned()),
+        }],
+        truncated: false,
+    }]);
+    let service = hangar_lib::gate_service::GateService::new(
+        settings.to_path_buf(),
+        move || Arc::clone(&worktrees),
+        move || [(session, "live".to_owned())].into_iter().collect(),
+        |_| {},
+    );
+    service.configure(true);
+    service.set_helper(PathBuf::from(HELPER));
+    let team = app.team.clone();
+    service.set_teammates(move |repo, folder| team.teammate_files(repo, folder));
+    let team = app.team.clone();
+    service.set_team_tasks(move |repo, folder| team.team_tasks(repo, folder));
+    service
+}
+
+fn live_agent(id: &str) -> hangar_lib::agent_catalog::Agent {
+    let entry = hangar_lib::agent_catalog::builtin()
+        .unwrap()
+        .into_iter()
+        .find(|a| a.id == id)
+        .unwrap();
+    hangar_lib::agent_catalog::Agent::from_catalog(entry)
+}
+
+/// `PATH` without the build folders `cargo test` puts in front of it: with them, cmd.exe in
+/// npm's `codex.cmd` does not find `node` (seen with cargo on Windows 11; the app's own
+/// environment has no such entries).
+fn agent_path() -> std::ffi::OsString {
+    let path = std::env::var_os("PATH").unwrap_or_default();
+    let target = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("target");
+    std::env::join_paths(std::env::split_paths(&path).filter(|p| !p.starts_with(&target)))
+        .unwrap_or(path)
+}
+
+/// `<program> --version`, first word that starts with a digit.
+fn live_version(program: &str) -> Option<String> {
+    let output = std::process::Command::new(program)
+        .env("PATH", agent_path())
+        .arg("--version")
+        .output()
+        .ok()?;
+    String::from_utf8_lossy(&output.stdout)
+        .split_whitespace()
+        .find(|word| word.starts_with(|c: char| c.is_ascii_digit()))
+        .map(str::to_owned)
+}
+
+/// What an agent run gave: the edits the gate held (each answered with a deny), exit code,
+/// stdout and stderr.
+struct LiveRun {
+    held: Vec<hangar_lib::gate::PendingDecision>,
+    code: Option<i32>,
+    stdout: String,
+    stderr: String,
+}
+
+/// Starts the agent as a team session would start it (the gate's arguments and environment),
+/// denies every edit the gate holds, and waits at most 5 minutes.
+async fn live_run(
+    gate: &hangar_lib::gate_service::GateService,
+    program: &str,
+    launch: &hangar_lib::manager::GateLaunch,
+    args: &[&str],
+    work: &std::path::Path,
+) -> LiveRun {
+    let mut command = std::process::Command::new(program);
+    command
+        .args(&launch.prepend)
+        .args(&launch.args)
+        .args(args)
+        .env("PATH", agent_path())
+        .current_dir(work)
+        .stdin(std::process::Stdio::null())
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::piped());
+    for (name, value) in &launch.env {
+        command.env(name, value.as_str());
+    }
+    let mut child = command.spawn().expect("agent starts");
+    let mut out = child.stdout.take().unwrap();
+    let mut err = child.stderr.take().unwrap();
+    let stdout = std::thread::spawn(move || {
+        let mut text = String::new();
+        let _ = std::io::Read::read_to_string(&mut out, &mut text);
+        text
+    });
+    let stderr = std::thread::spawn(move || {
+        let mut text = String::new();
+        let _ = std::io::Read::read_to_string(&mut err, &mut text);
+        text
+    });
+    let deadline = Instant::now() + Duration::from_secs(300);
+    let mut held = Vec::new();
+    let status = loop {
+        for pending in gate.snapshot().pending {
+            eprintln!(
+                "live: held {} {} (teammates {:?}, reserved {:?}); denied",
+                pending.tool, pending.path, pending.teammates, pending.reserved
+            );
+            gate.answer(pending.id, hangar_lib::gate::Answer::Deny);
+            held.push(pending);
+        }
+        if let Some(status) = child.try_wait().unwrap() {
+            break status;
+        }
+        if Instant::now() >= deadline {
+            #[cfg(windows)]
+            let _ = std::process::Command::new("taskkill")
+                .args(["/T", "/F", "/PID", &child.id().to_string()])
+                .status();
+            let _ = child.kill();
+            break child.wait().unwrap();
+        }
+        tokio::time::sleep(Duration::from_millis(100)).await;
+    };
+    LiveRun {
+        held,
+        code: status.code(),
+        stdout: stdout.join().unwrap(),
+        stderr: stderr.join().unwrap(),
+    }
+}
+
+/// A real Claude Code (`claude -p`, small model) on Alice's device and a real Codex
+/// (`codex exec`, small model) on Bob's, both started with their team session's gate, against
+/// a real self-hosted relay. Needs, besides the variables of the module documentation:
+///
+/// ```text
+/// HANGAR_LIVE_AGENTS=1
+/// HANGAR_LIVE_CLAUDE=<path of claude.exe>
+/// HANGAR_LIVE_CODEX=<path of codex.cmd or codex>
+/// HANGAR_LIVE_CODEX_MODEL=<a small model, optional>
+/// cargo test --test relay_interop live_agents -- --ignored --nocapture
+/// ```
+///
+/// Each agent is asked to change the file the other person's session changes; the gate holds
+/// the edit and the test denies it. Claude Code is asked to name the teammates' files and
+/// reservations from its context. Costs a few model calls.
+#[test]
+#[ignore = "needs a running self-hosted relay and signed-in agent CLIs, see the documentation"]
+fn live_agents_claude_and_codex_hold_each_others_files() {
+    let (Some(origin), Some(_)) = (env("HANGAR_INTEROP_BASE"), env("HANGAR_LIVE_AGENTS")) else {
+        eprintln!("live: HANGAR_INTEROP_BASE or HANGAR_LIVE_AGENTS not set, skipped");
+        return;
+    };
+    let origin = origin.trim_end_matches('/').to_owned();
+    let link_a = env("HANGAR_INTEROP_LINK_A").expect("HANGAR_INTEROP_LINK_A");
+    let link_b = env("HANGAR_INTEROP_LINK_B").expect("HANGAR_INTEROP_LINK_B");
+    let claude_program = env("HANGAR_LIVE_CLAUDE").expect("HANGAR_LIVE_CLAUDE");
+    let codex_program = env("HANGAR_LIVE_CODEX").expect("HANGAR_LIVE_CODEX");
+    let codex_model = env("HANGAR_LIVE_CODEX_MODEL");
+    tauri::async_runtime::block_on(async move {
+        let mut findings = Findings::default();
+        let client = client();
+        let base = BaseUrl::parse(&format!("{origin}/api/v1")).unwrap();
+        let api = AccountApi::new(base.clone()).unwrap();
+        let alice = Browser::sign_in(&client, &origin, &link_a).await;
+        let bob = Browser::sign_in(&client, &origin, &link_b).await;
+        let alice_tokens = alice.tokens(&client, &api).await;
+        let bob_tokens = bob.tokens(&client, &api).await;
+        let created = relay_api(
+            &client,
+            &origin,
+            reqwest::Method::POST,
+            "/v1/teams",
+            &alice_tokens.access,
+            Some(&serde_json::json!({ "name": "Live agents" })),
+        )
+        .await;
+        assert_eq!(created.status, 201, "team: {}", created.text());
+        let team = created.json()["id"].as_str().unwrap().to_owned();
+        let bob_me = api.me(&bob_tokens.access).await.expect("bob's /me");
+        let invited = relay_api(
+            &client,
+            &origin,
+            reqwest::Method::POST,
+            &format!("/v1/teams/{team}/invitations"),
+            &alice_tokens.access,
+            Some(&serde_json::json!({ "emails": [bob_me.email], "role": "member" })),
+        )
+        .await;
+        assert_eq!(invited.status, 200, "invite: {}", invited.text());
+        let link = invited.json()["invitations"][0]["link"]
+            .as_str()
+            .unwrap()
+            .to_owned();
+        let token = link.rsplit('/').next().unwrap().to_owned();
+        let accepted = relay_api(
+            &client,
+            &origin,
+            reqwest::Method::POST,
+            "/v1/invitations/accept",
+            &bob_tokens.access,
+            Some(&serde_json::json!({ "token": token })),
+        )
+        .await;
+        assert_eq!(accepted.status, 200, "accept: {}", accepted.text());
+
+        let a1 = App::new(&base, "live-a1", Duration::from_secs(3));
+        let b1 = App::new(&base, "live-b1", Duration::from_secs(3));
+        let alice_id = a1.sign_in(&client, &alice).await;
+        let bob_id = b1.sign_in(&client, &bob).await;
+        a1.team.enable(&team).await.unwrap();
+        a1.connected(&team, 1, 1, 1).await;
+        b1.team.enable(&team).await.unwrap();
+        b1.until(&team, "member waits for confirmation", |s| {
+            matches!(s, TeamStatus::WaitingForConfirmation { .. })
+        })
+        .await;
+        until("alice is asked to confirm bob", || {
+            !a1.team.pending().is_empty()
+        })
+        .await;
+        let pending = a1.team.pending();
+        a1.team.confirm(&pending[0].id).await.unwrap();
+        b1.connected(&team, 1, 2, 2).await;
+
+        // Two clones of one repository: Alice's Claude Code changes src/auth.rs, Bob's Codex
+        // docs/notes.md; Bob holds a reservation for docs/guide.
+        let root = "a".repeat(40);
+        let work_a = TempDir::new("live-work-a");
+        let work_b = TempDir::new("live-work-b");
+        for work in [&work_a, &work_b] {
+            // A repository of its own: the agents take the git top folder as their project,
+            // which would otherwise be this repository's.
+            let init = std::process::Command::new("git")
+                .args(["init", "-q"])
+                .current_dir(&work.0)
+                .status()
+                .unwrap();
+            assert!(init.success());
+            std::fs::create_dir_all(work.0.join("src")).unwrap();
+            std::fs::create_dir_all(work.0.join("docs")).unwrap();
+            std::fs::write(work.0.join("src").join("auth.rs"), "fn auth() {}\n").unwrap();
+            std::fs::write(work.0.join("docs").join("notes.md"), "# Notes\n").unwrap();
+        }
+        a1.team.set_local(vec![local(
+            1,
+            "Claude Code",
+            &root,
+            &[("src/auth.rs", 1, 1)],
+        )]);
+        b1.team
+            .set_local(vec![local(5, "Codex", &root, &[("docs/notes.md", 1, 1)])]);
+        a1.team.link_repo(&team, &root, FOLDER, true).unwrap();
+        b1.team.link_repo(&team, &root, FOLDER, true).unwrap();
+        b1.team
+            .reserve_task(&team, task("Write the guide", Some(5), Some("docs/guide")))
+            .await
+            .unwrap();
+        until(
+            "both devices know the other's file and bob's reservation",
+            || {
+                b1.team
+                    .teammate_files(&root, FOLDER)
+                    .iter()
+                    .any(|f| f.key == "src/auth.rs")
+                    && a1
+                        .team
+                        .teammate_files(&root, FOLDER)
+                        .iter()
+                        .any(|f| f.key == "docs/notes.md")
+                    && a1.team.team_tasks(&root, FOLDER).len() == 1
+            },
+        )
+        .await;
+        let settings_a = TempDir::new("live-gate-a");
+        let settings_b = TempDir::new("live-gate-b");
+        let gate_a = live_gate(&a1, &settings_a.0, &work_a.0, 1, &root, "src/auth.rs");
+        let gate_b = live_gate(&b1, &settings_b.0, &work_b.0, 5, &root, "docs/notes.md");
+
+        // Codex on Bob's device tries Alice's file.
+        use hangar_lib::manager::LaunchGate as _;
+        let codex_version = live_version(&codex_program);
+        eprintln!("live: codex {codex_version:?}");
+        let hangar_lib::manager::GatePlan::Launch(codex_launch) = gate_b.prepare(
+            5,
+            &live_agent("codex"),
+            std::path::Path::new(&codex_program),
+            &[],
+            codex_version.as_deref(),
+        ) else {
+            panic!("codex gets no gate");
+        };
+        let work_b_text = work_b.0.to_string_lossy().into_owned();
+        let mut codex_args = vec![
+            "exec",
+            "--sandbox",
+            "workspace-write",
+            "-C",
+            &work_b_text,
+            "--skip-git-repo-check",
+            "-c",
+            "model_reasoning_effort=low",
+        ];
+        if let Some(model) = &codex_model {
+            codex_args.extend(["-m", model.as_str()]);
+        }
+        codex_args.push(
+            "Append the line `// live` to the end of src/auth.rs with apply_patch. If the patch is \
+             blocked, do not try again or any other way; reply with the reason you were given.",
+        );
+        let codex = live_run(
+            &gate_b,
+            &codex_program,
+            &codex_launch,
+            &codex_args,
+            &work_b.0,
+        )
+        .await;
+        eprintln!(
+            "live: codex exit {:?}\n--- stdout\n{}\n--- stderr (tail)\n{}",
+            codex.code,
+            codex.stdout,
+            codex
+                .stderr
+                .lines()
+                .rev()
+                .take(25)
+                .collect::<Vec<_>>()
+                .into_iter()
+                .rev()
+                .collect::<Vec<_>>()
+                .join("\n")
+        );
+        // Teammates are named by their short member id when the relay sends no display name.
+        let alice_tag = hangar_lib::team_share::person_tag("", &alice_id);
+        findings.check(
+            codex.held.iter().any(|h| {
+                h.path == "src/auth.rs" && h.teammates.iter().any(|t| t.contains(&alice_tag))
+            }),
+            "codex's apply_patch on alice's file was held by bob's gate",
+        );
+        findings.check(
+            std::fs::read_to_string(work_b.0.join("src").join("auth.rs")).unwrap()
+                == "fn auth() {}\n",
+            "src/auth.rs unchanged after the deny",
+        );
+
+        // Claude Code on Alice's device: names its context, then tries Bob's file.
+        let claude_version = live_version(&claude_program);
+        eprintln!("live: claude {claude_version:?}");
+        let hangar_lib::manager::GatePlan::Launch(claude_launch) = gate_a.prepare(
+            1,
+            &live_agent("claude"),
+            std::path::Path::new(&claude_program),
+            &[],
+            claude_version.as_deref(),
+        ) else {
+            panic!("claude gets no gate");
+        };
+        let claude = live_run(
+            &gate_a,
+            &claude_program,
+            &claude_launch,
+            &[
+                "-p",
+                "--model",
+                "haiku",
+                "--permission-mode",
+                "acceptEdits",
+                "--max-turns",
+                "6",
+                "Answer in English. Step 1: copy verbatim every line of the additional context \
+                 Hangar gave you about files other sessions are changing and about reserved \
+                 tasks. Step 2: read docs/notes.md and append the line `live` with the Edit \
+                 tool. If that edit is refused, do not try again or any other way; quote the \
+                 reason you were given.",
+            ],
+            &work_a.0,
+        )
+        .await;
+        eprintln!(
+            "live: claude exit {:?}\n--- stdout\n{}\n--- stderr\n{}",
+            claude.code, claude.stdout, claude.stderr
+        );
+        let bob_tag = hangar_lib::team_share::person_tag("", &bob_id);
+        findings.check(
+            claude.held.iter().any(|h| {
+                h.path == "docs/notes.md" && h.teammates.iter().any(|t| t.contains(&bob_tag))
+            }),
+            "claude's edit of bob's file was held by alice's gate",
+        );
+        findings.check(
+            std::fs::read_to_string(work_a.0.join("docs").join("notes.md")).unwrap() == "# Notes\n",
+            "docs/notes.md unchanged after the deny",
+        );
+        findings.check(
+            claude.stdout.contains("docs/notes.md") && claude.stdout.contains("Write the guide"),
+            "claude names bob's file and reservation from its context",
+        );
+
+        a1.team.shutdown();
+        b1.team.shutdown();
+        let _ = api.revoke(&alice_tokens.refresh).await;
+        let _ = api.revoke(&bob_tokens.refresh).await;
+        assert!(
+            findings.0.is_empty(),
+            "live agents:\n{}",
+            findings.0.join("\n")
+        );
+    });
+}
