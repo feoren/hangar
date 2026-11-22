@@ -139,6 +139,11 @@ pub struct Capabilities {
     /// below it, or with the version unknown, the program is not offered for team sessions.
     #[serde(default)]
     pub min_version: Option<MinVersion>,
+    /// First program version the recipe was measured not to work with (a new major line that
+    /// dropped the hook). From it on the recipe would install but never hold an edit, so the
+    /// program counts as not measured until a recipe for that line is measured.
+    #[serde(default)]
+    pub broken_from: Option<MinVersion>,
 }
 
 impl Capabilities {
@@ -168,8 +173,8 @@ impl Capabilities {
 
     /// Why the program cannot be a team session on this machine, `None` when it can
     /// ([`Capabilities::team_ready`]). Checked in the order the catalog and then the host decide:
-    /// no recipe, recipe not measured, administrator settings in the way, version unknown or
-    /// below the floor.
+    /// no recipe, recipe not measured, administrator settings in the way, version unknown, at or
+    /// above [`Capabilities::broken_from`] (counts as not measured), or below the floor.
     pub fn team_block(self, version: Option<&str>, admin_settings: bool) -> Option<TeamBlock> {
         if !(self.pre_edit_block && self.per_session_config) || self.hook_format.is_none() {
             return Some(TeamBlock::NoHooks);
@@ -184,6 +189,9 @@ impl Capabilities {
         let Some(installed) = version.and_then(MinVersion::parse) else {
             return Some(TeamBlock::UnknownVersion);
         };
+        if self.broken_from.is_some_and(|broken| installed >= broken) {
+            return Some(TeamBlock::NotMeasured);
+        }
         (installed < min).then(|| TeamBlock::BelowMinVersion {
             min: min.to_string(),
             installed: installed.to_string(),
@@ -1651,12 +1659,12 @@ packages={ winget='x y' }
         let claude = caps("claude");
         assert!(claude.pre_edit_block && claude.context_inject && claude.per_session_config);
         assert!(claude.gate());
-        // Recipes: docs/wiki/pages/syntheses/agent-gate-adapters.md. Codex, OpenCode and Pi were
+        // Recipes: docs/wiki/pages/syntheses/agent-gate-adapters.md. Codex, Copilot, OpenCode and Pi were
         // measured live; the others have their recipe but wait for that measurement.
         for (id, format, measured, floor) in [
             ("codex", HookFormat::CodexConfigFlags, true, "0.167.2"),
             ("gemini", HookFormat::GeminiSystemSettings, false, "0.68.0"),
-            ("copilot", HookFormat::CopilotPlugin, false, "1.0.109"),
+            ("copilot", HookFormat::CopilotPlugin, true, "1.0.114"),
             ("qwen", HookFormat::QwenSystemSettings, false, "0.27.2"),
             ("opencode", HookFormat::OpencodePlugin, true, "1.19.5"),
             ("pi", HookFormat::PiExtension, true, "1.5.2"),
@@ -1684,7 +1692,9 @@ packages={ winget='x y' }
             .filter(|a| a.capabilities.gate())
             .map(|a| a.id.as_str())
             .collect();
-        assert_eq!(gated, ["claude", "codex", "opencode", "pi"]);
+        assert_eq!(gated, ["claude", "codex", "copilot", "opencode", "pi"]);
+        // OpenCode 2.x dropped `tool.execute.before`; measured with 2.3.2, the plugin never ran.
+        assert_eq!(caps("opencode").broken_from, MinVersion::parse("2.0.0"));
     }
 
     #[test]
@@ -1718,6 +1728,18 @@ packages={ winget='x y' }
         assert!(!caps.team_ready(None, false));
         assert!(!caps.team_ready(Some("unknown"), false));
         assert!(!caps.team_ready(Some("0.168.0"), true));
+        // From a version the recipe was measured to fail with, the program is not offered again.
+        let broken_line = Capabilities {
+            broken_from: MinVersion::parse("2.0.0"),
+            ..caps
+        };
+        assert!(broken_line.team_ready(Some("1.99.3"), false));
+        assert!(!broken_line.team_ready(Some("2.0.0"), false));
+        assert!(!broken_line.team_ready(Some("2.3.2"), false));
+        assert_eq!(
+            broken_line.team_block(Some("2.3.2"), false),
+            Some(TeamBlock::NotMeasured)
+        );
         // Without a floor the version does not matter; unmeasured is never ready.
         let no_floor = Capabilities {
             min_version: None,
@@ -1837,6 +1859,7 @@ commands=['x']
             hook_format: Some(HookFormat::ClaudeSettings),
             measured: true,
             min_version: None,
+            broken_from: None,
         };
         let same = merge(vec![user("claude", "claude")], vec![with_gate.clone()]);
         assert!(same[0].capabilities.gate());
@@ -1946,6 +1969,7 @@ commands=['x']
             hook_format: None,
             measured: true,
             min_version: None,
+            broken_from: None,
         };
         assert_eq!(view(&agent)["teamCapable"], false);
         // A format alone is not enough either.
@@ -1956,6 +1980,7 @@ commands=['x']
             hook_format: Some(HookFormat::ClaudeSettings),
             measured: true,
             min_version: None,
+            broken_from: None,
         };
         assert_eq!(view(&agent)["teamCapable"], false);
         agent.capabilities.pre_edit_block = true;

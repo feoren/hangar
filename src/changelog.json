@@ -16,6 +16,20 @@
         "ru": "Hangar один раз спрашивает об анонимной статистике. По умолчанию выключена, без названий проектов и имён людей, путей и содержимого, отключается в любой момент.",
         "tr": "Hangar anonim kullanım istatistiklerini bir kez sorar. Varsayılan olarak kapalı; proje veya kişi adı, yol ya da içerik yok ve istediğin zaman kapatılabilir.",
         "zh": "Hangar 会询问一次是否发送匿名使用统计。默认关闭，不含项目名或人名、路径或内容，可随时关闭。"
+      },
+      {
+        "de": "GitHub Copilot CLI kann jetzt als Team-Session laufen. OpenCode 2 bleibt vorerst eine private Session, bis Hangar seine Änderungen dort wieder anhalten kann.",
+        "en": "GitHub Copilot CLI can now run as a team session. OpenCode 2 stays private for now, until Hangar can hold its edits there again.",
+        "el": "Το GitHub Copilot CLI τρέχει πλέον ως ομαδική συνεδρία. Το OpenCode 2 μένει ιδιωτικό, μέχρι το Hangar να κρατά ξανά τις αλλαγές του.",
+        "es": "GitHub Copilot CLI ya puede ejecutarse como sesión de equipo. OpenCode 2 sigue privado por ahora, hasta que Hangar pueda volver a retener sus cambios.",
+        "fr": "GitHub Copilot CLI peut désormais tourner en session d'équipe. OpenCode 2 reste privé tant que Hangar ne peut pas à nouveau retenir ses modifications.",
+        "it": "GitHub Copilot CLI ora può girare come sessione di team. OpenCode 2 resta privato per ora, finché Hangar non potrà di nuovo trattenere le sue modifiche.",
+        "ja": "GitHub Copilot CLI をチームセッションとして実行できるようになりました。OpenCode 2 は、Hangar が再び編集を止められるようになるまで、当面プライベートのままです。",
+        "pl": "GitHub Copilot CLI może teraz działać jako sesja zespołowa. OpenCode 2 na razie pozostaje prywatny, dopóki Hangar znów nie będzie mógł wstrzymywać jego zmian.",
+        "pt": "O GitHub Copilot CLI agora pode rodar como sessão de equipe. O OpenCode 2 fica privado por enquanto, até o Hangar conseguir reter suas alterações de novo.",
+        "ru": "GitHub Copilot CLI теперь может работать как командная сессия. OpenCode 2 пока остаётся частным, пока Hangar снова не сможет придерживать его правки.",
+        "tr": "GitHub Copilot CLI artık takım oturumu olarak çalışabilir. OpenCode 2, Hangar değişikliklerini yeniden durdurabilene kadar şimdilik özel kalır.",
+        "zh": "GitHub Copilot CLI 现在可以作为团队会话运行。在 Hangar 能再次拦住其修改之前，OpenCode 2 暂时只能作为私人会话。"
       }
     ]
   },

@@ -41,7 +41,7 @@
 #   capabilities     Optional. What Hangar's agent gate can do with the program (team service
 #                    step B, docs/wiki/pages/syntheses/team-service-v1.md, section 1), all false by
 #                    default: { pre_edit_block, context_inject, per_session_config,
-#                    hook_format, measured, min_version }.
+#                    hook_format, measured, min_version, broken_from }.
 #                    pre_edit_block: a hook can stop an edit before it happens; context_inject: a
 #                    hook can hand the agent facts as context; per_session_config: hooks can be
 #                    given to one session without touching the user's settings files;
@@ -53,7 +53,9 @@
 #                    docs/wiki/pages/syntheses/agent-gate-adapters.md); measured: the recipe was
 #                    run once against the live program and held an edit; min_version: oldest
 #                    version the recipe is known to work with (checked with the version query of
-#                    ADR 0003). Hangar installs its gate, and lists the program for team
+#                    ADR 0003); broken_from: first version the recipe was measured to fail
+#                    with (from it on the program counts as not measured). Hangar installs its
+#                    gate, and lists the program for team
 #                    sessions, only where pre_edit_block, per_session_config and measured are
 #                    true, hook_format is set, the installed version reaches min_version (an
 #                    unknown version does not) and no administrator's system settings file would
@@ -254,10 +256,11 @@ name = "GitHub Copilot CLI"
 commands = ["copilot"]
 resume_args = ["--continue"]
 # preToolUse on edit, create and apply_patch from a plugin loaded with --plugin-dir that runs
-# `hangar gate-hook copilot pre-tool-use` without a shell. Recipe built, live measurement pending
-# (folder trust for plugin hooks is undocumented; measured = false keeps it off):
-# docs/wiki/pages/syntheses/agent-gate-adapters.md.
-capabilities = { pre_edit_block = true, context_inject = false, per_session_config = true, hook_format = "copilot_plugin", measured = false, min_version = "1.0.109" }
+# `hangar gate-hook copilot pre-tool-use` without a shell. Measured live with 1.0.114 (headless and
+# interactive in a ConPTY: the plugin loads after Copilot's usual folder trust question, the hook
+# fires on apply_patch, HANGAR_GATE arrives, a deny keeps the file unwritten, an empty answer lets
+# an add and an update through): docs/wiki/pages/sources/copilot-gate-live-measurement.md.
+capabilities = { pre_edit_block = true, context_inject = false, per_session_config = true, hook_format = "copilot_plugin", measured = true, min_version = "1.0.114" }
 icon = "Co"
 homepage = "https://github.com/github/copilot-cli"
 install_windows = "winget install GitHub.Copilot"
@@ -333,8 +336,10 @@ resume_args = ["--continue"]
 # install in such a folder on every start. Measured live with 1.19.5 (hook fires before the write,
 # HANGAR_GATE arrives, a deny keeps the file from being written, the user's own plugins still
 # load, nothing is installed): docs/wiki/pages/sources/opencode-gate-live-measurement.md. Shell
-# writes are not hooked.
-capabilities = { pre_edit_block = true, context_inject = false, per_session_config = true, hook_format = "opencode_plugin", measured = true, min_version = "1.19.5" }
+# writes are not hooked. OpenCode 2.x is a rewrite without `tool.execute.before`: measured with
+# 2.3.2 (@opencode/cli), the plugin never ran and a denied write went through, so broken_from keeps
+# 2.x out of team sessions until a recipe for it is measured.
+capabilities = { pre_edit_block = true, context_inject = false, per_session_config = true, hook_format = "opencode_plugin", measured = true, min_version = "1.19.5", broken_from = "2.0.0" }
 icon = "OC"
 homepage = "https://opencode.ai"
 install_windows = "npm install -g @opencode/cli"
