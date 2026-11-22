@@ -25,8 +25,7 @@ export function MainBar(props: {
       </span>
       <button
         type="button"
-        className="icon-button main-bar-coffee"
-        aria-label={coffeeLabel}
+        className="main-bar-coffee"
         title={coffeeLabel}
         onClick={() => {
           api.openWebUrl(SUPPORT_URL).catch((error: unknown) => {
@@ -34,7 +33,8 @@ export function MainBar(props: {
           });
         }}
       >
-        <CoffeeIcon />
+        <CoffeeIcon size={14} />
+        <span className="main-bar-coffee-text">{coffeeLabel}</span>
       </button>
       <button
         type="button"

@@ -6365,17 +6365,44 @@ label.setting-line:hover {
   white-space: nowrap;
 }
 
-.main-bar-toggle,
-.main-bar-coffee {
+.main-bar-toggle {
   flex: none;
   width: 30px;
   height: 30px;
 }
 
-/* The support link in the brand's blue, so it reads as Hangar's own and not as a tool. */
-.main-bar-coffee,
-.main-bar-coffee:hover {
+/* The support link as a badge in the brand's blue, so it reads as Hangar's own and not as a tool.
+   It gives way to the session's name: in a narrow window only the cup stays. */
+.main-bar-coffee {
+  display: inline-flex;
+  flex: 0 1 auto;
+  min-width: 26px;
+  align-items: center;
+  gap: 6px;
+  height: 26px;
+  padding: 0 10px 0 8px;
+  overflow: hidden;
+  font-size: 12px;
+  font-weight: 500;
   color: var(--accent);
+  white-space: nowrap;
+  background: color-mix(in srgb, var(--accent) 12%, transparent);
+  border: 1px solid color-mix(in srgb, var(--accent) 35%, transparent);
+  border-radius: 999px;
+}
+
+.main-bar-coffee:hover {
+  background: color-mix(in srgb, var(--accent) 20%, transparent);
+}
+
+.main-bar-coffee > svg {
+  flex: none;
+}
+
+.main-bar-coffee-text {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .main-bar-toggle[aria-pressed="true"] {

@@ -78,7 +78,7 @@ describe("MainBar", () => {
   it("puts the support link right before the panel switch, which ends the bar", () => {
     render(null, false);
     const coffee = host.querySelector<HTMLButtonElement>(".main-bar-coffee");
-    expect(coffee?.getAttribute("aria-label")).toBe("Buy me a coffee");
+    expect(coffee?.textContent).toBe("Buy me a coffee");
     expect(coffee?.nextElementSibling).toBe(toggle());
     expect(toggle()?.nextElementSibling).toBeNull();
     act(() => {
