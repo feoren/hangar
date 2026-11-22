@@ -61,12 +61,25 @@ pub fn install(exe_dir: &Path, data_dir: &Path) -> io::Result<Option<PathBuf>> {
 
 fn same_content(source: &Path, target: &Path, length: u64) -> io::Result<bool> {
     match fs::metadata(target) {
-        Ok(meta) if meta.is_file() && meta.len() == length => {}
+        Ok(meta) if meta.is_file() && meta.len() == length && runnable(&meta) => {}
         Ok(_) => return Ok(false),
         Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(false),
         Err(error) => return Err(error),
     }
     Ok(fs::read(source)? == fs::read(target)?)
+}
+
+/// A copy without its executable bit counts as different: the bytes may match, but every call
+/// would fail with "permission denied". `fs::copy` carries the bundled file's mode over.
+#[cfg(unix)]
+fn runnable(meta: &fs::Metadata) -> bool {
+    use std::os::unix::fs::PermissionsExt;
+    meta.permissions().mode() & 0o100 != 0
+}
+
+#[cfg(not(unix))]
+fn runnable(_meta: &fs::Metadata) -> bool {
+    true
 }
 
 #[cfg(test)]
@@ -99,6 +112,28 @@ mod tests {
         install(&exe, &data).unwrap();
         assert_eq!(fs::read(dir.join(FILE_NAME)).unwrap(), b"client v3");
         assert_eq!(fs::read_dir(&dir).unwrap().count(), 1);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn the_copy_stays_runnable_and_one_that_lost_its_mode_is_replaced() {
+        use std::os::unix::fs::PermissionsExt;
+        let tmp = TempDir::new("send-bin-mode");
+        let exe = tmp.path().join("app");
+        let data = tmp.path().join("data");
+        fs::create_dir_all(&exe).unwrap();
+        let source = exe.join(FILE_NAME);
+        fs::write(&source, b"client").unwrap();
+        fs::set_permissions(&source, fs::Permissions::from_mode(0o755)).unwrap();
+        let mode = |path: &Path| fs::metadata(path).unwrap().permissions().mode() & 0o777;
+
+        let copy = install(&exe, &data).unwrap().unwrap().join(FILE_NAME);
+        assert_eq!(mode(&copy), 0o755);
+        // Same bytes, executable bit gone (a data folder restored from a backup or synced by a
+        // tool that drops modes): every `hangar-send` call would fail, so it is copied again.
+        fs::set_permissions(&copy, fs::Permissions::from_mode(0o644)).unwrap();
+        install(&exe, &data).unwrap();
+        assert_eq!(mode(&copy), 0o755);
     }
 
     #[test]
