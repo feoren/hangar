@@ -11667,7 +11667,8 @@ body.session-dragging .session-actions {
   }
 }
 
-.footer-settings {
+.footer-settings,
+.footer-coffee {
   flex: none;
   width: 30px;
   height: 30px;

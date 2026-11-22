@@ -134,6 +134,17 @@ export function MoonIcon(props: IconProps) {
   );
 }
 
+/** A cup with steam: support the project (Buy Me a Coffee). */
+export function CoffeeIcon(props: IconProps) {
+  return (
+    <Svg {...props}>
+      <path d="M2.5 6.5h8.5v3.5a3.5 3.5 0 0 1-3.5 3.5H6a3.5 3.5 0 0 1-3.5-3.5z" />
+      <path d="M11 7.5h1a1.75 1.75 0 0 1 0 3.5h-1.2" />
+      <path d="M5.5 1.8v2.4M8 1.8v2.4" />
+    </Svg>
+  );
+}
+
 /** Screen: follow the system's light or dark mode. */
 export function MonitorIcon(props: IconProps) {
   return (

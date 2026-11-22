@@ -87,6 +87,7 @@ const de = {
   "sidebar.newSession": "Neue Session",
   "sidebar.pickCwd": "Ordner wählen",
   "sidebar.toLight": "Helles Design",
+  "sidebar.coffee": "Spendier mir einen Kaffee",
   "sidebar.toDark": "Dunkles Design",
 
   "session.newName": "Neuer Name",
@@ -2443,6 +2444,7 @@ const en: Record<MessageKey, string> = {
   "sidebar.newSession": "New session",
   "sidebar.pickCwd": "Choose folder",
   "sidebar.toLight": "Light theme",
+  "sidebar.coffee": "Buy me a coffee",
   "sidebar.toDark": "Dark theme",
 
   "session.newName": "New name",
@@ -4753,6 +4755,7 @@ const el: Record<MessageKey, string> = {
   "sidebar.newSession": "Νέα συνεδρία",
   "sidebar.pickCwd": "Επιλογή φακέλου",
   "sidebar.toLight": "Φωτεινό θέμα",
+  "sidebar.coffee": "Κέρασέ με έναν καφέ",
   "sidebar.toDark": "Σκοτεινό θέμα",
 
   "session.newName": "Νέο όνομα",
@@ -7136,6 +7139,7 @@ const es: Record<MessageKey, string> = {
   "sidebar.newSession": "Nueva sesión",
   "sidebar.pickCwd": "Elegir carpeta",
   "sidebar.toLight": "Tema claro",
+  "sidebar.coffee": "Invítame a un café",
   "sidebar.toDark": "Tema oscuro",
 
   "session.newName": "Nuevo nombre",
@@ -9493,6 +9497,7 @@ const fr: Record<MessageKey, string> = {
   "sidebar.newSession": "Nouvelle session",
   "sidebar.pickCwd": "Choisir un dossier",
   "sidebar.toLight": "Thème clair",
+  "sidebar.coffee": "Offre-moi un café",
   "sidebar.toDark": "Thème sombre",
 
   "session.newName": "Nouveau nom",
@@ -11874,6 +11879,7 @@ const it: Record<MessageKey, string> = {
   "sidebar.newSession": "Nuova sessione",
   "sidebar.pickCwd": "Scegli cartella",
   "sidebar.toLight": "Tema chiaro",
+  "sidebar.coffee": "Offrimi un caffè",
   "sidebar.toDark": "Tema scuro",
 
   "session.newName": "Nuovo nome",
@@ -14231,6 +14237,7 @@ const ja: Record<MessageKey, string> = {
   "sidebar.newSession": "新しいセッション",
   "sidebar.pickCwd": "フォルダーを選択",
   "sidebar.toLight": "ライトテーマ",
+  "sidebar.coffee": "コーヒーで応援する",
   "sidebar.toDark": "ダークテーマ",
 
   "session.newName": "新しい名前",
@@ -16586,6 +16593,7 @@ const pl: Record<MessageKey, string> = {
   "sidebar.newSession": "Nowa sesja",
   "sidebar.pickCwd": "Wybierz folder",
   "sidebar.toLight": "Jasny motyw",
+  "sidebar.coffee": "Postaw mi kawę",
   "sidebar.toDark": "Ciemny motyw",
 
   "session.newName": "Nowa nazwa",
@@ -18918,6 +18926,7 @@ const pt: Record<MessageKey, string> = {
   "sidebar.newSession": "Nova sessão",
   "sidebar.pickCwd": "Escolher pasta",
   "sidebar.toLight": "Tema claro",
+  "sidebar.coffee": "Ofereça-me um café",
   "sidebar.toDark": "Tema escuro",
 
   "session.newName": "Novo nome",
@@ -21264,6 +21273,7 @@ const ru: Record<MessageKey, string> = {
   "sidebar.newSession": "Новый сеанс",
   "sidebar.pickCwd": "Выбрать папку",
   "sidebar.toLight": "Светлая тема",
+  "sidebar.coffee": "Угостите меня кофе",
   "sidebar.toDark": "Тёмная тема",
 
   "session.newName": "Новое имя",
@@ -23587,6 +23597,7 @@ const tr: Record<MessageKey, string> = {
   "sidebar.newSession": "Yeni oturum",
   "sidebar.pickCwd": "Klasör seç",
   "sidebar.toLight": "Açık tema",
+  "sidebar.coffee": "Bana bir kahve ısmarla",
   "sidebar.toDark": "Koyu tema",
 
   "session.newName": "Yeni ad",
@@ -25898,6 +25909,7 @@ const zh: Record<MessageKey, string> = {
   "sidebar.newSession": "新建会话",
   "sidebar.pickCwd": "选择文件夹",
   "sidebar.toLight": "浅色主题",
+  "sidebar.coffee": "请我喝杯咖啡",
   "sidebar.toDark": "深色主题",
 
   "session.newName": "新名称",

@@ -1,9 +1,12 @@
 import { useEffect } from "react";
 
+import { api } from "./api";
+
 import { accountButtonText, isSignedIn } from "./account";
 import { Avatar } from "./Avatar";
 import { useT } from "./i18n";
 import {
+  CoffeeIcon,
   FilesIcon,
   GearIcon,
   MoonIcon,
@@ -24,7 +27,7 @@ import { loadTeamStatuses, useTeam } from "./useTeam";
  * The sidebar's last row: who is signed in (a plain button: signed out it opens the Team window to
  * sign in, signed in Settings, Account; in a narrow sidebar only the avatar), the team pill (its
  * state mark and how many people are online, the rest in its tooltip; opens the Team window), the
- * right panel's tabs, the light and dark switch and Settings. The rail shows the same as icons.
+ * right panel's tabs, the light and dark switch, the support link and Settings. The rail shows the same as icons.
  */
 export function SidebarFooter(props: {
   collapsed: boolean;
@@ -102,6 +105,23 @@ ${t("notes.quickNoteHint", { keys: formatShortcut(SHORTCUT_LABELS.quickNote, t) 
     </button>
   );
 
+  const coffeeLabel = t("sidebar.coffee");
+  const coffee = (
+    <button
+      type="button"
+      className="icon-button footer-coffee"
+      aria-label={coffeeLabel}
+      title={coffeeLabel}
+      onClick={() => {
+        api.openWebUrl(SUPPORT_URL).catch((error: unknown) => {
+          console.warn("could not open the support page", error);
+        });
+      }}
+    >
+      <CoffeeIcon />
+    </button>
+  );
+
   const settings = (
     <button
       type="button"
@@ -142,6 +162,7 @@ ${t("notes.quickNoteHint", { keys: formatShortcut(SHORTCUT_LABELS.quickNote, t) 
         </button>
         {sideTabs}
         {themeSwitch}
+        {coffee}
         {settings}
       </div>
     );
@@ -177,10 +198,14 @@ ${t("notes.quickNoteHint", { keys: formatShortcut(SHORTCUT_LABELS.quickNote, t) 
       )}
       <span className="footer-side-tabs">{sideTabs}</span>
       {themeSwitch}
+      {coffee}
       {settings}
     </div>
   );
 }
+
+/** The project's Buy Me a Coffee page, opened in the default browser. */
+export const SUPPORT_URL = "https://buymeacoffee.com/feoren";
 
 /** The right panel's tabs in its own order, each with its icon. */
 const SIDE_TABS = [
