@@ -679,29 +679,54 @@ fn place(arg: &str, cwd: Option<&str>, home: Option<&str>, style: Style) -> Opti
         }
     };
     let (prefix, rest) = joined;
+    let raw: Vec<&str> = rest.split('/').collect();
     let mut parts: Vec<&str> = Vec::new();
-    let mut glob = false;
-    let mut pattern = None;
-    for part in rest.split('/') {
+    for (index, part) in raw.iter().enumerate() {
         // Windows drops trailing dots and spaces of each part: `...` and `.. ` name the folder
         // itself, as `.` does.
-        let part = match part {
+        let part = match *part {
             ".." => part,
             _ if style.windows => part.trim_end_matches(['.', ' ']),
             _ => part,
         };
         match part {
             "" | "." => {}
+            // A `..` after a wildcard part takes that part back as it does a plain one: each
+            // match's parent is the folder in front of the wildcard (Windows resolves `..`
+            // before any wildcard, by text), so `*/../.git` is the `.git` there. Not so after a
+            // recursive `**` (zsh, bash with `globstar`): it may match no folder at all, so its
+            // `..` may climb above that folder.
             ".." => {
+                if parts
+                    .last()
+                    .is_some_and(|last| matches!(*last, "**" | "***"))
+                {
+                    return None;
+                }
                 parts.pop();
             }
             part if part.contains(['*', '?', '[']) => {
-                glob = true;
-                pattern = Some(part.to_owned());
-                break;
+                // A wildcard that may match `..` itself (`.?`, `.*` in shells that list it)
+                // leaves the folder the parts after it start from unknown. As the last part it
+                // is no harm: `rm` and `rmdir` refuse to remove `..`.
+                let more = raw[index + 1..]
+                    .iter()
+                    .any(|next| !matches!(*next, "" | "."));
+                if more && may_name_parent(part) {
+                    return None;
+                }
+                parts.push(part);
             }
             part => parts.push(part),
         }
+    }
+    // The key ends before the first wildcard part left; the parts after it lie below that
+    // part's matches.
+    let first_glob = parts.iter().position(|part| part.contains(['*', '?', '[']));
+    let pattern = first_glob.and_then(|at| parts.get(at).map(|part| (*part).to_owned()));
+    let glob = pattern.is_some();
+    if let Some(at) = first_glob {
+        parts.truncate(at);
     }
     let mut key = prefix;
     for part in parts {
@@ -732,6 +757,14 @@ fn may_name_git(pattern: &str, fold_case: bool, dotglob: bool) -> bool {
         pattern.to_owned()
     };
     glob_match(&pattern, ".git")
+}
+
+/// Whether a wildcard part may match `..`. A leading `*` or `?` never matches a leading dot, and
+/// no shell lists `.` and `..` for one, not even with `dotglob`; a pattern that spells the dot
+/// (`.*`, `.?`, `.[.]`) or opens with a bracket class may match `..` where the shell lists it
+/// (bash before 5.2 or with `globskipdots` off).
+fn may_name_parent(pattern: &str) -> bool {
+    !pattern.starts_with(['*', '?']) && glob_match(pattern, "..")
 }
 
 /// A Windows 8.3 short name (`GIT~1`, `PROGRA~2.TXT`): it may stand for any long name of its
@@ -5675,6 +5708,92 @@ program = ["x"]
         // A name test that cannot match `.git` stays inside the project.
         assert_eq!(
             hits("find . -type d -name node_modules -prune -exec rm -rf {} +"),
+            Vec::<String>::new()
+        );
+    }
+
+    #[test]
+    fn a_wildcard_before_dot_dot_does_not_hide_the_target() {
+        let key = |arg: &str| place(arg, Some("/p"), None, UNIX);
+        let target = |key: &str, pattern: Option<&str>| {
+            Some(Target {
+                key: key.to_owned(),
+                glob: pattern.is_some(),
+                pattern: pattern.map(str::to_owned),
+            })
+        };
+        // `*/..` names the folder in front of the wildcard; what follows is placed from there.
+        assert_eq!(key("*/../.git"), target("/p/.git", None));
+        assert_eq!(key("a/*/*/../../.git"), target("/p/a/.git", None));
+        assert_eq!(key("*/x/../../.git"), target("/p/.git", None));
+        assert_eq!(key("*/build/../dist"), target("/p", Some("*")));
+        assert_eq!(key("src/*/../target"), target("/p/src/target", None));
+        assert_eq!(key("*/node_modules"), target("/p", Some("*")));
+        // A wildcard that may itself be `..` cannot be placed when parts follow it; as the last
+        // part it is fine, since `rm` and `rmdir` refuse to remove `..`.
+        assert_eq!(key(".?/.git"), None);
+        assert_eq!(key("sub/.*/x"), None);
+        assert_eq!(key(".[.]/x"), None);
+        assert_eq!(key("sub/.*"), target("/p/sub", Some(".*")));
+        assert_eq!(key("..?/x"), target("/p", Some("..?")));
+        // A recursive `**` may match no folder, so a `..` after it may leave the folder in
+        // front of it; `**` without a `..` after it stays below that folder.
+        assert_eq!(key("**/../x"), None);
+        assert_eq!(key("src/**/a/../../x"), None);
+        assert_eq!(key("***/../x"), None);
+        assert_eq!(key("**/node_modules"), target("/p", Some("**")));
+        assert_eq!(key("**/build/../dist"), target("/p", Some("**")));
+
+        assert_hits(
+            "rm-outside-project",
+            &[
+                "rm -rf ./*/../.git",
+                "rm -rf */../.git",
+                "rm -rf src/*/../../.git",
+                "rm -rf */*/../../.git",
+                "rm -rf */x/../../.git",
+                "rm -rf */..",
+                "rm -rf */../../other",
+                "find . -name src -exec rm -rf {}/../.git \\;",
+                "find . -type d -name src -exec rm -rf {}/../.git +",
+                "rm -rf src/.?/.git",
+                "rm -rf **/../../other",
+            ],
+        );
+        assert_passes(&[
+            "rm -rf */node_modules",
+            "rm -rf src/*/../target",
+            "rm -rf */build/../dist",
+            "rm -rf src/*/..",
+            "rm -rf **/node_modules",
+            "find . -name node_modules -prune -exec rm -rf {}/../dist +",
+        ]);
+        for command in [
+            r"Remove-Item -Recurse -Force .\*\..\.git",
+            r"Remove-Item -Recurse -Force src\*\x\..\..\..\.git",
+        ] {
+            assert_eq!(
+                hits_in(command, "PowerShell"),
+                ["remove-item-outside-project"],
+                "{command}"
+            );
+        }
+        for command in [
+            r"cmd /c rd /s /q *\..\.git",
+            r"cmd /c rmdir /s /q *\*\..\..\.git",
+        ] {
+            assert_eq!(
+                hits_in(command, "PowerShell"),
+                ["del-outside-project"],
+                "{command}"
+            );
+        }
+        assert_eq!(
+            hits_in(r"Remove-Item -Recurse -Force .\*\bin\..\obj", "PowerShell"),
+            Vec::<String>::new()
+        );
+        assert_eq!(
+            hits_in(r"cmd /c rd /s /q *\..\dist", "PowerShell"),
             Vec::<String>::new()
         );
     }

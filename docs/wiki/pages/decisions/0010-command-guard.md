@@ -6,7 +6,7 @@ superseded_by:
 tags: [gate, hooks, team, shell, security, claude-code, pi, opencode, codex]
 sources: ["[[shell-tool-input-shapes]]", "[[opencode-gate-live-measurement]]", "[[agent-hooks-per-session-research]]", "[[codex-gate-live-measurement]]", "[[claude-http-hook-measurement]]"]
 created: 2026-11-14
-updated: 2026-11-20
+updated: 2026-11-22
 ---
 
 # ADR 0010: Command guard in the agent gate
@@ -337,7 +337,15 @@ Option 2 with reach A.
     where file names ignore case (Git for Windows finds `git-push`).
   - *Paths.* A wildcard right in the project that may match `.git` (`.*`, `.g*`, `?git`; a
     leading `*` does not match a dot) and a Windows short name right in it (`GIT~1`) count as
-    outside; the items of `Get-ChildItem x` lie below `x`, also of a bare `Get-ChildItem`.
+    outside; the items of `Get-ChildItem x` lie below `x`, also of a bare `Get-ChildItem`. A `..`
+    after a wildcard part takes that part back like a plain one (`*/../.git` is the `.git` in
+    front of the wildcard, as each match's parent is that folder and Windows resolves `..` by
+    text before any wildcard), so the key ends at the first wildcard left after all `..` are
+    resolved. A `..` right after a recursive `**` (zsh, bash with `globstar`) cannot be placed
+    and asks, since `**` may match no folder and the `..` then climbs above the folder in front
+    of it (`**/../x` names `../x`). A wildcard that may match `..` itself (`.?`, `.*`, `.[.]`,
+    where bash before 5.2 lists `..`) cannot be placed when parts follow it and asks; as the
+    last part it passes, since `rm` refuses to remove `..`.
   - *Too complex.* bash's `${!name}` and `${x@P}`, zsh's `${(e)x}` and glob qualifiers that
     run code (`*(e:...:)`); git configuration that names a program (`-c core.pager=`,
     `core.sshCommand`, `core.editor`, `core.hooksPath`, drivers, helpers) or `git config`
@@ -547,6 +555,7 @@ Option 2 with reach A.
   `cmd_reads_carets_titles_glued_switches_and_folder_changes`,
   `powershell_values_known_before_the_command_runs_are_read`,
   `wildcards_and_short_names_that_reach_the_projects_git_folder_count`,
+  `a_wildcard_before_dot_dot_does_not_hide_the_target`,
   `wsl_home_switch_is_skipped`, `sql_glued_to_short_options_and_shell_escapes_are_seen`,
   `option_words_with_wildcards_count_as_every_option_they_match`,
   `more_wrappers_run_their_command`, `commands_hidden_in_git_configuration_are_asked_about`,

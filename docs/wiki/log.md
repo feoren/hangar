@@ -1443,3 +1443,8 @@ Cursor CLI 2026.11.19, signed in, holds `Write` and `Delete` through a `--plugin
 `preToolUse` hook runs `hangar gate-hook cursor pre-tool-use`; measured headless, interactive and
 end to end. New: [[cursor-gate-live-measurement]]. Updated: [[agent-gate-adapters]],
 [[agent-hooks-cursor-cline-gemini-opencode2-research]], index.
+
+## [2026-11-22] decision | Command guard places `..` after a wildcard part
+A `..` after a wildcard part now takes that part back (`*/../.git` is the project's `.git`); a
+wildcard that may match `..` itself with parts after it, and a `..` right after a recursive `**`,
+cannot be placed and ask. Updated: [[0010-command-guard]], index.

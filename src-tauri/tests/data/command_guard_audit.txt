@@ -1135,3 +1135,43 @@ ASK	B	cp x .claude/*
 ASK	B	cp --target-directory=.claude settings.json
 PASS	B	for d in build dist; do if [ -d "$d" ]; then rm -rf "$d"; fi; done
 PASS	P	foreach ($d in 'build','dist') { if (Test-Path $d) { Remove-Item $d -Recurse -Force } }
+## Wildcard parts followed by `..`: `*/..` names the folder in front of the wildcard, so the parts
+## after it are placed from there (`../../*/../.git` is the project's `.git`). A wildcard that may
+## match `..` itself (`.?`, `.*`) with parts after it cannot be placed. Measured at cwd
+## c:/work/proj/sub/deep.
+ASK	B	rm -rf ../../*/../.git
+ASK	B	rm -rf ../../s*/../.git
+ASK	B	rm -rf ../../*/*/../../.git
+ASK	B	rm -rf ../../*/x/../../.git
+ASK	B	rm -rf ../../*/../.git/hooks
+ASK	B	rm -rf ../../*/..
+ASK	B	rm -rf ../../*/../../marker
+ASK	B	rm -rf /c/work/proj/*/../.git
+ASK	B	find ../.. -name src -exec rm -rf {}/../.git \;
+ASK	B	find ../.. -type d -name src -exec rm -rf {}/../.git +
+ASK	B	rm -rf ../.?/.git
+ASK	B	rm -rf ../.*/.git
+ASK	B	rm -rf ../.[.]/.git
+ASK	P	Remove-Item -Recurse -Force ..\..\*\..\.git
+ASK	P	Remove-Item -Recurse -Force ../../*/x/../../.git
+ASK	P	ri -r -fo ..\..\s*\*\..\..\.git
+ASK	C	rd /s /q ..\..\*\..\.git
+ASK	C	rmdir /s /q ..\..\*\*\..\..\.git
+ASK	C	rd /s /q ..\..\*\..\..\marker
+PASS	B	rm -rf ../../*/node_modules
+PASS	B	rm -rf ../../*/build/../dist
+PASS	B	rm -rf ../../src/*/../target
+PASS	B	rm -rf ../*/..
+PASS	B	rm -rf ../.*
+PASS	B	rm -rf ../..?/x
+PASS	B	find ../.. -name node_modules -prune -exec rm -rf {}/../dist +
+PASS	P	Remove-Item -Recurse -Force ..\..\*\bin\..\obj
+PASS	C	rd /s /q ..\..\*\..\dist
+## A recursive `**` (zsh, bash with `globstar`) may match no folder, so a `..` after it may climb
+## above the folder in front of it (`../../**/../marker` reaches `c:/work/marker`).
+ASK	B	rm -rf ../../**/../marker
+ASK	B	rm -rf ../../src/**/../../marker
+ASK	B	rm -rf ../../***/../marker
+PASS	B	rm -rf ../../**/node_modules
+PASS	B	rm -rf ../../**/*.pyc
+PASS	B	rm -rf ../../**/build/../dist
