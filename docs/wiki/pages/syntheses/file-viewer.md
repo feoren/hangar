@@ -230,7 +230,9 @@ text depends on the target session's program (`insertPathText` in `pathQuote.ts`
 
 Inside the session's working folder the path is relative, otherwise absolute, so any pane takes
 the drop. A relative path starting with `-` gets `./` (`.\`) so no shell reads it as an option. A
-path with a control character (line break, ESC) inserts nothing. Pointer events with pointer
+path with a control character (line break, ESC) inserts nothing. For an agent, a path with a bidi
+control or a line or paragraph separator (U+2028, U+2029) is typed in git's C quoting with octal
+bytes (`visiblePath`), so it reads as it is; shells get these paths unchanged. Pointer events with pointer
 capture, not HTML5 drag and drop: Tauri's native file drop owns that in the window (see
 `useSessionDrag.ts`). The drag starts beyond the session drag's threshold, so clicks and double
 clicks stay; Escape cancels. Only the main window drags (the detached panel has no panes).

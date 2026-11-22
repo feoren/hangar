@@ -82,9 +82,11 @@ export function quotePath(path: string, kind: ShellKind): string {
 /**
  * A path in an agent's prompt is read, not parsed by a shell: quote it with a quote kind it does
  * not contain. Only a path with both kinds gets backslash escapes, and then backslashes too, so
- * the text stays unambiguous.
+ * the text stays unambiguous. A path with control or reordering characters is shown in git's
+ * quoting instead (`visiblePath`).
  */
 function agentQuote(path: string): string {
+  if (unsafeDropPath(path)) return visiblePath(path);
   if (/^[^\s"']+$/u.test(path)) return path;
   if (!path.includes('"')) return `"${path}"`;
   if (!path.includes("'")) return `'${path}'`;
@@ -217,6 +219,47 @@ const REORDERING = /[\u202a-\u202e\u2066-\u2069\u200e\u200f\u061c\u2028\u2029]/u
  */
 export function unsafeDropPath(path: string): boolean {
   return hasControl(path) || REORDERING.test(path);
+}
+
+/** git's named escapes (`quote_c_style`); `unquotePath` in gitDiff.ts reads them back. */
+const C_ESCAPES: Readonly<Record<string, string>> = {
+  "\x07": "a",
+  "\b": "b",
+  "\t": "t",
+  "\n": "n",
+  "\v": "v",
+  "\f": "f",
+  "\r": "r",
+  '"': '"',
+  "\\": "\\",
+};
+
+/**
+ * A path from the repository or the file tree as text for an agent's prompt or a pasted list:
+ * unchanged when it is safe (`unsafeDropPath`) and holds no `"` or `\`, otherwise in git's C
+ * quoting, as `git status` shows it (`"one\ntwo.ts"`): control characters by their escape or as
+ * octal UTF-8 bytes, line and paragraph separators and bidi controls as octal bytes too, quotes
+ * and backslashes escaped. A file name is not the user's text, so a line break in it must not
+ * start a new line of the prompt, ESC must not reach the terminal, and the name must not read
+ * otherwise than it is. Quotes and backslashes are quoted as git does, or a file named `"x"`
+ * would read as the quoted name `x`. The result is printable, unambiguous and names the same
+ * file (`unquotePath` in gitDiff.ts reads it back), so the action still works.
+ */
+export function visiblePath(path: string): string {
+  if (!unsafeDropPath(path) && !/["\\]/.test(path)) return path;
+  const encoder = new TextEncoder();
+  let quoted = "";
+  for (const char of path) {
+    const named = C_ESCAPES[char];
+    if (named !== undefined) {
+      quoted += `\\${named}`;
+    } else if (unsafeDropPath(char)) {
+      for (const byte of encoder.encode(char)) quoted += `\\${byte.toString(8).padStart(3, "0")}`;
+    } else {
+      quoted += char;
+    }
+  }
+  return `"${quoted}"`;
 }
 
 /**

@@ -574,6 +574,11 @@ describe("mentionText", () => {
     expect(mentionText("docs/my notes.md", false)).toBe('@"docs/my notes.md" ');
     expect(mentionText('a "b" c', false)).toBe("@'a \"b\" c' ");
   });
+
+  it("shows a line break or ESC in the name as git quotes them", () => {
+    expect(mentionText("one\ntwo.md", false)).toBe('@"one\\ntwo.md" ');
+    expect(mentionText("a\u001bb", true)).toBe('@"a\\033b/" ');
+  });
 });
 
 describe("rowTreePath", () => {

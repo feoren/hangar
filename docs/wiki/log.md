@@ -1468,3 +1468,9 @@ Each `SavedSession` carries an optional `queuedMessage` (at most 20 000 UTF-16 u
 saving and on loading, left out of the file when absent); the workspace commands answer the main
 window only. The texts of `queued-messages.json` (0.10 to 0.13) and of `localStorage` move in once.
 Updated: [[queued-messages-and-stall-hint]], [[session-restore]], index.
+
+## [2026-11-22] update | Repository paths in agent prompts in git's C quoting
+Line comments, `{{file}}` snippets, Files tab mentions for agents and the handover's file list
+show a path with a control, separator or bidi character in git's C quoting (`visiblePath`), so a
+file name cannot add lines to a prompt or reorder it; `unquotePath` reads `\v`, `\f` and literal
+emoji back. Pages changed: [[commit-history]], [[file-viewer]], [[costs-and-handover]], index.

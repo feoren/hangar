@@ -206,7 +206,8 @@ export function newLineNumbers(lines: readonly string[]): (number | null)[] {
 /**
  * What a line comment sends into the agent's prompt: `@path:line: comment`, the path relative to
  * the repository and quoted as a mention is (fileTree.ts, `mentionText`), the comment on one line.
- * `null` for an empty comment.
+ * A path with control or reordering characters comes in git's quoting (`visiblePath`), so a file
+ * name from the repository cannot add lines to the prompt. `null` for an empty comment.
  */
 export function lineComment(path: string, line: number, comment: string): string | null {
   const text = comment.replace(/\s+/g, " ").trim();

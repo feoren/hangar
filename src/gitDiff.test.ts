@@ -98,6 +98,8 @@ describe("splitDiff", () => {
     expect(unquotePath('"a/\\303\\244rger.txt"')).toBe("a/ärger.txt");
     expect(unquotePath('"tab\\there"')).toBe("tab\there");
     expect(unquotePath("plain.txt")).toBe("plain.txt");
+    expect(unquotePath('"v\\vf\\f"')).toBe("v\u000bf\u000c");
+    expect(unquotePath('"\u{1f600}\\n日"')).toBe("\u{1f600}\n日");
     const files = splitDiff(
       [
         'diff --git "a/\\303\\244.txt" "b/\\303\\244.txt"',

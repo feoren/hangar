@@ -98,11 +98,24 @@ export function unquotePath(raw: string): string {
   const body = raw.slice(1, -1);
   const bytes: number[] = [];
   const encoder = new TextEncoder();
-  const escapes: Record<string, number> = { n: 10, t: 9, r: 13, '"': 34, "\\": 92, a: 7, b: 8 };
+  const escapes: Record<string, number> = {
+    n: 10,
+    t: 9,
+    r: 13,
+    v: 11,
+    f: 12,
+    '"': 34,
+    "\\": 92,
+    a: 7,
+    b: 8,
+  };
   for (let i = 0; i < body.length; i += 1) {
-    const char = body.charAt(i);
+    // By code point: a literal emoji (core.quotePath off, or `visiblePath`) is a surrogate pair,
+    // and encoding its halves one by one would turn it into two replacement characters.
+    const char = String.fromCodePoint(body.codePointAt(i) ?? 0);
     if (char !== "\\") {
       bytes.push(...encoder.encode(char));
+      i += char.length - 1;
       continue;
     }
     const next = body.charAt(i + 1);

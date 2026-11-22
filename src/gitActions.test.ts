@@ -16,6 +16,10 @@ import {
   stageAllPaths,
   stageState,
 } from "./gitActions";
+import { unquotePath } from "./gitDiff";
+
+// eslint-disable-next-line no-control-regex -- control characters are exactly the target here.
+const SPECIAL = /[\u0000-\u001f\u007f-\u009f\u2028\u2029\u202a-\u202e\u2066-\u2069]/;
 
 describe("stage all", () => {
   it("stages tracked changes only, as a commit with -a does, never a merge conflict", () => {
@@ -219,6 +223,27 @@ describe("lineComment", () => {
 
   it("sends nothing for an empty comment", () => {
     expect(lineComment("a.txt", 1, " \n ")).toBeNull();
+  });
+
+  it("shows control and reordering characters of the path as git quotes them", () => {
+    // A file name from the repository is not the user's text: a line break in it would start a
+    // new line of the prompt, ESC would reach the terminal, U+2028 and bidi controls would break
+    // or reorder what the agent reads.
+    expect(lineComment("src/one\ntwo.ts", 7, "marker")).toBe('@"src/one\\ntwo.ts":7: marker');
+    expect(lineComment("a\u001b[0mb.ts", 1, "marker")).toBe('@"a\\033[0mb.ts":1: marker');
+    expect(lineComment("a\u2028b.ts", 1, "marker")).toBe('@"a\\342\\200\\250b.ts":1: marker');
+    expect(lineComment("a\u202eb.ts", 1, "marker")).toBe('@"a\\342\\200\\256b.ts":1: marker');
+    expect(lineComment("a\u0085b.ts", 1, "marker")).toBe('@"a\\302\\205b.ts":1: marker');
+  });
+
+  it("keeps the masked path readable back into the real one", () => {
+    const paths = ["x\ny.ts", 'say "hi"\n.ts', "back\\slash\t.ts", "v\u000bf\u000c.ts", "a\u2066b"];
+    for (const path of paths) {
+      const text = lineComment(path, 1, "marker") ?? "";
+      expect(text).not.toMatch(SPECIAL);
+      const quoted = /^@(".*"):1: marker$/.exec(text)?.[1] ?? "";
+      expect(unquotePath(quoted)).toBe(path);
+    }
   });
 });
 

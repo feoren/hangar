@@ -205,7 +205,9 @@ above, plus the existing git errors.
   icon on hover) opens a one-line field; Enter pastes `@<path>:<line>: <comment>` into the
   session's prompt through the notes' send path (bracketed paste, no Enter; the panel window goes
   through `panel_to_main`). The path is relative to the repository and quoted as a mention is
-  (`mentionText`); the line is the new side's number from the hunk header (`newLineNumbers`).
+  (`mentionText`); a path with a control, separator or bidi character comes in git's C quoting
+  (`visiblePath` in `src/pathQuote.ts`, `"one\ntwo.ts"`), so a file name cannot add lines to the
+  prompt or reorder it; the line is the new side's number from the hunk header (`newLineNumbers`).
   Removed lines take no comment. Keyboard: the diff is one Tab stop (`aria-activedescendant`);
   arrows, Home and End move a cursor over the commentable lines, Enter or `c` opens the field,
   Escape closes it and returns the focus to the diff (`diffKey`).

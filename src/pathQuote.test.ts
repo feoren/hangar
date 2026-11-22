@@ -8,9 +8,11 @@ import {
   isShellKind,
   quotePath,
   shellKind,
+  visiblePath,
   wslPath,
   type TreePath,
 } from "./pathQuote";
+import { unquotePath } from "./gitDiff";
 
 describe("shellKind", () => {
   it("recognizes shells by file name, with path and extension", () => {
@@ -144,6 +146,51 @@ describe("agent CLIs", () => {
     expect(quotePath('/tmp/say "hi".png', "agent")).toBe("'/tmp/say \"hi\".png'");
     expect(quotePath('/tmp/ada\'s "x"\\y.png', "agent")).toBe('"/tmp/ada\'s \\"x\\"\\\\y.png"');
     expect(quotePath("C:\\Übersicht\\日本.png", "agent")).toBe("C:\\Übersicht\\日本.png");
+  });
+
+  it("show control, separator and bidi characters in git's quoting", () => {
+    expect(quotePath("/tmp/a\nb", "agent")).toBe('"/tmp/a\\nb"');
+    expect(quotePath("/tmp/a\rb\tc", "agent")).toBe('"/tmp/a\\rb\\tc"');
+    expect(quotePath('C:\\x\\"y"\u0007', "agent")).toBe('"C:\\\\x\\\\\\"y\\"\\a"');
+    expect(quotePath("/tmp/a\u2029b", "agent")).toBe('"/tmp/a\\342\\200\\251b"');
+    // Joiners stay: Persian and Indic names and emoji need them.
+    expect(quotePath("/tmp/a\u200db", "agent")).toBe("/tmp/a\u200db");
+  });
+});
+
+describe("visiblePath", () => {
+  it("leaves a plain path alone, spaces, umlauts, emoji and joiners included", () => {
+    for (const path of [
+      "src/app.ts",
+      "my notes.md",
+      "\u00dcbersicht/\u65e5 \u{1f600}.md",
+      "a\u200db",
+    ]) {
+      expect(visiblePath(path)).toBe(path);
+    }
+  });
+
+  it("quotes quotes and backslashes as git does, so a name cannot pass as quoting", () => {
+    expect(visiblePath('"x"')).toBe('"\\"x\\""');
+    expect(visiblePath("a\\b")).toBe('"a\\\\b"');
+  });
+
+  it("reads back into the real name", () => {
+    const paths = [
+      "one\ntwo.ts",
+      '"x"',
+      'say "hi"\n.ts',
+      "back\\slash\t.ts",
+      "\\001\n",
+      "\u0000\u0007\b\v\f\r\u001b\u007f\u0085\u009f",
+      "\u00fc\u2028\u65e5\u202e\u{1f600}\u2066x\u200e\u061c",
+      "a\u200db\n",
+    ];
+    for (const path of paths) {
+      const shown = visiblePath(path);
+      expect(unsafeDropPath(shown)).toBe(false);
+      expect(unquotePath(shown)).toBe(path);
+    }
   });
 });
 

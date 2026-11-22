@@ -65,6 +65,18 @@ describe("buildHandover", () => {
     expect(text.split("\n\n")).toHaveLength(2);
   });
 
+  it("lists a changed file with a line break in its name as git quotes it", () => {
+    const files = ["one\ntwo.ts", "b\u202ec"];
+    const text = buildHandover({ from: "A", folder: "/w", lastPrompt: null, files, notes: [] }, t);
+    expect(text).toContain('- "one\\ntwo.ts"\n- "b\\342\\200\\256c"');
+  });
+
+  it("lists a file named in quotes so it does not read as a quoted name", () => {
+    const files = ['"x"', "plain.ts"];
+    const text = buildHandover({ from: "A", folder: "/w", lastPrompt: null, files, notes: [] }, t);
+    expect(text).toContain('- "\\"x\\""\n- plain.ts');
+  });
+
   it("stays within its bounds", () => {
     const files = Array.from(
       { length: 500 },

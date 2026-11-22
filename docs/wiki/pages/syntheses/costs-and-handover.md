@@ -4,7 +4,7 @@ type: synthesis
 tags: [costs, tokens, handover, claude-code]
 sources: ["[[token-usage-measurement]]", "[[context-window-measurement]]"]
 created: 2026-11-13
-updated: 2026-11-20
+updated: 2026-11-22
 ---
 
 # Costs per session and day, session handover
@@ -105,7 +105,8 @@ updated: 2026-11-20
   `SessionTerminal.lastRequest`, skipping slash commands and one-character answers; the terminal's
   one prompt line tracker feeds this `SubmittedLines` record, the timeline's `StepPrompt` and the
   last prompt bar above the terminal, each with its own rules), the changed files from `git_diff` by session id (at most
-  40, then a count), the
+  40, then a count; a name with a control, separator or bidi character, a quote or a backslash
+  in git's C quoting, `visiblePath`), the
   project notes (at most 5 titles with excerpts of 160 characters), and the instruction to
   summarize first. At most 8000 characters: excerpts go first, then file lines.
 

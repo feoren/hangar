@@ -6,7 +6,7 @@
 import type { Profile, SessionMode, Worktree } from "./api";
 import type { AttentionState } from "./attention";
 import type { Translate } from "./i18n";
-import { shellKind } from "./pathQuote";
+import { shellKind, visiblePath } from "./pathQuote";
 import { teamCapable } from "./startMode";
 
 /** The whole prompt stays below this, so it is a paste and never a wall of text. */
@@ -101,7 +101,8 @@ export function buildHandover(input: HandoverInput, t: Translate): string {
           .split("\n")
           .map((line) => `> ${line}`)
           .join("\n")}`;
-  const files = input.files.map(oneLine).filter((path) => path !== "");
+  // A line break in a file name would otherwise turn into a space and name another file.
+  const files = input.files.map((path) => oneLine(visiblePath(path))).filter((path) => path !== "");
   const notes = input.notes
     .slice(0, NOTES_MAX)
     .map((note) => ({
