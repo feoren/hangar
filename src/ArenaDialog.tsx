@@ -462,6 +462,9 @@ function ArenaCompare({
                       type="button"
                       className="secondary-button"
                       disabled={!canApply(state, stat) || applying}
+                      aria-describedby={
+                        stat?.truncated === true ? `arena-too-many-${String(id)}` : undefined
+                      }
                       onClick={() => {
                         setApplied(null);
                         setConfirming(id);
@@ -469,6 +472,11 @@ function ArenaCompare({
                     >
                       {t("arena.apply")}
                     </button>
+                    {stat?.truncated === true && (
+                      <div id={`arena-too-many-${String(id)}`} className="muted arena-help">
+                        {t("arena.tooManyFiles")}
+                      </div>
+                    )}
                   </td>
                 </tr>
                 {expanded && stat !== null && (

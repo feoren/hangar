@@ -233,6 +233,10 @@ describe("arenaErrorText", () => {
       ["[arena_unsafe_path] .git./x cannot be taken over", de("arena.errorUnsafePath")],
       ["[arena_link] lnk is a link or a submodule", de("arena.errorLink")],
       [
+        "[arena_file_became_folder] a is a file in the project and a folder in the changes",
+        de("arena.errorFileBecameFolder"),
+      ],
+      [
         "[arena_changed] The changes are no longer the ones that were shown",
         de("arena.errorChanged"),
       ],

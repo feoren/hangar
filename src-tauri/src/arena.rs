@@ -76,6 +76,8 @@ pub enum ArenaError {
     UnsafePath(String),
     #[error("{0} is a link or a submodule, which is never taken over")]
     Link(String),
+    #[error("{0} is a file in the project and a folder in the changes, which is not taken over")]
+    FileBecameFolder(String),
     #[error("The changes are no longer the ones that were shown")]
     Changed,
     #[error("The worktree could not be deleted: {0}")]
@@ -106,6 +108,7 @@ impl ArenaError {
             Self::Copy { .. } => Some("arena_copy"),
             Self::UnsafePath(_) => Some("arena_unsafe_path"),
             Self::Link(_) => Some("arena_link"),
+            Self::FileBecameFolder(_) => Some("arena_file_became_folder"),
             Self::Changed => Some("arena_changed"),
             Self::Remove(_) => Some("arena_remove"),
             Self::Command(_) => Some("arena_command"),
@@ -535,6 +538,27 @@ pub fn conflicts(changed: &[String], dirty: &[String]) -> Vec<String> {
     found
 }
 
+/// Tracked files the winner turned into a folder of new files (`a` became `a/b`), sorted. New
+/// files are copied before the patch removes the file, so such a folder cannot be made.
+pub fn files_turned_folders(tracked: &[String], untracked: &[String]) -> Vec<String> {
+    let folders: BTreeSet<String> = untracked
+        .iter()
+        .flat_map(|path| {
+            path.match_indices('/')
+                .map(|(end, _)| fold(&path[..end]))
+                .collect::<Vec<_>>()
+        })
+        .collect();
+    let mut found: Vec<String> = tracked
+        .iter()
+        .filter(|path| folders.contains(&fold(path)))
+        .cloned()
+        .collect();
+    found.sort();
+    found.dedup();
+    found
+}
+
 /// Files with uncommitted changes in the project folder, untracked ones included.
 fn dirty_files(
     git: &Git,
@@ -588,8 +612,9 @@ fn check_owner(git: &Git, worktree: &Worktree, deadline: Instant) -> Result<(), 
 /// uncommitted changes: tracked changes as a patch through `git apply` (all or nothing), new files
 /// copied. `expected` is the file list the user confirmed (from [`diff_stat`]); when the changes
 /// differ from it by now, nothing is touched. Refuses, before touching anything, when the project
-/// folder has its own changes in any of those files or a new file is already there, and when a
-/// path could reach a git folder or passes a link. New files go in before the patch, and are
+/// folder has its own changes in any of those files or a new file is already there, when a
+/// tracked file became a folder of new files, and when a path could reach a git folder or passes
+/// a link. New files go in before the patch, and are
 /// taken back when the patch fails.
 pub fn apply(
     git: &Git,
@@ -635,6 +660,12 @@ pub fn apply(
     };
     let tracked_files = relative_paths(&tracked)?;
     let new_files = relative_paths(&untracked)?;
+    if let Some(file) = files_turned_folders(&tracked, &untracked)
+        .into_iter()
+        .next()
+    {
+        return Err(ArenaError::FileBecameFolder(file));
+    }
     if !tracked.is_empty() {
         // The same arguments as the patch below, so this sees exactly what `git apply` would get.
         let mut args = neutral_args(&neutral, git::DIFF_ARGS);
@@ -1225,6 +1256,10 @@ mod tests {
                 "arena_unsafe_path",
             ),
             (ArenaError::Link("lnk".to_owned()), "arena_link"),
+            (
+                ArenaError::FileBecameFolder("a".to_owned()),
+                "arena_file_became_folder",
+            ),
             (ArenaError::Changed, "arena_changed"),
             (ArenaError::Remove("in use".to_owned()), "arena_remove"),
             (ArenaError::Command("empty".to_owned()), "arena_command"),
@@ -1565,6 +1600,26 @@ mod tests {
         );
         if cfg!(windows) {
             assert_eq!(conflicts(&changed, &labels(&["readme.md"])), ["README.md"]);
+        }
+    }
+
+    #[test]
+    fn files_turned_folders_are_the_parents_of_new_files() {
+        let tracked = labels(&["a", "src/b.ts", "c.txt"]);
+        assert!(files_turned_folders(
+            &tracked,
+            &labels(&["a.txt", "ab/x", "src/b.ts.d", "x/a/y", "a"])
+        )
+        .is_empty());
+        assert_eq!(
+            files_turned_folders(&tracked, &labels(&["a/x", "a/y", "src/b.ts/deep/z"])),
+            ["a", "src/b.ts"]
+        );
+        let other_case = files_turned_folders(&tracked, &labels(&["C.TXT/x"]));
+        if cfg!(any(windows, target_os = "macos")) {
+            assert_eq!(other_case, ["c.txt"]);
+        } else {
+            assert!(other_case.is_empty());
         }
     }
 
@@ -2064,6 +2119,29 @@ mod tests {
         let refused = apply_shown(&git, &base, winner, &base_commit);
         assert!(matches!(refused, Err(ArenaError::Apply(_))), "{refused:?}");
         assert!(!repo.join("docs").exists());
+        assert_eq!(status(&git, &repo), "");
+    }
+
+    #[test]
+    fn a_file_that_became_a_folder_is_refused_before_anything_changes() {
+        let Some(git) = git() else { return };
+        let tmp = TempDir::new("arena-file-folder");
+        let (base, repo, base_commit, arena) = small_arena(&git, &tmp);
+        let winner = &arena.worktrees[0];
+        fs::write(winner.path.join("new.txt"), "new\n").unwrap();
+        fs::remove_file(winner.path.join("readme.txt")).unwrap();
+        fs::create_dir_all(winner.path.join("readme.txt")).unwrap();
+        fs::write(winner.path.join("readme.txt").join("part.md"), "part\n").unwrap();
+        let refused = apply_shown(&git, &base, winner, &base_commit);
+        assert!(
+            matches!(&refused, Err(ArenaError::FileBecameFolder(path)) if path == "readme.txt"),
+            "{refused:?}"
+        );
+        assert_eq!(
+            fs::read_to_string(repo.join("readme.txt")).unwrap(),
+            "one\n"
+        );
+        assert!(!repo.join("new.txt").exists());
         assert_eq!(status(&git, &repo), "");
     }
 }

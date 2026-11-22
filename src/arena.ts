@@ -423,6 +423,7 @@ const ERROR_MESSAGES: ReadonlyMap<string, MessageKey> = new Map<string, MessageK
   ["arena_copy", "arena.errorCopy"],
   ["arena_unsafe_path", "arena.errorUnsafePath"],
   ["arena_link", "arena.errorLink"],
+  ["arena_file_became_folder", "arena.errorFileBecameFolder"],
   ["arena_changed", "arena.errorChanged"],
   ["arena_remove", "arena.errorRemove"],
   ["arena_command", "arena.errorCommand"],

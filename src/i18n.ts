@@ -1428,6 +1428,7 @@ const de = {
   "arena.statsFailed": "Änderungen nicht lesbar",
   "arena.discardFailed": "Worktree nicht gelöscht: {error}",
   "arena.truncated": "Nicht alle Dateien gezählt",
+  "arena.tooManyFiles": "Zu viele Dateien zum Übernehmen",
   "arena.errorCount": "Eine Arena braucht {min} bis {max} Agenten.",
   "arena.errorNoCommit": "Das Repository hat noch keinen Commit. Committe zuerst einen Stand.",
   "arena.errorNotArena": "Dieser Worktree gehört zu keiner Arena.",
@@ -1436,6 +1437,8 @@ const de = {
   "arena.errorTooLarge": "Die Änderungen sind zu groß zum Übernehmen.",
   "arena.errorApply": "git konnte die Änderungen nicht anwenden.",
   "arena.errorCopy": "Eine Datei lässt sich nicht sicher übernehmen.",
+  "arena.errorFileBecameFolder":
+    "Der Agent hat eine Datei durch einen gleichnamigen Ordner ersetzt. So etwas übernimmt Hangar nicht, nichts wurde übernommen.",
   "arena.errorCommand":
     "Der Testbefehl ist ungültig. Nutze keine Zeichen wie && oder | und gib das Programm als Namen oder vollen Pfad an.",
   "arena.errorUnsafe": "Der Testbefehl enthält Zeichen, die cmd.exe als Befehl lesen würde.",
@@ -3736,6 +3739,7 @@ const en: Record<MessageKey, string> = {
   "arena.statsFailed": "Changes not readable",
   "arena.discardFailed": "Worktree not deleted: {error}",
   "arena.truncated": "Not all files counted",
+  "arena.tooManyFiles": "Too many files to take over",
   "arena.errorCount": "An arena needs {min} to {max} agents.",
   "arena.errorNoCommit": "The repository has no commit yet. Commit something first.",
   "arena.errorNotArena": "This worktree is not part of an arena.",
@@ -3744,6 +3748,8 @@ const en: Record<MessageKey, string> = {
   "arena.errorTooLarge": "The changes are too large to take over.",
   "arena.errorApply": "git could not apply the changes.",
   "arena.errorCopy": "A file cannot be taken over safely.",
+  "arena.errorFileBecameFolder":
+    "The agent replaced a file with a folder of the same name. Hangar never takes that over, so nothing was taken over.",
   "arena.errorCommand":
     "The test command is invalid. Use no characters like && or |, and give the program as a name or full path.",
   "arena.errorUnsafe": "The test command contains characters cmd.exe would read as commands.",
@@ -6054,6 +6060,7 @@ const el: Record<MessageKey, string> = {
   "arena.statsFailed": "Οι αλλαγές δεν διαβάζονται",
   "arena.discardFailed": "Το worktree δεν διαγράφηκε: {error}",
   "arena.truncated": "Δεν μετρήθηκαν όλα τα αρχεία",
+  "arena.tooManyFiles": "Πάρα πολλά αρχεία για υιοθέτηση",
   "arena.errorCount": "Μια αρένα χρειάζεται {min} έως {max} πράκτορες.",
   "arena.errorNoCommit": "Το αποθετήριο δεν έχει ακόμη commit. Κάνε πρώτα ένα commit.",
   "arena.errorNotArena": "Αυτό το worktree δεν ανήκει σε αρένα.",
@@ -6062,6 +6069,8 @@ const el: Record<MessageKey, string> = {
   "arena.errorTooLarge": "Οι αλλαγές είναι πολύ μεγάλες για να μεταφερθούν.",
   "arena.errorApply": "Το git δεν μπόρεσε να εφαρμόσει τις αλλαγές.",
   "arena.errorCopy": "Ένα αρχείο δεν μπορεί να μεταφερθεί με ασφάλεια.",
+  "arena.errorFileBecameFolder":
+    "Ο πράκτορας αντικατέστησε ένα αρχείο με φάκελο του ίδιου ονόματος. Το Hangar δεν το υιοθετεί ποτέ, οπότε δεν υιοθετήθηκε τίποτα.",
   "arena.errorCommand":
     "Η εντολή δοκιμών δεν είναι έγκυρη. Μη χρησιμοποιείς χαρακτήρες όπως && ή | και δώσε το πρόγραμμα ως όνομα ή πλήρη διαδρομή.",
   "arena.errorUnsafe": "Η εντολή δοκιμών περιέχει χαρακτήρες που το cmd.exe θα διάβαζε ως εντολές.",
@@ -8389,6 +8398,7 @@ const es: Record<MessageKey, string> = {
   "arena.statsFailed": "Cambios no legibles",
   "arena.discardFailed": "Worktree no borrado: {error}",
   "arena.truncated": "No se contaron todos los archivos",
+  "arena.tooManyFiles": "Demasiados archivos para adoptar",
   "arena.errorCount": "Una arena necesita de {min} a {max} agentes.",
   "arena.errorNoCommit": "El repositorio aún no tiene ningún commit. Haz primero un commit.",
   "arena.errorNotArena": "Este worktree no pertenece a ninguna arena.",
@@ -8397,6 +8407,8 @@ const es: Record<MessageKey, string> = {
   "arena.errorTooLarge": "Los cambios son demasiado grandes para aplicarlos.",
   "arena.errorApply": "git no pudo aplicar los cambios.",
   "arena.errorCopy": "Un archivo no se puede aplicar de forma segura.",
+  "arena.errorFileBecameFolder":
+    "El agente reemplazó un archivo por una carpeta con el mismo nombre. Hangar nunca lo adopta, así que no se adoptó nada.",
   "arena.errorCommand":
     "El comando de pruebas no es válido. No uses caracteres como && o | e indica el programa por su nombre o ruta completa.",
   "arena.errorUnsafe": "El comando de pruebas contiene caracteres que cmd.exe leería como órdenes.",
@@ -10720,6 +10732,7 @@ const fr: Record<MessageKey, string> = {
   "arena.statsFailed": "Modifications illisibles",
   "arena.discardFailed": "Worktree non supprimé : {error}",
   "arena.truncated": "Tous les fichiers n’ont pas été comptés",
+  "arena.tooManyFiles": "Trop de fichiers à reprendre",
   "arena.errorCount": "Une arène nécessite de {min} à {max} agents.",
   "arena.errorNoCommit": "Le dépôt n’a encore aucun commit. Fais d’abord un commit.",
   "arena.errorNotArena": "Ce worktree n’appartient à aucune arène.",
@@ -10728,6 +10741,8 @@ const fr: Record<MessageKey, string> = {
   "arena.errorTooLarge": "Les modifications sont trop volumineuses pour être reprises.",
   "arena.errorApply": "git n’a pas pu appliquer les modifications.",
   "arena.errorCopy": "Un fichier ne peut pas être repris en toute sécurité.",
+  "arena.errorFileBecameFolder":
+    "L’agent a remplacé un fichier par un dossier du même nom. Hangar ne le reprend jamais, donc rien n’a été repris.",
   "arena.errorCommand":
     "La commande de test n’est pas valide. N’utilise pas de caractères comme && ou | et indique le programme par son nom ou son chemin complet.",
   "arena.errorUnsafe":
@@ -13054,6 +13069,7 @@ const it: Record<MessageKey, string> = {
   "arena.statsFailed": "Modifiche non leggibili",
   "arena.discardFailed": "Worktree non eliminato: {error}",
   "arena.truncated": "Non tutti i file sono stati contati",
+  "arena.tooManyFiles": "Troppi file da adottare",
   "arena.errorCount": "Un’arena richiede da {min} a {max} agenti.",
   "arena.errorNoCommit": "Il repository non ha ancora nessun commit. Fai prima un commit.",
   "arena.errorNotArena": "Questo worktree non appartiene a nessuna arena.",
@@ -13062,6 +13078,8 @@ const it: Record<MessageKey, string> = {
   "arena.errorTooLarge": "Le modifiche sono troppo grandi per essere riprese.",
   "arena.errorApply": "git non è riuscito ad applicare le modifiche.",
   "arena.errorCopy": "Un file non può essere ripreso in modo sicuro.",
+  "arena.errorFileBecameFolder":
+    "L’agente ha sostituito un file con una cartella con lo stesso nome. Hangar non lo adotta mai, quindi non è stato adottato nulla.",
   "arena.errorCommand":
     "Il comando di test non è valido. Non usare caratteri come && o | e indica il programma per nome o percorso completo.",
   "arena.errorUnsafe": "Il comando di test contiene caratteri che cmd.exe leggerebbe come comandi.",
@@ -15380,6 +15398,7 @@ const ja: Record<MessageKey, string> = {
   "arena.statsFailed": "変更を読み取れません",
   "arena.discardFailed": "worktree を削除できません: {error}",
   "arena.truncated": "すべてのファイルは数えていません",
+  "arena.tooManyFiles": "ファイルが多すぎて取り込めません",
   "arena.errorCount": "アリーナには {min} から {max} のエージェントが必要です。",
   "arena.errorNoCommit": "リポジトリにまだコミットがありません。先にコミットしてください。",
   "arena.errorNotArena": "この worktree はアリーナに属していません。",
@@ -15388,6 +15407,8 @@ const ja: Record<MessageKey, string> = {
   "arena.errorTooLarge": "変更が大きすぎて取り込めません。",
   "arena.errorApply": "git が変更を適用できませんでした。",
   "arena.errorCopy": "安全に取り込めないファイルがあります。",
+  "arena.errorFileBecameFolder":
+    "エージェントがファイルを同じ名前のフォルダーに置き換えました。Hangar はこれを取り込まないため、何も取り込んでいません。",
   "arena.errorCommand":
     "テストコマンドが無効です。&& や | などの文字を使わず、プログラムは名前かフルパスで指定してください。",
   "arena.errorUnsafe": "テストコマンドに cmd.exe がコマンドとして解釈する文字が含まれています。",
@@ -17686,6 +17707,7 @@ const pl: Record<MessageKey, string> = {
   "arena.statsFailed": "Nie można odczytać zmian",
   "arena.discardFailed": "Nie usunięto worktree: {error}",
   "arena.truncated": "Nie policzono wszystkich plików",
+  "arena.tooManyFiles": "Za dużo plików do przejęcia",
   "arena.errorCount": "Arena wymaga od {min} do {max} agentów.",
   "arena.errorNoCommit": "Repozytorium nie ma jeszcze commita. Najpierw zrób commit.",
   "arena.errorNotArena": "Ten worktree nie należy do żadnej areny.",
@@ -17694,6 +17716,8 @@ const pl: Record<MessageKey, string> = {
   "arena.errorTooLarge": "Zmiany są za duże, aby je przejąć.",
   "arena.errorApply": "git nie mógł zastosować zmian.",
   "arena.errorCopy": "Jednego z plików nie da się bezpiecznie przejąć.",
+  "arena.errorFileBecameFolder":
+    "Agent zastąpił plik folderem o tej samej nazwie. Hangar nigdy tego nie przejmuje, więc nic nie zostało przejęte.",
   "arena.errorCommand":
     "Polecenie testów jest nieprawidłowe. Nie używaj znaków takich jak && lub | i podaj program jako nazwę lub pełną ścieżkę.",
   "arena.errorUnsafe": "Polecenie testów zawiera znaki, które cmd.exe odczytałby jako polecenia.",
@@ -19988,6 +20012,7 @@ const pt: Record<MessageKey, string> = {
   "arena.statsFailed": "Alterações ilegíveis",
   "arena.discardFailed": "Worktree não excluído: {error}",
   "arena.truncated": "Nem todos os arquivos foram contados",
+  "arena.tooManyFiles": "Arquivos demais para adotar",
   "arena.errorCount": "Uma arena precisa de {min} a {max} agentes.",
   "arena.errorNoCommit": "O repositório ainda não tem nenhum commit. Faça um commit primeiro.",
   "arena.errorNotArena": "Este worktree não pertence a nenhuma arena.",
@@ -19996,6 +20021,8 @@ const pt: Record<MessageKey, string> = {
   "arena.errorTooLarge": "As alterações são grandes demais para serem aplicadas.",
   "arena.errorApply": "O git não conseguiu aplicar as alterações.",
   "arena.errorCopy": "Um arquivo não pode ser aplicado com segurança.",
+  "arena.errorFileBecameFolder":
+    "O agente substituiu um arquivo por uma pasta com o mesmo nome. O Hangar nunca adota isso, então nada foi adotado.",
   "arena.errorCommand":
     "O comando de testes é inválido. Não use caracteres como && ou | e informe o programa pelo nome ou caminho completo.",
   "arena.errorUnsafe": "O comando de testes contém caracteres que o cmd.exe leria como comandos.",
@@ -22295,6 +22322,7 @@ const ru: Record<MessageKey, string> = {
   "arena.statsFailed": "Изменения не читаются",
   "arena.discardFailed": "Worktree не удалён: {error}",
   "arena.truncated": "Посчитаны не все файлы",
+  "arena.tooManyFiles": "Слишком много файлов, чтобы забрать",
   "arena.errorCount": "Для арены нужно от {min} до {max} агентов.",
   "arena.errorNoCommit": "В репозитории ещё нет коммитов. Сначала сделай коммит.",
   "arena.errorNotArena": "Этот worktree не относится ни к одной арене.",
@@ -22303,6 +22331,8 @@ const ru: Record<MessageKey, string> = {
   "arena.errorTooLarge": "Изменения слишком большие, чтобы их перенести.",
   "arena.errorApply": "git не смог применить изменения.",
   "arena.errorCopy": "Один из файлов нельзя безопасно перенести.",
+  "arena.errorFileBecameFolder":
+    "Агент заменил файл папкой с тем же именем. Hangar такое не забирает, поэтому ничего не забрано.",
   "arena.errorCommand":
     "Команда тестов недействительна. Не используй символы вроде && или | и укажи программу по имени или полному пути.",
   "arena.errorUnsafe": "Команда тестов содержит символы, которые cmd.exe прочитал бы как команды.",
@@ -24579,6 +24609,7 @@ const tr: Record<MessageKey, string> = {
   "arena.statsFailed": "Değişiklikler okunamıyor",
   "arena.discardFailed": "Worktree silinmedi: {error}",
   "arena.truncated": "Tüm dosyalar sayılmadı",
+  "arena.tooManyFiles": "Almak için çok fazla dosya var",
   "arena.errorCount": "Bir arena için {min} ile {max} arası ajan gerekir.",
   "arena.errorNoCommit": "Depoda henüz commit yok. Önce bir commit yap.",
   "arena.errorNotArena": "Bu worktree bir arenaya ait değil.",
@@ -24587,6 +24618,8 @@ const tr: Record<MessageKey, string> = {
   "arena.errorTooLarge": "Değişiklikler aktarılamayacak kadar büyük.",
   "arena.errorApply": "git değişiklikleri uygulayamadı.",
   "arena.errorCopy": "Bir dosya güvenli şekilde aktarılamıyor.",
+  "arena.errorFileBecameFolder":
+    "Ajan bir dosyayı aynı adlı bir klasörle değiştirdi. Hangar bunu asla almaz, bu yüzden hiçbir şey alınmadı.",
   "arena.errorCommand":
     "Test komutu geçersiz. && veya | gibi karakterler kullanma ve programı adıyla ya da tam yoluyla belirt.",
   "arena.errorUnsafe": "Test komutu, cmd.exe'nin komut olarak okuyacağı karakterler içeriyor.",
@@ -26804,6 +26837,7 @@ const zh: Record<MessageKey, string> = {
   "arena.statsFailed": "无法读取更改",
   "arena.discardFailed": "未删除 worktree：{error}",
   "arena.truncated": "并非所有文件都已计数",
+  "arena.tooManyFiles": "文件太多，无法采用",
   "arena.errorCount": "竞技场需要 {min} 到 {max} 个代理。",
   "arena.errorNoCommit": "仓库还没有提交。请先提交一次。",
   "arena.errorNotArena": "此 worktree 不属于任何竞技场。",
@@ -26812,6 +26846,8 @@ const zh: Record<MessageKey, string> = {
   "arena.errorTooLarge": "更改太大，无法接管。",
   "arena.errorApply": "git 无法应用这些更改。",
   "arena.errorCopy": "有文件无法安全接管。",
+  "arena.errorFileBecameFolder":
+    "代理用同名文件夹替换了一个文件。Hangar 从不采用这种更改，因此未采用任何内容。",
   "arena.errorCommand": "测试命令无效。请勿使用 && 或 | 等字符，并以名称或完整路径指定程序。",
   "arena.errorUnsafe": "测试命令包含 cmd.exe 会当作命令读取的字符。",
   "arena.errorSpawn": "无法启动测试命令。",
