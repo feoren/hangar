@@ -36,6 +36,7 @@ UI texts in `src/i18n.ts` are translated per language and are not bound by this 
 | Sicherung (ersetzte Datei)                      | backup                            | `<name>.toml.bak`, `.bak.2`: a user's file a copy replaced                           |
 | Figur (Sub-Agent)                               | figure                            | picture of a definition: bundled, own image or initial; `agent_figures.rs`           |
 | Grundfigur                                      | built-in figure                   | bundled figure `src/assets/sub-agents/<id>.webp`, `tools/figures.py`                 |
+| Ruhe-Animation (Figur)                          | idle loop                         | animated WebP of a built-in figure; `figureMotion.ts`, `figureFiles.ts`              |
 | Aussehen der Session (Figur)                    | session look                      | a sub-agent session's figure in place of the program badge; `SessionLook.tsx`        |
 | Crew-Spalte                                     | crew column                       | sub-agents as figures beside the terminal; `CrewColumn.tsx`, `crew.ts`               |
 | Crew-Leiste                                     | crew strip                        | narrow-pane form of the crew column, above the terminal                              |

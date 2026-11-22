@@ -10,6 +10,7 @@
 import { DEFAULT_EARLY_PERCENT, parseBudget } from "./costs";
 import { DEFAULT_DICTATION, parseDictationPrefs, type DictationPrefs } from "./dictation";
 import { DEFAULT_DOT_ANIMATION, parseDotAnimation, type DotAnimation } from "./dotAnimation";
+import { DEFAULT_FIGURE_MOTION, parseFigureMotion, type FigureMotion } from "./figureMotion";
 import { clamp } from "./layout";
 import { isLanguage, type Language } from "./i18n";
 import { DEFAULT_PROGRAM_PREFS, parseProgramPrefs, type ProgramPrefs } from "./programPrefs";
@@ -180,6 +181,11 @@ export interface Settings {
   /** The running sub-agents stand beside the session's terminal (CrewColumn.tsx). */
   crewColumn: boolean;
   /**
+   * The bundled figures play their calm idle loop or stand still (figureMotion.ts). Reduced
+   * motion, power saving and a hidden window keep them still whatever this says.
+   */
+  figureMotion: FigureMotion;
+  /**
    * The backend watches which files each session's agent changes and warns when two sessions
    * touch the same file or lines (claims.ts). Off: no watcher and no git call for it.
    */
@@ -300,6 +306,7 @@ export function defaultSettings(language: Language): Settings {
     scrollbackLines: SCROLLBACK_LINES.default,
     subAgentExcerpts: true,
     crewColumn: true,
+    figureMotion: DEFAULT_FIGURE_MOTION,
     claimsEnabled: true,
     gateEnabled: true,
     commandGuardEnabled: true,
@@ -416,6 +423,7 @@ export function parseSettings(text: string | null, fallbackLanguage: Language): 
         : defaults.scrollbackLines,
     subAgentExcerpts: flag("subAgentExcerpts"),
     crewColumn: flag("crewColumn"),
+    figureMotion: parseFigureMotion(get("figureMotion")),
     // Never from localStorage: any window of this origin could have written them there.
     claimsEnabled: defaults.claimsEnabled,
     gateEnabled: defaults.gateEnabled,

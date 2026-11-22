@@ -269,6 +269,7 @@ import {
   setPowerSavingEnabled,
   startPowerWatch,
 } from "./usePower";
+import { setFigureMotion } from "./useFigureMotion";
 import { pollInterval } from "./power";
 import { observeResources, setResourcesEnabled } from "./useSessionResources";
 import { setTreeFlow } from "./treeFlowStore";
@@ -1205,6 +1206,10 @@ export function App() {
     setPowerSavingEnabled(settings.powerSaving);
     startPowerWatch();
   }, [settings.powerSaving]);
+  // Whether the bundled figures play their idle loop (useFigureMotion.ts).
+  useEffect(() => {
+    setFigureMotion(settings.figureMotion);
+  }, [settings.figureMotion]);
   const profilesRef = useRef(profiles);
   /**
    * The stall hint (stall.ts): samples the screens of working agent sessions outside React and

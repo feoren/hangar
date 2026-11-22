@@ -4,7 +4,8 @@ import { readFileSync } from "node:fs";
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it, vi } from "vitest";
 
-import { AgentFigure, BUNDLED_FIGURES, builtinFigureUrl, useCrewFigure } from "./AgentFigure";
+import { AgentFigure, useCrewFigure } from "./AgentFigure";
+import { ANIMATED_FIGURES, BUNDLED_FIGURES, builtinFigureUrl } from "./figureFiles";
 import {
   BUILTIN_FIGURES,
   defaultFigure,
@@ -63,6 +64,10 @@ describe("AgentFigure", () => {
     for (const id of BUILTIN_FIGURES) expect(builtinFigureUrl(id)).toBeTruthy();
   });
 
+  it("bundles idle loops only under the names of built-in figures", () => {
+    for (const id of ANIMATED_FIGURES) expect(BUILTIN_FIGURES).toContain(id);
+  });
+
   it("lifts a wide figure's face into the round box, only there", () => {
     const head = (id: string) =>
       renderToStaticMarkup(<AgentFigure figure={{ kind: "builtin", id }} size={26} crop="head" />);
@@ -102,6 +107,8 @@ describe("AgentFigure", () => {
     expect(initial).toContain("background:#8b5cc8");
   });
 
+  // The idle loop of a bundled figure is its own animated WebP (figureMotion.ts), not CSS; no
+  // CSS moves a figure.
   it("stands still: no figure moves, the crew's stage only changes color", () => {
     const css = readFileSync(new URL("./styles.css", import.meta.url), "utf8").replace(
       /\/\*[\s\S]*?\*\//g,

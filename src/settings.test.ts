@@ -71,6 +71,7 @@ describe("parseSettings", () => {
       scrollbackLines: 2000,
       subAgentExcerpts: false,
       crewColumn: false,
+      figureMotion: "still",
       claimsEnabled: false,
       gateEnabled: false,
       commandGuardEnabled: false,
@@ -135,6 +136,7 @@ describe("parseSettings", () => {
       scrollbackLines: "many",
       subAgentExcerpts: "off",
       crewColumn: "off",
+      figureMotion: "dance",
       claimsEnabled: "no",
       gateEnabled: 0,
       commandGuardEnabled: "on",
@@ -433,6 +435,16 @@ describe("parseSettings", () => {
     expect(defaultSettings("de").crewColumn).toBe(true);
     expect(parseSettings(JSON.stringify({ language: "en" }), "de").crewColumn).toBe(true);
     expect(parseSettings(JSON.stringify({ crewColumn: false }), "de").crewColumn).toBe(false);
+  });
+
+  it("animates the figures by default, also for older settings, and keeps a saved choice", () => {
+    expect(defaultSettings("de").figureMotion).toBe("animated");
+    expect(parseSettings(JSON.stringify({ language: "en" }), "de").figureMotion).toBe("animated");
+    // Stored as saveSettings writes it, read back as loadSettings reads it.
+    const stored = JSON.stringify(
+      withoutBackendKeys({ ...defaultSettings("de"), figureMotion: "still" }),
+    );
+    expect(parseSettings(stored, "de").figureMotion).toBe("still");
   });
 
   it("never reads the security switches from localStorage", () => {

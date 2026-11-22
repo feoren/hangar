@@ -7,13 +7,23 @@
 import { Fragment, useEffect, useRef, useState, type ReactNode } from "react";
 
 import { AgentFigure } from "./AgentFigure";
+import { ANIMATED_FIGURES } from "./figureFiles";
 import { withExtras } from "./agentStartMenu";
 import { api, errorText } from "./api";
+import { FIGURE_MOTIONS, type FigureMotion, type StillReason } from "./figureMotion";
+import { useFigureStillReason } from "./useFigureMotion";
 import { useT, type MessageKey } from "./i18n";
 import { ChevronIcon, CloseIcon, GridIcon, RowsIcon } from "./icons";
 import { folderName } from "./folders";
 import type { Settings as AppSettings } from "./settings";
-import { Advanced, SettingRow, SettingsGroup, Switch, SwitchRow } from "./SettingsParts";
+import {
+  Advanced,
+  SegmentedField,
+  SettingRow,
+  SettingsGroup,
+  Switch,
+  SwitchRow,
+} from "./SettingsParts";
 import {
   BUILTIN_FIGURES,
   DEF_TEMPLATE,
@@ -236,6 +246,14 @@ export function SubAgentSettings({
             onChange({ crewColumn });
           }}
         />
+        {ANIMATED_FIGURES.length > 0 && (
+          <FigureMotionField
+            value={appSettings.figureMotion}
+            onChange={(figureMotion) => {
+              onChange({ figureMotion });
+            }}
+          />
+        )}
         <SwitchRow
           label={t("settings.subAgentExcerpts")}
           help={t("settings.subAgentExcerptsHelp")}
@@ -252,6 +270,40 @@ export function SubAgentSettings({
         onSave={saveSettings}
       />
     </div>
+  );
+}
+
+const MOTION_NAMES: Record<FigureMotion, MessageKey> = {
+  animated: "settings.figureMotion.animated",
+  still: "settings.figureMotion.still",
+};
+
+const STILL_REASONS: Record<StillReason, MessageKey> = {
+  reducedMotion: "settings.figureMotionReduced",
+  powerSaving: "settings.figureMotionSaving",
+};
+
+/**
+ * "Figures: Animated / Still". While reduced motion or power saving keeps them still anyway, the
+ * help line says so instead of the usual sentence, so the choice never seems broken.
+ */
+function FigureMotionField({
+  value,
+  onChange,
+}: {
+  value: FigureMotion;
+  onChange: (value: FigureMotion) => void;
+}) {
+  const t = useT();
+  const reason = useFigureStillReason();
+  return (
+    <SegmentedField
+      label={t("settings.figureMotion")}
+      help={t(reason === null ? "settings.figureMotionHelp" : STILL_REASONS[reason])}
+      value={value}
+      options={FIGURE_MOTIONS.map((motion) => ({ value: motion, label: t(MOTION_NAMES[motion]) }))}
+      onChange={onChange}
+    />
   );
 }
 

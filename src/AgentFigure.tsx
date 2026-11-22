@@ -1,11 +1,15 @@
 // A sub-agent's figure: one of the bundled figures (src/assets/sub-agents, built by
 // tools/figures.py), an own image the backend checked, or the initial on the agent's color.
-// Figures stand still: nothing about them moves. The whole figure (`full`) is a portrait box,
-// 2 : 3 like the bundled files (tools/figures.py); where there is no room for that, `head` shows
-// the face in a round box.
+// No CSS moves a figure. A whole bundled figure may play its own calm idle loop, an animated WebP
+// (figureMotion.ts decides when). The whole figure (`full`) is a portrait box, 2 : 3 like the
+// bundled files (tools/figures.py); where there is no room for that, `head` shows the face in a
+// round box.
 
-import type { CSSProperties } from "react";
+import { useRef, type CSSProperties } from "react";
 
+import { animatedFigureUrl, builtinFigureUrl } from "./figureFiles";
+import { figureSource } from "./figureMotion";
+import { useDecodedSource, useFiguresMayMove, useOnScreen } from "./useFigureMotion";
 import { useSubAgentLibrary } from "./subAgentLibraryStore";
 import {
   defaultFigure,
@@ -17,28 +21,8 @@ import {
   type Figure,
 } from "./subAgentLibrary";
 
-const FILES = import.meta.glob<string>("./assets/sub-agents/*.webp", {
-  eager: true,
-  query: "?url",
-  import: "default",
-});
-
-const URLS: ReadonlyMap<string, string> = new Map(
-  Object.entries(FILES).map(([path, url]) => [
-    path.slice(path.lastIndexOf("/") + 1, -".webp".length),
-    url,
-  ]),
-);
-
 /** Inline style plus the head crop's lift, read by `.agent-figure.head img` in styles.css. */
 type FigureStyle = CSSProperties & { "--figure-lift"?: string };
-
-/** Ids of the bundled figure files (kept equal to `BUILTIN_FIGURES` by a test). */
-export const BUNDLED_FIGURES: readonly string[] = [...URLS.keys()].sort();
-
-export function builtinFigureUrl(id: string): string | undefined {
-  return URLS.get(id);
-}
 
 interface Props {
   figure: Figure;
@@ -80,15 +64,38 @@ export function AgentFigure({ figure, size, crop = "full", label }: Props) {
   const lift =
     figure.kind === "builtin" && crop === "head" ? figureTop(figure.id) - FIGURE_PADDING : 0;
   const lifted: FigureStyle = lift > 0 ? { ...style, "--figure-lift": String(lift) } : style;
+  // Only a whole bundled figure moves. The face crop of 14 to 26 px would show the idle loop as a
+  // flicker of a few pixels in busy places (pane headers, search results) and decode 80 frames
+  // for it; an own image is shown as the user gave it.
+  const animated =
+    figure.kind === "builtin" && crop === "full" ? animatedFigureUrl(figure.id) : undefined;
   return (
     <span
       className={figure.kind === "image" ? `${classes} custom` : classes}
       style={lifted}
       {...a11y}
     >
-      {url !== undefined && <img src={url} alt="" draggable={false} />}
+      {url !== undefined &&
+        (animated === undefined ? (
+          <img src={url} alt="" draggable={false} />
+        ) : (
+          <MovingImage still={url} animated={animated} />
+        ))}
     </span>
   );
+}
+
+/**
+ * A figure that plays its idle loop while figures may move and it is on screen, and shows its
+ * still file otherwise. The next file is decoded before the swap (`useDecodedSource`), and both
+ * hold the figure in the same place, so the swap neither blinks nor moves it.
+ */
+function MovingImage({ still, animated }: { still: string; animated: string }) {
+  const ref = useRef<HTMLImageElement>(null);
+  const mayMove = useFiguresMayMove();
+  const onScreen = useOnScreen(ref, mayMove);
+  const src = useDecodedSource(figureSource(still, animated, mayMove, onScreen));
+  return <img ref={ref} src={src} alt="" draggable={false} />;
 }
 
 /**

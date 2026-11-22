@@ -35,6 +35,29 @@ vi.mock("./subAgentLibraryStore", () => ({
   applyFigures: () => undefined,
 }));
 
+const motion = vi.hoisted(() => {
+  const state: { reason: "reducedMotion" | "powerSaving" | null; loops: readonly string[] } = {
+    reason: null,
+    loops: ["backend-03"],
+  };
+  return state;
+});
+
+vi.mock("./figureFiles", async (importOriginal) => {
+  const original = await importOriginal<typeof import("./figureFiles")>();
+  return {
+    ...original,
+    get ANIMATED_FIGURES() {
+      return motion.loops;
+    },
+  };
+});
+
+vi.mock("./useFigureMotion", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("./useFigureMotion")>()),
+  useFigureStillReason: () => motion.reason,
+}));
+
 import { SubAgentSettings } from "./SubAgentSettings";
 
 Reflect.set(globalThis, "IS_REACT_ACT_ENVIRONMENT", true);
@@ -173,6 +196,55 @@ describe("SubAgentSettings", () => {
       excerpts.click();
     });
     expect(patches).toEqual([{ crewColumn: false }, { subAgentExcerpts: true }]);
+  });
+
+  /** The segmented "Figures" choice: its radio buttons and its help line. */
+  function figureMotionField() {
+    const group = [...host.querySelectorAll('[role="radiogroup"]')].find(
+      (element) =>
+        document.getElementById(element.getAttribute("aria-labelledby") ?? "")?.textContent ===
+        t("settings.figureMotion"),
+    );
+    if (group === undefined) throw new Error("no figure motion field");
+    const radios = [...group.querySelectorAll<HTMLInputElement>('input[type="radio"]')];
+    const help = document.getElementById(group.getAttribute("aria-describedby") ?? "");
+    return { radios, help: help?.textContent };
+  }
+
+  it("offers figures animated or still, animated by default, and saves the choice", async () => {
+    motion.reason = null;
+    const patches: Partial<Settings>[] = [];
+    await render(installed, {}, (patch) => {
+      patches.push(patch);
+    });
+    const { radios, help } = figureMotionField();
+    expect(radios.map((radio) => radio.parentElement?.textContent)).toEqual([
+      t("settings.figureMotion.animated"),
+      t("settings.figureMotion.still"),
+    ]);
+    expect(radios.map((radio) => radio.checked)).toEqual([true, false]);
+    expect(help).toBe(t("settings.figureMotionHelp"));
+    act(() => {
+      radios[1]?.click();
+    });
+    expect(patches).toEqual([{ figureMotion: "still" }]);
+  });
+
+  it("says why figures stand still although animated is chosen", async () => {
+    motion.reason = "reducedMotion";
+    await render(installed);
+    expect(figureMotionField().help).toBe(t("settings.figureMotionReduced"));
+    motion.reason = "powerSaving";
+    await render(installed);
+    expect(figureMotionField().help).toBe(t("settings.figureMotionSaving"));
+    motion.reason = null;
+  });
+
+  it("leaves the choice out while no figure has an idle loop", async () => {
+    motion.loops = [];
+    await render(installed);
+    expect(host.textContent).not.toContain(t("settings.figureMotion.animated"));
+    motion.loops = ["backend-03"];
   });
 
   it("saves the bundled and the Codex switch under their keys", async () => {

@@ -14245,9 +14245,10 @@ button.sub-agent-card:focus-visible {
   margin-right: 2px;
 }
 
-/* The crew beside the terminal (CrewColumn.tsx, wiki: crew-column). Figures stand still on a round
-   stage whose light ring shows the state; the state color is only ever an edge, a glow or a faint
-   tint, never under text. Loops (typing dots, the waiting glow) animate opacity only, so the
+/* The crew beside the terminal (CrewColumn.tsx, wiki: crew-column). Figures stand on a round
+   stage whose light ring shows the state (no CSS moves a figure; a bundled one may play its own
+   idle loop, figureMotion.ts); the state color is only ever an edge, a glow or a faint tint,
+   never under text. Loops (typing dots, the waiting glow) animate opacity only, so the
    compositor runs them without repainting; reduced motion and power saving still them. */
 .crew {
   --crew-fade: 0.4s;
