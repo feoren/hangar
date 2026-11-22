@@ -53,6 +53,7 @@ import {
   failures,
   issuesOf,
   NO_CHOICE,
+  offeredEffort,
   ownCodexDefs,
   parseSubAgentSettings,
   provides,
@@ -716,7 +717,11 @@ function useModelChange(onError: (message: string) => void) {
       .then(() => refreshLibrary())
       .catch((e: unknown) => {
         const error = parseDefError(e);
-        if (error?.kind === "model") onError(t("subAgentLib.modelInvalid"));
+        // A file may hold an effort Hangar does not offer (`minimal`); changing only the model
+        // keeps it, and the backend refuses it, so the hint names the effort, not the model.
+        if (error?.kind === "model" && !offeredEffort(choice.effort)) {
+          onError(t("subAgentLib.effortNotOffered"));
+        } else if (error?.kind === "model") onError(t("subAgentLib.modelInvalid"));
         else onError(error?.message ?? errorText(e));
       });
   };

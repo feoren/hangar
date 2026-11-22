@@ -15,8 +15,8 @@ export function isDefProgram(value: unknown): value is DefProgram {
 
 /** Claude Code's model aliases offered (Rust `CLAUDE_ALIASES`); Fable costs clearly more. */
 export const CLAUDE_ALIASES = ["opus", "sonnet", "haiku", "fable"] as const;
-/** Codex CLI's reasoning efforts offered (Rust `CODEX_EFFORTS`). */
-export const CODEX_EFFORTS = ["minimal", "low", "medium", "high", "xhigh"] as const;
+/** Codex CLI's reasoning efforts offered: those every model takes (Rust `CODEX_EFFORTS`). */
+export const CODEX_EFFORTS = ["low", "medium", "high", "xhigh", "max"] as const;
 export const MAX_MODEL_LENGTH = 64;
 
 /** The backend's rule (`agent_models::valid_model`): a plain id, never `inherit`. */
@@ -134,6 +134,11 @@ export function claudeOptions(current: string | null): string[] {
   const aliases: string[] = [...CLAUDE_ALIASES];
   const known = current === null || aliases.includes(current);
   return ["", ...aliases, ...(known ? [] : [current]), OTHER_MODEL];
+}
+
+/** Whether the backend takes `effort` (`agent_models::valid_effort`); `null` is the session's. */
+export function offeredEffort(effort: string | null): boolean {
+  return effort === null || CODEX_EFFORTS.some((offered) => offered === effort);
 }
 
 /** The efforts offered, with a value the file holds that is none of them. */

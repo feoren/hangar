@@ -30,14 +30,20 @@ pub const MAX_MODEL_LEN: usize = 64;
 /// both change more than the model). Full ids are taken as well.
 pub const CLAUDE_ALIASES: [&str; 4] = ["opus", "sonnet", "haiku", "fable"];
 
-/// Codex CLI's reasoning efforts the window offers: the variants of the 0.169.0 binary's effort
-/// type that its documentation names. Read: `none minimal low medium high xhigh max ultra`.
-pub const CODEX_EFFORTS: [&str; 5] = ["minimal", "low", "medium", "high", "xhigh"];
+/// Codex CLI's reasoning efforts the window offers: those every model of its catalog takes
+/// (measured with 0.171.0). `minimal` no model takes, `none` and `ultra` only some; a sub-agent
+/// with an effort its model does not take is not started at all.
+/// Evidence: docs/wiki/pages/sources/codex-subagent-model-measurement.md.
+pub const CODEX_EFFORTS: [&str; 5] = ["low", "medium", "high", "xhigh", "max"];
+/// Efforts Hangar offered and stored before the measurement; a stored default holding one is
+/// read without it.
+pub const RETIRED_CODEX_EFFORTS: [&str; 1] = ["minimal"];
 
 /// Claude Code reads the default model of its sub-agents from this variable (2.1.325 binary:
 /// used when the definition has no `model`).
 pub const CLAUDE_MODEL_ENV: &str = "CLAUDE_CODE_SUBAGENT_MODEL";
-/// Codex CLI's config keys for the default model and effort of its sub-agents (0.169.0 binary).
+/// Codex CLI's config keys for the default model and effort of its sub-agents (0.169.0 binary;
+/// a `-c` override of both reaches a spawned sub-agent, measured with 0.171.0).
 pub const CODEX_MODEL_KEY: &str = "agents.default_subagent_model";
 pub const CODEX_EFFORT_KEY: &str = "agents.default_subagent_reasoning_effort";
 
@@ -333,6 +339,12 @@ mod tests {
             check_choice(DefProgram::Codex, &choice(None, Some("turbo"))),
             Err(ModelError::Effort)
         );
+        // Measured with Codex CLI 0.171.0: no model takes `minimal`, every listed one takes `max`.
+        assert_eq!(
+            check_choice(DefProgram::Codex, &choice(None, Some("minimal"))),
+            Err(ModelError::Effort)
+        );
+        assert!(check_choice(DefProgram::Codex, &choice(None, Some("max"))).is_ok());
         assert_eq!(
             check_choice(DefProgram::Codex, &choice(Some("a b"), None)),
             Err(ModelError::Model)

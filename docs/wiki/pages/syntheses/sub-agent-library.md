@@ -2,9 +2,9 @@
 title: Sub-agent library and figures
 type: synthesis
 tags: [agents, claude-code, sub-agents, settings, figures]
-sources: [[claude-agent-flag-measurement]], [[claude-agent-frontmatter-reading]], [[sub-agent-models-research]]
+sources: [[claude-agent-flag-measurement]], [[claude-agent-frontmatter-reading]], [[sub-agent-models-research]], [[codex-subagent-model-measurement]]
 created: 2026-11-15
-updated: 2026-11-21
+updated: 2026-11-22
 ---
 
 # Sub-agent library and figures
@@ -267,7 +267,8 @@ session's model: a fixed `opus` would cost users who never chose it. `color` and
 
 ## Models (`src-tauri/src/agent_models.rs`)
 
-Evidence: [[sub-agent-models-research]] (Claude Code 2.1.325, Codex CLI 0.169.0).
+Evidence: [[sub-agent-models-research]] (Claude Code 2.1.325, Codex CLI 0.169.0),
+[[codex-subagent-model-measurement]] (Codex CLI 0.171.0, live).
 
 - **Program per catalog entry:** `agent_program = "claude" | "codex"` in `agent_catalog.toml`,
   inherited like `prompt_args`. It decides the definitions' format and folder and how a session
@@ -278,9 +279,16 @@ Evidence: [[sub-agent-models-research]] (Claude Code 2.1.325, Codex CLI 0.169.0)
   launcher. Claude Code offers the aliases `opus`, `sonnet`, `haiku`, `fable` (Fable marked as
   clearly more expensive) and "another id"; `opusplan` and the `[1m]` forms are not offered, as
   both change more than the model. Codex CLI takes a free model with suggestions (the main
-  `model` of `~/.codex/config.toml`, the models its definitions name) and the efforts `minimal`,
-  `low`, `medium`, `high`, `xhigh`. A value a file holds that is not offered is shown as it is
-  and kept until the user changes it.
+  `model` of `~/.codex/config.toml`, the models its definitions name) and the efforts `low`,
+  `medium`, `high`, `xhigh`, `max`: the ones every model of the account's catalog lists
+  (0.171.0). `minimal` (no model takes it), `none` and `ultra` (only some do) are not offered: a
+  sub-agent whose effort its model does not list is not started at all
+  ([[codex-subagent-model-measurement]]). A value a file holds that is not offered is shown as it
+  is and kept until the user changes it; changing only the model of a definition holding such an
+  effort is refused with the hint to choose another effort first. A stored default `minimal`,
+  offered before the measurement, is dropped on reading so the model and switches still load;
+  any other refused value (an unknown Codex effort, any effort for Claude Code) still gives the
+  defaults.
 - **Per definition:** `set_sub_agent_model(program, name, folder, model, effort, confirmed)`.
   Claude Code: only the frontmatter's `model` line is replaced where it stands, added as the
   last field or removed with its continuation lines; BOM, line breaks and every other byte stay
@@ -303,10 +311,11 @@ Evidence: [[sub-agent-models-research]] (Claude Code 2.1.325, Codex CLI 0.169.0)
   definition beats the default in both programs; running sessions keep theirs until restarted.
   `tests/pty.rs` checks the variable in a real ConPTY session, also after a restart.
 
+Measured with Codex CLI 0.171.0: both `-c` overrides reach a sub-agent started by `spawn_agent`
+(its rollout runs the set model and effort) ([[codex-subagent-model-measurement]]).
+
 > [!question] Unverified
-> - That a `-c agents.default_subagent_model` override reaches Codex CLI's sub-agents like the
->   same key in `config.toml` ([[sub-agent-models-research]]).
-> - Effort values beyond the five offered for a given Codex model.
+> - The effort catalog is per account and release; another account may list other efforts.
 
 ## Provision to other programs (`src-tauri/src/agent_provision.rs`, `codex_agents.rs`)
 

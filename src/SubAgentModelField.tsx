@@ -16,11 +16,11 @@ import {
 } from "./subAgentModels";
 
 const EFFORT_TEXTS: Readonly<Record<string, MessageKey>> = {
-  minimal: "subAgentLib.effort.minimal",
   low: "subAgentLib.effort.low",
   medium: "subAgentLib.effort.medium",
   high: "subAgentLib.effort.high",
   xhigh: "subAgentLib.effort.xhigh",
+  max: "subAgentLib.effort.max",
 };
 
 export function ModelField({

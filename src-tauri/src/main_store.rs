@@ -236,6 +236,23 @@ pub fn validate_sub_agents(
     Ok(settings)
 }
 
+/// A Codex CLI effort Hangar offered earlier and no longer does
+/// ([`crate::agent_models::RETIRED_CODEX_EFFORTS`]) is removed, so the stored model and switches
+/// still load and the program's own effort applies. Any other value the checks refuse still
+/// gives the defaults: only what Hangar itself once wrote is forgiven.
+fn drop_retired_efforts(mut settings: SubAgentSettings) -> SubAgentSettings {
+    if let Some(choice) = settings.models.get_mut(&DefProgram::Codex) {
+        if choice
+            .effort
+            .as_deref()
+            .is_some_and(|effort| crate::agent_models::RETIRED_CODEX_EFFORTS.contains(&effort))
+        {
+            choice.effort = None;
+        }
+    }
+    settings
+}
+
 /// `^[a-z0-9-]{1,40}$`
 fn valid_id(id: &str) -> bool {
     !id.is_empty()
@@ -691,6 +708,7 @@ impl MainStore {
         let path = self.dir.join(SUB_AGENTS_FILE);
         load::<SubAgentSettings>(&path, MAX_SUB_AGENTS_BYTES)
             .flatten()
+            .map(drop_retired_efforts)
             .and_then(|settings| validate_sub_agents(settings).ok())
             .unwrap_or_default()
     }
@@ -913,6 +931,56 @@ mod tests {
         )
         .unwrap();
         assert_eq!(store.load_sub_agents(), SubAgentSettings::default());
+    }
+
+    #[test]
+    fn an_effort_no_longer_offered_is_dropped_on_load() {
+        let tmp = TempDir::new("main-store-sub-agents-effort");
+        let store = MainStore::new(tmp.path().to_owned());
+        // Hangar offered `minimal` before 0.171.0 was measured; no model takes it.
+        std::fs::write(
+            tmp.path().join(SUB_AGENTS_FILE),
+            r#"{"models":{"codex":{"model":"gpt-6.1-sol","effort":"minimal"}},"provideOff":["codex"],"bundledOff":true}"#,
+        )
+        .unwrap();
+        let loaded = store.load_sub_agents();
+        assert_eq!(
+            loaded.models.get(&DefProgram::Codex),
+            Some(&ModelChoice {
+                model: Some("gpt-6.1-sol".into()),
+                effort: None,
+            })
+        );
+        assert!(loaded.provide_off.contains(&DefProgram::Codex));
+        assert!(loaded.bundled_off);
+        // A choice that held nothing but that effort is gone; the rest still loads.
+        std::fs::write(
+            tmp.path().join(SUB_AGENTS_FILE),
+            r#"{"models":{"codex":{"effort":"minimal"}},"provideOff":["codex"]}"#,
+        )
+        .unwrap();
+        let loaded = store.load_sub_agents();
+        assert!(loaded.models.is_empty());
+        assert!(loaded.provide_off.contains(&DefProgram::Codex));
+        // Only what Hangar once offered is forgiven: any other refused value, or an effort for
+        // Claude Code, still gives the defaults, as before.
+        for models in [
+            r#"{"codex":{"model":"gpt-6.1-sol","effort":"turbo"}}"#,
+            r#"{"codex":{"model":"gpt-6.1-sol","effort":"ultra"}}"#,
+            r#"{"claude":{"model":"sonnet","effort":"minimal"}}"#,
+            r#"{"codex":{"model":"a b","effort":"minimal"}}"#,
+        ] {
+            std::fs::write(
+                tmp.path().join(SUB_AGENTS_FILE),
+                format!(r#"{{"models":{models},"provideOff":["codex"],"bundledOff":true}}"#),
+            )
+            .unwrap();
+            assert_eq!(
+                store.load_sub_agents(),
+                SubAgentSettings::default(),
+                "{models}"
+            );
+        }
     }
 
     #[test]

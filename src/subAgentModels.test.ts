@@ -14,6 +14,7 @@ import {
   codexSuggestions,
   copiesOf,
   effortOptions,
+  offeredEffort,
   OTHER_MODEL,
   ownCodexDefs,
   parseSubAgentSettings,
@@ -75,8 +76,21 @@ describe("the fields", () => {
       "opusplan",
       OTHER_MODEL,
     ]);
-    expect(effortOptions(null)).toEqual(["", "minimal", "low", "medium", "high", "xhigh"]);
-    expect(effortOptions("max")).toContain("max");
+    expect(effortOptions(null)).toEqual(["", "low", "medium", "high", "xhigh", "max"]);
+    expect(offeredEffort(null)).toBe(true);
+    expect(offeredEffort("max")).toBe(true);
+    expect(offeredEffort("minimal")).toBe(false);
+    expect(offeredEffort("ultra")).toBe(false);
+    // A file may still hold `minimal`, which no Codex model takes: shown as it is, not offered.
+    expect(effortOptions("minimal")).toEqual([
+      "",
+      "low",
+      "medium",
+      "high",
+      "xhigh",
+      "max",
+      "minimal",
+    ]);
   });
 
   it("render the Claude aliases with the cost note and Codex with model and effort", () => {

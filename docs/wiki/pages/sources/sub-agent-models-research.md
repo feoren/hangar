@@ -7,7 +7,7 @@ raw: raw/2026-11-16-sub-agent-models-research.md
 url: https://code.claude.com/docs/en/sub-agents
 retrieved: 2026-11-16
 created: 2026-11-16
-updated: 2026-11-16
+updated: 2026-11-22
 ---
 
 # Sub-agent models and Codex CLI agent files (docs and binary readings)
@@ -30,11 +30,10 @@ binaries of Claude Code 2.1.325 and Codex CLI 0.169.0 on Windows 11. No session 
   raw string when that fails.
 - Effort names in the binary: `none minimal low medium high xhigh max ultra`.
 
+Settled by the live run [[codex-subagent-model-measurement]] (0.171.0): the `-c` overrides reach
+the sub-agent; no model takes `minimal`, every listed one takes `low` to `max`.
+
 > [!question] Unverified
-> - Which efforts a given Codex model accepts; Hangar offers the five the documentation names
->   (`minimal` to `xhigh`) and keeps any other value a file holds.
-> - Whether a `-c agents.default_subagent_model=...` override reaches the sub-agents exactly like
->   the same key in `config.toml` (no session was run).
 > - `CLAUDE_CODE_SUBAGENT_EFFORT` and `CLAUDE_CODE_SUBAGENT_MODEL_FORCE`: undocumented, not used.
 > - Agent folders and formats of Gemini CLI, Qwen Code, OpenCode and Copilot CLI: not installed
 >   here, not read.

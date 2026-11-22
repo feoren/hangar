@@ -197,8 +197,10 @@ instruction_args = ["-c", "developer_instructions={toml_text}"]
 prompt_args = ["{prompt}"]
 # Sub-agents in .codex/agents/*.toml; default model and effort for them through
 # `-c agents.default_subagent_model=...` and `-c agents.default_subagent_reasoning_effort=...`
-# (0.169.0 binary and docs, docs/wiki/pages/sources/sub-agent-models-research.md). No option
-# starts a session as one of them. Hangar copies the user's Claude Code definitions there.
+# (0.169.0 binary and docs, docs/wiki/pages/sources/sub-agent-models-research.md; both reach a
+# spawned sub-agent, measured live with 0.171.0 in
+# docs/wiki/pages/sources/codex-subagent-model-measurement.md). No option starts a session as one
+# of them. Hangar copies the user's Claude Code definitions there.
 agent_program = "codex"
 # Command names and help texts of the 0.169.0 binary:
 # docs/wiki/pages/sources/agent-commands-measurement.md.

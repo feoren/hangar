@@ -1474,3 +1474,11 @@ Line comments, `{{file}}` snippets, Files tab mentions for agents and the handov
 show a path with a control, separator or bidi character in git's C quoting (`visiblePath`), so a
 file name cannot add lines to a prompt or reorder it; `unquotePath` reads `\v`, `\f` and literal
 emoji back. Pages changed: [[commit-history]], [[file-viewer]], [[costs-and-handover]], index.
+
+## [2026-11-22] ingest | Codex CLI sub-agent default model measurement
+Codex CLI 0.171.0 run live with `codex exec`: the `-c agents.default_subagent_model` and
+`-c agents.default_subagent_reasoning_effort` overrides reach a spawned sub-agent; an effort its
+model does not list stops the spawn; no model takes `minimal`, every listed one `low` to `max`.
+Hangar now offers `low` to `max` and drops a stored `minimal`. New:
+[[codex-subagent-model-measurement]]. Updated: [[sub-agent-library]], [[sub-agent-models-research]],
+index.

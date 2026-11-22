@@ -1201,11 +1201,13 @@ const de = {
   "subAgentLib.modelChange": "Ändern",
   "subAgentLib.effortLabel": "Denkaufwand",
   "subAgentLib.effortSession": "Aufwand wie Hauptsession",
-  "subAgentLib.effort.minimal": "Minimal",
   "subAgentLib.effort.low": "Niedrig",
   "subAgentLib.effort.medium": "Mittel",
   "subAgentLib.effort.high": "Hoch",
   "subAgentLib.effort.xhigh": "Sehr hoch",
+  "subAgentLib.effort.max": "Maximal",
+  "subAgentLib.effortNotOffered":
+    "Hangar bietet diesen Denkaufwand nicht an. Wähle zuerst einen anderen.",
   "subAgentLib.provide": "Meine Sub-Agenten in {program} bereitstellen",
   "subAgentLib.provideHelp":
     "Hangar legt sie dort als eigene Dateien an. Eine Datei gleichen Namens wird ersetzt und als .bak aufgehoben. Das gilt auch für ungetrackte .codex/agents deiner Projekte.",
@@ -3521,11 +3523,13 @@ const en: Record<MessageKey, string> = {
   "subAgentLib.modelChange": "Change",
   "subAgentLib.effortLabel": "Reasoning effort",
   "subAgentLib.effortSession": "Effort as main session",
-  "subAgentLib.effort.minimal": "Minimal",
   "subAgentLib.effort.low": "Low",
   "subAgentLib.effort.medium": "Medium",
   "subAgentLib.effort.high": "High",
   "subAgentLib.effort.xhigh": "Very high",
+  "subAgentLib.effort.max": "Maximum",
+  "subAgentLib.effortNotOffered":
+    "Hangar does not offer this reasoning effort. Choose another one first.",
   "subAgentLib.provide": "Provide my sub-agents in {program}",
   "subAgentLib.provideHelp":
     "Hangar adds them there as files of its own. A file of the same name is replaced and kept as .bak. This also applies to untracked .codex/agents in your projects.",
@@ -5843,11 +5847,13 @@ const el: Record<MessageKey, string> = {
   "subAgentLib.modelChange": "Αλλαγή",
   "subAgentLib.effortLabel": "Βάθος σκέψης",
   "subAgentLib.effortSession": "Βάθος όπως η κύρια συνεδρία",
-  "subAgentLib.effort.minimal": "Ελάχιστο",
   "subAgentLib.effort.low": "Χαμηλό",
   "subAgentLib.effort.medium": "Μεσαίο",
   "subAgentLib.effort.high": "Υψηλό",
   "subAgentLib.effort.xhigh": "Πολύ υψηλό",
+  "subAgentLib.effort.max": "Μέγιστο",
+  "subAgentLib.effortNotOffered":
+    "Το Hangar δεν προσφέρει αυτό το βάθος σκέψης. Διάλεξε πρώτα άλλο.",
   "subAgentLib.provide": "Διάθεση των υπο-πρακτόρων μου στο {program}",
   "subAgentLib.provideHelp":
     "Το Hangar τους προσθέτει εκεί ως δικά του αρχεία. Ένα αρχείο με το ίδιο όνομα αντικαθίσταται και φυλάσσεται ως .bak. Ισχύει και για μη παρακολουθούμενα .codex/agents των έργων σου.",
@@ -8192,11 +8198,13 @@ const es: Record<MessageKey, string> = {
   "subAgentLib.modelChange": "Cambiar",
   "subAgentLib.effortLabel": "Esfuerzo de razonamiento",
   "subAgentLib.effortSession": "Esfuerzo como la sesión principal",
-  "subAgentLib.effort.minimal": "Mínimo",
   "subAgentLib.effort.low": "Bajo",
   "subAgentLib.effort.medium": "Medio",
   "subAgentLib.effort.high": "Alto",
   "subAgentLib.effort.xhigh": "Muy alto",
+  "subAgentLib.effort.max": "Máximo",
+  "subAgentLib.effortNotOffered":
+    "Hangar no ofrece este esfuerzo de razonamiento. Elige otro primero.",
   "subAgentLib.provide": "Ofrecer mis subagentes en {program}",
   "subAgentLib.provideHelp":
     "Hangar los añade allí como archivos propios. Un archivo con el mismo nombre se reemplaza y se guarda como .bak. También vale para .codex/agents sin seguimiento en tus proyectos.",
@@ -10532,11 +10540,13 @@ const fr: Record<MessageKey, string> = {
   "subAgentLib.modelChange": "Modifier",
   "subAgentLib.effortLabel": "Effort de raisonnement",
   "subAgentLib.effortSession": "Effort comme la session principale",
-  "subAgentLib.effort.minimal": "Minimal",
   "subAgentLib.effort.low": "Faible",
   "subAgentLib.effort.medium": "Moyen",
   "subAgentLib.effort.high": "Élevé",
   "subAgentLib.effort.xhigh": "Très élevé",
+  "subAgentLib.effort.max": "Maximum",
+  "subAgentLib.effortNotOffered":
+    "Hangar ne propose pas cet effort de raisonnement. Choisis-en d'abord un autre.",
   "subAgentLib.provide": "Proposer mes sous-agents dans {program}",
   "subAgentLib.provideHelp":
     "Hangar les y ajoute comme ses propres fichiers. Un fichier du même nom est remplacé et gardé en .bak. Cela vaut aussi pour les .codex/agents non suivis de tes projets.",
@@ -12878,11 +12888,13 @@ const it: Record<MessageKey, string> = {
   "subAgentLib.modelChange": "Modifica",
   "subAgentLib.effortLabel": "Impegno di ragionamento",
   "subAgentLib.effortSession": "Impegno come la sessione principale",
-  "subAgentLib.effort.minimal": "Minimo",
   "subAgentLib.effort.low": "Basso",
   "subAgentLib.effort.medium": "Medio",
   "subAgentLib.effort.high": "Alto",
   "subAgentLib.effort.xhigh": "Molto alto",
+  "subAgentLib.effort.max": "Massimo",
+  "subAgentLib.effortNotOffered":
+    "Hangar non offre questo impegno di ragionamento. Scegline prima un altro.",
   "subAgentLib.provide": "Offri i miei sotto-agenti in {program}",
   "subAgentLib.provideHelp":
     "Hangar li aggiunge lì come file propri. Un file con lo stesso nome viene sostituito e conservato come .bak. Vale anche per i .codex/agents non tracciati dei tuoi progetti.",
@@ -15214,11 +15226,13 @@ const ja: Record<MessageKey, string> = {
   "subAgentLib.modelChange": "変更",
   "subAgentLib.effortLabel": "推論の強さ",
   "subAgentLib.effortSession": "メインセッションと同じ強さ",
-  "subAgentLib.effort.minimal": "最小",
   "subAgentLib.effort.low": "低",
   "subAgentLib.effort.medium": "中",
   "subAgentLib.effort.high": "高",
   "subAgentLib.effort.xhigh": "最高",
+  "subAgentLib.effort.max": "最大",
+  "subAgentLib.effortNotOffered":
+    "この推論の強さは Hangar では選べません。先に別の強さを選んでください。",
   "subAgentLib.provide": "自分のサブエージェントを {program} で使えるようにする",
   "subAgentLib.provideHelp":
     "Hangar はそこに独自のファイルとして追加します。同じ名前のファイルは置き換え、.bak として保存します。 プロジェクト内の Git 管理外の .codex/agents にも適用されます。",
@@ -17532,11 +17546,13 @@ const pl: Record<MessageKey, string> = {
   "subAgentLib.modelChange": "Zmień",
   "subAgentLib.effortLabel": "Wysiłek rozumowania",
   "subAgentLib.effortSession": "Wysiłek jak sesja główna",
-  "subAgentLib.effort.minimal": "Minimalny",
   "subAgentLib.effort.low": "Niski",
   "subAgentLib.effort.medium": "Średni",
   "subAgentLib.effort.high": "Wysoki",
   "subAgentLib.effort.xhigh": "Bardzo wysoki",
+  "subAgentLib.effort.max": "Maksymalny",
+  "subAgentLib.effortNotOffered":
+    "Hangar nie oferuje tego wysiłku rozumowania. Najpierw wybierz inny.",
   "subAgentLib.provide": "Udostępnij moich podagentów w {program}",
   "subAgentLib.provideHelp":
     "Hangar dodaje ich tam jako własne pliki. Plik o tej samej nazwie zostaje zastąpiony i zachowany jako .bak. Dotyczy to też nieśledzonych .codex/agents w twoich projektach.",
@@ -19846,11 +19862,13 @@ const pt: Record<MessageKey, string> = {
   "subAgentLib.modelChange": "Alterar",
   "subAgentLib.effortLabel": "Esforço de raciocínio",
   "subAgentLib.effortSession": "Esforço igual à sessão principal",
-  "subAgentLib.effort.minimal": "Mínimo",
   "subAgentLib.effort.low": "Baixo",
   "subAgentLib.effort.medium": "Médio",
   "subAgentLib.effort.high": "Alto",
   "subAgentLib.effort.xhigh": "Muito alto",
+  "subAgentLib.effort.max": "Máximo",
+  "subAgentLib.effortNotOffered":
+    "O Hangar não oferece este esforço de raciocínio. Escolha outro primeiro.",
   "subAgentLib.provide": "Disponibilizar meus subagentes no {program}",
   "subAgentLib.provideHelp":
     "O Hangar os adiciona lá como arquivos próprios. Um arquivo com o mesmo nome é substituído e guardado como .bak. Vale também para .codex/agents não rastreados dos seus projetos.",
@@ -22160,11 +22178,13 @@ const ru: Record<MessageKey, string> = {
   "subAgentLib.modelChange": "Изменить",
   "subAgentLib.effortLabel": "Глубина рассуждений",
   "subAgentLib.effortSession": "Глубина как в основной сессии",
-  "subAgentLib.effort.minimal": "Минимальная",
   "subAgentLib.effort.low": "Низкая",
   "subAgentLib.effort.medium": "Средняя",
   "subAgentLib.effort.high": "Высокая",
   "subAgentLib.effort.xhigh": "Очень высокая",
+  "subAgentLib.effort.max": "Максимальная",
+  "subAgentLib.effortNotOffered":
+    "Hangar не предлагает такую глубину рассуждений. Сначала выбери другую.",
   "subAgentLib.provide": "Предоставить моих субагентов в {program}",
   "subAgentLib.provideHelp":
     "Hangar добавляет их туда как свои файлы. Файл с тем же именем заменяется и сохраняется как .bak. Это касается и неотслеживаемых .codex/agents в твоих проектах.",
@@ -24459,11 +24479,13 @@ const tr: Record<MessageKey, string> = {
   "subAgentLib.modelChange": "Değiştir",
   "subAgentLib.effortLabel": "Akıl yürütme düzeyi",
   "subAgentLib.effortSession": "Düzey ana oturumla aynı",
-  "subAgentLib.effort.minimal": "En az",
   "subAgentLib.effort.low": "Düşük",
   "subAgentLib.effort.medium": "Orta",
   "subAgentLib.effort.high": "Yüksek",
   "subAgentLib.effort.xhigh": "Çok yüksek",
+  "subAgentLib.effort.max": "Maksimum",
+  "subAgentLib.effortNotOffered":
+    "Hangar bu akıl yürütme düzeyini sunmuyor. Önce başka bir düzey seç.",
   "subAgentLib.provide": "Alt ajanlarımı {program} içinde sun",
   "subAgentLib.provideHelp":
     "Hangar onları oraya kendi dosyaları olarak ekler. Aynı adlı bir dosya değiştirilir ve .bak olarak saklanır. Bu, projelerindeki izlenmeyen .codex/agents için de geçerlidir.",
@@ -26702,11 +26724,12 @@ const zh: Record<MessageKey, string> = {
   "subAgentLib.modelChange": "更改",
   "subAgentLib.effortLabel": "推理强度",
   "subAgentLib.effortSession": "强度与主会话相同",
-  "subAgentLib.effort.minimal": "最低",
   "subAgentLib.effort.low": "低",
   "subAgentLib.effort.medium": "中",
   "subAgentLib.effort.high": "高",
   "subAgentLib.effort.xhigh": "很高",
+  "subAgentLib.effort.max": "最高",
+  "subAgentLib.effortNotOffered": "Hangar 不提供此推理强度。请先选择其他强度。",
   "subAgentLib.provide": "在 {program} 中提供我的子代理",
   "subAgentLib.provideHelp":
     "Hangar 会在那里添加自己的文件。同名文件会被替换，并保存为 .bak。这也适用于你项目中未被跟踪的 .codex/agents。",
