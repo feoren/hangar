@@ -35,7 +35,7 @@ your own accounts, on your own machine. The desktop app is open source under the
 
 <picture>
   <source media="(prefers-color-scheme: light)" srcset="docs/images/hangar-light.png">
-  <img alt="Hangar with two sessions side by side: a Claude Code session leading a link group, with Hangar's own sub-agents hangar-backend, hangar-frontend and hangar-tester as figures in the crew column and in the sidebar, and Codex CLI working beside it; a teal chain marks the linked sessions, light flows along the tree lines to the working sessions, and the hangar-security session has waited for 12 minutes" src="docs/images/hangar-dark.png">
+  <img alt="Hangar with a Claude Code session whose sub-agents hangar-backend, hangar-frontend and hangar-tester stand on round stages in the crew column, each with a speech bubble saying what it edits or runs, and the notes panel open on the right; the sidebar groups the sessions by project with a teal chain for the linked ones, the hangar-security session has waited for 12 minutes, and the Recently opened group lists acme-billing, acme-web and acme-shop with their program and age" src="docs/images/hangar-dark.png">
 </picture>
 
 ## Features
@@ -45,10 +45,15 @@ your own accounts, on your own machine. The desktop app is open source under the
 - **Every agent in one window.** Claude Code, Codex CLI, Gemini CLI, Aider and 18 more command-line
   tools are detected automatically and start with one click, each with its own icon in one
   consistent style. PowerShell, Command Prompt, WSL and any other command work the same way.
+- **Recently opened.** The sidebar keeps the sessions you started last, with program, folder, title
+  and when you used them, in a group of its own above New session. One click starts one again in
+  its folder and resumes its conversation, Ctrl+Shift+O reopens the newest, and what is open
+  already stays out of the list.
 - **Sessions that keep running.** Every session runs in the background while you work in another
   one, and comes back with its history after Hangar restarts. The house button in the sidebar puts
   them aside and shows a calm home view: one card per repository with its sessions, open changes,
-  newest commits and dev servers, and a calendar of your commits over the last year.
+  newest commits and dev servers, and a calendar of your commits over the last year with weekday
+  names and a legend.
 - **Sessions you recognize.** The sidebar groups sessions by program or by project folder, and an
   agent session takes its name from your first prompt, so several sessions in one project stay
   apart. Each row shows its state, folder and branch, and its CPU, memory and GPU use in aligned
@@ -141,9 +146,11 @@ your own accounts, on your own machine. The desktop app is open source under the
   terminal the way Claude Code itself does, with recognizable keys and passwords masked; drag the
   line between them to give either side more room, and close finished ones with one click.
 - **Your crew beside the terminal.** Running sub-agents stand as figures in a column next to the
-  agent's terminal, each on a plinth with its name whose color shows its state (working, waiting
-  for you, done), and a speech bubble says what it is doing right now, such as "Reading parser.rs".
-  A narrow window shows a strip of faces instead; the session menu shows or hides the crew.
+  agent's terminal, each on a round stage whose light ring shows its state (working, waiting for
+  you, done), and a speech bubble says what it is doing right now, such as "Reading parser.rs";
+  until it gets going, dots type in the bubble. The figures move calmly while you can see them, or
+  stand still if you choose so. A narrow window shows a strip of faces instead; the session menu
+  shows or hides the crew.
 
 ### Sub-agents
 
@@ -160,13 +167,14 @@ your own accounts, on your own machine. The desktop app is open source under the
   bundled ones or your own image, also animated. Your own agents show their initial. A session
   started as a sub-agent wears its figure in the sidebar, and the crew column shows it while the
   sub-agent works.
-- **Start as an agent.** The arrow beside Claude Code starts a session as one of your sub-agents
-  (`claude --agent`), also from quick access.
+- **Start as an agent.** Quick access starts a Claude Code session as one of your sub-agents
+  (`claude --agent`).
 - **Models per agent and per program.** Pick the model of each sub-agent (Opus, Sonnet, Haiku, Fable
   or a model id for Claude Code; a model and reasoning effort for Codex CLI) and a default model for
   all sub-agents of a program, which Hangar sets for every session it starts.
-- **The same crew in every agent.** Hangar provides your Claude Code sub-agents to Codex CLI as well,
-  so both work with the same team. A file of yours with the same name is kept as a `.bak`, and in
+- **The same crew in every agent.** Hangar provides your Claude Code sub-agents to Codex CLI, GitHub
+  Copilot CLI, OpenCode 2 and Gemini CLI as well, so they all work with the same team; switch each
+  program off in the settings. A file of yours with the same name is kept as a `.bak`, and in
   projects only files Git does not track are replaced.
 - **Session reports.** Export a Claude Code session as a Markdown report with its prompts, the
   agent's answers, one line per tool call, sub-agent runs with their tokens, the open changes and
@@ -195,8 +203,8 @@ your own accounts, on your own machine. The desktop app is open source under the
 
 - **Private or team sessions.** A private session runs right in your folder. A team session gets its
   own Git worktree, is visible to your team, and Hangar's agent gate asks before the agent edits a
-  file another session is working on. Claude Code, Codex CLI, OpenCode and Pi can run as team
-  sessions; the gate was measured live for each of them.
+  file another session is working on. Claude Code, Codex CLI, OpenCode, Pi, GitHub Copilot CLI,
+  Cursor CLI and OpenCode 2 can run as team sessions.
 - **Remembered answers.** Tell the gate "always" or "never" for a file or folder of a project, and it
   answers for you from then on, with a visible log.
 - **A guard for risky commands.** In team sessions the gate also asks before a shell command such
@@ -218,8 +226,8 @@ your own accounts, on your own machine. The desktop app is open source under the
 - **Shared, encrypted notes.** Turn on shared notes for a project and they live encrypted in the
   repository, so they travel with your commits. A recovery code makes sure they can always be
   opened again.
-- **A panel you can detach.** Notes, Changes and Files share a side panel that can live in its own
-  window on a second screen.
+- **A panel you can detach.** Notes, Changes and Files share a side panel that one switch in the bar
+  above the terminal slides open and closed, and that can live in its own window on a second screen.
 
 ### Teams
 
@@ -263,10 +271,26 @@ your own accounts, on your own machine. The desktop app is open source under the
   <tr>
     <td width="50%" valign="top">
       <picture>
-        <source media="(prefers-color-scheme: light)" srcset="docs/images/hangar-sub-agents-light.png">
-        <img alt="Settings opened at Sub-agents with the switch on From Hangar, 15, and six of Hangar's sub-agents as cards with their figures: hangar-backend, hangar-frontend, hangar-tester, hangar-security, hangar-developer and hangar-manager, each with a short description" src="docs/images/hangar-sub-agents-dark.png">
+        <source media="(prefers-color-scheme: light)" srcset="docs/images/hangar-recently-opened-light.png">
+        <img alt="The Recently opened group above New session with five entries, acme-billing with Claude Code 5 min. ago, acme-web with Codex CLI 2 hr. ago, acme-shop with Gemini CLI yesterday, acme-infra with PowerShell 3 days ago and acme-mobile with Claude Code 6 days ago; the hovered acme-web row shows its remove button, beside two terminals working side by side" src="docs/images/hangar-recently-opened-dark.png">
       </picture>
-      <br><sub>Fifteen sub-agents ship with Hangar, each with its own figure, as cards or as a table.</sub>
+      <br><sub>Recently opened: one click brings a session back with its folder and conversation.</sub>
+    </td>
+    <td width="50%" valign="top">
+      <picture>
+        <source media="(prefers-color-scheme: light)" srcset="docs/images/hangar-sub-agents-light.png">
+        <img alt="The crew column of a Claude Code session reviewing a change: hangar-manager on a green-ringed stage saying Done, hangar-security searching for apiKey|secret, and hangar-researcher with typing dots in its bubble, beside a Codex CLI session" src="docs/images/hangar-sub-agents-dark.png">
+      </picture>
+      <br><sub>The crew on its stage: the light ring shows each sub-agent's state.</sub>
+    </td>
+  </tr>
+  <tr>
+    <td width="50%" valign="top">
+      <picture>
+        <source media="(prefers-color-scheme: light)" srcset="docs/images/hangar-home-light.png">
+        <img alt="The home view with the activity calendar of the last year in a frame, with month and weekday names, 737 commits and a legend from Less to More, above project cards for acme-shop and acme-docs with their sessions, open changes, team and dev server" src="docs/images/hangar-home-dark.png">
+      </picture>
+      <br><sub>The home view: a calendar of your commits and one card per project.</sub>
     </td>
     <td width="50%" valign="top">
       <picture>
@@ -286,42 +310,10 @@ your own accounts, on your own machine. The desktop app is open source under the
     </td>
     <td width="50%" valign="top">
       <picture>
-        <source media="(prefers-color-scheme: light)" srcset="docs/images/hangar-data-flow-light.png">
-        <img alt="The sidebar with light flowing along the group's tree line and a sub-agent branch to two working sessions, each with its rate, such as 11 KB/s down, beside it" src="docs/images/hangar-data-flow-dark.png">
-      </picture>
-      <br><sub>Data flow: light runs along the tree lines at the pace of each agent's output.</sub>
-    </td>
-  </tr>
-  <tr>
-    <td width="50%" valign="top">
-      <picture>
-        <source media="(prefers-color-scheme: light)" srcset="docs/images/hangar-quick-access-light.png">
-        <img alt="Quick access opened with Ctrl+Shift+P and the search refund: one matching session, three notes with their place and an excerpt, and the project acme-docs" src="docs/images/hangar-quick-access-dark.png">
-      </picture>
-      <br><sub>Quick access finds sessions, projects and the text of your notes.</sub>
-    </td>
-    <td width="50%" valign="top">
-      <picture>
-        <source media="(prefers-color-scheme: light)" srcset="docs/images/hangar-costs-light.png">
-        <img alt="Session rows with a Cost element showing about $9.06, $1.37 and $6.12, and a notice that 82 % of the daily budget is used, about $16.55 of $20.00, with Show costs" src="docs/images/hangar-costs-dark.png">
-      </picture>
-      <br><sub>Costs in every row and an early warning before the daily budget runs out.</sub>
-    </td>
-  </tr>
-  <tr>
-    <td width="50%" valign="top">
-      <picture>
         <source media="(prefers-color-scheme: light)" srcset="docs/images/hangar-secret-guard-light.png">
         <img alt="The changes panel stopping a commit: it names src/payments/client.ts with a Stripe secret key and .env.production as a file that usually holds secrets, never the value, with Cancel and Commit anyway above the three staged files" src="docs/images/hangar-secret-guard-dark.png">
       </picture>
       <br><sub>The secret guard stops commits and messages that seem to hold a key, and asks first.</sub>
-    </td>
-    <td width="50%" valign="top">
-      <picture>
-        <source media="(prefers-color-scheme: light)" srcset="docs/images/hangar-one-line-light.png">
-        <img alt="The sidebar in one-line mode grouped by project: 15 sessions of five programs in four projects, working, asking, done and paused, each on one close line with the link chain visible" src="docs/images/hangar-one-line-dark.png">
-      </picture>
-      <br><sub>One line per session: fifteen agents at a glance.</sub>
     </td>
   </tr>
 </table>

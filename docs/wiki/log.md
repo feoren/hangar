@@ -1593,3 +1593,8 @@ Reworked "Recently closed" into the sidebar group "Recently opened" above New se
 records its program and folder, closing updates the entry, open ones are hidden, the first list
 comes from the recent folders with the last program, rows show the folder, title or program and a
 short relative time, and the × removes an entry. Updated: [[session-restore]], index.
+
+## [2026-11-23] update | README scenes for 0.14.0
+The README and the website now show the overview plus six scenes: recently-opened and home are new,
+sub-agents shows the crew stage, waiting-message, link-groups and secret-guard stay; data-flow,
+quick-access, costs and one-line were dropped. Updated: [[release-rollout]].

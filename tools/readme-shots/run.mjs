@@ -1,6 +1,6 @@
 // Renders the README screenshots into docs/images from the real frontend with a mocked backend
 // (mock.ts) in a headless Chromium based browser: one image per scene and color scheme, e.g.
-// hangar-dark.png (the overview) and hangar-costs-light.png.
+// hangar-dark.png (the overview) and hangar-home-light.png.
 //
 // Usage: pnpm readme:shots [--scene <name>]...   (default: every scene)
 //
@@ -60,11 +60,8 @@ const working = (count) => `(() => {
  */
 const SETTLED = `(${working(2)} && ${shows(".session", "done")})`;
 
-/** The long list of the one-line scene, grouped by project. */
-const BY_PROJECT = { sessionGrouping: "project" };
-
-/** The tree flow in its default style; `showRate` puts each working row's rate at its end. */
-const flow = (showRate) => ({ treeFlow: { enabled: true, style: "stream", showRate } });
+/** The tree flow in its default style, without the rates at the rows' ends. */
+const FLOW = { treeFlow: { enabled: true, style: "stream", showRate: false } };
 
 /** Takes the focus away from where a click left it, so no focus ring shows. */
 const BLUR = `(() => {
@@ -100,14 +97,6 @@ const contextMenu = (selector, text) => `(() => {
   return true;
 })()`;
 
-/** Presses Ctrl+Shift+P, which opens quick access. */
-const QUICK_ACCESS = `(() => {
-  window.dispatchEvent(
-    new KeyboardEvent("keydown", { key: "P", code: "KeyP", ctrlKey: true, shiftKey: true, bubbles: true }),
-  );
-  return true;
-})()`;
-
 /**
  * What the app shows once it is up, unless a scene says otherwise: `count` sessions, an agent
  * working and the version in the sidebar header.
@@ -124,72 +113,88 @@ const BOOT = (version, count = 5) => `(() => {
   );
 })()`;
 
-/** The sidebar layout most scenes use: one terminal, the "New session" group folded. */
-const SINGLE = { snapLayout: "single", closedGroups: ["newSession"] };
-
-/** A row in the standard layout with the program as an avatar and the cost after the tokens. */
-const COST_ROW = {
-  lines: [
-    { left: ["program", "signs", "title"], right: ["state"] },
-    { left: ["folder"], right: ["branch"] },
-    { left: ["load"], right: [] },
-    { left: ["runtime", "context"], right: ["tokens", "cost"] },
-  ],
-  forms: {
-    state: "word",
-    program: "avatar",
-    folder: "text",
-    branch: "text",
-    load: "text",
-    context: "bar",
-  },
-  frame: "flat",
-  density: "normal",
-};
-
-/** The one-line row (oneLineRows.ts `ONE_LINE_LAYOUT`), with the standard row to go back to. */
-const ONE_LINE_ROW = {
-  lines: [
-    { left: ["program", "signs", "title"], right: ["context", "state"] },
-    { left: [], right: [] },
-    { left: [], right: [] },
-    { left: [], right: [] },
-  ],
-  forms: { ...COST_ROW.forms, program: "icon", context: "mini" },
-  frame: "flat",
-  density: "compact",
-};
+/**
+ * The sidebar layout most scenes use: one terminal, "Recently opened" and "New session" folded, so
+ * every session row stands whole.
+ */
+const FOLDED = ["recentlyOpened", "newSession"];
+const SINGLE = { snapLayout: "single", closedGroups: FOLDED };
 
 /**
  * The scenes, in README order. `file`: the image name without scheme; `maxBytes`: the size limit
  * of one image; `layout` and `settings`: changes to the stored layout and settings; `settled`: what
  * the sidebar must show before the steps start (default: SETTLED); `boot`: what must show for the
  * app to count as started, given the version shown (default: BOOT); `steps`: what to run once the
- * app is up, each followed by what must show before the next. The mock reads the scene's name too
- * (mock.ts `SCENE`).
+ * app is up, each followed by what must show before the next; `hover`: the element the pointer
+ * rests on for the screenshot (default: none, the pointer leaves the window). The mock reads the
+ * scene's name too (mock.ts `SCENE`).
  */
 const SCENES = [
   {
-    // The hero: the link group's chain on three rows, light flowing to the working sessions, the
-    // asking session that has waited for 12 minutes, and the lead at work with its crew of three of
-    // Hangar's own sub-agents, each wearing its figure.
+    // The hero: the bar above the work area with the session's name, the support badge and the
+    // panel switch; "Recently opened" above New session; the link group's chain and light flowing
+    // to the working sessions; the asking session that has waited for 12 minutes; the lead with
+    // its crew of three of Hangar's own sub-agents; the notes beside it in the right panel.
     name: "overview",
     file: "hangar",
-    maxBytes: 400 * KB,
-    layout: { snapLayout: "pair", paneRatios: { pair: [0.61] }, closedGroups: ["newSession"] },
-    settings: flow(false),
+    maxBytes: 300 * KB,
+    layout: {
+      ...SINGLE,
+      closedGroups: ["newSession"],
+      sideOpen: true,
+      sideTab: "notes",
+      notesWidth: 330,
+    },
+    settings: FLOW,
+    boot: (version) => BOOT(version, 4),
     settled: `(${working(2)} && ${shows(".session", "done")} && ${shows(".session", "waiting 12")})`,
-    steps: [{ ready: `document.querySelectorAll(".crew-item").length === 3` }],
+    steps: [
+      {
+        ready: `(document.querySelectorAll(".crew-item").length === 3 &&
+          document.querySelectorAll(".recent-row").length === 3 &&
+          document.querySelectorAll(".note-row").length === 3)`,
+      },
+    ],
   },
   {
-    // Settings, "Sub-agents": the fifteen sub-agents Hangar ships, as cards with their figures.
+    // "Recently opened": five programs started in other folders, newest first, one click from a
+    // fresh start with their conversation; the pointer rests on one, so its × shows.
+    name: "recently-opened",
+    file: "hangar-recently-opened",
+    maxBytes: 300 * KB,
+    layout: { snapLayout: "pair", paneRatios: { pair: [0.55] }, closedGroups: ["newSession"] },
+    boot: (version) => BOOT(version, 3),
+    settled: `(${working(2)} && document.querySelectorAll(".recent-row").length === 5)`,
+    steps: [],
+    hover: { selector: ".recent-row", index: 1 },
+  },
+  {
+    // The crew beside the lead: each sub-agent on a round stage whose light ring shows its state:
+    // the manager done, the security agent searching, the researcher just started, typing dots.
     name: "sub-agents",
     file: "hangar-sub-agents",
     maxBytes: 300 * KB,
+    layout: { snapLayout: "pair", paneRatios: { pair: [0.61] }, closedGroups: FOLDED },
+    steps: [
+      {
+        ready: `(document.querySelectorAll(".crew-item").length === 3 &&
+          document.querySelector(".crew-item.state-done") !== null &&
+          document.querySelector(".crew-typing") !== null)`,
+      },
+    ],
+  },
+  {
+    // The home view: the sessions step aside, the year's commits as a calendar with weekday
+    // names and a legend, and below it the projects.
+    name: "home",
+    file: "hangar-home",
+    maxBytes: 300 * KB,
     layout: SINGLE,
     steps: [
-      { run: click(".footer-settings"), ready: shows("[role=tab]", "Sub-agents") },
-      { run: click("[role=tab]", "Sub-agents"), ready: shows(".sub-agent-browser") },
+      {
+        run: click(".sidebar-home"),
+        ready: `(${shows(".home-back")} && document.querySelectorAll(".activity-day.level-4").length > 8)`,
+      },
       { run: BLUR, ready: "true" },
     ],
   },
@@ -237,43 +242,6 @@ const SCENES = [
     ],
   },
   {
-    // Data flow: light runs down the group's trunk to the working sessions and along the
-    // sub-agent branch; each working row shows its rate.
-    name: "data-flow",
-    file: "hangar-data-flow",
-    maxBytes: 300 * KB,
-    layout: SINGLE,
-    settings: flow(true),
-    steps: [
-      {
-        ready: `document.querySelectorAll(".tree-flow-rate.live .tree-flow-rate-down").length >= 2`,
-      },
-    ],
-  },
-  {
-    // Quick access finds projects and the text of notes.
-    name: "quick-access",
-    file: "hangar-quick-access",
-    maxBytes: 300 * KB,
-    layout: SINGLE,
-    steps: [
-      { run: QUICK_ACCESS, ready: shows(".launcher-input") },
-      {
-        run: typeInto(".launcher-input", "refund"),
-        ready: `(${shows(".launcher-section", "Notes")} && ${shows(".launcher-section", "Projects")})`,
-      },
-    ],
-  },
-  {
-    // The cost on every row with known usage, and the early warning at 80 % of the budget.
-    name: "costs",
-    file: "hangar-costs",
-    maxBytes: 300 * KB,
-    layout: SINGLE,
-    settings: { rowLayout: COST_ROW },
-    steps: [{ ready: shows(".budget-notice") }],
-  },
-  {
     // The secret guard holds a commit whose staged files seem to hold a key.
     name: "secret-guard",
     file: "hangar-secret-guard",
@@ -288,18 +256,6 @@ const SCENES = [
       { run: click(".commit-box .primary-button"), ready: shows(".commit-secrets") },
       { run: BLUR, ready: "true" },
     ],
-  },
-  {
-    // "One line": fifteen sessions in four projects, each on one close line. A little wider, so
-    // the titles beside the context bar and the link chain show whole.
-    name: "one-line",
-    file: "hangar-one-line",
-    maxBytes: 300 * KB,
-    layout: { ...SINGLE, sidebarWidth: 392 },
-    settings: { ...BY_PROJECT, rowLayout: ONE_LINE_ROW, rowLayoutBefore: COST_ROW },
-    boot: (version) => BOOT(version, 15),
-    settled: `(${working(4)} && ${shows(".session", "done")})`,
-    steps: [],
   },
 ];
 
@@ -423,6 +379,8 @@ async function render(page, url, scene, scheme, version) {
       subAgentExcerpts: true,
       // The program badge as an avatar, so a session started as a sub-agent wears its figure.
       rowStyle: "avatar",
+      // Two project groups instead of four program groups: the sidebar's rows fit the window.
+      sessionGrouping: "project",
       ...scene.settings,
     },
   };
@@ -464,6 +422,17 @@ async function render(page, url, scene, scheme, version) {
   // freeze every animation on a fixed frame.
   await sleep(1000);
   await page.send("Input.dispatchMouseEvent", { type: "mouseMoved", x: WIDTH - 2, y: HEIGHT - 2 });
+  if (scene.hover) {
+    const { selector, index } = scene.hover;
+    const point = await page.evaluate(`(() => {
+      const target = document.querySelectorAll(${JSON.stringify(selector)})[${index}];
+      if (!target) return null;
+      const box = target.getBoundingClientRect();
+      return { x: Math.round(box.left + box.width / 2), y: Math.round(box.top + box.height / 2) };
+    })()`);
+    if (point === null) throw new Error(`Nothing to point at: ${selector} #${index}`);
+    await page.send("Input.dispatchMouseEvent", { type: "mouseMoved", x: point.x, y: point.y });
+  }
   await page.evaluate("window.__readmeShots.freeze = true");
   // The app's clocks tick once a second; let them pick up the frozen time.
   await sleep(1200);
