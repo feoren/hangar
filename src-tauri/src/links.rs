@@ -68,6 +68,8 @@ pub enum LinkError {
     Twice,
     #[error("[link_already] A session is already in a link group")]
     AlreadyLinked,
+    #[error("[link_none_added] No session to add to the link group")]
+    NoneAdded,
     #[error("[link_groups_full] Too many link groups")]
     GroupsFull,
     #[error(
@@ -411,6 +413,80 @@ impl Links {
         (0..PALETTE_SIZE)
             .find(|color| !self.groups.iter().any(|group| group.color == *color))
             .unwrap_or_else(|| (id % u64::from(PALETTE_SIZE)) as u8)
+    }
+
+    /// Adds the `chosen` sessions to group `id`: at least one, each in no group yet, the group
+    /// then at most [`MAX_MEMBERS`]. A name chosen beforehand must be a valid member name, unique
+    /// among the members and the newcomers; the others come from the titles and take none of the
+    /// group's names ([`member_names_around`]). `lead` is the group's lead afterwards (`None`: no
+    /// member leads), a member or a newcomer; `NewMember::lead` is not read. On any problem
+    /// nothing changes. `Ok(true)` when the lead changed, so the members learn their new roles
+    /// along with the newcomers. Adding is the person stepping in, like editing.
+    pub fn add_members(
+        &mut self,
+        id: GroupId,
+        chosen: &[NewMember<'_>],
+        lead: Option<SessionId>,
+    ) -> Result<bool, LinkError> {
+        if chosen.is_empty() {
+            return Err(LinkError::NoneAdded);
+        }
+        for (index, entry) in chosen.iter().enumerate() {
+            if chosen[..index]
+                .iter()
+                .any(|other| other.session == entry.session)
+            {
+                return Err(LinkError::Twice);
+            }
+            if self.group_of(entry.session).is_some() {
+                return Err(LinkError::AlreadyLinked);
+            }
+        }
+        let group = self.group(id).ok_or(LinkError::UnknownGroup)?;
+        if group.members.len() + chosen.len() > MAX_MEMBERS {
+            return Err(LinkError::TooMany);
+        }
+        if lead.is_some_and(|lead| {
+            group.member(lead).is_none() && !chosen.iter().any(|entry| entry.session == lead)
+        }) {
+            return Err(LinkError::NotMember);
+        }
+        // The members keep their names, and no newcomer may take one of them.
+        let mut titles: Vec<&str> = group.members.iter().map(|m| m.name.as_str()).collect();
+        let mut fixed: Vec<Option<String>> =
+            group.members.iter().map(|m| Some(m.name.clone())).collect();
+        for entry in chosen {
+            titles.push(entry.title);
+            fixed.push(entry.name.map(checked_name).transpose()?);
+        }
+        let given: Vec<&String> = fixed.iter().flatten().collect();
+        for (index, name) in given.iter().enumerate() {
+            if given[..index].contains(name) {
+                return Err(LinkError::NameTaken);
+            }
+        }
+        let known = group.members.len();
+        let newcomers: Vec<Member> = chosen
+            .iter()
+            .zip(member_names_around(&titles, &fixed).into_iter().skip(known))
+            .map(|(entry, name)| Member {
+                session: entry.session,
+                name,
+                role: Role::Member,
+            })
+            .collect();
+        let group = self.group_mut(id)?;
+        let before = group.lead().map(|member| member.session);
+        group.members.extend(newcomers);
+        for member in &mut group.members {
+            member.role = if Some(member.session) == lead {
+                Role::Lead
+            } else {
+                Role::Member
+            };
+        }
+        group.brake.person_acted();
+        Ok(before != lead)
     }
 
     /// The person unlinks the group.
@@ -1011,16 +1087,65 @@ fn one_line(text: &str, max: usize) -> String {
     }
 }
 
+/// Why Hangar introduces the group to a member.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Occasion<'a> {
+    /// The member is new to the group: it formed, or the member was just added.
+    Formed,
+    /// The group was introduced already and its lead changed.
+    RolesChanged,
+    /// The group was introduced already and `newcomers` joined it; `roles_changed`: its lead
+    /// changed in the same step.
+    Joined {
+        newcomers: &'a [String],
+        roles_changed: bool,
+    },
+}
+
+/// How the introduction after newcomers joined starts; the window tells it apart by this
+/// (`src/linkIntro.ts`).
+pub const JOINED_OPENING: &str = "Your link group in Hangar grew:";
+
 /// Hangar's introduction for the member named `me` with role `role` (ADR 0014, decision point
 /// 5): the other members with role, program and working folder, how to use `hangar-send` and,
-/// when the group has a lead, what each role does. `changed`: the group was introduced already
-/// and its lead changed. English on purpose: the agent reads it.
-pub fn introduction(me: &str, role: Role, peers: &[Peer<'_>], changed: bool) -> String {
-    let opening = if changed {
-        "The roles in your link group in Hangar changed. The other agents work in parallel in \
-         their own sessions."
-    } else {
-        "You are linked with other agents in Hangar. They work in parallel in their own sessions."
+/// when the group has a lead, what each role does. `occasion` says why it comes. English on
+/// purpose: the agent reads it.
+pub fn introduction(me: &str, role: Role, peers: &[Peer<'_>], occasion: Occasion<'_>) -> String {
+    let parallel = "The other agents work in parallel in their own sessions.";
+    let (opening, lead_news) = match occasion {
+        Occasion::Formed => (
+            "You are linked with other agents in Hangar. They work in parallel in their own \
+             sessions."
+                .to_owned(),
+            false,
+        ),
+        Occasion::RolesChanged => (
+            format!("The roles in your link group in Hangar changed. {parallel}"),
+            true,
+        ),
+        Occasion::Joined {
+            newcomers,
+            roles_changed,
+        } => {
+            let mut names: Vec<String> =
+                newcomers.iter().map(|name| format!("\"{name}\"")).collect();
+            // "a", "b" and "c": a list, not a chain of "and".
+            let last = names.pop().unwrap_or_default();
+            let listed = if names.is_empty() {
+                last
+            } else {
+                format!("{} and {last}", names.join(", "))
+            };
+            let roles = if roles_changed {
+                " Its roles changed as well."
+            } else {
+                ""
+            };
+            (
+                format!("{JOINED_OPENING} {listed} joined.{roles} {parallel}"),
+                roles_changed,
+            )
+        }
     };
     let mut text = format!("{opening} Your member name is \"{me}\". The other members:\n");
     for peer in peers {
@@ -1049,7 +1174,7 @@ pub fn introduction(me: &str, role: Role, peers: &[Peer<'_>], changed: bool) -> 
             name = lead.name
         )),
         // The lead was taken away: say so, or a member keeps reporting to the former one.
-        (Role::Member, None) if changed => {
+        (Role::Member, None) if lead_news => {
             text.push_str("No member leads this group any more. ");
         }
         (Role::Member, None) => {}
@@ -1506,7 +1631,7 @@ mod tests {
                     folder: &"x".repeat(400),
                 },
             ],
-            false,
+            Occasion::Formed,
         );
         assert!(text.contains("Your member name is \"app\""), "{text}");
         assert!(
@@ -1712,31 +1837,220 @@ mod tests {
                 folder: "/work/web",
             }]
         };
-        let member = introduction("app", Role::Member, &peers(true), false);
+        let member = introduction("app", Role::Member, &peers(true), Occasion::Formed);
         assert!(member.contains("- \"web\" (lead): Codex CLI"), "{member}");
         assert!(member.contains("hangar-send web"), "{member}");
         assert!(member.contains("hangar-send lead"), "{member}");
-        let lead = introduction("app", Role::Lead, &peers(false), false);
+        let lead = introduction("app", Role::Lead, &peers(false), Occasion::Formed);
         assert!(lead.contains("You lead this group"), "{lead}");
-        let changed = introduction("app", Role::Member, &peers(true), true);
+        let changed = introduction("app", Role::Member, &peers(true), Occasion::RolesChanged);
         assert!(
             changed.starts_with("The roles in your link group"),
             "{changed}"
         );
         assert!(!changed.contains("any more"), "{changed}");
         // The lead taken away: the members learn that nobody leads now.
-        let unled = introduction("app", Role::Member, &peers(false), true);
+        let unled = introduction("app", Role::Member, &peers(false), Occasion::RolesChanged);
         assert!(
             unled.contains("No member leads this group any more."),
             "{unled}"
         );
-        assert!(!introduction("app", Role::Member, &peers(false), false).contains("any more"));
+        assert!(
+            !introduction("app", Role::Member, &peers(false), Occasion::Formed)
+                .contains("any more")
+        );
         for text in [member, lead, changed, unled] {
             assert_eq!(
                 crate::partners::clean_message(&text).as_deref(),
                 Ok(text.as_str())
             );
         }
+    }
+
+    #[test]
+    fn the_introduction_after_newcomers_names_them() {
+        let peers = |lead: bool| {
+            vec![Peer {
+                name: "docs",
+                role: if lead { Role::Lead } else { Role::Member },
+                program: "Codex CLI",
+                folder: "/work/docs",
+            }]
+        };
+        let one = ["docs".to_owned()];
+        let joined = introduction(
+            "app",
+            Role::Member,
+            &peers(false),
+            Occasion::Joined {
+                newcomers: &one,
+                roles_changed: false,
+            },
+        );
+        assert!(
+            joined.starts_with("Your link group in Hangar grew: \"docs\" joined. The other"),
+            "{joined}"
+        );
+        assert!(joined.starts_with(JOINED_OPENING), "{joined}");
+        assert!(
+            joined.contains("- \"docs\": Codex CLI in /work/docs"),
+            "{joined}"
+        );
+        assert!(!joined.contains("roles"), "{joined}");
+        let two = ["docs".to_owned(), "cart".to_owned()];
+        let both = introduction(
+            "app",
+            Role::Member,
+            &peers(false),
+            Occasion::Joined {
+                newcomers: &two,
+                roles_changed: true,
+            },
+        );
+        assert!(
+            both.contains("\"docs\" and \"cart\" joined. Its roles changed as well."),
+            "{both}"
+        );
+        let three = ["docs".to_owned(), "cart".to_owned(), "pi".to_owned()];
+        let listed = introduction(
+            "app",
+            Role::Member,
+            &peers(false),
+            Occasion::Joined {
+                newcomers: &three,
+                roles_changed: false,
+            },
+        );
+        assert!(
+            listed.contains("\"docs\", \"cart\" and \"pi\" joined."),
+            "{listed}"
+        );
+        // The lead was taken away in the same step: the members learn it.
+        assert!(
+            both.contains("No member leads this group any more."),
+            "{both}"
+        );
+        let led = introduction(
+            "app",
+            Role::Member,
+            &peers(true),
+            Occasion::Joined {
+                newcomers: &one,
+                roles_changed: false,
+            },
+        );
+        assert!(led.contains("hangar-send lead"), "{led}");
+        for text in [joined, both, led] {
+            assert_eq!(
+                crate::partners::clean_message(&text).as_deref(),
+                Ok(text.as_str())
+            );
+        }
+    }
+
+    #[test]
+    fn sessions_join_an_existing_group_with_unique_names() {
+        let mut links = Links::default();
+        let id = links
+            .link_members(&[
+                new(1, "Claude Code", None, true),
+                new(2, "Codex", None, false),
+            ])
+            .unwrap()
+            .id;
+        // A derived name steps aside for the members' names; a chosen one is kept.
+        assert_eq!(
+            links.add_members(
+                id,
+                &[
+                    new(3, "Claude Code", None, false),
+                    new(4, "Aider", Some("docs"), false)
+                ],
+                Some(1),
+            ),
+            Ok(false)
+        );
+        assert_eq!(
+            names(&links, id),
+            ["claude-code", "codex", "claude-code-2", "docs"]
+        );
+        assert_eq!(lead_of(&links, id), Some(1));
+        assert_eq!(links.group_of(4).unwrap().id, id);
+        // A newcomer may lead from the start; the change is reported.
+        assert_eq!(
+            links.add_members(id, &[new(5, "Pi", None, false)], Some(5)),
+            Ok(true)
+        );
+        assert_eq!(lead_of(&links, id), Some(5));
+        assert_eq!(links.group(id).unwrap().members[0].role, Role::Member);
+        // The newcomer is reachable by name at once.
+        assert!(matches!(links.resolve(1, "pi"), Resolve::To { .. }));
+    }
+
+    #[test]
+    fn adding_refuses_what_linking_refuses_and_changes_nothing() {
+        let mut links = Links::default();
+        let id = linked(&mut links, &[(1, "app"), (2, "web")]);
+        let other = linked(&mut links, &[(3, "relay"), (4, "pi")]);
+        let lead = None;
+        for (chosen, error) in [
+            (vec![], LinkError::NoneAdded),
+            (vec![new(3, "relay", None, false)], LinkError::AlreadyLinked),
+            (vec![new(1, "app", None, false)], LinkError::AlreadyLinked),
+            (
+                vec![new(5, "a", None, false), new(5, "a", None, false)],
+                LinkError::Twice,
+            ),
+            (vec![new(5, "a", Some("web"), false)], LinkError::NameTaken),
+            (
+                vec![new(5, "a", Some("x"), false), new(6, "b", Some("x"), false)],
+                LinkError::NameTaken,
+            ),
+            (
+                vec![new(5, "a", Some("all"), false)],
+                LinkError::ReservedName,
+            ),
+            (vec![new(5, "a", Some("No"), false)], LinkError::InvalidName),
+        ] {
+            assert_eq!(links.add_members(id, &chosen, lead), Err(error));
+        }
+        assert_eq!(
+            links.add_members(id, &[new(5, "a", None, false)], Some(9)),
+            Err(LinkError::NotMember)
+        );
+        // A member of another group cannot lead this one.
+        assert_eq!(
+            links.add_members(id, &[new(5, "a", None, false)], Some(3)),
+            Err(LinkError::NotMember)
+        );
+        assert_eq!(
+            links.add_members(99, &[new(5, "a", None, false)], None),
+            Err(LinkError::UnknownGroup)
+        );
+        let many: Vec<NewMember<'_>> = (10..10 + MAX_MEMBERS as u64 - 1)
+            .map(|session| new(session, "x", None, false))
+            .collect();
+        assert_eq!(links.add_members(id, &many, None), Err(LinkError::TooMany));
+        assert_eq!(names(&links, id), ["app", "web"]);
+        assert_eq!(names(&links, other), ["relay", "pi"]);
+        assert!(links.group_of(5).is_none());
+        // Up to the limit it fits.
+        assert!(links.add_members(id, &many[1..], None).is_ok());
+        assert_eq!(links.group(id).unwrap().members.len(), MAX_MEMBERS);
+    }
+
+    #[test]
+    fn adding_resets_the_budget() {
+        let mut links = Links::default();
+        let id = linked(&mut links, &[(1, "a"), (2, "b")]);
+        for at in 0..AUTO_BUDGET as i64 {
+            assert_eq!(links.admit(id, at * 20_000), Ok(Pace::Auto));
+        }
+        assert_eq!(links.admit(id, 1_000_000), Ok(Pace::Held));
+        links
+            .add_members(id, &[new(3, "c", None, false)], None)
+            .unwrap();
+        assert_eq!(links.admit(id, 1_100_000), Ok(Pace::Auto));
     }
 
     fn entry(text: &str) -> HistoryEntry {

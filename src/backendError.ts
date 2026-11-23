@@ -37,6 +37,7 @@ const MESSAGES: ReadonlyMap<string, MessageKey> = new Map<string, MessageKey>([
   ["link_too_many", "linkError.tooMany"],
   ["link_twice", "linkError.twice"],
   ["link_already", "linkError.already"],
+  ["link_none_added", "linkError.noneAdded"],
   ["link_groups_full", "linkError.groupsFull"],
   ["link_not_linkable", "linkError.notLinkable"],
   ["link_unknown_group", "linkError.unknownGroup"],

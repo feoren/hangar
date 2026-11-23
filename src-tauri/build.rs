@@ -178,6 +178,7 @@ const COMMANDS: &[&str] = &[
     "close_waiting_message",
     "link_state",
     "link_sessions",
+    "add_to_link_group",
     "unlink_group",
     "edit_link_group",
     "link_message_text",

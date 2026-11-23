@@ -181,8 +181,10 @@ fn commands_are_registered_allowed_and_wired() {
         "waiting_messages",
         "waiting_message_text",
         "close_waiting_message",
-        // A link group's history holds what agents wrote each other (ADR 0014).
+        // A link group's history holds what agents wrote each other (ADR 0014), and who is in a
+        // group decides which agent's text reaches which session.
         "link_history",
+        "add_to_link_group",
         // Which sessions wait for a dialog (ADR 0016): the main window's alone.
         "permission_waiting",
         "permission_answered",

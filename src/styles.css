@@ -15482,6 +15482,87 @@ button.sub-agent-card:focus-visible {
   border-radius: 50%;
 }
 
+/* The groups a session can join, one button each, above the check boxes for a new group. */
+.link-groups {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin: 0 0 4px;
+  padding: 0;
+  list-style: none;
+}
+
+.link-join {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  min-width: 0;
+  text-align: start;
+  /* Up to eight member names: they wrap rather than being cut off, since text-overflow has no
+     effect on the bare text of a flex container. */
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+
+.link-section {
+  margin: 12px 0 6px;
+  font-size: 12.5px;
+  font-weight: 600;
+}
+
+/* A session that joins in "Edit group": its name row, and a button that takes it out again. */
+.link-joining {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.link-joining .link-name {
+  flex: 1;
+  min-width: 0;
+}
+
+.link-swatch-new {
+  border: 1px dashed var(--muted);
+}
+
+.link-new {
+  flex: none;
+  font-size: 11.5px;
+}
+
+.link-add {
+  margin-top: 4px;
+}
+
+.link-add-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  max-height: 120px;
+  margin: 0;
+  padding: 0;
+  overflow-y: auto;
+  list-style: none;
+}
+
+.link-add-session {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  max-width: 220px;
+  min-width: 0;
+}
+
+.link-add-session .badge,
+.link-add-session .badge-icon img {
+  width: 18px;
+  height: 18px;
+  font-size: 9px;
+  border-radius: 4px;
+}
+
 .link-ask {
   align-items: flex-start;
   margin-top: 12px;

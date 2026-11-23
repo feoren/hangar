@@ -1604,3 +1604,8 @@ Owner's decision: Free no longer includes teams, neither on the official service
 self-hosted server; teams need the Team plan or a license, existing teams keep their members. The
 app hides team functions for people without a team and links to the pricing page. Updated:
 [[0005-team-collaboration]], [[team-service-v1]].
+
+## [2026-11-23] update | Adding sessions to a link group
+Running agent sessions in no group can join an existing link group (`add_to_link_group`): from
+"Link with …", from "Edit group" and with Ctrl+click on members of one group. Newcomers get the
+full introduction, members one that names them. Updated: [[0014-session-links]].

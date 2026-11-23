@@ -827,6 +827,7 @@ pub fn run() -> tauri::Result<()> {
             commands::close_waiting_message,
             commands::link_state,
             commands::link_sessions,
+            commands::add_to_link_group,
             commands::unlink_group,
             commands::edit_link_group,
             commands::link_message_text,

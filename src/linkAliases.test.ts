@@ -51,6 +51,25 @@ describe("memberAliases", () => {
     ).toEqual(["claude-code", "codex-cli", "claude-code-2", "web"]);
   });
 
+  it("names newcomers around the members of the group they join", () => {
+    const members = [
+      { path: "E:\\Work\\hangar", program: "Claude Code", name: "hangar" },
+      { path: "E:\\Work\\web", program: "Codex CLI", name: "codex-cli" },
+    ];
+    expect(
+      memberAliases(
+        [
+          // Shares a member's folder: the program, as when linking.
+          { path: "E:\\Work\\hangar", program: "Gemini CLI" },
+          // The program a member's name already carries: numbered.
+          { path: "E:\\Work\\web", program: "Codex CLI" },
+          { path: "E:\\Work\\docs", program: "Aider" },
+        ],
+        members,
+      ),
+    ).toEqual(["gemini-cli", "codex-cli-2", "docs"]);
+  });
+
   it("never gives the reserved names and always a valid one", () => {
     const names = memberAliases([
       { path: "C:\\x\\all", program: "Claude Code" },

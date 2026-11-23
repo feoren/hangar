@@ -138,7 +138,7 @@ import {
 } from "./handover";
 import { HandoverDialog } from "./HandoverDialog";
 import { PartnerMessageDialog, type PartnerSend, type TargetView } from "./PartnerMessageDialog";
-import { LinkDialog, LinkGroupDialog } from "./LinkDialog";
+import { LinkDialog, LinkGroupDialog, type AddedMember } from "./LinkDialog";
 import { LinkHistoryDialog } from "./LinkHistoryDialog";
 import {
   BRAKE_WINDOW_MS,
@@ -146,7 +146,11 @@ import {
   deliverAutomatically,
   EMPTY_LINKS,
   groupOf,
+  groupsWithRoom,
   INTRO_PATIENCE_MS,
+  leadOf,
+  selectableForLink,
+  selectionPlan,
   MESSAGE_PATIENCE_MS,
   TYPING_PATIENCE_MS,
   heldBySession,
@@ -160,13 +164,14 @@ import {
   templateGroup,
   templateLinkRequest,
   templateMembers,
+  type LinkGroup,
   type LinkHistoryEntry,
   type LinkMessage,
   type LinkState,
   type StartedMember,
 } from "./links";
-import { memberAliases } from "./linkAliases";
-import { introKind, introSummary } from "./linkIntro";
+import { memberAliases, type AliasSource } from "./linkAliases";
+import { introKind, introSummary, type IntroKind } from "./linkIntro";
 import {
   CardSends,
   cardNotice,
@@ -634,6 +639,13 @@ const MISSING_REASONS: Record<SnippetVariable, MessageKey> = {
 
 /** A text with its variables filled for one session, or what is missing there. */
 type Filled = { ok: true; text: string } | { ok: false; details: string };
+
+/** The card title of Hangar's introduction of a link group, by its kind (linkIntro.ts). */
+const INTRO_TITLES: Record<IntroKind, MessageKey> = {
+  linked: "links.intro",
+  rolesChanged: "links.introRoles",
+  joined: "links.introJoined",
+};
 
 /** Debounced workspace save: several changes in quick succession result in one write. */
 const WORKSPACE_SAVE_DELAY_MS = 400;
@@ -5292,7 +5304,7 @@ export function App() {
           ...(intro === null ? {} : { intro }),
           title:
             message.fromName === null
-              ? t(introKind(message.text) === "rolesChanged" ? "links.introRoles" : "links.intro")
+              ? t(INTRO_TITLES[introKind(message.text)])
               : t("links.from", { name: message.fromName }),
         };
       }),
@@ -6456,15 +6468,66 @@ export function App() {
     names: { session: number; name: string }[],
     askFirst: boolean,
     lead: number | null,
+    added: AddedMember[],
   ): Promise<string | null> => {
     if (editedGroup === undefined) return null;
     try {
-      await api.editLinkGroup(editedGroup.id, names, askFirst, lead);
+      if (added.length === 0) {
+        await api.editLinkGroup(editedGroup.id, names, askFirst, lead);
+      } else {
+        // Renames first, so a newcomer may take a name a member gives up; the lead goes with
+        // the newcomers, so the members get one introduction naming both.
+        await api.editLinkGroup(editedGroup.id, names, askFirst, leadOf(editedGroup));
+        await api.addToLinkGroup(
+          editedGroup.id,
+          added.map((entry) => entry.session),
+          added,
+          lead,
+        );
+      }
+      loadLinksRef.current();
       closeLinkDialog();
+      return null;
+    } catch (e) {
+      // A rename that went through shows at once; the dialog says what did not.
+      loadLinksRef.current();
+      return errorText(e);
+    }
+  };
+  /** Where session `id` works and what runs there, which its member name comes from. */
+  const aliasSource = (id: number): AliasSource => {
+    const session = stateRef.current.sessions.find((s) => s.id === id);
+    if (session === undefined) return { path: "", program: "" };
+    return {
+      path: session.worktree?.repoRoot ?? session.cwd,
+      program:
+        profilesRef.current.find((p) => p.id === session.profileId)?.name ?? session.profileId,
+    };
+  };
+  /** Default names for sessions `ids` joining a group whose members carry `members`' names. */
+  const joinAliases = (ids: readonly number[], members: readonly AddedMember[]): string[] =>
+    memberAliases(
+      ids.map(aliasSource),
+      members.map((member) => ({ ...aliasSource(member.session), name: member.name })),
+    );
+  /** Adds sessions `ids` to `group` with their default names; answers why not, or `null`. */
+  const joinGroup = async (group: LinkGroup, ids: readonly number[]): Promise<string | null> => {
+    const aliases = joinAliases(ids, group.members);
+    const names = ids.map((session, index) => ({ session, name: aliases[index] ?? "" }));
+    try {
+      await api.addToLinkGroup(group.id, ids, names, leadOf(group));
+      loadLinksRef.current();
       return null;
     } catch (e) {
       return errorText(e);
     }
+  };
+  const joinFromDialog = async (groupId: number): Promise<string | null> => {
+    const group = linkState.groups.find((entry) => entry.id === groupId);
+    if (linkDialog?.kind !== "link" || group === undefined) return null;
+    const problem = await joinGroup(group, [linkDialog.id]);
+    if (problem === null) closeLinkDialog();
+    return problem;
   };
   const linkFromDialog = async (ids: number[], lead: number | null): Promise<string | null> => {
     const problem = await linkSessions(ids, lead);
@@ -6493,17 +6556,7 @@ export function App() {
   ): Promise<string | null> => {
     // Names from the project folder or the program: a title is often the first prompt, which
     // reads badly as a name the agents call each other by (linkAliases.ts).
-    const chosen = ids.map((id) => stateRef.current.sessions.find((s) => s.id === id));
-    const aliases = memberAliases(
-      chosen.map((session) => ({
-        path: session === undefined ? "" : (session.worktree?.repoRoot ?? session.cwd),
-        program:
-          session === undefined
-            ? ""
-            : (profilesRef.current.find((p) => p.id === session.profileId)?.name ??
-              session.profileId),
-      })),
-    );
+    const aliases = memberAliases(ids.map(aliasSource));
     const names = ids.map((session, index) => ({ session, name: aliases[index] ?? "" }));
     try {
       await api.linkSessions(ids, { lead, names });
@@ -6903,9 +6956,17 @@ export function App() {
           onEditLinkGroup={(group) => {
             setLinkDialog({ kind: "edit", group });
           }}
-          linkable={new Set(linkCandidates(linkState, state.sessions).map((s) => s.id))}
+          linkable={selectableForLink(linkState, state.sessions)}
+          canLinkSelection={(ids) =>
+            selectionPlan(linkState, state.sessions, new Set(ids)) !== null
+          }
           onLinkSessions={(ids) => {
-            void linkSessions(ids).then((problem) => {
+            // With members of one group among the selection, the others join that group.
+            const plan = selectionPlan(linkState, state.sessions, new Set(ids));
+            if (plan === null) return;
+            const done =
+              plan.kind === "new" ? linkSessions(plan.ids) : joinGroup(plan.group, plan.ids);
+            void done.then((problem) => {
               if (problem !== null) setError(problem);
             });
           }}
@@ -7876,6 +7937,8 @@ export function App() {
         {linkDialog?.kind === "link" && (
           <LinkDialog
             candidates={linkCandidates(linkState, state.sessions)}
+            groups={groupsWithRoom(linkState)}
+            onJoin={joinFromDialog}
             initial={[linkDialog.id]}
             badgeFor={badgeFor}
             programOf={(profileId) => profileById.get(profileId)?.name ?? profileId}
@@ -7890,6 +7953,9 @@ export function App() {
             group={editedGroup}
             language={settings.language}
             titleOf={titleOf}
+            candidates={linkCandidates(linkState, state.sessions)}
+            defaultName={(session, others) => joinAliases([session], others)[0] ?? ""}
+            badgeFor={badgeFor}
             onSave={saveLinkGroup}
             onClose={closeLinkDialog}
           />

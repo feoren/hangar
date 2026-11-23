@@ -43,6 +43,9 @@ describe("introKind", () => {
     expect(introKind("The roles in your link group in Hangar changed. The other agents")).toBe(
       "rolesChanged",
     );
+    expect(introKind('Your link group in Hangar grew: "docs" joined. The other agents')).toBe(
+      "joined",
+    );
   });
 });
 

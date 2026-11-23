@@ -212,12 +212,17 @@ export function linkCandidates<T extends LinkableSession>(
   return sessions.filter((session) => canLink(state, session));
 }
 
+/** The groups a session can still join: those below `MAX_LINK_MEMBERS`. */
+export function groupsWithRoom(state: LinkState): LinkGroup[] {
+  return state.groups.filter((entry) => entry.members.length < MAX_LINK_MEMBERS);
+}
+
 /** What the session menu offers: "Link with …", or editing and unlinking the own group. */
 export type LinkOffer = "link" | "member" | null;
 
 /**
- * "Link with …" only where at least one other session could join (only offer what works); a
- * member gets "Edit group" and "Unlink" instead.
+ * "Link with …" only where at least one other session could join or a group has room for this
+ * one (only offer what works); a member gets "Edit group" and "Unlink" instead.
  */
 export function linkOffer<T extends LinkableSession>(
   state: LinkState,
@@ -226,7 +231,53 @@ export function linkOffer<T extends LinkableSession>(
 ): LinkOffer {
   if (groupOf(state, session.id) !== undefined) return "member";
   if (!canLink(state, session)) return null;
+  if (groupsWithRoom(state).length > 0) return "link";
   return linkCandidates(state, sessions).some((other) => other.id !== session.id) ? "link" : null;
+}
+
+/**
+ * The sessions the sidebar's Ctrl or Cmd click selects: those that can be linked, and members,
+ * whose group the others can then join.
+ */
+export function selectableForLink(
+  state: LinkState,
+  sessions: readonly LinkableSession[],
+): Set<number> {
+  return new Set(
+    sessions
+      .filter((session) => canLink(state, session) || groupOf(state, session.id) !== undefined)
+      .map((session) => session.id),
+  );
+}
+
+/** What "Link" does with the sidebar's selection. */
+export type SelectionPlan =
+  { kind: "new"; ids: number[] } | { kind: "add"; group: LinkGroup; ids: number[] };
+
+/**
+ * The selection's plan: with no member among it, two or more sessions form a new group; with the
+ * members of exactly one group among it, the others join that group while it has room. `null`
+ * where "Link" would do nothing (members of two groups, nobody to add, too many).
+ */
+export function selectionPlan(
+  state: LinkState,
+  sessions: readonly LinkableSession[],
+  selected: ReadonlySet<number>,
+): SelectionPlan | null {
+  const picked = sessions.filter((session) => selected.has(session.id));
+  const groups = new Set<number>();
+  for (const session of picked) {
+    const own = groupOf(state, session.id);
+    if (own !== undefined) groups.add(own.id);
+  }
+  const ids = picked.filter((session) => canLink(state, session)).map((session) => session.id);
+  if (groups.size === 0) {
+    return ids.length >= 2 && ids.length <= MAX_LINK_MEMBERS ? { kind: "new", ids } : null;
+  }
+  if (groups.size > 1 || ids.length === 0) return null;
+  const target = state.groups.find((entry) => groups.has(entry.id));
+  if (target === undefined || target.members.length + ids.length > MAX_LINK_MEMBERS) return null;
+  return { kind: "add", group: target, ids };
 }
 
 /** How a member row is marked: the group's color, the member's name, the brake's hint, and

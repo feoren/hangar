@@ -237,6 +237,12 @@
           "markdownDescription": "Enables the ack_session command without any pre-configured scope."
         },
         {
+          "description": "Enables the add_to_link_group command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-add-to-link-group",
+          "markdownDescription": "Enables the add_to_link_group command without any pre-configured scope."
+        },
+        {
           "description": "Enables the answer_gate command without any pre-configured scope.",
           "type": "string",
           "const": "allow-answer-gate",
@@ -1477,6 +1483,12 @@
           "type": "string",
           "const": "deny-ack-session",
           "markdownDescription": "Denies the ack_session command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the add_to_link_group command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-add-to-link-group",
+          "markdownDescription": "Denies the add_to_link_group command without any pre-configured scope."
         },
         {
           "description": "Denies the answer_gate command without any pre-configured scope.",

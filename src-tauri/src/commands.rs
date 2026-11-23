@@ -4145,6 +4145,33 @@ pub async fn link_sessions(
     links.link(&ids, &manager.list(), &facts, work_log::now_ms(), &request)
 }
 
+/// Adds the sessions `ids` to link group `group`; each must be a running agent session that got
+/// the send client at its start and is in no group yet. `names` (member names for the newcomers)
+/// is optional; `lead` is the group's lead afterwards (`null`: none). The newcomers get Hangar's
+/// introduction, the members one that names them.
+#[tauri::command]
+pub async fn add_to_link_group(
+    window: tauri::Window,
+    manager: Manager<'_>,
+    links: State<'_, LinkService>,
+    group: GroupId,
+    ids: Vec<SessionId>,
+    names: Option<Vec<MemberName>>,
+    lead: Option<SessionId>,
+) -> Result<GroupView, LinkServiceError> {
+    main_store::check_main(window.label())?;
+    let facts = member_facts(&manager).await?;
+    links.add(
+        group,
+        &ids,
+        &names.unwrap_or_default(),
+        lead,
+        &manager.list(),
+        &facts,
+        work_log::now_ms(),
+    )
+}
+
 /// Ends link group `group`; what still waits in it goes.
 #[tauri::command]
 pub fn unlink_group(

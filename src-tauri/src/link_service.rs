@@ -20,7 +20,8 @@ use serde::{Deserialize, Serialize};
 use crate::hook_http;
 use crate::links::{
     compose, introduction, GroupId, History, HistoryEntry, Leave, LinkError, LinkGroup,
-    LinkMessage, LinkQueue, Links, NewMember, Outcome, Outgoing, Pace, Peer, Resolve, Role,
+    LinkMessage, LinkQueue, Links, Member, NewMember, Occasion, Outcome, Outgoing, Pace, Peer,
+    Resolve, Role,
 };
 use crate::lock;
 use crate::main_store::MainStoreError;
@@ -297,15 +298,7 @@ impl LinkService {
         }
         let mut chosen = Vec::with_capacity(ids.len());
         for id in ids {
-            let info = sessions
-                .iter()
-                .find(|info| info.id == *id)
-                .filter(|info| {
-                    info.kind == SessionKind::Agent
-                        && info.status == Status::Running
-                        && state.sendable.contains(&info.id)
-                })
-                .ok_or(LinkError::NotLinkable)?;
+            let info = linkable(&state.sendable, sessions, *id)?;
             chosen.push(NewMember {
                 session: info.id,
                 title: info.title.as_str(),
@@ -334,9 +327,11 @@ impl LinkService {
             .ok_or(LinkError::UnknownGroup)?;
         // A new member has nothing queued yet; only a queue full in every group refuses it, and
         // then the group does not form.
-        if let Some(refused) = introduce(&mut state.queue, &group, sessions, facts, now, false)
-            .into_iter()
-            .next()
+        if let Some(refused) = introduce(&mut state.queue, &group, sessions, facts, now, &|_| {
+            Occasion::Formed
+        })
+        .into_iter()
+        .next()
         {
             state.queue.drop_group(group.id);
             state.links.unlink(group.id)?;
@@ -345,6 +340,97 @@ impl LinkService {
         drop(state);
         self.signal();
         Ok(group_view(&group, now))
+    }
+
+    /// Adds the sessions `ids` to group `group`: each must be a running agent session whose
+    /// process got the send client, in no group yet. `names` may name newcomers beforehand (the
+    /// others get a name derived from their title that no member carries); `lead` is the group's
+    /// lead afterwards (`None`: no member leads). A newcomer whose agent runs without asking
+    /// before tools turns "Ask before pasting" on, as when linking, and what waits to go on its
+    /// own then waits for a click. Every newcomer gets Hangar's full introduction, every member
+    /// one that names the newcomers (and the new roles, if the lead changed); like all of Hangar's
+    /// introductions they land in the group's history once pasted or discarded. A member whose
+    /// queue is full misses its introduction, as after an edit; a newcomer never does, since the
+    /// whole step is refused while the queue has no room for it.
+    #[allow(clippy::too_many_arguments)] // The group's new members plus what an introduction needs.
+    pub fn add(
+        &self,
+        group: GroupId,
+        ids: &[SessionId],
+        names: &[MemberName],
+        lead: Option<SessionId>,
+        sessions: &[SessionInfo],
+        facts: &dyn Fn(&SessionInfo) -> MemberFacts,
+        now: i64,
+    ) -> Result<GroupView, LinkServiceError> {
+        let current = {
+            let mut state = lock(&self.inner.state);
+            if names.iter().any(|entry| !ids.contains(&entry.session)) {
+                return Err(LinkError::NotMember.into());
+            }
+            let mut chosen = Vec::with_capacity(ids.len());
+            for id in ids {
+                let info = linkable(&state.sendable, sessions, *id)?;
+                chosen.push(NewMember {
+                    session: info.id,
+                    title: info.title.as_str(),
+                    name: names
+                        .iter()
+                        .find(|entry| entry.session == info.id)
+                        .map(|entry| entry.name.as_str()),
+                    lead: false,
+                });
+            }
+            let room: Vec<Member> = chosen
+                .iter()
+                .map(|entry| Member {
+                    session: entry.session,
+                    name: String::new(),
+                    role: Role::Member,
+                })
+                .collect();
+            if let Err(full) = state.queue.room_for(&room) {
+                return Err(LinkError::Full(full.to_owned()).into());
+            }
+            let roles_changed = state.links.add_members(group, &chosen, lead)?;
+            let unattended = chosen.iter().any(|entry| {
+                sessions
+                    .iter()
+                    .find(|info| info.id == entry.session)
+                    .is_some_and(|info| facts(info).unattended)
+            });
+            if unattended {
+                state.links.set_ask_first(group, true)?;
+                hold_group(&mut state.queue, group);
+            }
+            let current = state
+                .links
+                .group(group)
+                .cloned()
+                .ok_or(LinkError::UnknownGroup)?;
+            let newcomers: Vec<String> = current
+                .members
+                .iter()
+                .filter(|member| ids.contains(&member.session))
+                .map(|member| member.name.clone())
+                .collect();
+            let occasion = |session: SessionId| {
+                if ids.contains(&session) {
+                    Occasion::Formed
+                } else {
+                    Occasion::Joined {
+                        newcomers: &newcomers,
+                        roles_changed,
+                    }
+                }
+            };
+            for refused in introduce(&mut state.queue, &current, sessions, facts, now, &occasion) {
+                eprintln!("hangar: a link group's newcomers were not introduced: {refused}");
+            }
+            current
+        };
+        self.signal();
+        Ok(group_view(&current, now))
     }
 
     /// The person unlinks the group: it ends, and what still waits in it goes, so the agents stop
@@ -389,21 +475,13 @@ impl LinkService {
                     .group(group)
                     .cloned()
                     .ok_or(LinkError::UnknownGroup)?;
-                for refused in introduce(&mut state.queue, &current, sessions, facts, now, true) {
+                let roles = |_| Occasion::RolesChanged;
+                for refused in introduce(&mut state.queue, &current, sessions, facts, now, &roles) {
                     eprintln!("hangar: a link group's new roles were not introduced: {refused}");
                 }
             }
             if ask_first {
-                let held: Vec<u64> = state
-                    .queue
-                    .messages()
-                    .iter()
-                    .filter(|message| message.group == group && message.auto)
-                    .map(|message| message.id)
-                    .collect();
-                for id in held {
-                    state.queue.hold(id);
-                }
+                hold_group(&mut state.queue, group);
             }
         }
         self.signal();
@@ -600,15 +678,47 @@ impl LinkService {
     }
 }
 
-/// Queues Hangar's introduction for every member of `group`, each for its role (`changed`: the
-/// lead changed after the first one). Answers the refusals of members without room.
-fn introduce(
+/// Session `id`, if it can be linked: a running agent session whose current process got the send
+/// client (`sendable`).
+fn linkable<'s>(
+    sendable: &BTreeSet<SessionId>,
+    sessions: &'s [SessionInfo],
+    id: SessionId,
+) -> Result<&'s SessionInfo, LinkError> {
+    sessions
+        .iter()
+        .find(|info| info.id == id)
+        .filter(|info| {
+            info.kind == SessionKind::Agent
+                && info.status == Status::Running
+                && sendable.contains(&info.id)
+        })
+        .ok_or(LinkError::NotLinkable)
+}
+
+/// What waits in group `group` to go on its own waits for a click from now on ("Ask before
+/// pasting" turned on).
+fn hold_group(queue: &mut LinkQueue, group: GroupId) {
+    let held: Vec<u64> = queue
+        .messages()
+        .iter()
+        .filter(|message| message.group == group && message.auto)
+        .map(|message| message.id)
+        .collect();
+    for id in held {
+        queue.hold(id);
+    }
+}
+
+/// Queues Hangar's introduction for every member of `group`, each for its role and for the
+/// occasion `occasion` names for it. Answers the refusals of members without room.
+fn introduce<'a>(
     queue: &mut LinkQueue,
     group: &LinkGroup,
     sessions: &[SessionInfo],
     facts: &dyn Fn(&SessionInfo) -> MemberFacts,
     now: i64,
-    changed: bool,
+    occasion: &dyn Fn(SessionId) -> Occasion<'a>,
 ) -> Vec<LinkError> {
     let mut refused = Vec::new();
     for member in &group.members {
@@ -635,7 +745,7 @@ fn introduce(
                 folder,
             })
             .collect();
-        let text = introduction(&member.name, member.role, &peers, changed);
+        let text = introduction(&member.name, member.role, &peers, occasion(member.session));
         if let Err(error) = queue.push(Outgoing {
             group: group.id,
             from: None,
@@ -1877,6 +1987,165 @@ mod tests {
         for message in links.snapshot(0, &attended).messages {
             links.close(message.id, true, 2).unwrap();
         }
+    }
+
+    #[test]
+    fn newcomers_get_the_full_introduction_and_members_learn_of_them() {
+        let (links, signals) = service();
+        let led = LinkRequest {
+            lead: Some(1),
+            ..LinkRequest::default()
+        };
+        let group = links.link(&[1, 2], &sessions(), &facts, 0, &led).unwrap();
+        take_all(&links);
+        let before = signals.load(Ordering::SeqCst);
+        let grown = links
+            .add(
+                group.id,
+                &[3],
+                &names(&[(3, "relay-x")]),
+                Some(1),
+                &sessions(),
+                &facts,
+                5,
+            )
+            .unwrap();
+        assert_eq!(signals.load(Ordering::SeqCst), before + 1);
+        assert_eq!(
+            grown
+                .members
+                .iter()
+                .map(|m| (m.name.as_str(), m.role))
+                .collect::<Vec<_>>(),
+            [
+                ("app", Role::Lead),
+                ("web", Role::Member),
+                ("relay-x", Role::Member)
+            ]
+        );
+        let messages = links.snapshot(5, &attended).messages;
+        assert_eq!(messages.len(), 3);
+        assert!(messages.iter().all(|m| m.auto && m.from_name.is_none()));
+        let to = |id: SessionId| messages.iter().find(|m| m.to == id).unwrap().text.clone();
+        let newcomer = to(3);
+        assert!(newcomer.starts_with("You are linked"), "{newcomer}");
+        assert!(newcomer.contains("- \"app\" (lead):"), "{newcomer}");
+        assert!(newcomer.contains("- \"web\":"), "{newcomer}");
+        let member = to(2);
+        assert!(
+            member.starts_with("Your link group in Hangar grew: \"relay-x\" joined. The other"),
+            "{member}"
+        );
+        assert!(
+            member.contains("- \"relay-x\": Claude Code in "),
+            "{member}"
+        );
+        assert!(to(1).contains("You lead this group"));
+        // The newcomer is reachable and can write at once.
+        assert!(matches!(
+            links.receive(3, &request("lead", "hi"), 6),
+            LinkRoute::Taken(Ok(_))
+        ));
+        // Once pasted, the introductions are in the group's history.
+        take_all(&links);
+        let history = links.history(group.id).unwrap();
+        assert!(history
+            .iter()
+            .any(|h| h.from_name.is_none() && h.to_name == "relay-x"));
+    }
+
+    #[test]
+    fn adding_follows_the_rules_of_linking() {
+        let (links, _) = service();
+        let mut list = sessions();
+        list.push(info(5, "Old"));
+        let group = links
+            .link(&[1, 2], &list, &facts, 0, &LinkRequest::default())
+            .unwrap();
+        let other = links
+            .link(&[3, 4], &list, &facts, 0, &LinkRequest::default())
+            .unwrap();
+        take_all(&links);
+        let add = |ids: &[SessionId], names: &[MemberName], lead| {
+            links.add(group.id, ids, names, lead, &list, &facts, 1)
+        };
+        // A session without the client, or already in another group, is refused.
+        assert!(matches!(
+            add(&[5], &[], None),
+            Err(LinkServiceError::Link(LinkError::NotLinkable))
+        ));
+        assert!(matches!(
+            add(&[3], &[], None),
+            Err(LinkServiceError::Link(LinkError::AlreadyLinked))
+        ));
+        // A name for a session that is not added, or one a member carries.
+        links.sendable(5);
+        assert!(matches!(
+            add(&[5], &names(&[(1, "x")]), None),
+            Err(LinkServiceError::Link(LinkError::NotMember))
+        ));
+        assert!(matches!(
+            add(&[5], &names(&[(5, "web")]), None),
+            Err(LinkServiceError::Link(LinkError::NameTaken))
+        ));
+        assert!(matches!(
+            links.add(99, &[5], &[], None, &list, &facts, 1),
+            Err(LinkServiceError::Link(LinkError::UnknownGroup))
+        ));
+        // Nothing changed and nothing was queued.
+        let snapshot = links.snapshot(1, &attended);
+        assert!(snapshot.messages.is_empty());
+        assert_eq!(snapshot.groups[0].members.len(), 2);
+        assert_eq!(snapshot.groups[1].id, other.id);
+        assert!(add(&[5], &[], None).is_ok());
+        assert_eq!(
+            links.snapshot(1, &attended).groups[0].members[2].name,
+            "old"
+        );
+    }
+
+    #[test]
+    fn a_newcomer_without_prompts_makes_the_group_ask_first() {
+        let (links, _) = service();
+        let mut list = sessions();
+        list[2].profile_id = "yolo".into();
+        let group = links
+            .link(&[1, 2], &list, &facts, 0, &LinkRequest::default())
+            .unwrap();
+        assert!(!group.ask_first);
+        let grown = links
+            .add(group.id, &[3], &[], None, &list, &facts, 1)
+            .unwrap();
+        assert!(grown.ask_first);
+        // Every introduction waits for a click, the earlier ones not yet pasted included.
+        let messages = links.snapshot(1, &attended).messages;
+        assert_eq!(messages.len(), 5);
+        assert!(messages.iter().all(|m| !m.auto));
+    }
+
+    #[test]
+    fn a_newcomer_that_leads_brings_new_roles_to_everyone() {
+        let (links, _) = service();
+        let request = LinkRequest {
+            lead: Some(1),
+            ..LinkRequest::default()
+        };
+        let group = links
+            .link(&[1, 2], &sessions(), &facts, 0, &request)
+            .unwrap();
+        take_all(&links);
+        links
+            .add(group.id, &[3, 4], &[], Some(3), &sessions(), &facts, 1)
+            .unwrap();
+        let messages = links.snapshot(1, &attended).messages;
+        let to_app = &messages.iter().find(|m| m.to == 1).unwrap().text;
+        assert!(
+            to_app.contains("\"relay\" and \"lone\" joined. Its roles changed as well."),
+            "{to_app}"
+        );
+        assert!(to_app.contains("- \"relay\" (lead):"), "{to_app}");
+        let to_relay = &messages.iter().find(|m| m.to == 3).unwrap().text;
+        assert!(to_relay.contains("You lead this group"), "{to_relay}");
     }
 
     #[test]

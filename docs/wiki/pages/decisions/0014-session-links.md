@@ -6,7 +6,7 @@ superseded_by:
 tags: [sessions, agents, hooks, security, pty, sidebar]
 sources: ["[[0012-cross-project-messages]]", "[[cross-project-paste-measurement]]", "[[paste-opencode-gemini-measurement]]", "[[unattended-settings-reading]]"]
 created: 2026-11-19
-updated: 2026-11-22
+updated: 2026-11-23
 ---
 
 # ADR 0014: Linked sessions that work together
@@ -102,7 +102,8 @@ Sending needs the agent to run a command.
   - Selecting in the sidebar is Ctrl+click (Cmd+click on macOS) on a row that can be linked; a
     bar below the list shows the count and offers "Link" from two on. The session menu offers
     "Link with …" only where another session could join, a member gets "Edit group" and
-    "Unlink". Joining an existing group is not offered: the person unlinks and links again.
+    "Unlink". Joining an existing group was not offered at first; since 2026-11-23 it is (see
+    "Adding sessions to a group").
   - The send route asks the link group first and the partner projects second; a linked sender
     can still reach its partners. A name that is neither gets the new code `not_member` (exit 4)
     with the members and partners named; a message that goes on its own answers `queued`
@@ -250,6 +251,40 @@ links, everything above holds unchanged.
   a second lead is dropped) with `link_sessions(ids, names, lead, askFirst)`. With fewer than two
   it links nothing and says so. An agent without prompts still turns "Ask before pasting" on;
   the template can only turn it on, never off.
+
+## Adding sessions to a group (2026-11-23)
+The owner asked to add more sessions to an existing group instead of unlinking and linking again.
+
+- **Operation.** `Links::add_members(group, chosen, lead)` in `src-tauri/src/links.rs` adds one
+  or more sessions to a group under the rules of `link_members`: each a running agent session
+  with the send client and in no group yet (`link_already` otherwise, no move between groups),
+  the group then at most eight members, a chosen name valid, neither `all` nor `lead` and unique
+  among members and newcomers. A derived name steps aside for every name in the group. `lead` is
+  the group's lead afterwards, a member or a newcomer. Nothing changes on any refusal; an empty
+  list is `link_none_added`. Adding resets the group's budget like an edit.
+- **Command.** `add_to_link_group(group, ids, names, lead)` (async, `check_main`, in `build.rs`,
+  `capabilities/default.json` and the main-window-only list of `tests/contract.rs`;
+  `tests/security_config.rs` checks that the group commands check the window). The window sends
+  the names `memberAliases` derives (`src/linkAliases.ts`), now taking the members' folders and
+  names into account, and the current lead unless the person picked another.
+- **Introductions.** A newcomer gets the full introduction as at linking. Every member gets one
+  opened with `Your link group in Hangar grew: "<name>" joined.` that lists all members again,
+  plus "Its roles changed as well." when the lead changed in the same step (`Occasion` in
+  `links.rs`; the window titles its card "New members in the group", `src/linkIntro.ts`). Like
+  every introduction they go into the group's history once pasted or discarded. The step is
+  refused while the queue has no room for the newcomers' introductions; a member whose queue is
+  full misses its own, as after an edit.
+- **Ask before pasting.** The newcomers' introductions follow the group's toggle. A newcomer
+  whose agent runs without prompts turns it on, as at linking, and holds what still waits to go
+  on its own.
+- **Where the person adds.** "Link with …" on a session in no group lists each group with room
+  first ("Add to group: shop, cart, docs", one click), then the check boxes for a new group;
+  the menu entry now also shows when only a group could take the session. "Edit group" has an
+  "Add session …" list of the running agent sessions in no group; a chosen one shows with its
+  default name, editable, can be taken out again and can be made the lead; Save renames first
+  (so a newcomer may take a name a member gives up), then adds. Ctrl+click now also selects
+  members: with the members of exactly one group among the selection, "Link" adds the others to
+  that group; with two groups it is not offered.
 
 ## Simpler cards (2026-11-20)
 The owner reported that the card below a member row ("Paste", "Paste and send", "Discard")

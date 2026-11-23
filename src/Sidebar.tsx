@@ -304,9 +304,14 @@ interface Props {
   links: ReadonlyMap<number, LinkMark>;
   /** The bracket's label: opens Edit group for link group `group`. */
   onEditLinkGroup: (group: number) => void;
-  /** Sessions that can be linked right now (links.ts `canLink`); only these can be selected. */
+  /**
+   * Sessions a Ctrl or Cmd click selects (links.ts `selectableForLink`): those that can be linked,
+   * and members, whose group the others then join.
+   */
   linkable: ReadonlySet<number>;
-  /** Links the sessions selected with Ctrl or Cmd click. */
+  /** Whether "Link" does something with these selected sessions (links.ts `selectionPlan`). */
+  canLinkSelection: (ids: readonly number[]) => boolean;
+  /** Links the sessions selected with Ctrl or Cmd click, or adds them to the group among them. */
   onLinkSessions: (ids: number[]) => void;
   /** Link messages that wait for a click, per target row ("Ask before pasting", loop brake). */
   linkInbox: ReadonlyMap<number, readonly WaitingMessage[]>;
@@ -1230,7 +1235,7 @@ export function Sidebar(props: Props) {
           <span className="link-selection-count">
             {t("links.selected", { count: linkPick.length })}
           </span>
-          {linkPick.length >= 2 && (
+          {props.canLinkSelection(linkPick.map((s) => s.id)) && (
             <button
               type="button"
               className="primary-button link-selection-link"

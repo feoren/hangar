@@ -91,6 +91,26 @@ fn session_starts_run_off_the_main_thread() {
     }
 }
 
+/// Who is in a link group decides which agent's text reaches which session (ADR 0014): the
+/// commands that form or change a group answer the main window alone, also should a capability
+/// grant them elsewhere by mistake.
+#[test]
+fn link_group_changes_answer_the_main_window_only() {
+    let commands = read("src/commands.rs");
+    for name in [
+        "link_state",
+        "link_sessions",
+        "add_to_link_group",
+        "edit_link_group",
+    ] {
+        let body = command_body(&commands, name);
+        assert!(
+            body.contains("main_store::check_main(window.label())?;"),
+            "{name} does not check the window"
+        );
+    }
+}
+
 /// A listener for any target receives events emitted to the main window, so the panel window
 /// (which may listen) could read them. The gate's held edits name files and commands: the event
 /// is a bare signal, the snapshot comes from `gate_snapshot`, which only the main window may call.

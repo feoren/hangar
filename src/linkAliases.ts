@@ -59,15 +59,25 @@ export interface AliasSource {
   program: string;
 }
 
+/** A member already in the group: where it works, and the name it keeps. */
+export interface NamedMember extends AliasSource {
+  name: string;
+}
+
 /**
  * Names for new members, in order. Each takes its project folder ("hangar"); members that share
  * a folder take their program instead ("claude-code", "codex"), and what is still taken gets a
- * number ("codex-2"). Never "all" or "lead", always a valid member name.
+ * number ("codex-2"). Never "all" or "lead", always a valid member name. `members`: those already
+ * in the group the newcomers join; their folders count as shared and their names as taken.
  */
-export function memberAliases(sources: readonly AliasSource[]): string[] {
+export function memberAliases(
+  sources: readonly AliasSource[],
+  members: readonly NamedMember[] = [],
+): string[] {
   const folders = sources.map((source) => aliasSlug(projectFolder(source.path)));
-  const shared = (slug: string) => folders.filter((other) => other === slug).length > 1;
-  const names: string[] = [];
+  const all = [...folders, ...members.map((member) => aliasSlug(projectFolder(member.path)))];
+  const shared = (slug: string) => all.filter((other) => other === slug).length > 1;
+  const names: string[] = members.map((member) => member.name);
   sources.forEach((source, index) => {
     const folder = folders[index] ?? "";
     const program = aliasSlug(source.program);
@@ -82,5 +92,5 @@ export function memberAliases(sources: readonly AliasSource[]): string[] {
     }
     names.push(name);
   });
-  return names;
+  return names.slice(members.length);
 }

@@ -541,6 +541,16 @@ export const api = {
       lead: options.lead ?? null,
       askFirst: options.askFirst ?? null,
     }),
+  /**
+   * Adds the running agent sessions `ids` to link group `group`; rejects with the reason.
+   * `names` name the newcomers; `lead` is the group's lead afterwards (`null`: none).
+   */
+  addToLinkGroup: (
+    group: number,
+    ids: readonly number[],
+    names: readonly { session: number; name: string }[],
+    lead: number | null,
+  ) => invoke<unknown>("add_to_link_group", { group, ids, names, lead }),
   /** Ends link group `group`; what still waits in it goes. */
   unlinkGroup: (group: number) => invoke<null>("unlink_group", { group }),
   /** New member names, the "Ask before pasting" toggle and the lead (`null`: none). */

@@ -87,7 +87,8 @@ your own accounts, on your own machine. The desktop app is open source under the
   you can cancel.
 - **Link sessions.** Pick two or more running agents and link them; a colored bracket holds the
   group together in the sidebar, labeled with its size and a crown on the lead, and a click on the
-  label edits the group. They message each other with `hangar-send` until you unlink them. A lead
+  label edits the group. They message each other with `hangar-send` until you unlink them,
+  and you can add more sessions to a group later. A lead
   hands out tasks and collects the results, the group history shows every message, and a template
   can link its sessions as soon as they start. Messages are only sent with Enter when the target
   agent is idle, never into a question or a permission dialog.

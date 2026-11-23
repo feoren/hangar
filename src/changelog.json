@@ -44,6 +44,20 @@
         "ru": "В боковой панели цветная скобка объединяет каждую связанную группу, с её размером и короной у ведущего. Нажми «Группа · 3», чтобы изменить её.",
         "tr": "Kenar çubuğunda renkli bir köşeli ayraç her bağlı grubu bir arada tutar; boyutunu ve liderin tacını gösterir. Düzenlemek için “Grup · 3” öğesine tıkla.",
         "zh": "侧边栏中，彩色括号把每个关联组框在一起，并显示人数和负责人的王冠。点击“组 · 3”即可编辑该组。"
+      },
+      {
+        "de": "Verknüpfte Gruppen wachsen mit: Füge weitere Sessions über „Verknüpfen mit …“, „Gruppe bearbeiten“ oder Strg+Klick hinzu. Alle erfahren vom Neuzugang.",
+        "en": "Linked groups can grow: add more sessions via “Link with …”, “Edit group” or Ctrl+click. Every member learns about the newcomer.",
+        "el": "Οι ομάδες μεγαλώνουν: πρόσθεσε κι άλλα sessions μέσω «Σύνδεση με …», «Επεξεργασία ομάδας» ή Ctrl+κλικ. Όλα τα μέλη μαθαίνουν για το νέο.",
+        "es": "Los grupos vinculados crecen: añade más sesiones con «Vincular con …», «Editar grupo» o Ctrl+clic. Todos los miembros se enteran de la llegada.",
+        "fr": "Les groupes reliés s’agrandissent : ajoute des sessions via « Relier à … », « Modifier le groupe » ou Ctrl+clic. Chaque membre en est informé.",
+        "it": "I gruppi collegati crescono: aggiungi altre sessioni con «Collega con …», «Modifica gruppo» o Ctrl+clic. Ogni membro viene informato del nuovo arrivo.",
+        "ja": "連携グループに後からセッションを追加できます。「連携先を選択 …」「グループを編集」または Ctrl+クリックで追加すると、全員に知らされます。",
+        "pl": "Połączone grupy mogą rosnąć: dodaj sesje przez „Połącz z …”, „Edytuj grupę” lub Ctrl+klik. Każdy członek dowie się o nowej sesji.",
+        "pt": "Grupos vinculados podem crescer: adicione sessões por “Vincular com …”, “Editar grupo” ou Ctrl+clique. Todos os membros ficam sabendo.",
+        "ru": "Связанные группы растут: добавляй сессии через «Связать с …», «Изменить группу» или Ctrl+клик. Все участники узнают о новичке.",
+        "tr": "Bağlı gruplar büyüyebilir: “Şununla bağla …”, “Grubu düzenle” veya Ctrl+tık ile oturum ekle. Tüm üyeler yeni geleni öğrenir.",
+        "zh": "关联组可以扩充：通过“关联到 …”、“编辑组”或 Ctrl+点击添加更多会话。所有成员都会得知新成员加入。"
       }
     ]
   },

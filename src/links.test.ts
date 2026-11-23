@@ -8,7 +8,11 @@ import {
   TYPING_PAUSE_MS,
   canLink,
   groupOf,
+  groupsWithRoom,
   heldBySession,
+  MAX_LINK_MEMBERS,
+  selectableForLink,
+  selectionPlan,
   linkCandidates,
   ownLineKey,
   linkColor,
@@ -138,9 +142,21 @@ describe("linking", () => {
     expect(linkCandidates(current, sessions).map((s) => s.id)).toEqual([3]);
   });
 
-  it("offers the menu entry only where another session could join", () => {
+  it("offers the menu entry only where another session or a group could take this one", () => {
+    // Session 3 is the only one left, but the group has room for it.
     const lone = state();
-    expect(linkOffer(lone, { id: 3, status: "running" }, sessions)).toBeNull();
+    expect(linkOffer(lone, { id: 3, status: "running" }, sessions)).toBe("link");
+    const eight = Array.from({ length: MAX_LINK_MEMBERS }, (_, index) => ({
+      session: 10 + index,
+      name: `m${String(index)}`,
+      role: "member" as const,
+    }));
+    const full = state({ groups: [{ ...group, members: eight }] });
+    expect(groupsWithRoom(full)).toEqual([]);
+    expect(linkOffer(full, { id: 3, status: "running" }, sessions)).toBe("link");
+    expect(
+      linkOffer(full, { id: 3, status: "running" }, [{ id: 3, status: "running" }]),
+    ).toBeNull();
     const two = state({ groups: [] });
     expect(linkOffer(two, { id: 3, status: "running" }, sessions)).toBe("link");
     expect(linkOffer(lone, { id: 1, status: "running" }, sessions)).toBe("member");
@@ -158,6 +174,56 @@ describe("linking", () => {
     expect(none === null ? null : [...none]).toEqual([]);
     const current = state({ groups: [] });
     expect(selectedForLink(current, sessions, new Set([2, 4, 1])).map((s) => s.id)).toEqual([1, 2]);
+  });
+
+  it("lets the selection form a new group or join the one group among it", () => {
+    const current = state();
+    // Members can be selected too, so the others join their group.
+    expect([...selectableForLink(current, sessions)]).toEqual([1, 2, 3]);
+    const plan = (ids: number[], links: LinkState = current) =>
+      selectionPlan(links, sessions, new Set(ids));
+    expect(plan([1, 3])).toEqual({ kind: "add", group, ids: [3] });
+    expect(plan([3, 1, 2])).toEqual({ kind: "add", group, ids: [3] });
+    // Nobody to add, or an ended session only.
+    expect(plan([1, 2])).toBeNull();
+    expect(plan([1, 4])).toBeNull();
+    const free = state({ groups: [] });
+    expect(plan([1, 3], free)).toEqual({ kind: "new", ids: [1, 3] });
+    expect(plan([3], free)).toBeNull();
+    // Two groups among the selection: "Link" would not know which.
+    const other: LinkGroup = {
+      ...group,
+      id: 2,
+      members: [
+        { session: 3, name: "relay", role: "member" },
+        { session: 5, name: "pi", role: "member" },
+      ],
+    };
+    const both = state({ groups: [group, other], sendable: new Set([1, 2, 3, 5, 7]) });
+    const wide = [...sessions, { id: 7, status: "running" }];
+    expect(selectionPlan(both, wide, new Set([1, 3, 7]))).toBeNull();
+    expect(selectionPlan(both, wide, new Set([3, 7]))).toEqual({
+      kind: "add",
+      group: other,
+      ids: [7],
+    });
+    // A group that would grow beyond the limit.
+    const eight = Array.from({ length: MAX_LINK_MEMBERS }, (_, index) => ({
+      session: 10 + index,
+      name: `m${String(index)}`,
+      role: "member" as const,
+    }));
+    const full = state({ groups: [{ ...group, members: eight }], sendable: new Set([3, 10]) });
+    expect(
+      selectionPlan(
+        full,
+        [
+          { id: 10, status: "running" },
+          { id: 3, status: "running" },
+        ],
+        new Set([10, 3]),
+      ),
+    ).toBeNull();
   });
 
   it("checks member names as the backend does", () => {
