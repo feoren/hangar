@@ -326,7 +326,7 @@ import {
   startModeFor,
   type StartMode,
 } from "./startMode";
-import { offersTeam, teamAccess } from "./teamPlan";
+import { offersTeam, showsSupportLink, teamAccess } from "./teamPlan";
 import { useAccount } from "./useAccount";
 import {
   backgroundSessions,
@@ -6949,6 +6949,7 @@ export function App() {
           <MainBar
             title={barTitle(homeShown ? undefined : activeSession)}
             sideOpen={sideShown}
+            support={showsSupportLink(accountStore.view)}
             onToggleSide={() => {
               // The tab's own switch: closes it when open, opens it with the focus, or brings the
               // detached panel window up on it.

@@ -10,6 +10,7 @@ import {
   PRICING_URL,
   refusedForSeat,
   seatsFull,
+  showsSupportLink,
   teamAccess,
 } from "./teamPlan";
 
@@ -155,5 +156,19 @@ describe("seats", () => {
 
   it("sends people to the pricing page", () => {
     expect(PRICING_URL).toBe("https://hangar.feoren.com/pricing");
+  });
+});
+
+describe("showsSupportLink", () => {
+  it("shows for people signed out, on Free or with an unknown plan", () => {
+    expect(showsSupportLink(null)).toBe(true);
+    expect(showsSupportLink(view({ kind: "idle", notice: "signedOut" }))).toBe(true);
+    expect(showsSupportLink(signedIn(me(1)))).toBe(true);
+    expect(showsSupportLink(signedIn(me(null)))).toBe(true);
+    expect(showsSupportLink(signedIn(null))).toBe(true);
+  });
+
+  it("stays away for a paid plan", () => {
+    expect(showsSupportLink(signedIn(me(5, 2)))).toBe(false);
   });
 });

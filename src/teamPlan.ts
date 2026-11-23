@@ -80,3 +80,13 @@ export function noSeatHint(project: Project, status: TeamStatus): boolean {
 export function onFreePlan(user: Me): boolean {
   return user.seatsAccountTotal !== null && user.seatsAccountTotal <= 1;
 }
+
+/**
+ * The support link (Buy me a coffee) is for people on Free: signed out, on Free or while the plan
+ * is not known yet it shows; signed in with a paid plan (more than one seat) it stays away.
+ */
+export function showsSupportLink(view: AccountView | null): boolean {
+  if (view?.state.kind !== "signedIn") return true;
+  const user = view.state.user;
+  return user === null || !paidSeats(user);
+}

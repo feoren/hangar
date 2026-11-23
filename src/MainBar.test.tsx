@@ -101,3 +101,17 @@ describe("barTitle", () => {
     expect(barTitle(undefined)).toBeNull();
   });
 });
+
+describe("MainBar support link", () => {
+  it("leaves the support link out for a paid plan", () => {
+    act(() => {
+      root.render(
+        <I18nContext.Provider value={t}>
+          <MainBar title={null} sideOpen={false} onToggleSide={vi.fn()} support={false} />
+        </I18nContext.Provider>,
+      );
+    });
+    expect(host.querySelector(".main-bar-coffee")).toBeNull();
+    expect(host.querySelector(".main-bar-toggle")).not.toBeNull();
+  });
+});

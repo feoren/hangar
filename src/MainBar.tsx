@@ -14,6 +14,8 @@ export function MainBar(props: {
   sideOpen: boolean;
   /** Opens the right panel on its last tab (or brings the detached panel up); open: closes it. */
   onToggleSide: () => void;
+  /** Whether the support link shows: not for people on a paid plan (teamPlan.ts). */
+  support?: boolean;
 }) {
   const t = useT();
   const label = t("side.label");
@@ -23,19 +25,21 @@ export function MainBar(props: {
       <span className="main-bar-title" title={props.title ?? undefined}>
         {props.title}
       </span>
-      <button
-        type="button"
-        className="main-bar-coffee"
-        title={coffeeLabel}
-        onClick={() => {
-          api.openWebUrl(SUPPORT_URL).catch((error: unknown) => {
-            console.warn("could not open the support page", error);
-          });
-        }}
-      >
-        <CoffeeIcon size={14} />
-        <span className="main-bar-coffee-text">{coffeeLabel}</span>
-      </button>
+      {props.support !== false && (
+        <button
+          type="button"
+          className="main-bar-coffee"
+          title={coffeeLabel}
+          onClick={() => {
+            api.openWebUrl(SUPPORT_URL).catch((error: unknown) => {
+              console.warn("could not open the support page", error);
+            });
+          }}
+        >
+          <CoffeeIcon size={14} />
+          <span className="main-bar-coffee-text">{coffeeLabel}</span>
+        </button>
+      )}
       <button
         type="button"
         className="icon-button main-bar-toggle"
