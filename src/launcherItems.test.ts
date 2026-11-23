@@ -353,6 +353,17 @@ describe("buildLauncherItems", () => {
     );
   });
 
+  it("offers no team sessions without a team to be in (Free is for one person)", () => {
+    const ctx = context({
+      places: [{ path: "C:\\src\\hangar", worktree: true }],
+      startAsTeam: null,
+    });
+    const items = buildLauncherItems(ctx);
+    expect(items.some((item) => item.key.startsWith("team:"))).toBe(false);
+    // Private starts stay.
+    expect(items.some((item) => item.section === "start")).toBe(true);
+  });
+
   it("offers each workspace template as a start that runs the whole set", () => {
     const ctx = context({
       templates: [

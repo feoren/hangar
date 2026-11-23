@@ -124,8 +124,11 @@ export interface LauncherContext {
   notesIcon: ReactNode;
   activate: (id: number) => void;
   start: (profile: Profile, folder: string) => void;
-  /** A team session (startMode.ts): its own worktree, the agent gate, visible to the team. */
-  startAsTeam: (profile: Profile, folder: string) => void;
+  /**
+   * A team session (startMode.ts): its own worktree, the agent gate, visible to the team. `null`
+   * without a team to be in (teamPlan.ts): no team entries then.
+   */
+  startAsTeam: ((profile: Profile, folder: string) => void) | null;
   /**
    * Starting Claude Code as a sub-agent definition (subAgentLibrary.ts): the definitions a session
    * in `folder` can run as, each with its figure. Missing: no such entries.
@@ -258,8 +261,10 @@ export function buildLauncherItems(ctx: LauncherContext): LauncherItem[] {
       }
     }
   }
-  // Team sessions only where git allows a worktree and only for programs that can be one.
-  for (const place of ctx.places) {
+  // Team sessions only where git allows a worktree and only for programs that can be one, and
+  // only for people in a team.
+  const startAsTeam = ctx.startAsTeam;
+  for (const place of startAsTeam === null ? [] : ctx.places) {
     if (!place.worktree) continue;
     for (const profile of ctx.startable) {
       if (!teamCapable(profile)) continue;
@@ -274,7 +279,7 @@ export function buildLauncherItems(ctx: LauncherContext): LauncherItem[] {
         keywords: `${place.path} team worktree git`,
         icon: ctx.badge(profile.id),
         run: () => {
-          ctx.startAsTeam(profile, place.path);
+          startAsTeam?.(profile, place.path);
         },
       });
     }

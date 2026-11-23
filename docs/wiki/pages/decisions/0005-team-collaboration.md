@@ -6,7 +6,7 @@ superseded_by:
 tags: [collaboration, teams, agents, server, e2e, git, worktree]
 sources: []
 created: 2026-11-08
-updated: 2026-11-22
+updated: 2026-11-23
 ---
 
 # ADR 0005: Team collaboration of people and agents
@@ -60,6 +60,16 @@ interview with the owner on 2026-11-08; the answers are recorded below.
 | Team of 4 or more | Hangar account | paid package per seat | team server counts members |
 | Self-hosted server, up to 3 people | none at Hangar | free | self-hosted server |
 | Self-hosted server, 4 or more | none at Hangar | license key | self-hosted server checks a signed key |
+
+> **Superseded in part (owner's decision, 2026-11-23):** the rows "Team of up to 3 people ...
+> free" and "Self-hosted server, up to 3 people ... free" no longer apply. Free is for one person
+> (private use) on the official service and on a self-hosted server alike (`FREE_SEATS` is 1);
+> every team needs the Team plan or a license. Existing teams keep their current members
+> (grandfathered); the server only rejects new invitations and joins beyond the seats. The app
+> offers team sessions, sharing and invitations only to people in a team or with more than one
+> seat, and otherwise shows a short note with a link to the pricing page (`src/teamPlan.ts`).
+> The "Business model" row above ("free for small teams", "self-hosting is always free") is
+> superseded the same way.
 
 - **Desktop app: MIT**, unchanged. Anyone may fork it, including removing account code; that is
   accepted. The app is never trusted to enforce limits and holds no service secrets.

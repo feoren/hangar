@@ -324,6 +324,8 @@ import {
   startModeFor,
   type StartMode,
 } from "./startMode";
+import { offersTeam, teamAccess } from "./teamPlan";
+import { useAccount } from "./useAccount";
 import {
   backgroundSessions,
   initialSessions,
@@ -743,6 +745,9 @@ export function App() {
   const [chosenCwd, setChosenCwd] = useState<string | null>(null);
   /** Private or team session for the next start, as the switch shows it (startMode.ts). */
   const [startMode, setStartMode] = useState<StartMode>(DEFAULT_START_MODE);
+  const accountStore = useAccount();
+  /** Team sessions only for people in a team (teamPlan.ts); Free is for one person. */
+  const teamOffered = offersTeam(teamAccess(accountStore.view, accountStore.projects));
   const [home, setHome] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [layout, setLayout] = useState<Layout>(loadLayout);
@@ -4661,7 +4666,7 @@ export function App() {
   );
   const worktree = worktreeChance(branches, targetPath);
   /** The mode of the next start in the target: team only where a worktree is possible. */
-  const nextMode = effectiveMode(startMode, worktree);
+  const nextMode = teamOffered ? effectiveMode(startMode, worktree) : "private";
   /**
    * Start in the target as the switch says. The sidebar greys out programs that cannot be team
    * sessions; a shortcut or menu start of one of them runs private instead of doing nothing.
@@ -4981,9 +4986,11 @@ export function App() {
     if (template === undefined || templateStarting.current) return;
     templateStarting.current = true;
     try {
-      const repos = template.sessions.some((entry) => entry.mode === "team")
-        ? parseBranches(await api.gitBranches(templateFolders(template)).catch(() => null))
-        : new Map<string, string | null>();
+      // Without a team to be in, a template's team sessions start private (teamPlan.ts).
+      const repos =
+        teamOffered && template.sessions.some((entry) => entry.mode === "team")
+          ? parseBranches(await api.gitBranches(templateFolders(template)).catch(() => null))
+          : new Map<string, string | null>();
       const inRepo = (folder: string) =>
         [...repos].some(([path, branch]) => branch !== null && samePath(path, folder));
       const plan = planTemplate(template, startable, inRepo);
@@ -6012,7 +6019,8 @@ export function App() {
     const newId = await start(
       profile,
       plan.folder,
-      plan.mode,
+      // Without a team to be in, the new agent runs private in the same worktree (teamPlan.ts).
+      teamOffered ? plan.mode : "private",
       undefined,
       undefined,
       plan.worktree === undefined ? undefined : { worktree: plan.worktree, fresh: false },
@@ -6575,7 +6583,7 @@ export function App() {
         focusTerminal();
       },
       start: (profile, folder) => void start(profile, folder),
-      startAsTeam: (profile, folder) => void start(profile, folder, "team"),
+      startAsTeam: teamOffered ? (profile, folder) => void start(profile, folder, "team") : null,
       subAgentStarts: {
         defsFor: (folder) => defsFor(agentLibrary.library, folder),
         icon: subAgentIcon,

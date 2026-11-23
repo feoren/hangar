@@ -2,7 +2,22 @@
   {
     "version": "0.15.0",
     "date": null,
-    "items": []
+    "items": [
+      {
+        "de": "Teams gehören jetzt zum Tarif Team, Free ist für eine Person. Bestehende Teams behalten ihre Mitglieder. Ohne Team zeigt Hangar dir die Tarife.",
+        "en": "Teams are now part of the Team plan, and Free is for one person. Existing teams keep their members. Without a team, Hangar shows you the plans.",
+        "el": "Οι ομάδες ανήκουν πλέον στο πακέτο Team, το Free είναι για ένα άτομο. Οι υπάρχουσες ομάδες κρατούν τα μέλη τους. Χωρίς ομάδα, το Hangar σου δείχνει τα πακέτα.",
+        "es": "Los equipos son ahora parte del plan Team; Free es para una persona. Los equipos existentes conservan a sus miembros. Sin equipo, Hangar te muestra los planes.",
+        "fr": "Les équipes font désormais partie de l'offre Team, Free est pour une personne. Les équipes existantes gardent leurs membres. Sans équipe, tu vois les offres.",
+        "it": "I team ora fanno parte del piano Team, Free è per una persona. I team esistenti mantengono i loro membri. Senza un team, Hangar ti mostra i piani.",
+        "ja": "チーム機能は Team プランに含まれるようになり、Free は 1 人用になりました。既存のチームはメンバーをそのまま維持します。チームがない場合はプランを案内します。",
+        "pl": "Zespoły są teraz częścią planu Team, a Free jest dla jednej osoby. Istniejące zespoły zachowują członków. Bez zespołu Hangar pokaże ci plany.",
+        "pt": "Equipes agora fazem parte do plano Team, e o Free é para uma pessoa. Equipes existentes mantêm seus membros. Sem equipe, o Hangar mostra os planos.",
+        "ru": "Команды теперь входят в тариф Team, а Free рассчитан на одного человека. Существующие команды сохраняют участников. Без команды Hangar покажет тарифы.",
+        "tr": "Ekipler artık Team planına dahil, Free tek kişilik. Mevcut ekipler üyelerini korur. Ekibin yoksa Hangar sana planları gösterir.",
+        "zh": "团队功能现属于 Team 套餐，Free 仅供一人使用。现有团队保留全部成员。没有团队时，Hangar 会为你显示套餐。"
+      }
+    ]
   },
   {
     "version": "0.14.0",

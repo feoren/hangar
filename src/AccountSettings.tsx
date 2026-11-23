@@ -25,6 +25,8 @@ import {
   type CheckLine,
   type CheckOutcome,
 } from "./serverCheck";
+import { onFreePlan } from "./teamPlan";
+import { SeePlansButton } from "./TeamPlanNote";
 import { account, useAccount } from "./useAccount";
 import { useClock } from "./useClock";
 
@@ -223,10 +225,17 @@ function StateBlock({
               {displayName(state.user) !== state.user.email && (
                 <span className="muted">{state.user.email}</span>
               )}
-              {seatsText(state.user, t) !== null && (
+              {onFreePlan(state.user) ? (
+                // Free is for one person: "1 of 1 seats" would say nothing, the plan says it all.
                 <span className="muted">
-                  {t("account.ownSeats", { seats: seatsText(state.user, t) ?? "" })}
+                  {t("account.freePlan")} <SeePlansButton />
                 </span>
+              ) : (
+                seatsText(state.user, t) !== null && (
+                  <span className="muted">
+                    {t("account.ownSeats", { seats: seatsText(state.user, t) ?? "" })}
+                  </span>
+                )
               )}
             </div>
           )}

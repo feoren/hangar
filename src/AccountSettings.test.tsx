@@ -173,4 +173,27 @@ describe("AccountSettings", () => {
     render(view(WAITING));
     expect(document.activeElement).toBe(field);
   });
+
+  it("names the Free plan instead of counting a single seat, with a way to the plans", () => {
+    const user = {
+      id: "u1",
+      email: "ada@example.com",
+      name: "Ada",
+      seatsAccountTotal: 1,
+      seatsAccountUsed: 1,
+      avatarVersion: null,
+    };
+    render(view({ kind: "signedIn", user }));
+    expect(host.textContent).toContain(t("account.freePlan"));
+    expect(button(t("teamPlan.seePlans"))).toBeDefined();
+    expect(host.textContent).not.toContain(t("team.seats", { used: 1, total: 1 }));
+
+    render(
+      view({ kind: "signedIn", user: { ...user, seatsAccountTotal: 5, seatsAccountUsed: 3 } }),
+    );
+    expect(host.textContent).not.toContain(t("account.freePlan"));
+    expect(host.textContent).toContain(
+      t("account.ownSeats", { seats: t("team.seats", { used: 3, total: 5 }) }),
+    );
+  });
 });

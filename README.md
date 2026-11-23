@@ -204,7 +204,7 @@ your own accounts, on your own machine. The desktop app is open source under the
 - **Private or team sessions.** A private session runs right in your folder. A team session gets its
   own Git worktree, is visible to your team, and Hangar's agent gate asks before the agent edits a
   file another session is working on. Claude Code, Codex CLI, OpenCode, Pi, GitHub Copilot CLI,
-  Cursor CLI and OpenCode 2 can run as team sessions.
+  Cursor CLI and OpenCode 2 can run as team sessions. Team sessions are part of the Team plan.
 - **Remembered answers.** Tell the gate "always" or "never" for a file or folder of a project, and it
   answers for you from then on, with a visible log.
 - **A guard for risky commands.** In team sessions the gate also asks before a shell command such
@@ -230,6 +230,9 @@ your own accounts, on your own machine. The desktop app is open source under the
   above the terminal slides open and closed, and that can live in its own window on a second screen.
 
 ### Teams
+
+Team features need the Team plan; the free plan is for one person. See
+[pricing](https://hangar.feoren.com/pricing).
 
 - **The Team window.** See which teammates are online, which agents they run and which files they
   change, and reserve tasks so nobody works on the same thing twice. Devices join only after
@@ -329,9 +332,9 @@ your own accounts, on your own machine. The desktop app is open source under the
 2. **Start an agent.** Pick a project folder under _New session_, choose _Private_ or _Team_ and
    click an agent. Hangar lists every agent it finds on your machine, with its version; under
    _Team_ it lists only the agents that can run as team sessions.
-3. **Bring in your team** (optional). Click _Sign in_ at the bottom of the sidebar, confirm the code
-   in your browser, then _Connect_ the project. Teammates who join the same project see each other
-   in the Team window.
+3. **Bring in your team** (optional, Team plan). Click _Sign in_ at the bottom of the sidebar,
+   confirm the code in your browser, then _Connect_ the project. Teammates who join the same project
+   see each other in the Team window.
 
 Ctrl+Shift+P opens quick access (sessions, files, commits, settings and every menu command),
 Ctrl+Shift+S searches the output of all sessions, Ctrl+Shift+M shows all sessions as live tiles,
@@ -340,6 +343,11 @@ Ctrl+Shift+H shows the home view, Ctrl+Shift+N opens a quick note and Ctrl+, the
 ## Teams and privacy
 
 Your code never leaves Git: Hangar shares what the agents are doing, not what they write.
+
+**Teams need the Team plan.** The app is free and open source, and the free plan is for one person,
+for private use. Working together as a team needs the Team plan, or a license on your own server.
+Teams that already exist keep their members. See
+[pricing](https://hangar.feoren.com/pricing).
 
 | Your team sees                                            | Your team never sees                        |
 | --------------------------------------------------------- | ------------------------------------------- |
@@ -356,6 +364,8 @@ Your code never leaves Git: Hangar shares what the agents are doing, not what th
   fully without an account.
 - **Your own server.** Run the open-source [hangar-server](https://github.com/feoren/hangar-server)
   yourself and enter its address in _Settings > Account_; _Test connection_ checks it step by step.
+  Without a license it serves one person; teams on your own server need a license from the
+  [pricing](https://hangar.feoren.com/pricing) page.
 - **Shared notes stay in the repository**, encrypted per file, so the team server is not involved
   at all.
 
@@ -385,7 +395,7 @@ Every field is listed at [hangar.feoren.com/telemetry](https://hangar.feoren.com
 | Operating system | Windows 10 version 1809 or later, or Windows 11 (x64). Linux x64 with glibc 2.34 or later (Ubuntu 22.04, Debian 12 or newer). macOS is planned.   |
 | Agents           | Install the agent CLIs you want to use (Claude Code, Codex CLI, Gemini CLI, Aider, ...) with your own accounts. Hangar finds them on your `PATH`. |
 | Git              | Needed for team sessions (worktrees), change tracking, commits and shared notes.                                                                  |
-| Team features    | A Hangar account, created in the browser when you sign in.                                                                                        |
+| Team features    | A Hangar account with the Team plan. The account is created in the browser when you sign in; the free plan is for one person.                     |
 
 ## FAQ
 
@@ -394,15 +404,18 @@ No. Hangar has no model of its own. Each agent uses its own account and talks to
 exactly as it does in any other terminal.
 
 **What does it cost?**
-The desktop app is free and open source under the MIT license. For team plans, see the
-[website](https://hangar.feoren.com).
+The desktop app is free and open source under the MIT license, and so is everything you do alone.
+The free plan is for one person, for private use. Teams need the Team plan, and a self-hosted
+hangar-server needs a license for teams. Prices are on the
+[pricing page](https://hangar.feoren.com/pricing).
 
 **Why does Windows show a SmartScreen warning when I install?**
 The installer is not yet signed with a code signing certificate, so Windows does not know it. Choose
 _More info_ and _Run anyway_. Updates inside Hangar are always signed and verified.
 
 **Can I use Hangar alone?**
-Yes. Every feature except the Team window works without an account.
+Yes. Every feature except team sessions and the Team window works without an account and without
+a plan.
 
 **Where are my settings and notes?**
 In your user profile (`%APPDATA%` and `%LOCALAPPDATA%`), except shared notes, which live encrypted

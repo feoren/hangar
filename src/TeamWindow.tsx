@@ -23,12 +23,15 @@ import {
   AdmissionCheck,
   ConnectButton,
   ConnectList,
+  NoSeatNote,
   PendingConfirmations,
   ProjectDetails,
   ReleaseRequests,
   WaitingHelp,
 } from "./TeamProjects";
 import { TeamTasksView, type TaskSession } from "./TeamTasksView";
+import { refusedForSeat, teamAccess } from "./teamPlan";
+import { TeamPlanNote } from "./TeamPlanNote";
 import {
   anyShared,
   initialTab,
@@ -94,8 +97,11 @@ export function TeamWindow(props: {
   const tab = shownTab(chosenTab, requestCount);
   const tabs = teamTabs(requestCount);
   const signedIn = isSignedIn(view);
+  /** Free without a team (teamPlan.ts): the window explains the Team plan instead. */
+  const planOnly = teamAccess(view, projects) === "no";
   const showTabs =
     signedIn &&
+    !planOnly &&
     projects !== null &&
     projects.length > 0 &&
     anyShared(projectIds, teamStore.statuses);
@@ -156,6 +162,7 @@ export function TeamWindow(props: {
       <div className="team-window-center">
         <p className="team-window-lead">{t("teamWindow.signInIntro")}</p>
         <AccountStateSection view={view} />
+        <TeamPlanNote />
       </div>
     );
   } else if (projectsError !== null) {
@@ -171,6 +178,13 @@ export function TeamWindow(props: {
     );
   } else if (projects === null) {
     body = <p className="team-help team-window-note">{t("team.loading")}</p>;
+  } else if (planOnly) {
+    // Free is for one person: no project to share, no invitations, only the way to the Team plan.
+    body = (
+      <div className="team-window-center">
+        <TeamPlanNote extra={<ReloadButton busy={loadingProjects} label={t("team.reload")} />} />
+      </div>
+    );
   } else if (projects.length === 0) {
     body = (
       <p className="team-help team-window-note">
@@ -409,6 +423,7 @@ function NowTab(props: {
           <span>{line.text}</span>
         </p>
       )}
+      {refusedForSeat(props.project, status) && <NoSeatNote />}
       {off && <p className="team-window-lead">{t("teamWindow.notShared")}</p>}
       {off && canToggle(status) && (
         <ConnectButton

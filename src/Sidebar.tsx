@@ -118,6 +118,10 @@ import { useSessionResources } from "./useSessionResources";
 import { useGpuColumn } from "./useSystemUsage";
 import { SystemBar } from "./SystemBar";
 import { TeamUnavailable } from "./TeamUnavailable";
+import { isSignedIn } from "./account";
+import { offersTeam, teamAccess } from "./teamPlan";
+import { openPricing, TeamPlanNote } from "./TeamPlanNote";
+import { useAccount } from "./useAccount";
 import { litRows, TreeFlowElbow, TreeFlowRate, TreeFlowTrunk } from "./TreeFlowView";
 import { useTreeFlow } from "./treeFlowStore";
 import { displayVersion } from "./version";
@@ -339,6 +343,14 @@ export function Sidebar(props: Props) {
     props;
   const { startable } = props;
   const t = useT();
+  const accountStore = useAccount();
+  /** Team functions only for people in a team (teamPlan.ts); otherwise Team explains the plan. */
+  const teamOffered = offersTeam(teamAccess(accountStore.view, accountStore.projects));
+  const signedIn = isSignedIn(accountStore.view);
+  /** Signed out: the Team window holds the sign-in, as the footer's account button does. */
+  const openTeamToSignIn = () => {
+    if (!props.teamOpen) props.onToggleTeam();
+  };
   const now = useClock(STATUS_TICK_MS);
   const root = useRef<HTMLElement>(null);
   const toggleButton = useRef<HTMLButtonElement>(null);
@@ -528,6 +540,35 @@ export function Sidebar(props: Props) {
   /** Team only where a worktree is possible; otherwise the next start is private. */
   const teamOff = !teamPossible(props.worktree);
   const mode: StartMode = teamOff ? "private" : props.startMode;
+  /** Team chosen without a team to be in: the plan's note stands where the programs would. */
+  const teamPlanShown = mode === "team" && !teamOffered;
+  /** The rail's version of `TeamPlanNote`: the sentence, "See plans" and, signed out, "Sign in". */
+  const teamPlanItems = (): PopupItem[] => [
+    {
+      type: "note",
+      key: "team-plan",
+      label: signedIn ? t("teamPlan.text") : `${t("teamPlan.text")} ${t("teamPlan.signedOut")}`,
+      describes: "mode-team",
+    },
+    {
+      type: "action",
+      key: "team-plan-see",
+      label: t("teamPlan.seePlans"),
+      run: () => {
+        void openPricing();
+      },
+    },
+    ...(signedIn
+      ? []
+      : [
+          {
+            type: "action",
+            key: "team-plan-sign-in",
+            label: t("account.signIn"),
+            run: openTeamToSignIn,
+          } as const,
+        ]),
+  ];
   const targetTitle = targetTooltip(target, t);
   const targetName = target.path === null ? t("sidebar.pickCwd") : folderName(target.path);
   const targetParent = target.path === null ? null : parentFolder(target.path);
@@ -700,8 +741,9 @@ export function Sidebar(props: Props) {
           ]
         : []),
       { type: "separator", key: "sep-programs" },
+      ...(teamPlanShown ? teamPlanItems() : []),
       ...startable
-        .filter((profile) => listedFor(mode, profile))
+        .filter((profile) => !teamPlanShown && listedFor(mode, profile))
         .map((profile): PopupItem => {
           const version = versions.get(profile.id);
           return {
@@ -1355,15 +1397,19 @@ export function Sidebar(props: Props) {
           chance={props.worktree}
           onChange={props.onStartMode}
         />
-        {props.allHidden && <p className="hint group-hint">{t("sidebar.allHidden")}</p>}
+        {teamPlanShown && <TeamPlanNote onSignIn={signedIn ? undefined : openTeamToSignIn} />}
+        {props.allHidden && !teamPlanShown && (
+          <p className="hint group-hint">{t("sidebar.allHidden")}</p>
+        )}
         {mode === "team" &&
+          !teamPlanShown &&
           !props.allHidden &&
           !startable.some((profile) => listedFor(mode, profile)) && (
             <p className="hint group-hint">{t("start.noTeamAgents")}</p>
           )}
         <ul className="profile-list">
           {startable
-            .filter((profile) => listedFor(mode, profile))
+            .filter((profile) => !teamPlanShown && listedFor(mode, profile))
             .map((profile) => {
               const version = versions.get(profile.id);
               const programUpdate = props.updates.get(profile.id);
@@ -1409,7 +1455,7 @@ export function Sidebar(props: Props) {
               );
             })}
         </ul>
-        {mode === "team" && <TeamUnavailable profiles={startable} />}
+        {mode === "team" && !teamPlanShown && <TeamUnavailable profiles={startable} />}
       </GroupSection>
 
       {footer}

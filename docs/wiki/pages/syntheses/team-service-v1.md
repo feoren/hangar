@@ -4,7 +4,7 @@ type: synthesis
 tags: [collaboration, teams, agents, server, e2e, git, worktree, hooks, claims]
 sources: ["[[claims-rescan-measurement]]", "[[claude-http-hook-measurement]]", "[[relay-interop-measurement]]", "[[mixed-team-live-measurement]]"]
 created: 2026-11-09
-updated: 2026-11-22
+updated: 2026-11-23
 ---
 
 # Team service version 1: research results and build plan
@@ -102,11 +102,12 @@ Consequences:
   Self-hosting works without mail through admin invite links.
 - Seats: joining a team is one transaction that checks the seat count. License keys are signed
   documents (Ed25519, `ed25519-dalek`, BSD-3-Clause) with a key id so the signing key can rotate;
-  on expiry nothing is deleted, only joins above three are blocked.
+  on expiry nothing is deleted, only new joins beyond the Free seat are blocked (Free is one
+  person since 2026-11-23, [[0005-team-collaboration]]).
 - Notifications in version 1: inside Hangar and as desktop notifications over the live channel.
   Mail, chat and phone push carry no content ("something needs your attention in team X").
 - Packaging: static musl binary, distroless image for amd64 and arm64, one data volume, Caddy in
-  front for TLS. Cost per free team of three is in the cent range per month on a small VPS (an
+  front for TLS. Cost per small team is in the cent range per month on a small VPS (an
   estimate, not a load test).
 - Design lessons: control plane and data plane stay separate (Git carries the code), the app
   degrades to "warn only" when the server is unreachable, and client and server share one

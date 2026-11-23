@@ -38,6 +38,8 @@ import {
   type TeamProblem,
   type TeamStatus,
 } from "./team";
+import { noSeatHint } from "./teamPlan";
+import { SeePlansButton } from "./TeamPlanNote";
 import { account } from "./useAccount";
 import { deviceKey, loadTeamStatuses, taskKey, team } from "./useTeam";
 
@@ -69,6 +71,19 @@ function useArmed(): boolean {
 }
 
 /**
+ * Every seat of the team's plan is taken (teamPlan.ts `noSeatHint`): new people and devices are
+ * rejected by the server, so this says why and where more seats come from.
+ */
+export function NoSeatNote() {
+  const t = useT();
+  return (
+    <p className="team-help team-no-seat" role="status">
+      {t("teamPlan.noSeat")} <SeePlansButton />
+    </p>
+  );
+}
+
+/**
  * One project in the Team window's "People" tab: role, plan, seats (per account of the owner)
  * and pending invitations, "Share with team" with the connection's state, while connected the
  * shared repositories, and "Invite people" for owners and admins.
@@ -86,6 +101,8 @@ export function ProjectDetails(props: {
   const [inviteProblem, setInviteProblem] = useState<AccountProblem | null>(null);
   const role = roleText(project.role, t);
   const meta = projectMeta(project, t);
+  /** No seat left: inviting would fail, so the plan is named instead of "Invite people". */
+  const seatHint = noSeatHint(project, status);
 
   return (
     <div className="team-columns team-details">
@@ -115,7 +132,7 @@ export function ProjectDetails(props: {
               .catch(() => undefined);
           }}
         />
-        {project.canInvite && (
+        {project.canInvite && !seatHint && (
           <button
             type="button"
             className="secondary-button team-invite"
@@ -131,6 +148,7 @@ export function ProjectDetails(props: {
             {t("team.invite")}
           </button>
         )}
+        {seatHint && <NoSeatNote />}
         {inviteProblem !== null && (
           <p className="team-help error-text" role="alert">
             {accountErrorText(inviteProblem, t)}

@@ -1598,3 +1598,9 @@ short relative time, and the × removes an entry. Updated: [[session-restore]], 
 The README and the website now show the overview plus six scenes: recently-opened and home are new,
 sub-agents shows the crew stage, waiting-message, link-groups and secret-guard stay; data-flow,
 quick-access, costs and one-line were dropped. Updated: [[release-rollout]].
+
+## [2026-11-23] update | Free plan is for one person
+Owner's decision: Free no longer includes teams, neither on the official service nor on a
+self-hosted server; teams need the Team plan or a license, existing teams keep their members. The
+app hides team functions for people without a team and links to the pricing page. Updated:
+[[0005-team-collaboration]], [[team-service-v1]].
