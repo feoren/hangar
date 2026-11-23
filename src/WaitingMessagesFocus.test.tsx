@@ -78,7 +78,9 @@ describe("WaitingMessages focus", () => {
     show();
     expect(document.activeElement).toBe(button("Cancel"));
     // The status line was there before and now speaks.
-    expect(host.querySelector('[role="status"]')?.textContent).toBe("Sends once web waits");
+    expect(host.querySelector('[role="status"]')?.textContent).toBe(
+      "Sends when the session is ready",
+    );
     // Cancelled or failed: the card stays, and the focus is on Send again.
     sends = new Map();
     show();

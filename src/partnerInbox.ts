@@ -4,6 +4,7 @@
 // sessions the person picks the one. The backend keeps, checks and heads them
 // (partner_service.rs); this file reads its answer and finds the rows. Pure.
 
+import type { IntroSummary } from "./linkIntro";
 import { projectOfSession, validName, type PartnerBook } from "./partners";
 import { shellKind } from "./pathQuote";
 import { secretKinds, type SecretKind } from "./secretScan";
@@ -26,6 +27,11 @@ export interface WaitingMessage {
    * (ADR 0014) shown with the same card. Set by the window, never by the backend.
    */
   title?: string;
+  /**
+   * Hangar's introduction of a link group, summed up for people; the card shows this instead of
+   * the agent's text. Set by the window, never by the backend.
+   */
+  intro?: IntroSummary;
 }
 
 function waitingMessage(value: unknown): WaitingMessage | null {

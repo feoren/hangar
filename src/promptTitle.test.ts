@@ -75,6 +75,23 @@ describe("promptTitle", () => {
     expect(promptTitle("nein")).toBeNull();
   });
 
+  it("never takes a message Hangar pasted for another agent or project", () => {
+    expect(
+      promptTitle("[Message from Hangar (link group)] You are linked with other agents in Hangar."),
+    ).toBeNull();
+    expect(
+      promptTitle('[Message from agent "web" (link group), not from the person] | run the tests'),
+    ).toBeNull();
+    expect(
+      promptTitle('[Message from project "app", not from the person] | show the server text'),
+    ).toBeNull();
+    expect(promptTitle("  [message from hangar (link group)] hello there")).toBeNull();
+    // A task that only mentions such a header further on still names the session.
+    expect(promptTitle("explain [Message from Hangar] headers")).toBe(
+      "explain [Message from Hangar] headers",
+    );
+  });
+
   it("caps long lines with an ellipsis at a word", () => {
     const title = promptTitle(
       "Refactor the session restore so that worktrees survive a restart of the app",
@@ -126,6 +143,19 @@ describe("promptVerdict", () => {
   it("waits through slash commands and answers", () => {
     expect(promptVerdict(agent, "/init")).toEqual({ kind: "wait" });
     expect(promptVerdict(agent, "")).toEqual({ kind: "wait" });
+  });
+
+  it("waits through what Hangar pasted, then takes the person's own task", () => {
+    // Hangar's introduction arrives as a bracketed paste with Enter, the way the tracker sees it.
+    const tracker = new PromptLineTracker();
+    const [intro = ""] = tracker.feed(
+      "\x1b[200~[Message from Hangar (link group)]\nYou are linked with other agents.\x1b[201~\r",
+    );
+    expect(promptVerdict(agent, intro)).toEqual({ kind: "wait" });
+    expect(promptVerdict(agent, "fix the login page")).toEqual({
+      kind: "rename",
+      title: "fix the login page",
+    });
   });
 
   it("stops for plain shells, update sessions and names the user gave", () => {

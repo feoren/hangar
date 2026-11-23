@@ -1,9 +1,12 @@
 import { useId, useLayoutEffect, useRef, useState } from "react";
 
+import { Badge } from "./Badge";
 import { useT } from "./i18n";
 import { CloseIcon } from "./icons";
+import type { IntroSummary } from "./linkIntro";
 import { cardPreview, cardTime, type CardSend } from "./messageCard";
 import type { WaitingMessage } from "./partnerInbox";
+import type { BadgeLook } from "./programPrefs";
 import { Revealed } from "./Revealed";
 import { secretLabels } from "./secretScan";
 import { useArmDelay } from "./useArmDelay";
@@ -20,6 +23,11 @@ import { useArmDelay } from "./useArmDelay";
  * Whenever the cards change, every card takes no click for a moment (useArmDelay.ts): a new card
  * above or below can move the one under the mouse, and a click meant for it must not answer
  * another. A message that seems to hold a secret key says so above its text (ADR 0015).
+ *
+ * Hangar's own introduction of a link group is written for the agent; its card shows people
+ * whom the session now works with instead, and the agent's text only on request. While a send
+ * waits, the status names no session in its sentence: the card sits below its target, and where
+ * it does not (a partner message shown on several rows), the target follows as a label.
  */
 export function WaitingMessages(props: {
   messages: readonly WaitingMessage[];
@@ -29,6 +37,10 @@ export function WaitingMessages(props: {
   generation: string | number;
   /** UI language, for the time. */
   language: string;
+  /** The session whose row the cards sit below. */
+  session?: number;
+  /** A program's icon, for the members of an introduction. */
+  badgeFor?: (profileId: string) => BadgeLook;
   onSend: (id: number, submit: boolean) => void;
   onCancel: (id: number) => void;
   onDiscard: (id: number) => void;
@@ -42,6 +54,8 @@ export function WaitingMessages(props: {
           send={props.sends.get(message.id)}
           generation={props.generation}
           language={props.language}
+          session={props.session}
+          badgeFor={props.badgeFor}
           onSend={props.onSend}
           onCancel={props.onCancel}
           onDiscard={props.onDiscard}
@@ -56,6 +70,8 @@ function WaitingMessageCard({
   send,
   generation,
   language,
+  session,
+  badgeFor,
   onSend,
   onCancel,
   onDiscard,
@@ -64,6 +80,8 @@ function WaitingMessageCard({
   send: CardSend | undefined;
   generation: string | number;
   language: string;
+  session: number | undefined;
+  badgeFor: ((profileId: string) => BadgeLook) | undefined;
   onSend: (id: number, submit: boolean) => void;
   onCancel: (id: number) => void;
   onDiscard: (id: number) => void;
@@ -75,8 +93,12 @@ function WaitingMessageCard({
   const [shownAt] = useState(() => Date.now());
   const { armed, guard } = useArmDelay(`${String(message.id)}:${String(generation)}`);
   const title = message.title ?? t("inbox.from", { project: message.from });
+  const intro = message.intro;
   const preview = cardPreview(message.text);
-  const lines = open || !preview.cut ? message.text.split("\n") : preview.lines;
+  const lines =
+    intro !== undefined || open || !preview.cut ? message.text.split("\n") : preview.lines;
+  // The target is named only where the card is not below it.
+  const elsewhere = send?.to !== undefined && send.to !== session ? send.target : null;
   const waitArm = armed ? undefined : true;
   const discard = t("inbox.discard");
   const card = useRef<HTMLElement>(null);
@@ -136,13 +158,29 @@ function WaitingMessageCard({
           {t("message.secretHint", { kinds: secretLabels(message.secrets, t) })}
         </div>
       )}
-      <div className="waiting-message-text" id={textId}>
-        {lines.map((line, index) => (
-          // Lines never move; the index is stable for this text.
-          <div key={index}>{line === "" ? " " : <Revealed text={line} />}</div>
-        ))}
-      </div>
-      {preview.cut && (
+      {intro !== undefined && <IntroMembers intro={intro} badgeFor={badgeFor} />}
+      {(intro === undefined || open) && (
+        <div className="waiting-message-text" id={textId}>
+          {lines.map((line, index) => (
+            // Lines never move; the index is stable for this text.
+            <div key={index}>{line === "" ? " " : <Revealed text={line} />}</div>
+          ))}
+        </div>
+      )}
+      {intro !== undefined && (
+        <button
+          type="button"
+          className="link-button waiting-message-more"
+          aria-expanded={open}
+          aria-controls={open ? textId : undefined}
+          onClick={() => {
+            setOpen((current) => !current);
+          }}
+        >
+          {t(open ? "links.introHide" : "links.introShow")}
+        </button>
+      )}
+      {intro === undefined && preview.cut && (
         <button
           type="button"
           className="link-button waiting-message-more"
@@ -187,9 +225,14 @@ function WaitingMessageCard({
           {send === undefined
             ? ""
             : send.phase === "waiting"
-              ? t(send.submit ? "inbox.waitSend" : "inbox.waitPaste", { session: send.target })
+              ? t(send.submit ? "inbox.waitSend" : "inbox.waitPaste")
               : t(send.submit ? "inbox.sending" : "inbox.pasting")}
         </span>
+        {elsewhere !== null && (
+          <span className="waiting-message-target" title={elsewhere}>
+            {t("inbox.toSession", { session: elsewhere })}
+          </span>
+        )}
         {send?.phase === "waiting" && (
           <button
             ref={cancelButton}
@@ -204,5 +247,42 @@ function WaitingMessageCard({
         )}
       </div>
     </section>
+  );
+}
+
+/** Whom the session works with now: one line, then each other member as a chip. */
+function IntroMembers({
+  intro,
+  badgeFor,
+}: {
+  intro: IntroSummary;
+  badgeFor: ((profileId: string) => BadgeLook) | undefined;
+}) {
+  const t = useT();
+  const lead = t("links.lead");
+  return (
+    <div className="link-intro">
+      <div className="link-intro-lede">
+        {t(intro.leads ? "links.introLeads" : "links.introWith")}
+      </div>
+      <ul className="link-intro-members">
+        {intro.members.map((member) => (
+          <li
+            key={member.session}
+            className="link-intro-member"
+            title={member.lead ? `${member.detail} · ${lead}` : member.detail}
+          >
+            {badgeFor !== undefined && member.profileId !== "" && (
+              // Letters like "CC" would be read out; the name next to it says who it is.
+              <span className="link-intro-badge" aria-hidden="true">
+                <Badge look={badgeFor(member.profileId)} />
+              </span>
+            )}
+            <span className="link-intro-name">{member.label}</span>
+            {member.lead && <span className="link-intro-lead">{lead}</span>}
+          </li>
+        ))}
+      </ul>
+    </div>
   );
 }

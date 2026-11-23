@@ -15,8 +15,10 @@ export interface CardSend {
   phase: "waiting" | "sending";
   /** Enter follows the paste ("Send"); else the text is only pasted. */
   submit: boolean;
-  /** The target session's title, for "Sends once {session} waits". */
+  /** The target session's title, shown next to the status where the card is not its row. */
   target: string;
+  /** The target session's id. */
+  to?: number;
 }
 
 /**
@@ -30,9 +32,15 @@ export class CardSends {
   constructor(private readonly changed: (sends: ReadonlyMap<number, CardSend>) => void) {}
 
   /** Starts the send of message `id`; `false` when one runs already. */
-  start(id: number, submit: boolean, target: string): boolean {
+  start(id: number, submit: boolean, target: string, to?: number): boolean {
     if (this.runs.has(id)) return false;
-    this.runs.set(id, { phase: "waiting", submit, target, cancelled: false });
+    this.runs.set(id, {
+      phase: "waiting",
+      submit,
+      target,
+      ...(to === undefined ? {} : { to }),
+      cancelled: false,
+    });
     this.publish();
     return true;
   }
@@ -67,7 +75,12 @@ export class CardSends {
       new Map(
         [...this.runs].map(([id, run]) => [
           id,
-          { phase: run.phase, submit: run.submit, target: run.target },
+          {
+            phase: run.phase,
+            submit: run.submit,
+            target: run.target,
+            ...(run.to === undefined ? {} : { to: run.to }),
+          },
         ]),
       ),
     );

@@ -15078,8 +15078,88 @@ button.sub-agent-card:focus-visible {
   overflow-wrap: anywhere;
 }
 
+/* Where the card is not below its target (a partner message on several rows): the target's name
+   as a label of its own, cut with an ellipsis, the full name in the tooltip. */
+.waiting-message-target {
+  flex: 0 1 auto;
+  min-width: 0;
+  max-width: 50%;
+  overflow: hidden;
+  color: var(--muted);
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
 .waiting-message[data-sending="true"] {
   border-style: dashed;
+}
+
+/* Hangar's introduction of a link group, for people: one line, then the other members as chips
+   with their program's icon. */
+.link-intro {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.link-intro-lede {
+  color: var(--muted);
+}
+
+.link-intro-members {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.link-intro-member {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  min-width: 0;
+  max-width: 100%;
+  padding: 2px 8px;
+  background: var(--count-chip-bg);
+  border-radius: 999px;
+}
+
+.link-intro-badge {
+  display: inline-flex;
+  flex: none;
+}
+
+.link-intro-member .badge {
+  width: 16px;
+  height: 16px;
+  margin-left: -4px;
+  border-radius: 4px;
+  font-size: 8px;
+}
+
+.link-intro-member .badge.wide {
+  font-size: 6px;
+}
+
+.link-intro-member .badge-icon img {
+  width: 16px;
+  height: 16px;
+}
+
+.link-intro-name {
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.link-intro-lead {
+  flex: none;
+  color: var(--accent);
+  font-size: 11px;
+  font-weight: 600;
 }
 
 /* For a moment after a message appears its buttons take no click (useArmDelay.ts). */

@@ -1090,6 +1090,7 @@ export function Sidebar(props: Props) {
                       sends={props.inboxSends}
                       generation={props.cardsKey}
                       language={props.language}
+                      session={session.id}
                       onSend={(messageId, submit) => {
                         props.onInboxPaste(session.id, messageId, submit);
                       }}
@@ -1106,6 +1107,8 @@ export function Sidebar(props: Props) {
                       sends={props.linkSends}
                       generation={props.cardsKey}
                       language={props.language}
+                      session={session.id}
+                      badgeFor={badgeFor}
                       onSend={(messageId, submit) => {
                         props.onLinkPaste(session.id, messageId, submit);
                       }}

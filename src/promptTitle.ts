@@ -154,13 +154,26 @@ const ANSWERS = new Set([
 ]);
 
 /**
+ * The header every message Hangar pastes for someone else starts with: Hangar's introduction of a
+ * link group, a member's `hangar-send` and a partner project's message ("[Message from Hangar
+ * (link group)]", "[Message from agent ...]", "[Message from project ...]"; partners.rs
+ * `HEADER_START`). Such a line is no task the person gave, so it never names the session.
+ */
+const INJECTED_HEADER = "[message from ";
+
+function isInjected(text: string): boolean {
+  return text.toLowerCase().startsWith(INJECTED_HEADER);
+}
+
+/**
  * Title for a submitted line: trimmed, inner whitespace collapsed, at most `PROMPT_TITLE_MAX`
  * characters with an ellipsis (cut at a word where one is near). `null` for lines that do not
- * describe a task: empty ones, slash commands ("/model"), and short answers ("1", "y", "yes").
+ * describe a task: empty ones, slash commands ("/model"), short answers ("1", "y", "yes") and
+ * messages Hangar pasted for another agent or project.
  */
 export function promptTitle(line: string): string | null {
   const text = line.replace(/\s+/gu, " ").trim();
-  if (text === "" || text.startsWith("/")) return null;
+  if (text === "" || text.startsWith("/") || isInjected(text)) return null;
   const letters = text.match(/\p{L}/gu)?.length ?? 0;
   if (letters < 4 || ANSWERS.has(text.toLocaleLowerCase())) return null;
   const chars = Array.from(text);

@@ -2,6 +2,7 @@ import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
 
 import { createTranslator, I18nContext, type Language } from "./i18n";
+import type { IntroSummary } from "./linkIntro";
 import type { CardSend } from "./messageCard";
 import type { WaitingMessage } from "./partnerInbox";
 import { WaitingMessages } from "./WaitingMessages";
@@ -18,6 +19,7 @@ function render(
   sends: ReadonlyMap<number, CardSend> = new Map(),
   language: Language = "en",
   shown: WaitingMessage = message,
+  session = 1,
 ): string {
   return renderToStaticMarkup(
     <I18nContext.Provider value={createTranslator(language)}>
@@ -26,6 +28,8 @@ function render(
         sends={sends}
         generation={1}
         language={language}
+        session={session}
+        badgeFor={(profileId) => ({ kind: "letters", text: profileId.slice(0, 1), color: "#123" })}
         onSend={() => undefined}
         onCancel={() => undefined}
         onDiscard={() => undefined}
@@ -34,8 +38,33 @@ function render(
   );
 }
 
-const waiting = (submit: boolean): ReadonlyMap<number, CardSend> =>
-  new Map([[4, { phase: "waiting", submit, target: "web 1" }]]);
+const waiting = (submit: boolean, to = 1): ReadonlyMap<number, CardSend> =>
+  new Map([[4, { phase: "waiting", submit, target: "ich habe so viele Agenten nun", to }]]);
+
+const summary: IntroSummary = {
+  kind: "linked",
+  leads: false,
+  members: [
+    { session: 2, label: "website", detail: "website · Codex CLI", profileId: "codex", lead: true },
+    {
+      session: 3,
+      label: "Fix the relay",
+      detail: "Fix the relay",
+      profileId: "claude",
+      lead: false,
+    },
+  ],
+};
+
+const intro: WaitingMessage = {
+  id: 4,
+  from: "hangar",
+  to: "1",
+  text: 'You are linked with other agents in Hangar.\nYour member name is "hangar".',
+  at: 1,
+  title: "Linked into a group",
+  intro: summary,
+};
 
 describe("WaitingMessages", () => {
   it("says above the text when it seems to hold a secret key, and names the kind", () => {
@@ -89,16 +118,52 @@ describe("WaitingMessages", () => {
   it("says that a send waits for its target, with Cancel instead of the buttons", () => {
     const html = render(waiting(true));
     expect(html).toContain('role="status"');
-    expect(html).toContain("Sends once web 1 waits");
+    expect(html).toContain('role="status">Sends when the session is ready<');
     expect(html).toContain(">Cancel<");
     expect(html).not.toContain(">Send<");
     expect(html).not.toContain('aria-label="Discard"');
-    expect(render(waiting(false))).toContain("Pastes once web 1 waits");
-    expect(render(waiting(true), "de")).toContain("Wird gesendet, sobald web 1 wartet");
+    expect(render(waiting(false))).toContain("Pastes when the session is ready");
+    expect(render(waiting(true), "de")).toContain("Wird gesendet, sobald die Session bereit ist");
+    expect(render(waiting(false), "de")).toContain("Wird eingefügt, sobald die Session bereit ist");
     // Once the paste begins, a cancel comes too late and is not offered.
     const sending = render(new Map([[4, { phase: "sending", submit: true, target: "web 1" }]]));
     expect(sending).toContain("Sending …");
     expect(sending).not.toContain(">Cancel<");
+  });
+
+  it("never puts the session's name into the status sentence", () => {
+    // Below its own target the card names no session at all.
+    const below = render(waiting(true));
+    expect(below).not.toContain("ich habe so viele");
+    expect(below).not.toContain("waiting-message-target");
+    // Below another row it names the target as a label of its own, with the full name as tooltip.
+    const elsewhere = render(waiting(true, 9));
+    expect(elsewhere).toContain('role="status">Sends when the session is ready</span>');
+    expect(elsewhere).toContain(
+      '<span class="waiting-message-target" title="ich habe so viele Agenten nun">To: ich habe so viele Agenten nun</span>',
+    );
+    expect(render(waiting(true, 9), "de")).toContain(">Ziel: ich habe so viele Agenten nun<");
+  });
+
+  it("shows Hangar's introduction as whom the session works with, the agent's text on request", () => {
+    const html = render(new Map(), "en", intro);
+    expect(html).toContain('<span class="waiting-message-from">Linked into a group</span>');
+    expect(html).toContain("This session now works with:");
+    expect(html).toContain('<span class="link-intro-name">website</span>');
+    expect(html).toContain('<span class="link-intro-lead">Lead</span>');
+    expect(html).toContain('title="website · Codex CLI · Lead"');
+    expect(html).toContain('<span class="link-intro-name">Fix the relay</span>');
+    expect(html).toContain('class="badge"');
+    // The agent's English text stays hidden behind a toggle; Send and Paste only stay.
+    expect(html).not.toContain("You are linked");
+    expect(html).toContain(">Show the agent&#x27;s message<");
+    expect(html).toContain('aria-expanded="false"');
+    expect(html).toContain(">Send<");
+    expect(html).toContain(">Paste only<");
+    const leads = render(new Map(), "de", { ...intro, intro: { ...summary, leads: true } });
+    expect(leads).toContain("Diese Session leitet die Gruppe mit:");
+    expect(leads).toContain(">Text für den Agenten anzeigen<");
+    expect(leads).toContain(">Leitung<");
   });
 
   it("takes no click while the message is new", () => {

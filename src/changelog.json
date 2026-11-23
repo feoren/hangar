@@ -16,6 +16,20 @@
         "ru": "Команды теперь входят в тариф Team, а Free рассчитан на одного человека. Существующие команды сохраняют участников. Без команды Hangar покажет тарифы.",
         "tr": "Ekipler artık Team planına dahil, Free tek kişilik. Mevcut ekipler üyelerini korur. Ekibin yoksa Hangar sana planları gösterir.",
         "zh": "团队功能现属于 Team 套餐，Free 仅供一人使用。现有团队保留全部成员。没有团队时，Hangar 会为你显示套餐。"
+      },
+      {
+        "de": "Verknüpfte Gruppen: Die Karte zeigt, mit wem die Session arbeitet. Agenten heißen nach Ordner oder Programm, Nachrichten von Hangar ändern keinen Titel mehr.",
+        "en": "Linked groups: the card shows whom the session works with. Agents are named after their folder or program, and Hangar's messages no longer rename a session.",
+        "el": "Ομάδες: η κάρτα δείχνει με ποιους συνεργάζεται η συνεδρία. Οι agents ονομάζονται από φάκελο ή πρόγραμμα και τα μηνύματα του Hangar δεν αλλάζουν τίτλους.",
+        "es": "Grupos vinculados: la tarjeta muestra con quién trabaja la sesión. Agentes nombrados por carpeta o programa; los mensajes de Hangar ya no cambian títulos.",
+        "fr": "Groupes reliés : la carte montre avec qui la session travaille. Agents nommés d’après dossier ou programme ; les messages de Hangar ne changent plus les titres.",
+        "it": "Gruppi collegati: la scheda mostra con chi lavora la sessione. Agenti nominati per cartella o programma; i messaggi di Hangar non cambiano più i titoli.",
+        "ja": "連携グループ：カードにそのセッションの連携相手が表示されます。エージェント名はフォルダーかプログラムから付き、Hangar のメッセージでセッション名が変わることはなくなりました。",
+        "pl": "Połączone grupy: karta pokazuje, z kim współpracuje sesja. Agenci noszą nazwę folderu lub programu, a wiadomości Hangara nie zmieniają już tytułów.",
+        "pt": "Grupos vinculados: o cartão mostra com quem a sessão trabalha. Os agentes recebem o nome da pasta ou do programa, e mensagens do Hangar não mudam mais títulos.",
+        "ru": "Связанные группы: карточка показывает, с кем работает сессия. Агенты называются по папке или программе, а сообщения Hangar больше не меняют названия.",
+        "tr": "Bağlı gruplar: kart, oturumun kiminle çalıştığını gösteriyor. Agent'lar klasör ya da program adını alıyor; Hangar mesajları artık başlıkları değiştirmiyor.",
+        "zh": "关联组：卡片显示该会话正在与谁协作。代理按文件夹或程序命名，Hangar 的消息也不会再重命名会话。"
       }
     ]
   },

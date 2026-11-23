@@ -165,6 +165,8 @@ import {
   type LinkState,
   type StartedMember,
 } from "./links";
+import { memberAliases } from "./linkAliases";
+import { introKind, introSummary } from "./linkIntro";
 import {
   CardSends,
   cardNotice,
@@ -5269,18 +5271,31 @@ export function App() {
       ),
     ].map(([to, list]) => [
       to,
-      list.map((message) => ({
-        id: message.id,
-        from: message.fromName ?? "hangar",
-        to: String(message.to),
-        text: message.text,
-        at: message.at,
-        ...(message.secrets === undefined ? {} : { secrets: message.secrets }),
-        title:
+      list.map((message) => {
+        // Hangar's own introduction is written for the agent; people get a summary of it.
+        const intro =
           message.fromName === null
-            ? t("links.fromHangar")
-            : t("links.from", { name: message.fromName }),
-      })),
+            ? introSummary(
+                linkState,
+                message,
+                state.sessions,
+                (profileId) => profileById.get(profileId)?.name,
+              )
+            : null;
+        return {
+          id: message.id,
+          from: message.fromName ?? "hangar",
+          to: String(message.to),
+          text: message.text,
+          at: message.at,
+          ...(message.secrets === undefined ? {} : { secrets: message.secrets }),
+          ...(intro === null ? {} : { intro }),
+          title:
+            message.fromName === null
+              ? t(introKind(message.text) === "rolesChanged" ? "links.introRoles" : "links.intro")
+              : t("links.from", { name: message.fromName }),
+        };
+      }),
     ]),
   );
   /** Where messages from partner projects wait: on each running agent session of their project. */
@@ -6209,7 +6224,7 @@ export function App() {
       setStartHint(t("partner.unsent", { session: name }));
       return;
     }
-    if (!card.runs.start(card.id, card.submit, name)) return;
+    if (!card.runs.start(card.id, card.submit, name, card.to)) return;
     const gone = () => terminals.get(card.to) !== terminal || !card.listed();
     const cancelled = () => card.runs.cancelled(card.id);
     try {
@@ -6476,8 +6491,22 @@ export function App() {
     ids: readonly number[],
     lead: number | null = null,
   ): Promise<string | null> => {
+    // Names from the project folder or the program: a title is often the first prompt, which
+    // reads badly as a name the agents call each other by (linkAliases.ts).
+    const chosen = ids.map((id) => stateRef.current.sessions.find((s) => s.id === id));
+    const aliases = memberAliases(
+      chosen.map((session) => ({
+        path: session === undefined ? "" : (session.worktree?.repoRoot ?? session.cwd),
+        program:
+          session === undefined
+            ? ""
+            : (profilesRef.current.find((p) => p.id === session.profileId)?.name ??
+              session.profileId),
+      })),
+    );
+    const names = ids.map((session, index) => ({ session, name: aliases[index] ?? "" }));
     try {
-      await api.linkSessions(ids, { lead });
+      await api.linkSessions(ids, { lead, names });
       loadLinksRef.current();
       return null;
     } catch (e) {
