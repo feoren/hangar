@@ -15511,16 +15511,22 @@ button.sub-agent-card:focus-visible {
   font-weight: 600;
 }
 
-/* A session that joins in "Edit group": its name row, and a button that takes it out again. */
+/* A session that joins in "Edit group": its name row, and a button that takes it out again. The
+   button sits inside the end of the name field, so the row keeps the members' columns and its
+   field lines up with theirs. */
 .link-joining {
-  display: flex;
-  align-items: center;
-  gap: 4px;
+  position: relative;
 }
 
-.link-joining .link-name {
-  flex: 1;
-  min-width: 0;
+.link-joining .text-input {
+  padding-inline-end: 30px;
+}
+
+.link-unadd {
+  position: absolute;
+  inset-inline-end: 2px;
+  top: 50%;
+  transform: translateY(-50%);
 }
 
 .link-swatch-new {
