@@ -1609,3 +1609,8 @@ app hides team functions for people without a team and links to the pricing page
 Running agent sessions in no group can join an existing link group (`add_to_link_group`): from
 "Link with …", from "Edit group" and with Ctrl+click on members of one group. Newcomers get the
 full introduction, members one that names them. Updated: [[0014-session-links]].
+
+## [2026-11-23] update | Screenshot scenes for 0.15.0
+The scene `home` gave way to `link-add` (a session joins an existing link group); the overview now
+shows the main bar with the support badge, and `waiting-message` shows a group's introduction to
+its lead. Updated: [[release-rollout]].

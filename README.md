@@ -35,7 +35,7 @@ your own accounts, on your own machine. The desktop app is open source under the
 
 <picture>
   <source media="(prefers-color-scheme: light)" srcset="docs/images/hangar-light.png">
-  <img alt="Hangar with a Claude Code session whose sub-agents hangar-backend, hangar-frontend and hangar-tester stand on round stages in the crew column, each with a speech bubble saying what it edits or runs, and the notes panel open on the right; the sidebar groups the sessions by project with a teal bracket labeled Group · 3 around the linked ones, the hangar-security session has waited for 12 minutes, and the Recently opened group lists acme-billing, acme-web and acme-shop with their program and age" src="docs/images/hangar-dark.png">
+  <img alt="Hangar with a Claude Code session whose sub-agents hangar-backend, hangar-frontend and hangar-tester stand on round stages in the crew column, each with a speech bubble saying what it edits or runs, and the notes panel open on the right; the sidebar groups the sessions by project with a teal bracket labeled Group · 3 around the linked ones, the hangar-security session has waited for 12 minutes, the Recently opened group lists acme-billing and acme-web with their program and age, and the bar above the terminal shows the session's name, a blue Buy me a coffee badge and the switch for the right panel" src="docs/images/hangar-dark.png">
 </picture>
 
 ## Features
@@ -292,26 +292,26 @@ Team features need the Team plan; the free plan is for one person. See
   <tr>
     <td width="50%" valign="top">
       <picture>
-        <source media="(prefers-color-scheme: light)" srcset="docs/images/hangar-home-light.png">
-        <img alt="The home view with the activity calendar of the last year in a frame, with month and weekday names, 737 commits and a legend from Less to More, above project cards for acme-shop and acme-docs with their sessions, open changes, team and dev server" src="docs/images/hangar-home-dark.png">
+        <source media="(prefers-color-scheme: light)" srcset="docs/images/hangar-waiting-message-light.png">
+        <img alt="Under the Webhook retries session, the card Linked into a group says the session leads the group with Cart rounding and Refund docs and sends once the session is ready, with Cancel; below it a message from cart reports its fix, with Send and Paste only" src="docs/images/hangar-waiting-message-dark.png">
       </picture>
-      <br><sub>The home view: a calendar of your commits and one card per project.</sub>
+      <br><sub>A new group introduces itself to its lead; messages from other agents wait for your click.</sub>
     </td>
     <td width="50%" valign="top">
       <picture>
-        <source media="(prefers-color-scheme: light)" srcset="docs/images/hangar-waiting-message-light.png">
-        <img alt="Two waiting messages under the Webhook retries session: one from cart with Send, Paste only and a close button, and one from docs set to send, saying it sends once Webhook retries waits, with Cancel" src="docs/images/hangar-waiting-message-dark.png">
+        <source media="(prefers-color-scheme: light)" srcset="docs/images/hangar-link-groups-light.png">
+        <img alt="The Edit group dialog of a link group with three members, shop, cart and docs, the session hangar-security under Add session, the lead set to the Webhook retries session and the group's cost today of 2.2M tokens, about $15.18, while a teal bracket labeled Group · 3 holds the linked sessions together in the sidebar" src="docs/images/hangar-link-groups-dark.png">
       </picture>
-      <br><sub>A message from another agent waits for your click: Send, Paste only or discard.</sub>
+      <br><sub>Link agents into a group with a lead that hands out tasks and collects the results.</sub>
     </td>
   </tr>
   <tr>
     <td width="50%" valign="top">
       <picture>
-        <source media="(prefers-color-scheme: light)" srcset="docs/images/hangar-link-groups-light.png">
-        <img alt="The Edit group dialog of a link group with three members, shop, cart and docs, the lead set to the Webhook retries session and the group's cost today of 2.2M tokens, about $15.18, while a teal bracket labeled Group · 3 holds the linked sessions together in the sidebar" src="docs/images/hangar-link-groups-dark.png">
+        <source media="(prefers-color-scheme: light)" srcset="docs/images/hangar-link-add-light.png">
+        <img alt="The Edit group dialog after hangar-security was added to a link group of three: the new member shows a dashed dot, the label new and the name security with a remove button below shop, cart and docs, while the teal bracket labeled Group · 3 holds the linked sessions together in the sidebar" src="docs/images/hangar-link-add-dark.png">
       </picture>
-      <br><sub>Link agents into a group with a lead that hands out tasks and collects the results.</sub>
+      <br><sub>Link groups can grow: add another session to a group that already works together.</sub>
     </td>
     <td width="50%" valign="top">
       <picture>

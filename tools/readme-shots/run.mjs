@@ -1,6 +1,6 @@
 // Renders the README screenshots into docs/images from the real frontend with a mocked backend
 // (mock.ts) in a headless Chromium based browser: one image per scene and color scheme, e.g.
-// hangar-dark.png (the overview) and hangar-home-light.png.
+// hangar-dark.png (the overview) and hangar-link-add-light.png.
 //
 // Usage: pnpm readme:shots [--scene <name>]...   (default: every scene)
 //
@@ -151,9 +151,75 @@ const SCENES = [
     steps: [
       {
         ready: `(document.querySelectorAll(".crew-item").length === 3 &&
-          document.querySelectorAll(".recent-row").length === 3 &&
+          document.querySelectorAll(".recent-row").length === 2 &&
           document.querySelectorAll(".note-row").length === 3)`,
       },
+    ],
+  },
+  {
+    // "Edit group": the members' names, the lead and the group's cost today, and the session that
+    // could still join; beside it in the sidebar the colored bracket with "Group · 3" and the crown
+    // on the lead.
+    name: "link-groups",
+    file: "hangar-link-groups",
+    maxBytes: 300 * KB,
+    layout: SINGLE,
+    steps: [
+      {
+        run: contextMenu(".session-main", "Webhook retries"),
+        ready: shows("[role=menuitem]", "Edit group"),
+      },
+      { run: click("[role=menuitem]", "Edit group"), ready: shows(".link-names input") },
+      { run: BLUR, ready: "true" },
+    ],
+  },
+  {
+    // Below the lead's row wait Hangar's introduction of the group, which names the members the
+    // lead now works with and is set to send once the busy lead pauses (it can still be
+    // cancelled), and a member's report with "Send", "Paste only" and the close mark.
+    name: "waiting-message",
+    file: "hangar-waiting-message",
+    maxBytes: 300 * KB,
+    layout: SINGLE,
+    steps: [
+      {
+        // The cards take no click for a moment after they appear (useArmDelay.ts).
+        ready: `(document.querySelectorAll(".waiting-message-send:not([aria-disabled])").length === 2 &&
+          document.querySelectorAll(".link-intro-member").length === 2)`,
+      },
+      {
+        run: `(() => {
+          const card = [...document.querySelectorAll(".waiting-message")].find((el) =>
+            el.querySelector(".link-intro") !== null,
+          );
+          if (!card) throw new Error("No introduction of the group");
+          card.querySelector(".waiting-message-send").click();
+          return true;
+        })()`,
+        ready: shows(".waiting-message-status", "Sends when the session is ready"),
+      },
+      { run: BLUR, ready: "true" },
+    ],
+  },
+  {
+    // A link group grows: the "Group · 3" label on the colored bracket opens "Edit group", where
+    // a click on "hangar-security" under "Add session" adds it as a new member, named after its job.
+    name: "link-add",
+    file: "hangar-link-add",
+    maxBytes: 300 * KB,
+    layout: SINGLE,
+    steps: [
+      { run: click(".link-bracket-label"), ready: shows(".link-add-session", "hangar-security") },
+      {
+        run: click(".link-add-session", "hangar-security"),
+        ready: `(${shows(".link-joining")} && !${shows(".link-add-session")})`,
+      },
+      {
+        // The default name comes from folder and program; a person names it after its job.
+        run: typeInto(".link-joining input", "security"),
+        ready: `document.querySelector(".link-joining input").value === "security"`,
+      },
+      { run: BLUR, ready: "true" },
     ],
   },
   {
@@ -181,64 +247,6 @@ const SCENES = [
           document.querySelector(".crew-item.state-done") !== null &&
           document.querySelector(".crew-typing") !== null)`,
       },
-    ],
-  },
-  {
-    // The home view: the sessions step aside, the year's commits as a calendar with weekday
-    // names and a legend, and below it the projects.
-    name: "home",
-    file: "hangar-home",
-    maxBytes: 300 * KB,
-    layout: SINGLE,
-    steps: [
-      {
-        run: click(".sidebar-home"),
-        ready: `(${shows(".home-back")} && document.querySelectorAll(".activity-day.level-4").length > 8)`,
-      },
-      { run: BLUR, ready: "true" },
-    ],
-  },
-  {
-    // Two reports of the link group wait below the lead's row: one with "Send", "Paste only" and
-    // the close mark, one set to send, which waits for the busy lead to pause and can still be
-    // cancelled.
-    name: "waiting-message",
-    file: "hangar-waiting-message",
-    maxBytes: 300 * KB,
-    layout: SINGLE,
-    steps: [
-      {
-        // The cards take no click for a moment after they appear (useArmDelay.ts).
-        ready: `document.querySelectorAll(".waiting-message-send:not([aria-disabled])").length === 2`,
-      },
-      {
-        run: `(() => {
-          const card = [...document.querySelectorAll(".waiting-message")].find((el) =>
-            el.textContent.includes("Refund page done"),
-          );
-          if (!card) throw new Error("No waiting message from docs");
-          card.querySelector(".waiting-message-send").click();
-          return true;
-        })()`,
-        ready: shows(".waiting-message-status", "Sends when the session is ready"),
-      },
-      { run: BLUR, ready: "true" },
-    ],
-  },
-  {
-    // "Edit group": the members' names, the lead and the group's cost today; the bracket beside the
-    // members' rows in the sidebar.
-    name: "link-groups",
-    file: "hangar-link-groups",
-    maxBytes: 300 * KB,
-    layout: SINGLE,
-    steps: [
-      {
-        run: contextMenu(".session-main", "Webhook retries"),
-        ready: shows("[role=menuitem]", "Edit group"),
-      },
-      { run: click("[role=menuitem]", "Edit group"), ready: shows(".link-names input") },
-      { run: BLUR, ready: "true" },
     ],
   },
   {

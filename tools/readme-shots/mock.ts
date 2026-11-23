@@ -4,9 +4,8 @@
 // a second Claude Code session started as the "hangar-security" sub-agent, Gemini CLI done with the
 // API docs in the project "acme-docs", a PowerShell running the docs site's dev server and a
 // signed-in account with two teammates online. Three of the agents form a link group with a lead.
-// Per scene it adds what that scene shows: the sessions opened recently, notes, a year of commits
-// for the activity calendar, a crew of reviewers, messages of the group that wait for a click or
-// a commit held by the secret guard.
+// Per scene it adds what that scene shows: the sessions opened recently, notes, a crew of
+// reviewers, messages of the group that wait for a click or a commit held by the secret guard.
 // The driver (run.mjs) picks what each screenshot shows by clicking through the real frontend.
 // Nothing here talks to a real process, file or network, and every name in it is made up.
 
@@ -202,7 +201,8 @@ const workspace = { version: 1, activeKey: uuid(1), sessions: mainSessions };
 const AGE_MINUTES = [52, 47, 38, 31, 64];
 
 // "Recently opened" (recentlyOpened.ts): programs started in a folder before, none of them open
-// now, newest first. The recently opened scene shows five, the others the first three. Times count
+// now, newest first. The recently opened scene shows five, the overview two (its sidebar holds the
+// link group's bracket and the lead's crew above them), the others the first three. Times count
 // back from the clock's start, so the ages read the same however long the scene takes to settle.
 const recent = (
   profileId: string,
@@ -228,7 +228,7 @@ const recentlyOpened = [
   recent("gemini", ROOT, "Search ranking", DAY + 3 * HOUR, 3),
   recent("pwsh", INFRA, "acme-infra", 3 * DAY, null),
   recent("claude", MOBILE, "Push notifications", 6 * DAY, 4),
-].slice(0, FEW ? 5 : 3);
+].slice(0, FEW ? 5 : SCENE === "overview" ? 2 : 3);
 
 // ANSI helpers
 const E = "\x1b[";
@@ -732,7 +732,9 @@ function focusSubAgent(args: Args): boolean {
   return true;
 }
 
-// The account and the team: Sam, signed in, shares acme-shop with Mika and Jonas.
+// The account and the team: Sam, signed in on Free, works in acme-shop, a Team project Mika owns,
+// with Mika and Jonas. Free keeps the support badge in the bar above the work area
+// (teamPlan.ts `showsSupportLink`); the team project keeps the team functions.
 const PROJECT = "proj-acme-shop";
 const ACCOUNT_BASE = "https://account.example.com";
 const accountView = {
@@ -745,8 +747,8 @@ const accountView = {
       id: "user-sam",
       email: "sam@example.com",
       name: "Sam Carter",
-      seatsAccountTotal: 5,
-      seatsAccountUsed: 3,
+      seatsAccountTotal: 1,
+      seatsAccountUsed: 1,
     },
   },
   otherSignIns: [],
@@ -755,12 +757,12 @@ const projects = [
   {
     id: PROJECT,
     name: "acme-shop",
-    role: "owner",
+    role: "member",
     plan: "Team",
     seatsAccountTotal: 5,
     seatsAccountUsed: 3,
     pendingInvitations: 0,
-    canInvite: true,
+    canInvite: false,
   },
 ];
 const teamStatus = { state: "connected", epoch: 4, members: 3, devices: 4 };
@@ -1077,7 +1079,7 @@ const linkGroup = {
     { session: 4, name: "docs", role: "member" },
   ],
 };
-const linkMessage = (id: number, fromName: string, minutesAgo: number, text: string) => ({
+const linkMessage = (id: number, fromName: string | null, minutesAgo: number, text: string) => ({
   id,
   group: linkGroup.id,
   fromName,
@@ -1088,12 +1090,24 @@ const linkMessage = (id: number, fromName: string, minutesAgo: number, text: str
   claimed: false,
 });
 /**
- * The reports that wait below the lead's row, oldest first: the driver sends the second, which
- * then waits for the lead to pause, and leaves the first with its buttons.
+ * Hangar's introduction of the group to its lead, as links.rs `introduction` writes it for the
+ * agent; its card shows people whom the session works with instead (linkIntro.ts).
+ */
+const LEAD_INTRO = [
+  'You are linked with other agents in Hangar. They work in parallel in their own sessions. Your member name is "shop". The other members:',
+  '- "cart": Codex CLI in acme-shop-cart-rounding',
+  '- "docs": Gemini CLI in acme-docs',
+  "You lead this group: split the work into tasks, hand them to the members with `hangar-send <name>`, collect their results and keep the overall picture. " +
+    'To write to one of them, run `hangar-send <name> "<message>"`. No answer is needed to this introduction.',
+].join("\n");
+/**
+ * What waits below the lead's row, oldest first: Hangar's introduction of the group, which the
+ * driver sends (it then waits for the busy lead to pause), and a member's report with its buttons.
  */
 const heldMessages = [
+  linkMessage(1, null, 6, LEAD_INTRO),
   linkMessage(
-    1,
+    2,
     "cart",
     4,
     [
@@ -1104,13 +1118,6 @@ const heldMessages = [
       "- pnpm test cart: 24 passed",
       "- Branch hangar/cart-rounding is ready for review",
     ].join("\n"),
-  ),
-  linkMessage(
-    2,
-    "docs",
-    1,
-    "Refund page done: docs/api/refunds.md covers create, list and cancel, each with a curl " +
-      "example.",
   ),
 ];
 const linkState = {
@@ -1239,47 +1246,6 @@ function listNotes(args: Args): unknown[] {
   return [];
 }
 
-// The activity calendar: a year of the person's own commits up to the fixed day, as `git log`
-// would give their author times. Busy weekdays, quiet weekends, two weeks off in summer and a
-// few days around the new year, a little more each month. Seeded, so every run draws the same
-// year.
-function commitTimes(): number[] {
-  let seed = 0x5eed;
-  const random = () => {
-    seed = (seed * 1_103_515_245 + 12_345) % 2_147_483_648;
-    return seed / 2_147_483_648;
-  };
-  const today = new Date(FIXED_START);
-  const times: number[] = [];
-  for (let back = 364; back >= 0; back -= 1) {
-    const day = new Date(
-      Date.UTC(today.getUTCFullYear(), today.getUTCMonth(), today.getUTCDate() - back),
-    );
-    const month = day.getUTCMonth();
-    const date = day.getUTCDate();
-    const weekend = day.getUTCDay() === 0 || day.getUTCDay() === 6;
-    const summerBreak = month === 7 && date >= 3 && date <= 16;
-    const newYear = (month === 11 && date >= 24) || (month === 0 && date <= 2);
-    if (summerBreak || newYear) continue;
-    const growth = 0.55 + (0.45 * (364 - back)) / 364;
-    const roll = random();
-    const count = weekend
-      ? roll < 0.75
-        ? 0
-        : Math.floor(random() * 3) + 1
-      : roll < 0.12
-        ? 0
-        : Math.round((1 + random() * random() * 13) * growth);
-    for (let commit = 0; commit < count; commit += 1) {
-      const hour = 8 + Math.floor(random() * 11);
-      const minute = Math.floor(random() * 60);
-      times.push(Math.floor(day.getTime() / 1000) + hour * 3600 + minute * 60);
-    }
-  }
-  return times;
-}
-const gitActivity = { commits: commitTimes() };
-
 // Events: the frontend listens through the event plugin; the mock answers some right away.
 const listeners = new Map<string, number[]>();
 let nextEventId = 1;
@@ -1406,8 +1372,6 @@ const handlers: Record<string, (args: Args) => unknown> = {
   // "Recently opened" in the sidebar; reopening is not part of any scene.
   load_recently_closed: () => recentlyOpened,
   save_recently_closed: () => null,
-  // The home view's activity calendar.
-  git_activity: () => gitActivity,
   save_message_queue: () => null,
   log_work_phase: () => null,
   git_repo_places: (args) => {
