@@ -8,7 +8,7 @@ import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { createTranslator, I18nContext } from "./i18n";
-import { MainBar, SUPPORT_URL } from "./MainBar";
+import { barTitle, MainBar, SUPPORT_URL } from "./MainBar";
 
 const openWebUrl = vi.hoisted(() => vi.fn<(url: string) => Promise<null>>());
 
@@ -89,5 +89,15 @@ describe("MainBar", () => {
 
   it("points to the project's page over https", () => {
     expect(SUPPORT_URL).toBe("https://buymeacoffee.com/feoren");
+  });
+});
+
+describe("barTitle", () => {
+  it("names the session with its emoji, and nothing without one", () => {
+    expect(barTitle({ title: "Webhook retries", marker: { emoji: "🚀" } })).toBe(
+      "🚀 Webhook retries",
+    );
+    expect(barTitle({ title: "Webhook retries", marker: null })).toBe("Webhook retries");
+    expect(barTitle(undefined)).toBeNull();
   });
 });

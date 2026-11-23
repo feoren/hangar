@@ -52,3 +52,14 @@ export function MainBar(props: {
 
 /** The project's Buy Me a Coffee page, opened in the default browser. */
 export const SUPPORT_URL = "https://buymeacoffee.com/feoren";
+
+/**
+ * The name the bar shows: the session's marker emoji and title, `null` without a session to name
+ * (the home view passes none, even while sessions run behind it).
+ */
+export function barTitle(
+  session: { title: string; marker?: { emoji: string | null } | null } | undefined,
+): string | null {
+  if (session === undefined) return null;
+  return [session.marker?.emoji, session.title].filter(Boolean).join(" ");
+}

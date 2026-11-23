@@ -396,7 +396,7 @@ import {
   type AppAction,
   type Shortcut,
 } from "./shortcuts";
-import { MainBar } from "./MainBar";
+import { barTitle, MainBar } from "./MainBar";
 import { Sidebar } from "./Sidebar";
 import { useSidebarMotion, useWindowResizing } from "./sidebarMotion";
 import { useSidePanelMotion } from "./sidePanelMotion";
@@ -6910,11 +6910,7 @@ export function App() {
         />
         <main className="body">
           <MainBar
-            title={
-              activeSession === undefined
-                ? null
-                : [activeSession.marker?.emoji, activeSession.title].filter(Boolean).join(" ")
-            }
+            title={barTitle(homeShown ? undefined : activeSession)}
             sideOpen={sideShown}
             onToggleSide={() => {
               // The tab's own switch: closes it when open, opens it with the focus, or brings the
