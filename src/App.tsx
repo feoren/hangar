@@ -6900,6 +6900,9 @@ export function App() {
           onInboxCancel={(messageId) => inboxRuns.cancel(messageId)}
           onInboxDiscard={discardWaiting}
           links={linkMarks(linkState)}
+          onEditLinkGroup={(group) => {
+            setLinkDialog({ kind: "edit", group });
+          }}
           linkable={new Set(linkCandidates(linkState, state.sessions).map((s) => s.id))}
           onLinkSessions={(ids) => {
             void linkSessions(ids).then((problem) => {

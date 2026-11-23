@@ -132,7 +132,7 @@ const SINGLE = { snapLayout: "single", closedGroups: FOLDED };
 const SCENES = [
   {
     // The hero: the bar above the work area with the session's name, the support badge and the
-    // panel switch; "Recently opened" above New session; the link group's chain and light flowing
+    // panel switch; "Recently opened" above New session; the link group's bracket and light flowing
     // to the working sessions; the asking session that has waited for 12 minutes; the lead with
     // its crew of three of Hangar's own sub-agents; the notes beside it in the right panel.
     name: "overview",
@@ -220,13 +220,13 @@ const SCENES = [
           card.querySelector(".waiting-message-send").click();
           return true;
         })()`,
-        ready: shows(".waiting-message-status", "Sends once"),
+        ready: shows(".waiting-message-status", "Sends when the session is ready"),
       },
       { run: BLUR, ready: "true" },
     ],
   },
   {
-    // "Edit group": the members' names, the lead and the group's cost today; the chain on the
+    // "Edit group": the members' names, the lead and the group's cost today; the bracket beside the
     // members' rows in the sidebar.
     name: "link-groups",
     file: "hangar-link-groups",

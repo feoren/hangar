@@ -11,7 +11,14 @@ import { folderName, type FolderPrefs } from "./folders";
 import { SessionLook } from "./SessionLook";
 import { exitDetail } from "./format";
 import { gateHint } from "./gate";
-import { LinkMarkSign, linkMarkText } from "./LinkMark";
+import { linkBrackets, type BracketPiece } from "./linkBracket";
+import {
+  LeadCrown,
+  LinkBracketHead,
+  LinkBracketLine,
+  LinkRailEdge,
+  linkMarkText,
+} from "./LinkMark";
 import { toggleSelection, type LinkMark } from "./links";
 import { queuedPreview, type QueuedMessage } from "./messageQueue";
 import type { RecentSession } from "./recentlyOpened";
@@ -293,8 +300,10 @@ interface Props {
   onInboxPaste: (sessionId: number, messageId: number, submit: boolean) => void;
   onInboxCancel: (messageId: number) => void;
   onInboxDiscard: (messageId: number) => void;
-  /** Members of link groups: the chain on each row (links.ts `linkMarks`). */
+  /** Members of link groups: the bracket beside their rows (links.ts `linkMarks`, linkBracket.ts). */
   links: ReadonlyMap<number, LinkMark>;
+  /** The bracket's label: opens Edit group for link group `group`. */
+  onEditLinkGroup: (group: number) => void;
   /** Sessions that can be linked right now (links.ts `canLink`); only these can be selected. */
   linkable: ReadonlySet<number>;
   /** Links the sessions selected with Ctrl or Cmd click. */
@@ -513,6 +522,16 @@ export function Sidebar(props: Props) {
   const groups = agentGroups(sessions, props.grouping);
   /** Rows on screen: folded groups show none. */
   const shown = groups.flatMap((group) => shownSessions(group.sessions, agentOpen(group.key)));
+  /** Link groups' brackets over the rows on screen: a run stops at a sidebar group's end. */
+  const brackets = linkBrackets(
+    groups.flatMap((group) =>
+      shownSessions(group.sessions, agentOpen(group.key)).map((s) => ({
+        id: s.id,
+        section: group.key,
+      })),
+    ),
+    props.links,
+  );
   /** Group header menu (right click or context menu key): how to group, at this point. */
   const [groupingMenu, setGroupingMenu] = useState<{
     x: number;
@@ -786,6 +805,11 @@ export function Sidebar(props: Props) {
       }
     }
     const newKeys = formatShortcut(SHORTCUT_LABELS.newSession, t);
+    /** The rail lists every session; a run of a link group stops at a group's divider. */
+    const railBrackets = linkBrackets(
+      sessions.map((s) => ({ id: s.id, section: sessionGroupKey(s, props.grouping) })),
+      props.links,
+    );
     return (
       <aside className="sidebar collapsed" ref={root} onScrollCapture={peekState.leave}>
         {/* The menu sits in a head as tall as the expanded header, so the line below it and the
@@ -827,6 +851,7 @@ export function Sidebar(props: Props) {
               (props.inbox.get(session.id)?.length ?? 0) +
               (props.linkInbox.get(session.id)?.length ?? 0);
             const link = props.links.get(session.id);
+            const railPiece = railBrackets.get(session.id);
             const className = [
               "rail-session",
               session.id === activeId ? "active" : "",
@@ -901,7 +926,6 @@ export function Sidebar(props: Props) {
                         {waitingCount}
                       </span>
                     )}
-                    {link !== undefined && <LinkMarkSign mark={link} rail />}
                     {props.overlaps.has(session.id) && (
                       <span className="rail-overlap" aria-hidden="true">
                         <OverlapIcon size={10} />
@@ -917,6 +941,8 @@ export function Sidebar(props: Props) {
                       />
                     )}
                   </button>
+                  {/* A link group's run: a colored edge beside the badges; the button names it. */}
+                  {railPiece !== undefined && <LinkRailEdge piece={railPiece} />}
                 </li>
               </Fragment>
             );
@@ -1054,9 +1080,18 @@ export function Sidebar(props: Props) {
             const drag = dragClass(session.id);
             const rowDrag = tree !== null && drag === "drop-after" ? "" : drag;
             const treeDrag = tree !== null && drag !== "drop-before" ? drag : "";
+            // The link group's bracket: its label above the group's first run, and the line on
+            // past the items below a row inside a run.
+            const piece = brackets.get(session.id);
+            const through =
+              piece !== undefined && !piece.last ? <LinkBracketLine piece={piece} between /> : null;
             return (
               <Fragment key={session.id}>
+                {piece?.label === true && (
+                  <LinkBracketHead piece={piece} onEdit={props.onEditLinkGroup} />
+                )}
                 <SessionItem
+                  bracket={piece ?? null}
                   lines={lines(session)}
                   label={folderLabels.get(session.id) ?? null}
                   session={session}
@@ -1085,6 +1120,7 @@ export function Sidebar(props: Props) {
                     the row's layout and its hover actions stay as they are. */}
                 {props.inbox.has(session.id) && props.renamingId !== session.id && (
                   <li className="waiting-messages-row">
+                    {through}
                     <WaitingMessages
                       messages={props.inbox.get(session.id) ?? []}
                       sends={props.inboxSends}
@@ -1102,6 +1138,7 @@ export function Sidebar(props: Props) {
                 {/* Messages from members of its link group that wait for a click. */}
                 {props.linkInbox.has(session.id) && props.renamingId !== session.id && (
                   <li className="waiting-messages-row">
+                    {through}
                     <WaitingMessages
                       messages={props.linkInbox.get(session.id) ?? []}
                       sends={props.linkSends}
@@ -1125,6 +1162,7 @@ export function Sidebar(props: Props) {
                       .filter(Boolean)
                       .join(" ")}
                   >
+                    {through}
                     <SubAgentTree
                       sessionId={session.id}
                       sessionTitle={session.title}
@@ -1812,6 +1850,8 @@ interface ItemProps extends Props {
   plan: RowPlan;
   /** Selected with Ctrl or Cmd click, for linking. */
   selected: boolean;
+  /** The row's piece of its link group's bracket (linkBracket.ts); `null`: no member. */
+  bracket: BracketPiece | null;
   /** A click on the row: `true` when it changed the selection instead of opening the session. */
   onSelectClick: (event: React.MouseEvent, id: number) => boolean;
 }
@@ -1855,6 +1895,7 @@ function SessionItem({
   badgeFor,
   links,
   selected,
+  bracket,
   onSelectClick,
 }: ItemProps) {
   const t = useT();
@@ -1921,6 +1962,8 @@ function SessionItem({
       <span className="tree-guide" aria-hidden="true">
         <TreeFlowElbow sessionId={session.id} live={flow.live} end={flow.end} />
       </span>
+      {/* A member of a link group: the group's bracket, left of the tree's guide. */}
+      {bracket !== null && <LinkBracketLine piece={bracket} />}
       {editing ? (
         <div className="session-main">
           <input
@@ -1977,6 +2020,8 @@ function SessionItem({
             session={session}
             programName={programName}
             marker={session.marker}
+            beforeTitle={link?.lead === true ? <LeadCrown color={link.color} /> : null}
+            titleNote={link === undefined ? null : linkMarkText(link, t)}
             line={line}
             waiting={waiting}
             chip={chip}
@@ -1998,7 +2043,6 @@ function SessionItem({
               (gateOff !== null ||
                 overlap !== undefined ||
                 outlier !== null ||
-                link !== undefined ||
                 queued ||
                 placement !== null ||
                 devServer !== undefined ||
@@ -2025,8 +2069,6 @@ function SessionItem({
                       <span className="sr-only">{outlier}</span>
                     </span>
                   )}
-                  {/* A member of a link group: the chain in its group's color. */}
-                  {link !== undefined && <LinkMarkSign mark={link} />}
                   {/* A queued message: a quiet clock, the text is in the peek. */}
                   {queued && (
                     <span className="session-queued">

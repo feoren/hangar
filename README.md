@@ -35,7 +35,7 @@ your own accounts, on your own machine. The desktop app is open source under the
 
 <picture>
   <source media="(prefers-color-scheme: light)" srcset="docs/images/hangar-light.png">
-  <img alt="Hangar with a Claude Code session whose sub-agents hangar-backend, hangar-frontend and hangar-tester stand on round stages in the crew column, each with a speech bubble saying what it edits or runs, and the notes panel open on the right; the sidebar groups the sessions by project with a teal chain for the linked ones, the hangar-security session has waited for 12 minutes, and the Recently opened group lists acme-billing, acme-web and acme-shop with their program and age" src="docs/images/hangar-dark.png">
+  <img alt="Hangar with a Claude Code session whose sub-agents hangar-backend, hangar-frontend and hangar-tester stand on round stages in the crew column, each with a speech bubble saying what it edits or runs, and the notes panel open on the right; the sidebar groups the sessions by project with a teal bracket labeled Group · 3 around the linked ones, the hangar-security session has waited for 12 minutes, and the Recently opened group lists acme-billing, acme-web and acme-shop with their program and age" src="docs/images/hangar-dark.png">
 </picture>
 
 ## Features
@@ -85,8 +85,9 @@ your own accounts, on your own machine. The desktop app is open source under the
 <text>`. Nothing is pasted on its own: the message waits under the partner's session row until you
   choose Send, Paste only or × to discard it. While the partner still works, the card says so and
   you can cancel.
-- **Link sessions.** Pick two or more running agents and link them; a colored chain marks the group
-  in the sidebar, and they message each other with `hangar-send` until you unlink them. A lead
+- **Link sessions.** Pick two or more running agents and link them; a colored bracket holds the
+  group together in the sidebar, labeled with its size and a crown on the lead, and a click on the
+  label edits the group. They message each other with `hangar-send` until you unlink them. A lead
   hands out tasks and collects the results, the group history shows every message, and a template
   can link its sessions as soon as they start. Messages are only sent with Enter when the target
   agent is idle, never into a question or a permission dialog.
@@ -307,7 +308,7 @@ Team features need the Team plan; the free plan is for one person. See
     <td width="50%" valign="top">
       <picture>
         <source media="(prefers-color-scheme: light)" srcset="docs/images/hangar-link-groups-light.png">
-        <img alt="The Edit group dialog of a link group with three members, shop, cart and docs, the lead set to the Webhook retries session and the group's cost today of 2.2M tokens, about $15.18, while a teal chain marks the linked sessions in the sidebar" src="docs/images/hangar-link-groups-dark.png">
+        <img alt="The Edit group dialog of a link group with three members, shop, cart and docs, the lead set to the Webhook retries session and the group's cost today of 2.2M tokens, about $15.18, while a teal bracket labeled Group · 3 holds the linked sessions together in the sidebar" src="docs/images/hangar-link-groups-dark.png">
       </picture>
       <br><sub>Link agents into a group with a lead that hands out tasks and collects the results.</sub>
     </td>

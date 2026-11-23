@@ -15178,43 +15178,175 @@ button.sub-agent-card:focus-visible {
   }
 }
 
-/* Link groups (ADR 0014). A member row carries a chain in its group's color; while the loop brake
-   holds messages, a ring around it says so by shape as well. */
-.session-link {
+/* --- Link bracket (ADR 0014, linkBracket.ts, LinkMark.tsx) ---
+   A link group's members are held by a bracket in the group's color (--link-color, set per
+   element): a thin line in the free column left of the program group's tree guide, below the
+   header's chevron, so it crosses no elbow. A label above the group's first run names it and its
+   size and opens Edit group; members further down (another sidebar group, or past other rows)
+   get the line alone. While the loop brake holds messages, the line is dashed: shape, not color
+   alone. Static: nothing moves. */
+.agent-rows {
+  /* Where the bracket's line runs, from the rows' list edge; 12 px left of the tree guide. */
+  --link-bracket-x: calc(var(--agent-tree-x) - 12px);
+  --link-bracket-width: 2px;
+  --link-bracket-tick: 5px;
+}
+
+.link-bracket {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  /* From the item's padding edge back to the bracket's column; a row's colored edge is its
+     border, so a row takes that off as well. */
+  left: calc(
+    var(--link-bracket-x) - var(--agent-tree-x) - var(--tree-step) - var(--link-bracket-inset, 0px)
+  );
+  width: var(--link-bracket-width);
+  pointer-events: none;
+  background: var(--link-color);
+}
+
+.link-bracket.braked {
+  background: repeating-linear-gradient(to bottom, var(--link-color) 0 4px, transparent 4px 7px);
+}
+
+/* The ticks that close the bracket at its ends, pointing to the rows. */
+.link-bracket.head::before,
+.link-bracket.start::before,
+.link-bracket.end::after {
+  position: absolute;
+  left: 0;
+  width: var(--link-bracket-tick);
+  height: var(--link-bracket-width);
+  content: "";
+  background: var(--link-color);
+}
+
+.link-bracket.head::before,
+.link-bracket.start::before {
+  top: 0;
+}
+
+.link-bracket.end::after {
+  bottom: 0;
+}
+
+/* On a member row: from its outer top across the 2 px gap to the next row; a run's first row
+   (without the label above it) and its last row keep a little air at their ends. */
+.session > .link-bracket {
+  --link-bracket-inset: var(--row-edge-drawn);
+  top: calc(-1 * var(--row-border-drawn));
+  bottom: calc(-1 * (var(--row-border-drawn) + 2px));
+}
+
+.session > .link-bracket.start {
+  top: 4px;
+}
+
+.session > .link-bracket.end {
+  bottom: 4px;
+}
+
+/* Waiting messages and the sub-agent tree below a row inside the run: the line passes by, across
+   their 4 px gap to the next row. */
+.waiting-messages-row:has(> .link-bracket) {
+  position: relative;
+}
+
+.link-bracket.between {
+  top: 0;
+  bottom: -4px;
+}
+
+/* The label's own item above the group's first run. */
+.link-bracket-head {
+  position: relative;
+  display: flex;
+  align-items: center;
+  min-height: 20px;
+  margin-bottom: 2px;
+}
+
+.link-bracket.head {
+  top: 50%;
+  bottom: -2px;
+}
+
+.link-bracket-label {
+  display: inline-flex;
+  align-items: center;
+  min-height: 18px;
+  padding: 0 6px;
+  font: inherit;
+  font-size: 11px;
+  font-weight: 600;
+  line-height: 1;
+  font-variant-numeric: tabular-nums;
+  /* Mixed toward the text color: readable on the panel in light and dark. */
+  color: color-mix(in srgb, var(--link-color) 78%, var(--text));
+  cursor: pointer;
+  background: none;
+  border: 0;
+  border-radius: 4px;
+}
+
+.link-bracket-label:hover {
+  background: var(--hover);
+}
+
+[data-one-line] .link-bracket-head {
+  min-height: 18px;
+  margin-bottom: 0;
+}
+
+/* Without anchor positioning the tree's guide is drawn per row; it runs on past the label. */
+.agent-rows > .link-bracket-head::after {
+  position: absolute;
+  top: 0;
+  bottom: -2px;
+  left: calc(-1 * var(--tree-step));
+  width: var(--tree-dot);
+  content: "";
+  pointer-events: none;
+  background: var(--tree-dots-y);
+}
+
+@supports (anchor-name: --tree-end) {
+  .agent-rows > .link-bracket-head::after {
+    display: none;
+  }
+}
+
+/* The lead's crown before its title, in the group's color. */
+.session-crown {
   display: inline-flex;
   flex: none;
   align-items: center;
-  border-radius: 50%;
   line-height: 0;
+  color: color-mix(in srgb, var(--link-color) 78%, var(--text));
 }
 
-.session-link.braked {
-  box-shadow: 0 0 0 1.5px currentcolor;
-}
-
-/* The same chain beside the badge in the collapsed sidebar, at its right edge between the emoji
-   above and the state below, which take the corners. */
-.rail-link {
+/* The collapsed sidebar: a colored edge at the right of the badges, joined over a run. */
+.rail-link-edge {
   position: absolute;
-  right: 2px;
-  top: 50%;
-  transform: translateY(-50%);
-  display: flex;
-  padding: 1px;
-  border-radius: 50%;
-  background: var(--panel);
-  line-height: 0;
+  top: 0;
+  right: 3px;
+  bottom: 0;
+  width: var(--link-bracket-width, 2px);
+  pointer-events: none;
+  background: var(--link-color);
 }
 
-.rail-link.braked {
-  box-shadow: 0 0 0 1.5px currentcolor;
+.rail-link-edge.start {
+  top: 5px;
 }
 
-/* Hover, active and the breathing attention tint colour the button itself: follow it. */
-.rail-session:hover .rail-link,
-.rail-session.active .rail-link,
-.rail-session.attention .rail-link {
-  background: inherit;
+.rail-link-edge.end {
+  bottom: 5px;
+}
+
+.rail-link-edge.braked {
+  background: repeating-linear-gradient(to bottom, var(--link-color) 0 4px, transparent 4px 7px);
 }
 
 /* A row selected with Ctrl or Cmd click for linking: a dashed frame, apart from the active one. */
@@ -15371,26 +15503,7 @@ button.sub-agent-card:focus-visible {
 }
 
 /* Link groups: the lead, the history and templates that link (ADR 0014, roles, history and
-   templates). The lead's chain carries a small dot in the group's color, apart from the brake's
-   ring. */
-/* The rail's mark is placed absolute already, so the dot finds its place there too. */
-.session-link.lead {
-  position: relative;
-}
-
-.session-link.lead::after,
-.rail-link.lead::after {
-  content: "";
-  position: absolute;
-  top: -1px;
-  right: -2px;
-  width: 5px;
-  height: 5px;
-  border: 1px solid var(--panel);
-  border-radius: 50%;
-  background: currentcolor;
-}
-
+   templates). */
 .link-lead {
   margin-top: 12px;
 }

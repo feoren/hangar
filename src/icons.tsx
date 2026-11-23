@@ -478,6 +478,16 @@ export function LinkIcon(props: IconProps) {
   );
 }
 
+/** The lead of a link group, before its row's title. */
+export function CrownIcon(props: IconProps) {
+  return (
+    <Svg {...props}>
+      <path d="M3.5 11 2.5 5l3.5 2.8L8 3.8l2 4 3.5-2.8-1 6Z" />
+      <path d="M3.5 13.2h9" />
+    </Svg>
+  );
+}
+
 /** A session's local dev server, opened in the browser. */
 export function GlobeIcon(props: IconProps) {
   return (

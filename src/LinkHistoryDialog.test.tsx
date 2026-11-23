@@ -5,7 +5,7 @@ import { describe, expect, it } from "vitest";
 import { createTranslator, I18nContext, type Language } from "./i18n";
 import { LinkDialog, LinkGroupDialog } from "./LinkDialog";
 import { historySender, LinkHistoryList } from "./LinkHistoryDialog";
-import { LinkMarkSign } from "./LinkMark";
+import { LeadCrown, linkMarkText } from "./LinkMark";
 import type { LinkGroup, LinkHistoryEntry } from "./links";
 import type { SessionView } from "./sessions";
 
@@ -42,17 +42,14 @@ const entry: LinkHistoryEntry = {
 };
 
 describe("the lead", () => {
-  it("carries a mark of its own and says so", () => {
-    const html = render(
-      <LinkMarkSign mark={{ group: 1, color: 2, name: "app", braked: false, lead: true }} />,
-    );
-    expect(html).toContain('class="session-link lead"');
-    expect(html).toContain("Linked as “app”, lead");
-    const german = render(
-      <LinkMarkSign mark={{ group: 1, color: 2, name: "app", braked: false, lead: true }} />,
-      "de",
-    );
-    expect(german).toContain("Verknüpft als „app“, Leitung");
+  it("carries a crown of its own and says so", () => {
+    const mark = { group: 1, color: 2, name: "app", braked: false, lead: true };
+    const html = render(<LeadCrown color={2} />);
+    expect(html).toContain('class="session-crown"');
+    expect(html).toContain("--link-color:var(--link-2)");
+    expect(html).toContain('title="Leads the group"');
+    expect(linkMarkText(mark, createTranslator("en"))).toBe("Linked as “app”, lead");
+    expect(linkMarkText(mark, createTranslator("de"))).toBe("Verknüpft als „app“, Leitung");
   });
 
   it("is offered in the link dialog once two sessions are chosen, none by default", () => {

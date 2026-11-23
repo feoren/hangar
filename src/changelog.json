@@ -30,6 +30,20 @@
         "ru": "Связанные группы: карточка показывает, с кем работает сессия. Агенты называются по папке или программе, а сообщения Hangar больше не меняют названия.",
         "tr": "Bağlı gruplar: kart, oturumun kiminle çalıştığını gösteriyor. Agent'lar klasör ya da program adını alıyor; Hangar mesajları artık başlıkları değiştirmiyor.",
         "zh": "关联组：卡片显示该会话正在与谁协作。代理按文件夹或程序命名，Hangar 的消息也不会再重命名会话。"
+      },
+      {
+        "de": "Verknüpfte Gruppen hält in der Seitenleiste eine farbige Klammer zusammen, mit Größe und Krone für die Leitung. Ein Klick auf „Gruppe · 3“ bearbeitet sie.",
+        "en": "In the sidebar, a colored bracket holds each linked group together, with its size and a crown on the lead. Click “Group · 3” to edit the group.",
+        "el": "Στην πλαϊνή μπάρα, μια χρωματιστή αγκύλη κρατά μαζί κάθε ομάδα, με το μέγεθός της και στέμμα στον επικεφαλής. Κλικ στο «Ομάδα · 3» για επεξεργασία.",
+        "es": "En la barra lateral, un corchete de color une cada grupo vinculado, con su tamaño y una corona en el líder. Haz clic en «Grupo · 3» para editarlo.",
+        "fr": "Dans la barre latérale, un crochet coloré réunit chaque groupe relié, avec sa taille et une couronne sur le responsable. Clique sur « Groupe · 3 » pour éditer.",
+        "it": "Nella barra laterale una parentesi colorata unisce ogni gruppo collegato, con la dimensione e una corona sul capogruppo. Clicca «Gruppo · 3» per modificarlo.",
+        "ja": "サイドバーでは連携グループを色付きの括弧でまとめ、人数とリーダーの王冠を表示します。「グループ · 3」をクリックすると編集できます。",
+        "pl": "Na pasku bocznym kolorowy nawias spina każdą połączoną grupę, z jej wielkością i koroną lidera. Kliknij „Grupa · 3”, aby ją edytować.",
+        "pt": "Na barra lateral, um colchete colorido une cada grupo vinculado, com o tamanho e uma coroa no líder. Clique em “Grupo · 3” para editar o grupo.",
+        "ru": "В боковой панели цветная скобка объединяет каждую связанную группу, с её размером и короной у ведущего. Нажми «Группа · 3», чтобы изменить её.",
+        "tr": "Kenar çubuğunda renkli bir köşeli ayraç her bağlı grubu bir arada tutar; boyutunu ve liderin tacını gösterir. Düzenlemek için “Grup · 3” öğesine tıkla.",
+        "zh": "侧边栏中，彩色括号把每个关联组框在一起，并显示人数和负责人的王冠。点击“组 · 3”即可编辑该组。"
       }
     ]
   },

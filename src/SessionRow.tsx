@@ -59,6 +59,10 @@ export interface RowBodyProps {
   session?: { subAgent?: string | null; cwd: string };
   /** The program's name for the figure's tooltip. */
   programName?: string;
+  /** Before the title, after the marker: the lead's crown of a link group (LinkMark.tsx). */
+  beforeTitle?: ReactNode;
+  /** Read after the title by screen readers only: how the row is linked (LinkMark.tsx). */
+  titleNote?: string | null;
   /**
    * The tree flow's rate cell (TreeFlowView.tsx), at the right end of one line: the load's line, else
    * the last line below the title. Missing or `null`: none. It never makes a line show.
@@ -234,10 +238,12 @@ function RowElementView({ element, ...props }: { element: RowElement } & RowBody
       return (
         <>
           <SessionMarker marker={props.marker} tooltip={false} />
+          {props.beforeTitle}
           <span className="session-title">{props.name}</span>
           {/* The whole sentence with the program and how long ("Claude Code has been working
               for 3 min"), whatever the state's form, also while it is hidden. */}
           <span className="sr-only">{props.line.full}</span>
+          {props.titleNote != null && <span className="sr-only">{props.titleNote}</span>}
         </>
       );
     case "state":

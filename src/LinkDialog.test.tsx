@@ -4,7 +4,8 @@ import { describe, expect, it } from "vitest";
 
 import { createTranslator, I18nContext, type Language } from "./i18n";
 import { LinkDialog, LinkGroupDialog } from "./LinkDialog";
-import { LinkMarkSign } from "./LinkMark";
+import type { BracketPiece } from "./linkBracket";
+import { LinkBracketHead, LinkBracketLine, LinkRailEdge, linkMarkText } from "./LinkMark";
 import type { LinkGroup } from "./links";
 import type { SessionView } from "./sessions";
 
@@ -41,37 +42,61 @@ const group: LinkGroup = {
 
 const none = () => Promise.resolve(null);
 
-describe("LinkMarkSign", () => {
-  it("is a chain in the group's color that names the member", () => {
-    const html = render(
-      <LinkMarkSign mark={{ group: 1, color: 3, name: "web", braked: false, lead: false }} />,
+const piece: BracketPiece = {
+  group: 4,
+  color: 3,
+  braked: false,
+  first: true,
+  last: false,
+  label: true,
+  members: 3,
+};
+
+describe("the link bracket", () => {
+  it("labels the group with its size, a button that opens Edit group", () => {
+    const html = render(<LinkBracketHead piece={piece} onEdit={() => undefined} />);
+    expect(html).toContain('class="link-bracket-head"');
+    expect(html).toContain("--link-color:var(--link-3)");
+    // The name starts with the visible label (WCAG 2.5.3) and says what a click does.
+    expect(html).toContain('>Group · 3<span class="sr-only">: Edit group with 3 sessions</span>');
+    expect(html).not.toContain("aria-label=");
+    const german = render(<LinkBracketHead piece={piece} onEdit={() => undefined} />, "de");
+    expect(german).toContain(
+      '>Gruppe · 3<span class="sr-only">: Gruppe mit 3 Sessions bearbeiten</span>',
     );
-    expect(html).toContain('class="session-link"');
-    expect(html).toContain("color:var(--link-3)");
-    expect(html).toContain("Linked as “web”");
-    expect(html).toContain("<svg");
-    const german = render(
-      <LinkMarkSign mark={{ group: 1, color: 3, name: "web", braked: false, lead: false }} />,
-      "de",
-    );
-    expect(german).toContain("Verknüpft als „web“");
   });
 
-  it("shows the brake by shape and says why messages wait", () => {
-    const html = render(
-      <LinkMarkSign mark={{ group: 1, color: 0, name: "app", braked: true, lead: false }} />,
-    );
-    expect(html).toContain('class="session-link braked"');
-    expect(html).toContain("messages wait for your click");
+  it("dashes its line and says why while the brake holds", () => {
+    const braked = { ...piece, braked: true };
+    const head = render(<LinkBracketHead piece={braked} onEdit={() => undefined} />);
+    expect(head).toContain('class="link-bracket head braked"');
+    expect(head).toContain("Edit group with 3 sessions, messages wait for your click");
+    expect(render(<LinkBracketLine piece={braked} />)).toContain('class="link-bracket braked"');
   });
 
-  it("is only a picture in the rail, whose button names it", () => {
-    const html = render(
-      <LinkMarkSign mark={{ group: 1, color: 1, name: "app", braked: false, lead: false }} rail />,
+  it("closes a run with ticks only where no label stands above it", () => {
+    expect(render(<LinkBracketLine piece={piece} />)).toContain('class="link-bracket"');
+    const later = { ...piece, label: false, last: true };
+    expect(render(<LinkBracketLine piece={later} />)).toContain('class="link-bracket start end"');
+    expect(render(<LinkBracketLine piece={later} between />)).toContain(
+      'class="link-bracket between"',
     );
-    expect(html).toContain('class="rail-link"');
-    expect(html).toContain('aria-hidden="true"');
-    expect(html).not.toContain("Linked as");
+  });
+
+  it("is decoration beside a row and in the rail, whose buttons name the link", () => {
+    expect(render(<LinkBracketLine piece={piece} />)).toContain('aria-hidden="true"');
+    const rail = render(<LinkRailEdge piece={{ ...piece, last: true }} />);
+    expect(rail).toContain('class="rail-link-edge start end"');
+    expect(rail).toContain('aria-hidden="true"');
+  });
+
+  it("names the member for screen readers, and the brake", () => {
+    const mark = { group: 1, color: 0, name: "web", braked: false, lead: false };
+    expect(linkMarkText(mark, createTranslator("en"))).toBe("Linked as “web”");
+    expect(linkMarkText(mark, createTranslator("de"))).toBe("Verknüpft als „web“");
+    expect(linkMarkText({ ...mark, braked: true }, createTranslator("en"))).toContain(
+      "messages wait for your click",
+    );
   });
 });
 
