@@ -4,7 +4,7 @@ type: synthesis
 tags: [sessions, persistence, resume, contract]
 sources: ["[[resume-measurement]]", "[[resume-id-measurement]]"]
 created: 2026-11-07
-updated: 2026-11-23
+updated: 2026-11-24
 ---
 
 # Restoring sessions after a restart
@@ -32,6 +32,15 @@ background service, a non-goal). Backend: `src-tauri/src/persist.rs`, `src-tauri
 - Permissions: on Unix, folder 0700 and files 0600. Windows: default ACL of the user profile (user, SYSTEM,
   Administrators), no custom ACL.
 - Contents are never logged; an unusable file yields `null` and a log line with the reason, without content.
+- Before a scrollback is written, `save_scrollback` masks every key shape of the secret guard
+  ([[0015-secret-guard]], `secret_scan::mask` in `src-tauri/src/secret_scan.rs`): the body after
+  the kind's prefix becomes `*`, one per byte (`ghp_****...`; a private key block keeps its header
+  and end line). Same length on purpose: every body byte is ASCII and one column wide, so the
+  restored layout (line wraps, cursor moves) stays as it was, and the prefix still tells what was
+  there. Terminal escape sequences stay intact; the shapes see them as boundaries, so a token right
+  after a colour sequence is found too. Only full matches are masked. A private key without its end
+  line within 16 KiB has only base64 runs of 16 or more characters masked. Files saved before this
+  change keep their content until the next save of that session.
 
 ## Contract
 
@@ -193,7 +202,9 @@ A shell has no conversation and just starts fresh in its folder. Code: `src/rece
 ## Known limits
 - Two sessions of the same agent in the same folder resume the same most recent conversation
   ([[resume]]), except for agents with conversation ids (claude since 0.3.0).
-- The scrollback may contain secrets (printed tokens). It is stored unencrypted in the user profile.
+- The scrollback may contain secrets of other shapes (passwords, keys of other services, a key
+  split across lines or encoded, a private key whose header line was trimmed off with the oldest
+  lines). The known shapes are masked; the rest is stored unencrypted in the user profile.
 - Several debug builds running at once share `running-debug.marker`: one that quits removes the
   marker of the others, and one that starts while another runs shows the crash notice. Release
   builds are single instance and unaffected.
