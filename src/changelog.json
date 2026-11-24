@@ -86,6 +86,34 @@
         "ru": "У начального экрана скрытый фон из плывущих символов. Мышь ненадолго проявляет его, как туман, а потом он снова тает.",
         "tr": "Ana görünümde sürüklenen karakterlerden oluşan gizli bir arka plan var. Fare onu bir anlığına sis gibi açığa çıkarır, sonra yeniden kaybolur.",
         "zh": "主页视图有一个由漂移字符组成的隐藏背景。鼠标经过时会像拨开雾气一样短暂显现，随后又慢慢消失。"
+      },
+      {
+        "de": "Sichereres Einfügen: cmd und PowerShell fragen bei mehreren Zeilen wieder nach, Snippet-Werte gehen geschützt in Shells, Schlüssel im Verlauf werden maskiert.",
+        "en": "Safer pasting: cmd and PowerShell ask again for multiple lines, snippet values reach shells quoted, and keys in the saved scrollback are masked.",
+        "el": "Ασφαλέστερη επικόλληση: cmd και PowerShell ρωτούν ξανά για πολλές γραμμές, τα αποσπάσματα μπαίνουν σε εισαγωγικά, τα κλειδιά στο ιστορικό κρύβονται.",
+        "es": "Pegado más seguro: cmd y PowerShell vuelven a preguntar con varias líneas, los fragmentos van entrecomillados y las claves del historial se ocultan.",
+        "fr": "Collage plus sûr : cmd et PowerShell redemandent pour plusieurs lignes, les extraits sont mis entre guillemets, les clés de l'historique sont masquées.",
+        "it": "Incolla più sicuro: cmd e PowerShell chiedono di nuovo per più righe, gli snippet vanno tra virgolette e le chiavi nello storico sono mascherate.",
+        "ja": "より安全な貼り付け：cmd と PowerShell への複数行の貼り付けは再び確認し、スニペットの値はシェルへ引用符付きで渡り、保存された履歴のキーは伏せられます。",
+        "pl": "Bezpieczniejsze wklejanie: cmd i PowerShell znów pytają przy wielu wierszach, fragmenty są w cudzysłowach, a klucze w historii są maskowane.",
+        "pt": "Colagem mais segura: cmd e PowerShell voltam a perguntar com várias linhas, os snippets vão entre aspas e as chaves no histórico são mascaradas.",
+        "ru": "Безопаснее вставка: cmd и PowerShell снова спрашивают о нескольких строках, сниппеты идут в кавычках, ключи в истории скрываются.",
+        "tr": "Daha güvenli yapıştırma: cmd ve PowerShell çok satırda yeniden sorar, parçalar tırnak içinde gider, geçmişteki anahtarlar gizlenir.",
+        "zh": "更安全的粘贴：向 cmd 和 PowerShell 粘贴多行时会再次确认，片段值以引号形式进入 shell，已保存记录中的密钥会被遮盖。"
+      },
+      {
+        "de": "Hangar erkennt jetzt, wenn Einstellungen eines Projekts die Hooks des Agenten-Gates abschalten, und zeigt das Gate dann nicht mehr als aktiv.",
+        "en": "Hangar now notices when a project's settings switch off the agent gate's hooks and no longer shows the gate as active then.",
+        "el": "Το Hangar αναγνωρίζει πλέον πότε οι ρυθμίσεις ενός έργου απενεργοποιούν τα hooks της πύλης πρακτόρων και τότε δεν δείχνει πια την πύλη ως ενεργή.",
+        "es": "Hangar ahora detecta cuando la configuración de un proyecto desactiva los hooks de la puerta de agentes y ya no muestra la puerta como activa.",
+        "fr": "Hangar détecte désormais quand les réglages d'un projet désactivent les hooks de la porte des agents et n'affiche plus alors la porte comme active.",
+        "it": "Hangar ora rileva quando le impostazioni di un progetto disattivano gli hook del gate degli agenti e non mostra più il gate come attivo.",
+        "ja": "プロジェクトの設定がエージェントゲートのフックを無効にしている場合、Hangar はそれを検出し、ゲートを有効と表示しなくなりました。",
+        "pl": "Hangar wykrywa teraz, gdy ustawienia projektu wyłączają hooki bramki agentów, i nie pokazuje wtedy bramki jako aktywnej.",
+        "pt": "O Hangar agora detecta quando as configurações de um projeto desligam os hooks do portão de agentes e deixa de mostrar o portão como ativo.",
+        "ru": "Hangar теперь замечает, когда настройки проекта отключают хуки шлюза агентов, и больше не показывает шлюз активным.",
+        "tr": "Hangar artık bir projenin ayarları ajan kapısının kancalarını kapattığında bunu fark ediyor ve kapıyı artık etkin göstermiyor.",
+        "zh": "当项目设置关闭了代理闸门的钩子时，Hangar 现在会识别出来，并不再将闸门显示为已启用。"
       }
     ]
   },
