@@ -164,24 +164,39 @@ fn git_reads_take_a_session_not_a_folder() {
     }
 }
 
-/// The frontend only checks for an update and installs it in one step (src/useUpdater.ts), so the
-/// main window gets exactly those two commands, not the separate download and install that
-/// `updater:default` adds.
+/// The main window gets exactly the updater commands the frontend calls (src/useUpdater.ts),
+/// derived from the calls themselves: 0.14.0 split the install into `download` and `install`
+/// while the capability still granted only `download-and-install`, and every update from it
+/// failed with "not allowed by ACL". No other window may update.
 #[test]
-fn the_updater_grants_only_check_and_download_and_install() {
+fn the_updater_grants_exactly_the_commands_the_frontend_calls() {
+    let frontend = read("../src/useUpdater.ts");
+    let mut needed = vec!["updater:allow-check"];
+    for (call, permission) in [
+        (".downloadAndInstall(", "updater:allow-download-and-install"),
+        (".download(", "updater:allow-download"),
+        (".install(", "updater:allow-install"),
+    ] {
+        if frontend.contains(call) {
+            needed.push(permission);
+        }
+    }
+    assert!(
+        needed.len() > 1,
+        "src/useUpdater.ts installs no update any more"
+    );
     let capability: serde_json::Value =
         serde_json::from_str(&read("capabilities/default.json")).unwrap();
-    let updater: Vec<&str> = capability["permissions"]
+    let mut granted: Vec<&str> = capability["permissions"]
         .as_array()
         .unwrap()
         .iter()
         .filter_map(serde_json::Value::as_str)
         .filter(|permission| permission.starts_with("updater:"))
         .collect();
-    assert_eq!(
-        updater,
-        ["updater:allow-check", "updater:allow-download-and-install"]
-    );
+    granted.sort_unstable();
+    needed.sort_unstable();
+    assert_eq!(granted, needed);
     for other in ["panel.json", "file-viewer.json"] {
         let text = read(&format!("capabilities/{other}"));
         assert!(!text.contains("updater:"), "{other} grants the updater");
