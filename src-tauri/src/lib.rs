@@ -229,7 +229,8 @@ pub fn run() -> tauri::Result<()> {
                 std::sync::Arc::new(secrets::KeyringStore::with_service(team::KEYCHAIN_SERVICE)),
                 // A signal without payload, as for the account: the snapshot (teammates, safety
                 // numbers, tasks) comes through `team_snapshot`, a main window command.
-                std::sync::Arc::new(move |_: &team::TeamSnapshot| {
+                std::sync::Arc::new(move |snapshot: &team::TeamSnapshot| {
+                    tray::set_connected(&events, snapshot.any_connected());
                     let _ = events.emit_to(panel_window::MAIN_LABEL, team::EVENT, ());
                 }),
                 team_service::Options {

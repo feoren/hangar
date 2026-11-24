@@ -216,6 +216,16 @@ pub struct TeamSnapshot {
     pub repos: Vec<crate::team_share::RepoChoice>,
 }
 
+impl TeamSnapshot {
+    /// Whether at least one shared project is connected to its team server right now; the
+    /// tray icon shows its green dot exactly then (`tray::set_connected`).
+    pub fn any_connected(&self) -> bool {
+        self.teams
+            .iter()
+            .any(|team| matches!(team.status, TeamStatus::Connected { .. }))
+    }
+}
+
 /// The safety number as the window shows it: six groups of five digits.
 pub fn safety_groups(number: &SafetyNumber) -> Vec<String> {
     number.groups().iter().map(|g| format!("{g:05}")).collect()
@@ -1116,6 +1126,35 @@ impl TeamConfig {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn a_snapshot_is_connected_while_any_team_is() {
+        let entry = |status: TeamStatus| TeamEntry {
+            project_id: "p".into(),
+            status,
+            activity: crate::team_share::TeamActivity::default(),
+        };
+        let snapshot = |teams: Vec<TeamEntry>| TeamSnapshot {
+            teams,
+            pending: Vec::new(),
+            repos: Vec::new(),
+        };
+        assert!(!snapshot(Vec::new()).any_connected());
+        assert!(!snapshot(vec![
+            entry(TeamStatus::Off),
+            entry(TeamStatus::Connecting { retrying: true }),
+        ])
+        .any_connected());
+        assert!(snapshot(vec![
+            entry(TeamStatus::Connecting { retrying: false }),
+            entry(TeamStatus::Connected {
+                epoch: 1,
+                members: 2,
+                devices: 3,
+            }),
+        ])
+        .any_connected());
+    }
+
     use super::*;
 
     const CLOSE_HELLO_TIMEOUT: u16 = hangar_team_protocol::close::CLOSE_HELLO_TIMEOUT;
