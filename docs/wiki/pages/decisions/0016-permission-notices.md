@@ -6,7 +6,7 @@ superseded_by:
 tags: [claude-code, hooks, attention, links, queue, sessions]
 sources: ["[[claude-notification-hooks-reference]]", "[[claude-permission-hooks-measurement]]", "[[claude-http-hook-measurement]]"]
 created: 2026-11-20
-updated: 2026-11-20
+updated: 2026-11-24
 ---
 
 # ADR 0016: Permission notices from Claude Code hooks
@@ -73,6 +73,15 @@ Option 2.
 - A parallel tool call that ends while another one's dialog is open clears the signal early; the
   screen check then stays the fallback. A stale signal only ever keeps a message as a card.
 - Every tool call of a Claude Code session makes one local request on `PostToolUse`.
+- On a busy machine Claude Code may connect for several hooks at once and write their heads more
+  than a second later. Up to 0.15.0 the endpoint closed such silent connections for newer ones
+  once 8 were open, which Claude Code reported as `Stop hook failed: read ECONNRESET` (and the same
+  for `UserPromptSubmit`); seen repeatedly on another PC with 0.12.0 and 0.15.0. Since 0.16.0 up to
+  64 may wait, a connection counts as silent after 5 s and gets 15 s for its head in total
+  (`src-tauri/src/gate_service.rs`, test `hooks_of_a_briefly_stalled_client_are_not_closed_for_newcomers`).
+  > [!question] Unverified
+  > That this was the cause on that PC is a conclusion: the test reproduces the closing, the
+  > other PC was not measured.
 
 ## Evidence
 - [[claude-notification-hooks-reference]]: event types, hook types per event, http answers.

@@ -1620,3 +1620,8 @@ Completed "Phase 2 as built" in [[0006-encrypted-project-notes]] (service plumbi
 save rule across restarts and on version 1, UI, interop against a real relay of version 2 and one
 limited to version 1; the self-hosted server gained `GET /api/v1/projects/{id}/members`).
 Updated: [[notes]] (commands, states), index.
+
+## [2026-11-24] query | Hook failed: read ECONNRESET
+Traced the repeated `Stop hook failed` and `UserPromptSubmit hook failed` with `read ECONNRESET` on
+another PC to the hook endpoint closing silent connections once 8 were open; reproduced in a test
+and relaxed the limits for 0.16.0. Updated: [[0016-permission-notices]].

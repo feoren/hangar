@@ -18,6 +18,20 @@
         "zh": "共享笔记现在可供整个团队使用：所有者或管理员开启后，密钥通过团队送达。无需代码。"
       },
       {
+        "de": "Meldungen wie „Stop hook failed: read ECONNRESET“ bei viel Last sind behoben: Hangar trennt langsame Hook-Anfragen nicht mehr.",
+        "en": "Messages like \"Stop hook failed: read ECONNRESET\" under heavy load are fixed: Hangar no longer drops slow hook requests.",
+        "el": "Μηνύματα όπως «Stop hook failed: read ECONNRESET» υπό μεγάλο φόρτο διορθώθηκαν: το Hangar δεν κόβει πλέον αργά αιτήματα hook.",
+        "es": "Se corrigen mensajes como «Stop hook failed: read ECONNRESET» con mucha carga: Hangar ya no corta las peticiones lentas de los hooks.",
+        "fr": "Les messages comme « Stop hook failed: read ECONNRESET » sous forte charge sont corrigés : Hangar ne coupe plus les requêtes de hook lentes.",
+        "it": "Corretti messaggi come «Stop hook failed: read ECONNRESET» sotto carico: Hangar non interrompe più le richieste hook lente.",
+        "ja": "高負荷時の「Stop hook failed: read ECONNRESET」などのメッセージを修正しました。Hangar は遅いフック要求を切断しなくなりました。",
+        "pl": "Naprawiono komunikaty typu „Stop hook failed: read ECONNRESET” przy dużym obciążeniu: Hangar nie zrywa już wolnych żądań hooków.",
+        "pt": "Mensagens como «Stop hook failed: read ECONNRESET» com muita carga foram corrigidas: o Hangar já não corta pedidos de hook lentos.",
+        "ru": "Исправлены сообщения вроде «Stop hook failed: read ECONNRESET» при высокой нагрузке: Hangar больше не обрывает медленные запросы хуков.",
+        "tr": "Yoğun yükte görülen “Stop hook failed: read ECONNRESET” gibi mesajlar düzeltildi: Hangar yavaş hook isteklerini artık kesmiyor.",
+        "zh": "已修复高负载下出现的“Stop hook failed: read ECONNRESET”等提示：Hangar 不再断开较慢的钩子请求。"
+      },
+      {
         "de": "Updates klappen wieder; seit 0.14 brachen sie mit einem Fehler ab. Mit 0.14 oder 0.15 installierst du 0.16 einmal von Hand.",
         "en": "Updates work again; since 0.14 they stopped with an error. On 0.14 or 0.15, install 0.16 once by hand.",
         "el": "Οι ενημερώσεις λειτουργούν ξανά· από την 0.14 σταματούσαν με σφάλμα. Από 0.14 ή 0.15, εγκατάστησε την 0.16 μία φορά χειροκίνητα.",

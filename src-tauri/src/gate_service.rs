@@ -95,17 +95,19 @@ const SIGNAL_EXPIRY_TICK: Duration = Duration::from_secs(30);
 /// is on (`Inner::overloaded`): an unanswered hook would let its call go ahead unchecked.
 pub const MAX_CONNECTIONS: usize = 128;
 /// Connections whose token is not known yet that may stay silent. With more open, a new one
-/// closes the oldest that has waited [`HEAD_GRACE`] for its head with nothing of it unread: a
-/// hook sends its head at once, so silent clients cannot keep the hooks out, and a burst of
-/// parallel hooks is not cut.
-pub const MAX_UNAUTHENTICATED: usize = 8;
+/// closes the oldest that has waited [`HEAD_GRACE`] for its head with nothing of it unread, so
+/// silent clients cannot keep the hooks out. Well above a burst of parallel hooks: a busy Claude
+/// Code connects for several hooks at once and may write their heads only when its event loop
+/// is free again; at 8 such hooks were closed for newer ones and failed with `read ECONNRESET`.
+pub const MAX_UNAUTHENTICATED: usize = 64;
 /// Threads reading a head at once, closed connections that have not noticed yet included; over
 /// it a new connection is closed unanswered unless a silent one makes room. Bounds what a flood
 /// of connections costs; well above the hooks an agent sends at once.
 pub const MAX_HEAD_THREADS: usize = 128;
 /// How long a connection may wait for its head before a newer one may take its place. A hook's
-/// head arrives with the connection, so only a client that holds it silently is closed.
-const HEAD_GRACE: Duration = Duration::from_secs(1);
+/// head usually arrives with the connection, but a client stalled on a loaded machine may send
+/// it more than a second later; only one silent for this long counts as holding a slot.
+const HEAD_GRACE: Duration = Duration::from_secs(5);
 /// Connections one known session holds at once, so one session cannot take every slot. Well
 /// above what an agent opens: Claude Code hooks every tool and runs several tools and
 /// sub-agents at once, and a quick hook holds its connection for milliseconds only.
@@ -142,7 +144,8 @@ struct Limits {
 }
 
 const LIMITS: Limits = Limits {
-    head: Duration::from_secs(5),
+    // Longer than the grace, so a stalled client is cut only when it is crowded out.
+    head: Duration::from_secs(15),
     grace: HEAD_GRACE,
     body: Duration::from_secs(30),
     linger: Duration::from_secs(2),
@@ -5233,6 +5236,31 @@ mod tests {
         // One that lost its slot before its head was read says so.
         let evicted = others.iter().find(|slot| slot.state.closed()).unwrap();
         assert!(!evicted.head_read());
+    }
+
+    /// A busy Claude Code connects for several hooks at once and writes their heads only when
+    /// its event loop is free again, which on a loaded machine can be more than a second later.
+    /// Meanwhile other sessions' hooks arrive. Closing the waiting ones then showed up in Claude
+    /// Code as "Stop hook failed: read ECONNRESET" and the same for UserPromptSubmit.
+    #[test]
+    fn hooks_of_a_briefly_stalled_client_are_not_closed_for_newcomers() {
+        let listener = TcpListener::bind((Ipv4Addr::LOCALHOST, 0)).unwrap();
+        let port = listener.local_addr().unwrap().port();
+        let heads = Arc::new(Mutex::new(Heads::default()));
+        let mut clients = Vec::new();
+        let mut accepted = || {
+            clients.push(connect(port));
+            listener.accept().unwrap().0
+        };
+        let stalled: Vec<HeadSlot> = (0..16)
+            .map(|_| HeadSlot::take(&heads, &accepted(), HEAD_GRACE).unwrap())
+            .collect();
+        thread::sleep(Duration::from_millis(1500));
+        let newcomers: Vec<HeadSlot> = (0..16)
+            .map(|_| HeadSlot::take(&heads, &accepted(), HEAD_GRACE).unwrap())
+            .collect();
+        assert!(stalled.iter().all(|slot| !slot.state.closed()));
+        assert!(newcomers.iter().all(|slot| !slot.state.closed()));
     }
 
     #[test]
