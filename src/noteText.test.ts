@@ -5,6 +5,7 @@ import {
   checklistProgress,
   isListLine,
   isTaskLine,
+  EXCERPT_ITEM_SEPARATOR,
   noteExcerpt,
   taskMarkOffset,
   toggleTaskAtLine,
@@ -61,9 +62,20 @@ describe("wordCount", () => {
 describe("noteExcerpt", () => {
   it("skips the title line and Markdown characters", () => {
     expect(noteExcerpt("# Plan\n\n- [ ] write **tests**\n> quote", "Plan")).toBe(
-      "write tests quote",
+      "write tests · quote",
     );
     expect(noteExcerpt("Plan", "Plan")).toBe("");
+  });
+
+  // A checklist reads as separate entries, not as one sentence without punctuation.
+  it("sets list items and checklist entries apart, prose runs on", () => {
+    expect(noteExcerpt("Todo\n- [ ] milk\n- [x] bread\n* eggs\n1. butter", "Todo")).toBe(
+      ["milk", "bread", "eggs", "butter"].join(EXCERPT_ITEM_SEPARATOR),
+    );
+    expect(noteExcerpt("Log\nfirst line\nsecond line", "Log")).toBe("first line second line");
+    expect(noteExcerpt("Mix\nintro text\n- one\n- two\nafter", "Mix")).toBe(
+      "intro text · one · two · after",
+    );
   });
 
   it("shortens long text", () => {

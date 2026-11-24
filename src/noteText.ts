@@ -90,25 +90,38 @@ export function wordCount(text: string, language: string): number {
 /** Longest excerpt below the title in the list. */
 export const EXCERPT_LENGTH = 120;
 
+/** Between two lines of the excerpt when one of them is a list item or a checklist entry. */
+export const EXCERPT_ITEM_SEPARATOR = " · ";
+
 /**
  * Preview text for the list: the content without the first line that names the note, without
- * Markdown characters, whitespace collapsed, at most EXCERPT_LENGTH characters.
+ * Markdown characters, whitespace collapsed, at most EXCERPT_LENGTH characters. List items and
+ * checklist entries are set apart by EXCERPT_ITEM_SEPARATOR, so a checklist does not read as one
+ * long sentence; lines of prose run on with a space.
  */
 export function noteExcerpt(text: string, title: string): string {
   const lines = text
     .split(/\r?\n/)
-    .map((raw) =>
-      raw
+    .map((raw) => ({
+      item: isListLine(raw),
+      text: raw
         .replace(/^\s*(?:#{1,6}\s+|>\s*|[-*+]\s+(?:\[[ xX]\]\s+)?|\d+[.)]\s+)*/, "")
         .replace(/^(`{3,}|~{3,}).*$/, "")
         .replace(/[*_`~]+/g, "")
+        .replace(/\s+/g, " ")
         .trim(),
-    )
-    .filter((line) => line !== "" && !/^[-=#>|]+$/.test(line));
-  if (lines[0] !== undefined && lines[0].toLowerCase() === title.trim().toLowerCase()) {
+    }))
+    .filter((line) => line.text !== "" && !/^[-=#>|]+$/.test(line.text));
+  if (lines[0] !== undefined && lines[0].text.toLowerCase() === title.trim().toLowerCase()) {
     lines.shift();
   }
-  const joined = lines.join(" ").replace(/\s+/g, " ").trim();
+  const joined = lines
+    .map((line, index) => {
+      const before = lines[index - 1];
+      if (before === undefined) return line.text;
+      return (line.item || before.item ? EXCERPT_ITEM_SEPARATOR : " ") + line.text;
+    })
+    .join("");
   const chars = Array.from(joined);
   return chars.length > EXCERPT_LENGTH
     ? `${chars
