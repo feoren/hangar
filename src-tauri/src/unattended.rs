@@ -320,7 +320,7 @@ pub struct Probe {
 pub fn probe(home: &Path, probes: Vec<Probe>) -> Vec<(Probe, bool)> {
     let managed = claude_managed_settings();
     let var = |name: &str| std::env::var(name).ok();
-    let is_dir = |path: &Path| path.is_dir();
+    let is_dir = |path: &Path| is_real_dir(path);
     let places = Places {
         home,
         claude_managed: managed.as_deref(),
@@ -337,14 +337,20 @@ pub fn probe(home: &Path, probes: Vec<Probe>) -> Vec<(Probe, bool)> {
         .collect()
 }
 
-/// [`Places::read`] on the real disk: at most [`MAX_SETTINGS_BYTES`], UTF-8 only. A leading
+/// [`Places::is_dir`] on the real disk: a folder itself, never a symbolic link or junction to
+/// one, so a link a repository holds as `.git` does not make its parent a git root.
+pub fn is_real_dir(path: &Path) -> bool {
+    std::fs::symlink_metadata(path).is_ok_and(|meta| meta.is_dir())
+}
+
+/// [`Places::read`] on the real disk: a regular file of at most [`MAX_SETTINGS_BYTES`], UTF-8
+/// only. A link or reparse point at the file is not followed and the size is bounded while
+/// reading ([`crate::persist::read_limited`]): these files come from repositories. A leading
 /// byte order mark (some Windows editors write one) is dropped, so the key is still found.
 pub fn read_settings(path: &Path) -> Option<String> {
-    let meta = std::fs::metadata(path).ok()?;
-    if !meta.is_file() || meta.len() > MAX_SETTINGS_BYTES {
-        return None;
-    }
-    let text = std::fs::read_to_string(path).ok()?;
+    let max = usize::try_from(MAX_SETTINGS_BYTES).unwrap_or(usize::MAX);
+    let bytes = crate::persist::read_limited(path, max).ok()??;
+    let text = String::from_utf8(bytes).ok()?;
     Some(
         text.strip_prefix('\u{feff}')
             .map(str::to_owned)
@@ -614,6 +620,55 @@ mod tests {
         assert_eq!(read_settings(&small).as_deref(), Some(BYPASS));
         assert_eq!(read_settings(&big), None);
         assert_eq!(read_settings(&dir), None);
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    /// A repository may hold a link where a settings file is expected; it could lead to a device,
+    /// a FIFO or, on Windows, a network share, so it is never followed.
+    #[test]
+    fn linked_settings_files_are_not_read() {
+        let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("tests")
+            .join(".tmp")
+            .join("unattended-link");
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let target = dir.join("target.json");
+        std::fs::write(&target, BYPASS).unwrap();
+        let link = dir.join("settings.json");
+        #[cfg(unix)]
+        let made = std::os::unix::fs::symlink(&target, &link);
+        // File symbolic links need Developer Mode or an elevated process on Windows.
+        #[cfg(windows)]
+        let made = std::os::windows::fs::symlink_file(&target, &link);
+        match made {
+            Ok(()) => {
+                assert_eq!(read_settings(&target).as_deref(), Some(BYPASS));
+                assert_eq!(read_settings(&link), None, "a link was followed");
+            }
+            Err(error) => eprintln!("symbolic link not possible here, case skipped: {error}"),
+        }
+        // A `.git` link (a junction on Windows, which needs no privilege) is no git root for
+        // Aider's files either.
+        let repo = dir.join("repo");
+        std::fs::create_dir_all(repo.join("app")).unwrap();
+        let elsewhere = dir.join("elsewhere");
+        std::fs::create_dir_all(&elsewhere).unwrap();
+        #[cfg(windows)]
+        {
+            let status = std::process::Command::new("cmd")
+                .args(["/C", "mklink", "/J"])
+                .arg(repo.join(".git"))
+                .arg(&elsewhere)
+                .stdout(std::process::Stdio::null())
+                .status()
+                .unwrap();
+            assert!(status.success(), "mklink /J failed");
+        }
+        #[cfg(unix)]
+        std::os::unix::fs::symlink(&elsewhere, repo.join(".git")).unwrap();
+        assert!(!is_real_dir(&repo.join(".git")), "a linked .git was taken");
+        assert!(is_real_dir(&repo));
         std::fs::remove_dir_all(&dir).unwrap();
     }
 }
