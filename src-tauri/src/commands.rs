@@ -1754,6 +1754,63 @@ pub async fn shared_notes_copy_code(
     Ok(())
 }
 
+/// The team this folder's shared notes belong to (ADR 0006, phase 2), for the window's team
+/// lines; `null` without one.
+#[tauri::command]
+pub async fn shared_notes_team(
+    window: tauri::Window,
+    scope: State<'_, PanelScope>,
+    shared: State<'_, ProjectNotes>,
+    folder: NoteFolder,
+) -> Result<Option<project_notes::TeamNotes>, ProjectNotesError> {
+    notes_in_scope(window.label(), &scope, &folder)?;
+    shared_blocking(shared, move |p| p.team_notes(&folder)).await
+}
+
+/// Turns shared notes on for the team project this clone is linked to (owner or admin): the
+/// relay stores the team's key ring first, then the files are written. No recovery code.
+#[tauri::command]
+pub async fn shared_notes_team_enable(
+    window: tauri::Window,
+    scope: State<'_, PanelScope>,
+    shared: State<'_, ProjectNotes>,
+    folder: NoteFolder,
+    label: String,
+    untitled: String,
+) -> Result<SharedStatus, ProjectNotesError> {
+    notes_in_scope(window.label(), &scope, &folder)?;
+    shared_blocking(shared, move |p| p.enable_team(&folder, &label, &untitled)).await
+}
+
+/// Shares an unlocked solo vault with the team project this clone is linked to (owner or
+/// admin); `vault.json` changes only after the relay stored the ring.
+#[tauri::command]
+pub async fn shared_notes_to_team(
+    window: tauri::Window,
+    scope: State<'_, PanelScope>,
+    shared: State<'_, ProjectNotes>,
+    folder: NoteFolder,
+    label: String,
+    untitled: String,
+) -> Result<SharedStatus, ProjectNotesError> {
+    notes_in_scope(window.label(), &scope, &folder)?;
+    shared_blocking(shared, move |p| p.to_team(&folder, &label, &untitled)).await
+}
+
+/// Links this clone's main worktree to the team its shared notes belong to.
+#[tauri::command]
+pub async fn shared_notes_link(
+    window: tauri::Window,
+    scope: State<'_, PanelScope>,
+    shared: State<'_, ProjectNotes>,
+    folder: NoteFolder,
+    label: String,
+    untitled: String,
+) -> Result<SharedStatus, ProjectNotesError> {
+    notes_in_scope(window.label(), &scope, &folder)?;
+    shared_blocking(shared, move |p| p.link_team(&folder, &label, &untitled)).await
+}
+
 /// The setup dialog closed without turning shared notes on: the prepared key and code go.
 #[tauri::command]
 pub async fn shared_notes_cancel(

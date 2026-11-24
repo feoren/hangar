@@ -239,6 +239,8 @@ function context(): PanelContext {
     ],
     claims: claims(),
     activities: new Map([["project-1", activity()]]),
+    projectNames: new Map([["project-1", "Atlas"]]),
+    teamRevision: 4,
   };
 }
 
@@ -258,6 +260,8 @@ describe("panel context", () => {
     expect(received?.trigger).toBe("working");
     expect(received?.sessions).toEqual(sent.sessions);
     expect(received?.claims).toEqual(sent.claims);
+    expect(received?.projectNames).toEqual(sent.projectNames);
+    expect(received?.teamRevision).toBe(4);
   });
 
   it("trims team activities to what the tabs read", () => {
@@ -290,6 +294,11 @@ describe("panel context", () => {
       { ...good, cwd: 3 },
       { ...good, trigger: "x".repeat(65) },
       { ...good, trigger: undefined },
+      { ...good, projects: undefined },
+      { ...good, projects: [{ id: "", name: "Atlas" }] },
+      { ...good, projects: [{ id: "p", name: 3 }] },
+      { ...good, teamRevision: -1 },
+      { ...good, teamRevision: "4" },
       { ...good, sessions: [{ id: 1, title: "a" }] },
       {
         ...good,

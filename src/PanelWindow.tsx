@@ -358,6 +358,8 @@ export function PanelWindow() {
               activeSessionId={activeId}
               request={request}
               refreshToken={refreshToken}
+              projectNames={context.projectNames}
+              teamRevision={context.teamRevision}
               handle={handle}
               onSend={onSend}
               onChanged={onChanged}

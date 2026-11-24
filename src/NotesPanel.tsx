@@ -12,7 +12,7 @@ import { api, errorText, type NoteFolder } from "./api";
 import { writeClipboard } from "./clipboard";
 import { folderName } from "./folders";
 import { formatShortTime, relativeTime } from "./format";
-import { DICTIONARIES, LANGUAGES, useT } from "./i18n";
+import { DICTIONARIES, LANGUAGES, useT, type MessageKey } from "./i18n";
 import {
   ChevronIcon,
   CloseIcon,
@@ -70,14 +70,21 @@ import {
   scopeForFolder,
   type NotesScope,
 } from "./notesScope";
-import { SharedNotesDialog } from "./SharedNotesDialog";
+import { SharedNotesDialog, type SharedDialogMode } from "./SharedNotesDialog";
 import {
+  asksTeam,
   isShared,
   parseSharedStatus,
+  parseTeamNotes,
   sharedFolder,
   sharedHints,
   sharedLine,
+  sharedTeamLine,
+  sharedWritable,
+  teamProjectName,
+  type SharedAction,
   type SharedStatus,
+  type TeamNotes,
 } from "./sharedNotes";
 import {
   appendCapture,
@@ -127,6 +134,10 @@ interface Props {
   request: NotesRequest | null;
   /** Goes up when notes changed elsewhere (the other window): reload. */
   refreshToken: number;
+  /** Names of the signed-in person's projects by id, for the shared notes' team lines. */
+  projectNames: ReadonlyMap<string, string>;
+  /** Grows with every team change: the shared notes' state may have changed (a key arrived). */
+  teamRevision: number;
   handle: React.RefObject<NotesHandle | null>;
   onSend: (text: string, sessionId: number | null) => void;
   /** Notes of `folder` were created, changed, renamed or deleted. */
@@ -140,6 +151,13 @@ const SAVE_DELAY_MS = 500;
 const STATS_DELAY_MS = 250;
 const SEARCH_DELAY_MS = 200;
 const TOAST_MS = 6000;
+/** The button of a Shared group line, by its one action. */
+const ACTION_LABELS: Record<SharedAction, MessageKey> = {
+  turnOn: "sharedNotes.turnOn",
+  teamOn: "sharedNotes.turnOn",
+  unlock: "sharedNotes.unlock",
+  link: "sharedNotes.link",
+};
 /** Rows of the list whose excerpt is read; the rest show the title only. */
 const DETAIL_LIMIT = 60;
 
@@ -205,6 +223,7 @@ interface TrashRow extends TrashItem {
  */
 export function NotesPanel(props: Props) {
   const { language, sessionFolder, folders, sessions, request, refreshToken } = props;
+  const { projectNames, teamRevision } = props;
   const t = useT();
   const now = useClock(30_000);
   const sharedHeadId = useId();
@@ -239,11 +258,19 @@ export function NotesPanel(props: Props) {
   const [error, setError] = useState<string | null>(null);
   const [announcement, setAnnouncement] = useState("");
   /** Shared group of the shown project; `null` while unknown or without a project. */
-  const [shared, setShared] = useState<{ project: string; status: SharedStatus } | null>(null);
+  /** `team`: the team the shared notes belong to or would be shared with, `null` for none. */
+  const [shared, setShared] = useState<{
+    project: string;
+    status: SharedStatus;
+    team: TeamNotes | null;
+  } | null>(null);
   const [sharedDialog, setSharedDialog] = useState<{
-    mode: "setup" | "unlock";
+    mode: SharedDialogMode;
     folder: NoteFolder;
   } | null>(null);
+  /** "Link this folder" is on its way; its error stays next to the button until the next try. */
+  const [linking, setLinking] = useState(false);
+  const [linkError, setLinkError] = useState<{ project: string; message: string } | null>(null);
 
   const currentRef = useRef<Current | null>(null);
   const textRef = useRef("");
@@ -295,6 +322,14 @@ export function NotesPanel(props: Props) {
   const project = projectFolder(scope, sessionFolder);
   const projectId = project === null ? null : folderId(project);
   const sharedStatus = shared !== null && shared.project === projectId ? shared.status : null;
+  const sharedTeam = shared !== null && shared.project === projectId ? shared.team : null;
+  const writable = sharedWritable(sharedStatus);
+  /** The open shared note can be read but not saved: the team's notes key is being renewed. */
+  const paused =
+    current !== null &&
+    isShared(current.folder) &&
+    sharedStatus?.state === "unlocked" &&
+    sharedStatus.renewing;
   const sharedPath =
     project !== null && sharedStatus?.state === "unlocked" ? project.path : undefined;
   const listFolders = useMemo(
@@ -311,8 +346,8 @@ export function NotesPanel(props: Props) {
   const switchShown = sideSwitchShown(projectId !== null, sharedStatus);
   const side = effectiveSide(chosenSide, projectId !== null, sharedStatus);
   const privateTarget = newNoteFolder(scope, sessionFolder);
-  /** Where a new note goes; `null` on a Shared side that is locked or off. */
-  const newTarget = newNoteTarget(side, privateTarget, sharedTarget);
+  /** Where a new note goes; `null` on a Shared side that is locked, off or paused (key renewal). */
+  const newTarget = newNoteTarget(side, privateTarget, writable ? sharedTarget : null);
 
   useEffect(() => {
     contextRef.current = {
@@ -362,10 +397,17 @@ export function NotesPanel(props: Props) {
     sharedBusy.current = true;
     api
       .sharedNotesStatus(project, t("sharedNotes.otherVersion"), t("notes.untitled"))
-      .then((value) => {
+      .then(async (value) => {
         const status = parseSharedStatus(value);
         if (status === null) return;
-        setShared({ project: projectId, status });
+        // Status and team arrive together, so a team line never flashes the solo setup first.
+        const team = asksTeam(status)
+          ? await api
+              .sharedNotesTeam(project)
+              .then(parseTeamNotes)
+              .catch(() => null)
+          : null;
+        setShared({ project: projectId, status, team });
         if (status.state === "unlocked") {
           // A pull or a resolved conflict may have changed the files: list them again.
           setSharedTick((tick) => tick + 1);
@@ -375,7 +417,7 @@ export function NotesPanel(props: Props) {
       })
       .catch(() => {
         // Without an answer the panel shows the private notes as before.
-        setShared({ project: projectId, status: { state: "unavailable" } });
+        setShared({ project: projectId, status: { state: "unavailable" }, team: null });
       })
       .finally(() => {
         sharedBusy.current = false;
@@ -392,13 +434,15 @@ export function NotesPanel(props: Props) {
     loadSharedRef.current = loadShared;
   }, [loadShared]);
 
+  // Read again on focus, on notes changed elsewhere and on every team change (a key arrived, a
+  // member left, the clone was linked): each may change the state.
   useEffect(() => {
     void Promise.resolve().then(loadShared);
     window.addEventListener("focus", loadShared);
     return () => {
       window.removeEventListener("focus", loadShared);
     };
-  }, [loadShared, refreshToken]);
+  }, [loadShared, refreshToken, teamRevision]);
 
   const flush = useCallback(async () => {
     if (saveTimer.current !== null) {
@@ -1024,6 +1068,11 @@ export function NotesPanel(props: Props) {
     if (!(target instanceof HTMLInputElement) || !target.classList.contains("md-task")) return;
     const line = Number(target.dataset["line"]);
     if (!Number.isInteger(line)) return;
+    if (paused) {
+      // The box must not look ticked when the note cannot change.
+      event.preventDefault();
+      return;
+    }
     editor.current?.toggleTask(line);
     refocusTask.current = line;
     computeStats(textRef.current, currentRef.current);
@@ -1099,7 +1148,10 @@ export function NotesPanel(props: Props) {
               run: () => void moveCurrent({ path: current.folder.path }),
             },
           ]
-        : sharedPath !== undefined && project !== null && sameFolder(current.folder, project)
+        : writable &&
+            sharedPath !== undefined &&
+            project !== null &&
+            sameFolder(current.folder, project)
           ? [
               {
                 type: "action",
@@ -1114,15 +1166,19 @@ export function NotesPanel(props: Props) {
     current?.id == null
       ? []
       : [
-          {
-            type: "action",
-            key: "rename",
-            label: t("notes.rename"),
-            shortcut: "F2",
-            run: () => {
-              setRenaming(true);
-            },
-          },
+          ...(paused
+            ? []
+            : [
+                {
+                  type: "action" as const,
+                  key: "rename",
+                  label: t("notes.rename"),
+                  shortcut: "F2",
+                  run: () => {
+                    setRenaming(true);
+                  },
+                },
+              ]),
           {
             type: "action",
             key: "copy",
@@ -1256,8 +1312,64 @@ export function NotesPanel(props: Props) {
   const sideRows = splitBySide ? onSide(rowsShown, side) : rowsShown;
   const counts = sideCounts(rowsShown);
   const sharedCounted = sharedStatus?.state === "unlocked";
-  const groupLine = sharedStatus === null ? null : sharedLine(sharedStatus);
+  const groupLine = sharedStatus === null ? null : sharedLine(sharedStatus, sharedTeam);
+  const teamLine = sharedStatus === null ? null : sharedTeamLine(sharedStatus, sharedTeam);
   const groupHints = sharedStatus === null ? [] : sharedHints(sharedStatus);
+  /** The team's project as the texts name it. */
+  const teamName = teamProjectName(
+    sharedTeam,
+    projectNames,
+    project?.path == null ? "" : folderName(project.path),
+  );
+
+  /** "Link this folder": one click, no dialog; the answer is the new state. */
+  const linkFolder = async () => {
+    if (project === null || projectId === null || linking) return;
+    setLinking(true);
+    setLinkError(null);
+    try {
+      const status = parseSharedStatus(
+        await api.sharedNotesLink(project, t("sharedNotes.otherVersion"), t("notes.untitled")),
+      );
+      if (status !== null) setShared({ project: projectId, status, team: sharedTeam });
+      // The team's facts (linked) changed too.
+      loadShared();
+    } catch (e) {
+      setLinkError({ project: projectId, message: errorText(e) });
+    }
+    setLinking(false);
+  };
+  const linkProblem = linkError?.project === projectId ? linkError.message : null;
+
+  const runGroupAction = (action: SharedAction | "shareTeam") => {
+    if (project === null) return;
+    if (action === "link") {
+      void linkFolder();
+      return;
+    }
+    const mode: SharedDialogMode = action === "turnOn" ? "setup" : action;
+    setSharedDialog({ mode, folder: project });
+  };
+
+  /** A pending key renewal is said before the notes; the other team lines follow them. */
+  const teamLineFirst = teamLine?.text === "sharedNotes.renewing";
+  const teamLineView = teamLine !== null && (
+    <p className="notes-group-note muted">
+      {teamLine.action === null ? (
+        t(teamLine.text, { project: teamName })
+      ) : (
+        <button
+          type="button"
+          className="link-button notes-team-action"
+          onClick={() => {
+            if (teamLine.action !== null) runGroupAction(teamLine.action);
+          }}
+        >
+          {t(teamLine.text, { project: teamName })}
+        </button>
+      )}
+    </p>
+  );
   const sideOptions: { value: NotesSide; label: string; title: string; count: number | null }[] = [
     {
       value: "private",
@@ -1353,7 +1465,7 @@ export function NotesPanel(props: Props) {
       ref={root}
       className="notes"
       onKeyDown={(event) => {
-        if (event.key === "F2" && view === "note" && current?.id != null) {
+        if (event.key === "F2" && view === "note" && current?.id != null && !paused) {
           event.preventDefault();
           setRenaming(true);
         }
@@ -1510,34 +1622,39 @@ export function NotesPanel(props: Props) {
                 </div>
                 {groupLine !== null && (
                   <div className="notes-group-line">
-                    <p>{t(groupLine.text)}</p>
+                    <p>{t(groupLine.text, { project: teamName })}</p>
                     {groupLine.action !== null && (
                       <button
                         type="button"
                         className="secondary-button"
+                        disabled={groupLine.action === "link" && linking}
                         onClick={() => {
-                          setSharedDialog({
-                            mode: groupLine.action === "turnOn" ? "setup" : "unlock",
-                            folder: project,
-                          });
+                          if (groupLine.action !== null) runGroupAction(groupLine.action);
                         }}
                       >
-                        {groupLine.action === "turnOn"
-                          ? t("sharedNotes.turnOn")
-                          : t("sharedNotes.unlock")}
+                        {t(ACTION_LABELS[groupLine.action])}
                       </button>
+                    )}
+                    {groupLine.action === "link" && linkProblem !== null && (
+                      <p className="error-text" role="alert">
+                        {linkProblem}
+                      </p>
                     )}
                   </div>
                 )}
                 {groupLine === null && listed && sideRows.length === 0 && sharedCounted && (
                   <div className="notes-empty">
                     <p>{t("sharedNotes.empty")}</p>
-                    <button type="button" className="primary-button" onClick={newNote}>
-                      {t("sharedNotes.new")}
-                    </button>
+                    {writable && (
+                      <button type="button" className="primary-button" onClick={newNote}>
+                        {t("sharedNotes.new")}
+                      </button>
+                    )}
                   </div>
                 )}
+                {teamLineFirst && teamLineView}
                 {sideRows.length > 0 && rowList}
+                {!teamLineFirst && teamLineView}
                 {groupHints.map((hint) => (
                   <p key={hint.key} className="notes-group-note muted">
                     {t(hint.key, hint.params)}
@@ -1647,8 +1764,12 @@ export function NotesPanel(props: Props) {
             <button
               type="button"
               className="note-title"
-              disabled={current.id === null}
-              title={current.id === null ? undefined : `${shownTitle}\n${t("notes.renameHint")}`}
+              disabled={current.id === null || paused}
+              title={
+                current.id === null || paused
+                  ? undefined
+                  : `${shownTitle}\n${t("notes.renameHint")}`
+              }
               onClick={() => {
                 setRenaming(true);
               }}
@@ -1708,6 +1829,12 @@ export function NotesPanel(props: Props) {
         </div>
       )}
 
+      {view === "note" && paused && (
+        <p className="notes-message muted" role="status">
+          {t("sharedNotes.renewing")}
+        </p>
+      )}
+
       <div className="note-body" hidden={view !== "note" || current === null}>
         {preview && (
           <div
@@ -1737,6 +1864,7 @@ export function NotesPanel(props: Props) {
             onLoaded={onEditorLoaded}
             onEscape={props.onEscape}
             editorRef={editor}
+            readOnly={paused}
           />
         </div>
         <div className="note-footer">
@@ -1841,9 +1969,12 @@ export function NotesPanel(props: Props) {
         <SharedNotesDialog
           mode={sharedDialog.mode}
           folder={sharedDialog.folder}
+          project={teamName}
           onDone={(status) => {
             setSharedDialog(null);
-            if (projectId !== null) setShared({ project: projectId, status });
+            if (projectId !== null) setShared({ project: projectId, status, team: sharedTeam });
+            // Turning team notes on or sharing with the team changes the team's facts too.
+            if (sharedDialog.mode === "teamOn" || sharedDialog.mode === "shareTeam") loadShared();
             requestAnimationFrame(() => searchInput.current?.focus());
           }}
           onClose={() => {

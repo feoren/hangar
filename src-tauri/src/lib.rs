@@ -393,12 +393,17 @@ pub fn run() -> tauri::Result<()> {
             app.manage(notes);
             // Shared project notes (ADR 0006): key rings in the keychain, trash next to the
             // private notes.
-            app.manage(project_notes::ProjectNotes::new(
+            let shared_notes = project_notes::ProjectNotes::new(
                 &local_dir,
                 std::sync::Arc::new(secrets::KeyringStore::with_service(
                     project_notes::KEYCHAIN_SERVICE,
                 )),
+            );
+            // Team vaults take their key ring from the team (ADR 0006, phase 2).
+            shared_notes.set_team(std::sync::Arc::new(
+                app.state::<team_service::TeamService>().inner().clone(),
             ));
+            app.manage(shared_notes);
             // Hook settings for cmd.exe launchers of gated agents; they hold no secret.
             let gate_dir = local_dir.join("gate");
             // The person's gate rules: local, they name this machine's
@@ -696,6 +701,10 @@ pub fn run() -> tauri::Result<()> {
             commands::shared_notes_save_code,
             commands::shared_notes_enable,
             commands::shared_notes_unlock,
+            commands::shared_notes_team,
+            commands::shared_notes_team_enable,
+            commands::shared_notes_to_team,
+            commands::shared_notes_link,
             commands::shared_notes_copy_code,
             commands::shared_notes_cancel,
             commands::open_panel_window,

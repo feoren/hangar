@@ -13,7 +13,7 @@
 //! Phase 1 is solo mode: the key ring lives in the OS keychain (service [`KEYCHAIN_SERVICE`],
 //! account `notes/<vault id>`) and in `vault.json`'s code slot under the notes recovery code,
 //! which setup shows once and which unlocks the notes on another clone. Team vaults
-//! (`"mode": "team"`) show as locked until phase 2.
+//! (`"mode": "team"`, phase 2) take their key ring from the team (module [`team`]).
 //!
 //! Hangar writes a note only when its decrypted content changed, never re-encrypts untouched
 //! notes, never commits and stages nothing except the files of a conflict it resolved. Deleting
@@ -95,8 +95,15 @@ pub enum ProjectNotesError {
     Damaged,
     #[error("These notes were made with a newer version of Hangar")]
     NewerFormat,
-    #[error("Shared notes of a team are not supported by this version of Hangar")]
+    #[error("These shared notes belong to a team; they open with the team, no code is needed")]
     TeamVault,
+    /// The team's newest key may be known to someone who left; an owner or admin renews it.
+    #[error("Waiting for an owner or admin to renew the notes key; saving is paused")]
+    Renewing,
+    #[error("This folder is not linked to a team project")]
+    NotLinked,
+    #[error(transparent)]
+    Team(#[from] crate::team::TeamError),
     #[error("Note not found")]
     UnknownNote,
     #[error("The note cannot be opened")]
@@ -160,8 +167,16 @@ fn title_error(error: NotesError) -> ProjectNotesError {
 pub enum LockReason {
     /// Solo vault without its key on this computer: "Enter the notes recovery code".
     NeedsCode,
-    /// A team vault (phase 2); no action.
+    /// A team vault of a team this person is not in; no action.
     Team,
+    /// A team vault of a team of this person, but this clone is not linked: "Link this folder".
+    Link,
+    /// A team vault whose key this computer does not have yet (connecting, confirmation,
+    /// waiting for the key); no action.
+    Waiting,
+    /// A team vault on a team server of protocol version 1; no action (owners and admins are
+    /// told to update the server).
+    OldServer,
     /// `vault.json` cannot be read; no action.
     Damaged,
 }
@@ -201,6 +216,10 @@ pub enum SharedStatus {
         unreadable: usize,
         /// Conflicts resolved by this call.
         resolved: Vec<ResolvedConflict>,
+        /// A team vault whose key is being renewed: readable, saving is refused.
+        renewing: bool,
+        /// A team vault (its key ring comes from the team); false for a solo vault.
+        team: bool,
     },
 }
 
@@ -545,6 +564,10 @@ struct Open {
     ring: KeyRing,
     project: Project,
     untitled: String,
+    /// Saving is refused (a team key being renewed).
+    stale: bool,
+    /// The last editor's name a team note carries; empty in solo mode.
+    by: String,
 }
 
 #[derive(Default)]
@@ -605,6 +628,8 @@ pub struct ProjectNotes {
     state: Arc<Mutex<State>>,
     /// Held for a whole [`ProjectNotes::status`]; never taken while `state` is held.
     resolving: Arc<Mutex<()>>,
+    /// The team side (phase 2), set once the app has it.
+    team: Arc<Mutex<Option<Arc<dyn TeamSide>>>>,
 }
 
 impl std::fmt::Debug for ProjectNotes {
@@ -724,6 +749,7 @@ impl ProjectNotes {
             trash_root: app_dir.join(notes::NOTES_DIR).join(SHARED_TRASH_DIR),
             state: Arc::default(),
             resolving: Arc::default(),
+            team: Arc::default(),
         }
     }
 
@@ -886,16 +912,29 @@ impl ProjectNotes {
             Some(VaultFile::Damaged) => return Err(ProjectNotesError::Damaged),
             Some(VaultFile::Known(vault)) => vault,
         };
-        if matches!(vault.mode, VaultMode::Team { .. }) {
-            return Err(ProjectNotesError::TeamVault);
-        }
-        let ring = self.ring(&vault.vault).ok_or(ProjectNotesError::Locked)?;
+        let (ring, stale, by) = match &vault.mode {
+            VaultMode::Team { team } => match self.open_team(&project, team) {
+                Ok((access, _)) => (
+                    access.ring.ok_or(ProjectNotesError::Locked)?,
+                    access.stale,
+                    self.person(),
+                ),
+                Err(_) => return Err(ProjectNotesError::Locked),
+            },
+            VaultMode::Solo { .. } => (
+                self.ring(&vault.vault).ok_or(ProjectNotesError::Locked)?,
+                false,
+                String::new(),
+            ),
+        };
         lock(&self.state).known.insert(vault.vault, project.clone());
         Ok(Open {
             vault,
             ring,
             project,
             untitled: self.untitled(),
+            stale,
+            by,
         })
     }
 
@@ -946,15 +985,34 @@ impl ProjectNotes {
             }
             Some(VaultFile::Known(vault)) => vault,
         };
-        if matches!(vault.mode, VaultMode::Team { .. }) {
-            return Ok(SharedStatus::Locked {
-                reason: LockReason::Team,
-            });
-        }
-        let Some(ring) = self.ring(&vault.vault) else {
-            return Ok(SharedStatus::Locked {
-                reason: LockReason::NeedsCode,
-            });
+        let (ring, stale, by) = match &vault.mode {
+            VaultMode::Team { team } => match self.open_team(&project, team) {
+                Ok((access, _)) => match access.ring {
+                    Some(ring) => (ring, access.stale, self.person()),
+                    None => {
+                        return Ok(SharedStatus::Locked {
+                            reason: LockReason::Waiting,
+                        })
+                    }
+                },
+                Err(why) => {
+                    let reason = match why {
+                        TeamLock::NotMember => LockReason::Team,
+                        TeamLock::NotLinked => LockReason::Link,
+                        TeamLock::Waiting { old_server: true } => LockReason::OldServer,
+                        TeamLock::Waiting { old_server: false } => LockReason::Waiting,
+                    };
+                    return Ok(SharedStatus::Locked { reason });
+                }
+            },
+            VaultMode::Solo { .. } => {
+                let Some(ring) = self.ring(&vault.vault) else {
+                    return Ok(SharedStatus::Locked {
+                        reason: LockReason::NeedsCode,
+                    });
+                };
+                (ring, false, String::new())
+            }
         };
         lock(&self.state).known.insert(vault.vault, project.clone());
         let open = Open {
@@ -962,6 +1020,8 @@ impl ProjectNotes {
             ring,
             project,
             untitled: self.untitled(),
+            stale,
+            by,
         };
         let conflicted: Vec<StatusEntry> = entries
             .iter()
@@ -1000,6 +1060,8 @@ impl ProjectNotes {
             ignored,
             unreadable,
             resolved,
+            renewing: open.stale,
+            team: matches!(open.vault.mode, VaultMode::Team { .. }),
         })
     }
 
@@ -1581,7 +1643,18 @@ impl ProjectNotes {
     }
 
     fn write_plain(&self, open: &Open, id: &str, plain: &Plain) -> Result<(), ProjectNotesError> {
-        let encoded = encode_plain(plain)?;
+        open.check_writable()?;
+        let encoded = if matches!(open.vault.mode, VaultMode::Team { .. }) {
+            encode_plain(&Plain {
+                meta: NoteMeta {
+                    by: open.by.clone(),
+                    ..plain.meta.clone()
+                },
+                body: plain.body.clone(),
+            })?
+        } else {
+            encode_plain(plain)?
+        };
         let sealed =
             crypto::seal_note(&open.ring, &open.vault.vault, id, &encoded, &mut OsEntropy)?;
         let path = note_file(&open.project.dir, id);
@@ -1813,18 +1886,27 @@ impl ProjectNotes {
         // One budget for the whole search, as for a scan.
         let mut budget = MAX_SCAN_BYTES;
         for (vault_id, project) in known {
-            let Some(ring) = self.ring(&vault_id) else {
-                continue;
-            };
             let vault = match Self::read_vault(&project) {
                 Ok(Some(VaultFile::Known(vault))) if vault.vault == vault_id => vault,
                 _ => continue,
+            };
+            let ring = match &vault.mode {
+                VaultMode::Team { team } => match self.open_team(&project, team) {
+                    Ok((access, _)) => access.ring,
+                    Err(_) => None,
+                },
+                VaultMode::Solo { .. } => self.ring(&vault_id),
+            };
+            let Some(ring) = ring else {
+                continue;
             };
             let open = Open {
                 vault,
                 ring,
                 project,
                 untitled: String::new(),
+                stale: true,
+                by: String::new(),
             };
             let open = Open {
                 untitled: self.untitled(),
@@ -1897,6 +1979,11 @@ pub fn move_note(
     }
     Ok(new_id)
 }
+
+mod team;
+
+use team::TeamLock;
+pub use team::{TeamNotes, TeamSide, CACHED_TEAM_KEYS};
 
 #[cfg(test)]
 mod tests;

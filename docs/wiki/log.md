@@ -1614,3 +1614,9 @@ full introduction, members one that names them. Updated: [[0014-session-links]].
 The scene `home` gave way to `link-add` (a session joins an existing link group); the overview now
 shows the main bar with the support badge, and `waiting-message` shows a group's introduction to
 its lead. Updated: [[release-rollout]].
+
+## [2026-11-22] query | Shared notes phase 2: team vaults as built
+Completed "Phase 2 as built" in [[0006-encrypted-project-notes]] (service plumbing, team vaults,
+save rule across restarts and on version 1, UI, interop against a real relay of version 2 and one
+limited to version 1; the self-hosted server gained `GET /api/v1/projects/{id}/members`).
+Updated: [[notes]] (commands, states), index.

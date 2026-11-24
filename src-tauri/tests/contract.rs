@@ -291,6 +291,11 @@ fn panel_window_capability_is_narrow() {
         "allow-shared-notes-save-code",
         "allow-shared-notes-enable",
         "allow-shared-notes-unlock",
+        // Team vaults (ADR 0006, phase 2): the panel's folder only, like the commands above.
+        "allow-shared-notes-team",
+        "allow-shared-notes-team-enable",
+        "allow-shared-notes-to-team",
+        "allow-shared-notes-link",
         "allow-shared-notes-copy-code",
         "allow-shared-notes-cancel",
         "allow-git-diff",

@@ -15,6 +15,8 @@ interface Props {
   onLoaded: (loadKey: string) => void;
   /** Receives the editor once it is ready, `null` when it is gone. */
   editorRef: React.RefObject<MarkdownEditor | null>;
+  /** The text can be read but not changed (shared notes while their key is renewed). */
+  readOnly?: boolean;
 }
 
 /**
@@ -23,6 +25,7 @@ interface Props {
  */
 export function NoteEditor(props: Props) {
   const { loadKey, text, label, onChange, onSelection, onEscape, onLoaded, editorRef } = props;
+  const readOnly = props.readOnly === true;
   const t = useT();
   const host = useRef<HTMLDivElement>(null);
   const [failed, setFailed] = useState(false);
@@ -81,6 +84,10 @@ export function NoteEditor(props: Props) {
     editorRef.current?.load(latest.current.text, latest.current.label);
     latest.current.onLoaded(loadKey);
   }, [loadKey, ready, editorRef]);
+
+  useEffect(() => {
+    if (ready) editorRef.current?.setReadOnly(readOnly);
+  }, [readOnly, ready, editorRef]);
 
   if (failed) return <p className="notes-message error-text">{t("notes.editorFailed")}</p>;
   return (

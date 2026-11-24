@@ -48,6 +48,13 @@ pub struct NotesKeysView {
     /// not from the connection, so neither a relay that withholds the record or speaks version 1
     /// nor a status that waits for the key change turns it off.
     pub renewing: bool,
+    /// The newest epoch under which the ring's newest key was confirmed (`None`: not in this
+    /// run). The app keeps it with its keychain cache, so the save rule holds across restarts.
+    pub fresh: Option<Epoch>,
+    /// The verified log's current epoch, once this run verified the log (any protocol version).
+    pub log_epoch: Option<Epoch>,
+    /// The verified log names a removal whose rotation has not landed yet.
+    pub urgent: bool,
 }
 
 /// What became of the record the relay showed on this connection.
@@ -148,6 +155,15 @@ impl Engine {
             },
             manager: self.manages(),
             renewing,
+            fresh: self.notes.fresh,
+            log_epoch: self
+                .verifier
+                .state()
+                .and_then(|state| state.current_epoch().map(|e| e.epoch)),
+            urgent: self
+                .verifier
+                .state()
+                .is_some_and(|state| state.rotation_urgent()),
         }
     }
 

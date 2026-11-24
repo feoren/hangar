@@ -4,7 +4,7 @@ type: synthesis
 tags: [notes, contract]
 sources: ["[[notes-and-start-usability]]", "[[note-gitattributes-measurement]]"]
 created: 2026-11-07
-updated: 2026-11-15
+updated: 2026-11-22
 ---
 
 # Notes (contract)
@@ -166,7 +166,7 @@ Capabilities:
   without a word, the main window finds out on focus (`Window.getByLabel`), and on quit it does
   not wait for a window that is gone.
 
-## Shared notes (ADR 0006, phase 1)
+## Shared notes (ADR 0006, phases 1 and 2)
 Decision: [[0006-encrypted-project-notes]]. Code: `src-tauri/src/project_notes.rs` (app),
 `crates/hangar-team-crypto/src/notes.rs` (formats), `src/sharedNotes.ts` and
 `src/SharedNotesDialog.tsx` (window).
@@ -192,15 +192,23 @@ the shared notes of every project unlocked in this run, decrypted in memory; suc
 | `shared_notes_enable` | `folder`, `label`, `untitled` | `SharedStatus`; stores the key ring in the keychain, writes `.gitattributes`, `README.md`, `vault.json`; stages nothing |
 | `shared_notes_unlock` | `folder`, `code`, `label`, `untitled` | `{ outcome: "unlocked", status } \| { outcome: "wrongCode" \| "typo" \| "teamCode" }` |
 | `move_note` | `from`, `id`, `to` | `string`: the new id; created in `to`, the source goes to its trash |
+| `shared_notes_team` | `folder` | `TeamNotes \| null`: the team of a team vault (by its hint), else the team that links this clone |
+| `shared_notes_team_enable` | `folder`, `label`, `untitled` | `SharedStatus`; owner or admin of the linked team on a relay of version 2: the relay stores the team's ring first (at most 20 s), then the files are written; no code |
+| `shared_notes_to_team` | `folder`, `label`, `untitled` | `SharedStatus`; an unlocked solo vault joins the linked team: `vault.json` becomes a team vault without `codeSlot` only after the relay stored the ring |
+| `shared_notes_link` | `folder`, `label`, `untitled` | `SharedStatus`; links the main worktree of a team vault to the team its hint names, also without a running session there |
 
 ```ts
 type SharedStatus =
   | { state: "unavailable" }                       // no Git repository: no Shared group
   | { state: "off" }                               // setup line with "Turn on"
-  | { state: "locked"; reason: "needsCode" | "team" | "damaged" } // "Enter code" only for needsCode
+  | { state: "locked"; reason: "needsCode" | "team" | "damaged" | "link" | "waiting" | "oldServer" }
+                                                   // "Enter code" only for needsCode, "Link" only for link
   | { state: "newerFormat" }                       // no action
   | { state: "unlocked"; uncommitted: number; ignored: boolean; unreadable: number;
-      resolved: { title: string; copy: string | null }[] };
+      resolved: { title: string; copy: string | null }[]; renewing: boolean; team: boolean };
+
+type TeamNotes = { project: string; manager: boolean; speaks: boolean | null;
+                   linked: boolean; exists: boolean | null };
 ```
 
 - `label`: the window's word for "other version" (at most 40 characters, no control characters,
@@ -229,3 +237,9 @@ notes. Without the switch (no project, no Git repository) search shows shared hi
 icon. A note's
 More menu offers "Move to shared notes" or "Move to this computer". Setup is one dialog: the code,
 Copy, Save as file, "I saved the code", and "Turn on" only after that box is ticked.
+
+Team vaults (phase 2, code in `src-tauri/src/project_notes/team.rs`): the key ring comes from the
+team ([[0006-encrypted-project-notes]], "Phase 2 design" and "Phase 2 as built"). `waiting`
+means the clone is linked but this computer has no key yet, `oldServer` a team server of
+protocol version 1. While `renewing` is true every save, create, rename and restore answers
+"Waiting for an owner or admin to renew the notes key; saving is paused"; reading goes on.

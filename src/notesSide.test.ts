@@ -25,6 +25,8 @@ const unlocked: SharedStatus = {
   ignored: false,
   unreadable: 0,
   resolved: [],
+  renewing: false,
+  team: false,
 };
 const locked: SharedStatus = { state: "locked", reason: "needsCode" };
 

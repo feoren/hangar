@@ -189,6 +189,10 @@ export interface PanelContext {
   claims: ClaimsSnapshot;
   /** Shared projects by id, trimmed to what the tabs read (avatars, teammates' overlaps). */
   activities: ReadonlyMap<string, TeamActivity>;
+  /** Names of the signed-in person's projects by id, for the shared notes' team lines. */
+  projectNames: ReadonlyMap<string, string>;
+  /** Grows with every `team-changed` the main window hears; the notes read their state again. */
+  teamRevision: number;
 }
 
 export const EMPTY_PANEL_CONTEXT: PanelContext = {
@@ -198,6 +202,8 @@ export const EMPTY_PANEL_CONTEXT: PanelContext = {
   sessions: [],
   claims: EMPTY_CLAIMS,
   activities: new Map(),
+  projectNames: new Map(),
+  teamRevision: 0,
 };
 
 /** The `panel-context` event's payload: plain JSON, no maps. */
@@ -208,6 +214,8 @@ export interface PanelContextPayload {
   sessions: readonly PanelSession[];
   claims: ClaimsSnapshot;
   teams: { projectId: string; activity: TeamActivity }[];
+  projects: { id: string; name: string }[];
+  teamRevision: number;
 }
 
 /** The `panel-context` payload, team activities trimmed to what the tabs read. */
@@ -227,7 +235,24 @@ export function panelContextPayload(context: PanelContext): PanelContextPayload 
         sessionRepos: activity.sessionRepos,
       },
     })),
+    projects: [...context.projectNames].map(([id, name]) => ({ id, name })),
+    teamRevision: context.teamRevision,
   };
+}
+
+function parseProjectNames(value: unknown): Map<string, string> | null {
+  if (!Array.isArray(value)) return null;
+  const names = new Map<string, string>();
+  for (const item of value) {
+    const entry = record(item);
+    if (!entry) return null;
+    const id = field(entry, "id");
+    const name = field(entry, "name");
+    if (typeof id !== "string" || id === "" || typeof name !== "string") return null;
+    if (names.has(id)) return null;
+    names.set(id, name);
+  }
+  return names;
 }
 
 function parseSessions(value: unknown): PanelSession[] | null {
@@ -276,11 +301,17 @@ export function parsePanelContext(payload: unknown): PanelContext | null {
   const sessions = parseSessions(field(value, "sessions"));
   const claims = parseClaimsSnapshot(field(value, "claims"));
   const activities = parseTeams(field(value, "teams"));
+  const projectNames = parseProjectNames(field(value, "projects"));
+  const teamRevision = field(value, "teamRevision");
   if (activeId !== null && !isId(activeId)) return null;
   if (cwd !== null && (typeof cwd !== "string" || cwd === "")) return null;
   if (typeof trigger !== "string" || trigger.length > MAX_TRIGGER) return null;
   if (sessions === null || claims === null || activities === null) return null;
-  return { activeId, cwd, trigger, sessions, claims, activities };
+  if (projectNames === null) return null;
+  if (typeof teamRevision !== "number" || !Number.isInteger(teamRevision) || teamRevision < 0) {
+    return null;
+  }
+  return { activeId, cwd, trigger, sessions, claims, activities, projectNames, teamRevision };
 }
 
 /** Name for the claims texts; a closed session keeps its number (as in the main window). */

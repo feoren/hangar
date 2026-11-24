@@ -30,6 +30,11 @@ export interface TeamStore {
   pending: PendingConfirmation[];
   /** Project ids, request ids and link keys (`linkKey`) with a command on its way. */
   busy: ReadonlySet<string>;
+  /**
+   * Grows with every `team-changed`, for views that read team facts through other commands
+   * (the shared notes' state changes when the team's notes key arrives).
+   */
+  revision: number;
 }
 
 let store: TeamStore = {
@@ -38,6 +43,7 @@ let store: TeamStore = {
   repos: [],
   pending: [],
   busy: new Set(),
+  revision: 0,
 };
 const listeners = new Set<() => void>();
 let started = false;
@@ -102,6 +108,7 @@ function start(): void {
   try {
     // A signal only: the snapshot comes through a command only the main window may call.
     listen(TEAM_CHANGED, () => {
+      update({ revision: store.revision + 1 });
       loadSnapshot();
     }).catch(() => undefined);
   } catch {

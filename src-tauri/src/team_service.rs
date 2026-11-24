@@ -49,11 +49,12 @@ use crate::team::{
     LinkedRepo, LocalState, Next, PendingConfirmation, ReconnectPolicy, SessionEnd, StopReason,
     StoredDevice, StoredKeys, TeamConfig, TeamEntry, TeamError, TeamSnapshot, TeamStatus, Timing,
 };
-use crate::team_engine::{self, Effect, Engine, EngineSetup, WebsiteMember};
+use crate::team_engine::{self, Effect, Engine, EngineSetup, NotesKeysView, WebsiteMember};
 use crate::team_share::{
     self, LocalSession, LocalShare, SessionLabel, SessionState, TeamActivity, TeammateFile,
 };
 use crate::team_tasks::TeamTask;
+use hangar_team_crypto::notes::KeyRing;
 
 /// Where this device's sessions come from: the claims' worktrees and the session list.
 pub type LocalSource = Box<dyn Fn() -> (Arc<Vec<WorktreeClaims>>, Vec<SessionLabel>) + Send + Sync>;
@@ -109,7 +110,24 @@ enum Command {
     AskRelease(String, oneshot::Sender<Result<(), TeamError>>),
     /// Task, the requester the card showed, accept.
     AnswerRelease(String, String, bool, oneshot::Sender<Result<(), TeamError>>),
+    /// Turns shared notes on for the team, or brings a solo vault's key ring in (ADR 0006,
+    /// phase 2); answered once the relay stored the ring (`Engine::take_notes_outcome`).
+    NotesEnable(Option<KeyRing>, oneshot::Sender<Result<(), TeamError>>),
     Stop,
+}
+
+/// How long the window waits for the relay to store a notes key ring.
+const NOTES_ENABLE_TIMEOUT: Duration = Duration::from_secs(20);
+
+/// A team of the current server with sharing on, as shared notes see it.
+#[derive(Debug, Clone)]
+pub struct NotesTeam {
+    pub project: String,
+    /// The per server and project key (`team::team_key`): names the keychain cache.
+    pub key: String,
+    pub linked: Vec<LinkedRepo>,
+    /// The running worker's view of the notes key ring; `None` while no engine runs.
+    pub view: Option<NotesKeysView>,
 }
 
 /// A task to reserve, as the window names it.
@@ -136,6 +154,8 @@ struct Team {
     tasks: Vec<TeamTask>,
     /// The share last handed to the worker.
     shared: Option<LocalShare>,
+    /// The notes key ring as the running worker sees it.
+    notes: Option<NotesKeysView>,
     tx: Option<mpsc::UnboundedSender<Command>>,
     worker: Option<tauri::async_runtime::JoinHandle<()>>,
     /// Rises with every start, so an ended worker does not overwrite a newer one's status.
@@ -516,6 +536,85 @@ impl TeamService {
             .collect()
     }
 
+    /// The running team's view of its notes key ring; `None` while no worker runs for it.
+    pub fn notes_keys(&self, project: &str) -> Option<NotesKeysView> {
+        let key = (self.base(), project.to_owned());
+        lock(&self.inner.teams)
+            .get(&key)
+            .and_then(|team| team.notes.clone())
+    }
+
+    /// Every team of the current server with sharing on, for shared notes: which vault belongs
+    /// to which team, whether the clone is linked, and the key ring the worker holds.
+    pub fn notes_teams(&self) -> Vec<NotesTeam> {
+        let base = self.base();
+        let config = self.config().unwrap_or_default();
+        let teams = lock(&self.inner.teams);
+        self.enabled(&base)
+            .into_iter()
+            .map(|project| NotesTeam {
+                key: team_key(&base, &project),
+                linked: config.linked(self.service_name(), &base, &project).to_vec(),
+                view: teams
+                    .get(&(base.clone(), project.clone()))
+                    .and_then(|team| team.notes.clone()),
+                project,
+            })
+            .collect()
+    }
+
+    /// Turns shared notes on for `project`, or brings a solo vault's ring in (`adopt`); returns
+    /// once the relay stored the ring, or with the reason it did not.
+    pub async fn notes_enable(
+        &self,
+        project: &str,
+        adopt: Option<KeyRing>,
+    ) -> Result<(), TeamError> {
+        let tx = self.team_tx(project)?;
+        let answer = tokio::time::timeout(
+            NOTES_ENABLE_TIMEOUT,
+            Self::send_command(tx, move |reply| Command::NotesEnable(adopt, reply)),
+        )
+        .await;
+        match answer {
+            Ok(result) => result,
+            Err(_) => Err(TeamError::Busy),
+        }
+    }
+
+    /// Links the clone at `folder` (a repository folder this app found itself, such as a main
+    /// worktree with shared notes) to `project`, also without a running session there. The
+    /// name shown for it is the folder's name.
+    pub fn link_folder(&self, project: &str, root: &str, folder: &str) -> Result<(), TeamError> {
+        TeamId::new(project).map_err(|_| TeamError::UnknownProject)?;
+        let base = self.base();
+        if !self.enabled(&base).iter().any(|p| p == project) {
+            return Err(TeamError::UnknownProject);
+        }
+        if self
+            .linked(&base, project)
+            .iter()
+            .any(|r| r.shares(root, folder))
+        {
+            return Ok(());
+        }
+        let name = std::path::Path::new(folder)
+            .file_name()
+            .map(|n| n.to_string_lossy().into_owned())
+            .filter(|n| !n.is_empty())
+            .unwrap_or_else(|| folder.to_owned());
+        let repo = LinkedRepo {
+            root: root.to_owned(),
+            folder: Some(folder.to_owned()),
+            name,
+        };
+        let service = self.service_name().to_owned();
+        self.update_config(|config| config.link(&service, &base, project, &repo, true))?;
+        self.reshare();
+        self.publish();
+        Ok(())
+    }
+
     /// Reserves a task in a shared project ("I'm working on ..."); the relay decides who holds
     /// it, the Team view shows the outcome.
     pub async fn reserve_task(&self, project: &str, task: Task) -> Result<(), TeamError> {
@@ -810,6 +909,7 @@ impl TeamService {
                     files: Vec::new(),
                     tasks: Vec::new(),
                     shared: None,
+                    notes: None,
                     tx: None,
                     worker: None,
                     run,
@@ -838,6 +938,7 @@ impl TeamService {
             policy: ReconnectPolicy::default(),
             _lock: None,
             writer_closed: false,
+            notes_reply: None,
         };
         let handle = tauri::async_runtime::spawn(worker.run());
         if let Some(team) = lock(&self.inner.teams).get_mut(&(base.to_owned(), project.to_owned()))
@@ -935,7 +1036,11 @@ impl TeamService {
                     team.activity = view.activity;
                     team.files = view.files;
                     team.tasks = view.tasks;
-                    changed
+                    // A ring that arrives or a renewal that ends changes what the notes show.
+                    let notes_changed = notes_signature(team.notes.as_ref())
+                        != notes_signature(view.notes.as_ref());
+                    team.notes = view.notes;
+                    changed || notes_changed
                 }
                 _ => false,
             }
@@ -987,6 +1092,7 @@ impl TeamService {
 
 /// What a worker shows of its team.
 struct View {
+    notes: Option<NotesKeysView>,
     status: TeamStatus,
     pending: Vec<PendingConfirmation>,
     activity: TeamActivity,
@@ -1010,6 +1116,8 @@ struct Worker {
     writer_closed: bool,
     /// The team's lock file, held while this worker runs (closing it releases the lock).
     _lock: Option<std::fs::File>,
+    /// The window waits for a notes turn-on request.
+    notes_reply: Option<oneshot::Sender<Result<(), TeamError>>>,
 }
 
 type Writer = futures_util::stream::SplitSink<crate::team_relay::Socket, Message>;
@@ -1036,6 +1144,7 @@ impl Worker {
     fn view(&self) {
         let view = match &self.engine {
             Some(engine) => View {
+                notes: Some(engine.notes_view()),
                 status: engine.status(self.policy.retrying()),
                 pending: engine.pending(),
                 activity: engine.activity(),
@@ -1043,6 +1152,7 @@ impl Worker {
                 tasks: engine.team_tasks(),
             },
             None => View {
+                notes: None,
                 status: TeamStatus::Connecting {
                     retrying: self.policy.retrying(),
                 },
@@ -1062,6 +1172,7 @@ impl Worker {
             &self.project,
             self.run,
             View {
+                notes: None,
                 status,
                 pending: Vec::new(),
                 activity: TeamActivity::default(),
@@ -1216,6 +1327,10 @@ impl Worker {
             | Command::AskRelease(_, reply)
             | Command::AnswerRelease(_, _, _, reply) => {
                 let _ = reply.send(Err(TeamError::Busy));
+                false
+            }
+            Command::NotesEnable(_, reply) => {
+                let _ = reply.send(Err(TeamError::NotesNotReady));
                 false
             }
         }
@@ -1619,6 +1734,17 @@ impl Worker {
             Command::AnswerRelease(task, requester, accept, reply) => {
                 (engine.answer_release(&task, &requester, accept), reply)
             }
+            Command::NotesEnable(adopt, reply) => match engine.notes_enable(adopt) {
+                Ok(effects) => {
+                    // Answered by `apply` once the engine has an outcome.
+                    self.notes_reply = Some(reply);
+                    return self.apply(writer, effects).await;
+                }
+                Err(error) => {
+                    let _ = reply.send(Err(error));
+                    return None;
+                }
+            },
         };
         match effects {
             Ok(effects) => {
@@ -1797,9 +1923,66 @@ impl Worker {
                 }
             }
         }
-        if changed {
+        let outcome = self.engine.as_mut().and_then(Engine::take_notes_outcome);
+        // The view goes out before the answer: the waiting caller reads the stored ring from the
+        // service's view as soon as it wakes.
+        if changed || outcome.is_some() {
             self.view();
+        }
+        if let Some(outcome) = outcome {
+            if let Some(reply) = self.notes_reply.take() {
+                let _ = reply.send(outcome);
+            }
         }
         result
     }
+}
+
+impl crate::project_notes::TeamSide for TeamService {
+    fn teams(&self) -> Vec<NotesTeam> {
+        self.notes_teams()
+    }
+
+    fn enable(&self, project: &str, adopt: Option<KeyRing>) -> Result<(), TeamError> {
+        tauri::async_runtime::block_on(self.notes_enable(project, adopt))
+    }
+
+    fn link(&self, project: &str, root: &str, folder: &str) -> Result<(), TeamError> {
+        self.link_folder(project, root, folder)
+    }
+
+    fn person(&self) -> String {
+        TeamService::person(self)
+    }
+}
+
+/// What of a notes view the window shows, to tell when it changed: the ring by its key ids and
+/// everything the save rule reads (`fresh`, `log_epoch`, `urgent`).
+#[derive(PartialEq, Eq)]
+struct NotesSignature {
+    ids: Vec<String>,
+    renewing: bool,
+    manager: bool,
+    speaks: Option<bool>,
+    exists: Option<bool>,
+    fresh: Option<u32>,
+    log_epoch: Option<u32>,
+    urgent: bool,
+}
+
+fn notes_signature(view: Option<&NotesKeysView>) -> Option<NotesSignature> {
+    view.map(|v| NotesSignature {
+        ids: v
+            .ring
+            .as_ref()
+            .map(|r| r.ids().iter().map(|id| id.to_hex()).collect())
+            .unwrap_or_default(),
+        renewing: v.renewing,
+        manager: v.manager,
+        speaks: v.speaks,
+        exists: v.exists,
+        fresh: v.fresh.map(|e| e.0),
+        log_epoch: v.log_epoch.map(|e| e.0),
+        urgent: v.urgent,
+    })
 }

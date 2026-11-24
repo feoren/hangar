@@ -12,11 +12,18 @@ import {
   type SharedStatus,
 } from "./sharedNotes";
 
+/**
+ * "setup": turn solo shared notes on (with a code); "unlock": type the notes recovery code;
+ * "teamOn": turn team notes on (no code); "shareTeam": share the unlocked solo notes with the team.
+ */
+export type SharedDialogMode = "setup" | "unlock" | "teamOn" | "shareTeam";
+
 interface Props {
-  /** "setup": turn shared notes on; "unlock": type the notes recovery code. */
-  mode: "setup" | "unlock";
+  mode: SharedDialogMode;
   /** The working folder (private form, `{ path }`). */
   folder: NoteFolder;
+  /** The team's project as the texts name it (team modes). */
+  project: string;
   onDone: (status: SharedStatus) => void;
   onClose: () => void;
 }
@@ -24,9 +31,81 @@ interface Props {
 /**
  * The one dialog of shared notes. Setup shows the notes recovery code once with Copy and Save,
  * and "Turn on" works only after "I saved the code" (owner decision: the code is mandatory).
- * Unlock takes the code and says in one line what was wrong with it.
+ * Unlock takes the code and says in one line what was wrong with it. The team modes need no
+ * code: one sentence says who can read the notes, one button confirms.
  */
-export function SharedNotesDialog({ mode, folder, onDone, onClose }: Props) {
+export function SharedNotesDialog(props: Props) {
+  if (props.mode === "teamOn" || props.mode === "shareTeam") {
+    return <TeamDialog {...props} mode={props.mode} />;
+  }
+  return <CodeDialog {...props} mode={props.mode} />;
+}
+
+/** Turns team notes on or shares solo notes with the team; the relay may take up to 20 s. */
+function TeamDialog({
+  mode,
+  folder,
+  project,
+  onDone,
+  onClose,
+}: Props & { mode: "teamOn" | "shareTeam" }) {
+  const t = useT();
+  const titleId = useId();
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const label = t("sharedNotes.otherVersion");
+  const untitled = t("notes.untitled");
+  const sharing = mode === "shareTeam";
+
+  const confirm = async () => {
+    setBusy(true);
+    setError(null);
+    try {
+      const value = sharing
+        ? await api.sharedNotesToTeam(folder, label, untitled)
+        : await api.sharedNotesTeamEnable(folder, label, untitled);
+      const status = parseSharedStatus(value);
+      if (status) onDone(status);
+      else onClose();
+    } catch (e) {
+      setError(errorText(e));
+      setBusy(false);
+    }
+  };
+
+  return (
+    <Dialog labelledBy={titleId} className="shared-notes-dialog" onClose={onClose}>
+      <h2 id={titleId}>
+        {sharing ? t("sharedNotes.shareLine", { project }) : t("sharedNotes.setupTitle")}
+      </h2>
+      <p>{t(sharing ? "sharedNotes.shareBody" : "sharedNotes.teamOnBody", { project })}</p>
+      <p className="muted" role="status">
+        {busy ? t("sharedNotes.teamWorking") : ""}
+      </p>
+      {error && (
+        <p className="error-text" role="alert">
+          {error}
+        </p>
+      )}
+      <div className="dialog-actions">
+        <button type="button" className="secondary-button" onClick={onClose}>
+          {t("common.cancel")}
+        </button>
+        <button
+          type="button"
+          className="primary-button"
+          disabled={busy}
+          data-autofocus
+          onClick={() => void confirm()}
+        >
+          {sharing ? t("sharedNotes.shareButton") : t("sharedNotes.turnOn")}
+        </button>
+      </div>
+    </Dialog>
+  );
+}
+
+function CodeDialog({ mode, folder, onDone, onClose }: Props & { mode: "setup" | "unlock" }) {
   const t = useT();
   const titleId = useId();
   const [code, setCode] = useState<string | null>(null);

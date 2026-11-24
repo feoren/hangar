@@ -455,6 +455,7 @@ import { SubAgentPane } from "./SubAgentPane";
 import { crewWatchWanted, waitingSubAgents, waitsForDecision } from "./crew";
 import { useUpdater } from "./useUpdater";
 import { useClaims } from "./useClaims";
+import { projectNamesOf } from "./sharedNotes";
 import { useTeam } from "./useTeam";
 import { TeamWindow } from "./TeamWindow";
 import {
@@ -1908,6 +1909,9 @@ export function App() {
   // Shared projects (team service step F part 2b): the teammates' sessions that collide with
   // ours join the same marker, Changes block and one-time notice as the user's own sessions.
   const teamStore = useTeam();
+  const accountProjects = useAccount().projects;
+  /** Project names by id, for the shared notes' team lines (here and in the detached panel). */
+  const projectNames = useMemo(() => projectNamesOf(accountProjects), [accountProjects]);
   /** This device's sessions for the Files tab: names, programs and repositories. */
   const localSessions = useMemo(
     () => localSessionsOf(state.sessions, profiles),
@@ -3916,6 +3920,7 @@ export function App() {
       .catch(() => undefined);
   }, []);
   const teamActivities = teamStore.activities;
+  const teamRevision = teamStore.revision;
   useEffect(() => {
     if (!panelWindow.detached) return;
     pushPanelContext(
@@ -3926,6 +3931,8 @@ export function App() {
         sessions: panelSessions,
         claims,
         activities: teamActivities,
+        projectNames,
+        teamRevision,
       },
       false,
     );
@@ -3937,6 +3944,8 @@ export function App() {
     panelSessions,
     claims,
     teamActivities,
+    projectNames,
+    teamRevision,
     pushPanelContext,
   ]);
   useEffect(() => {
@@ -3949,6 +3958,8 @@ export function App() {
           sessions: panelSessions,
           claims,
           activities: teamActivities,
+          projectNames,
+          teamRevision,
         },
         true,
       );
@@ -7374,6 +7385,8 @@ export function App() {
                     activeSessionId={state.activeId}
                     request={notesRequest}
                     refreshToken={notesRefresh}
+                    projectNames={projectNames}
+                    teamRevision={teamRevision}
                     handle={notesHandle}
                     onSend={sendFromNotes}
                     onChanged={notesChangedHere}

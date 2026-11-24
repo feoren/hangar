@@ -7118,6 +7118,14 @@ label.setting-line:hover {
   padding: 2px 14px 10px;
 }
 
+/* A quiet offer under the shared notes ("Share with ..."): text that reads as a link. */
+.notes-team-action {
+  padding-inline: 0;
+  text-align: start;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
 .note-row-lock {
   display: inline-flex;
   flex: none;

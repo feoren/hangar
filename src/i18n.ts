@@ -2379,8 +2379,7 @@ const de = {
   "sharedNotes.turnOn": "Einschalten",
   "sharedNotes.lockedLine": "Die geteilten Notizen sind auf diesem Computer gesperrt.",
   "sharedNotes.unlock": "Code eingeben",
-  "sharedNotes.teamLocked":
-    "Diese geteilten Notizen gehören einem Team. Diese Hangar-Version kann sie noch nicht öffnen.",
+  "sharedNotes.teamLocked": "Geteilte Notizen eines Teams, in dem du nicht bist.",
   "sharedNotes.damaged": "Die Datei vault.json ist beschädigt. Hol sie aus dem Git-Verlauf zurück.",
   "sharedNotes.newerFormat":
     "Mit einer neueren Hangar-Version erstellt. Aktualisiere Hangar, um sie zu öffnen.",
@@ -2420,6 +2419,25 @@ const de = {
     "Speichere den Code nicht in einem Repository, sonst landet er womöglich in einem Commit. Wähle einen anderen Ordner.",
   "sharedNotes.codeChanged":
     "Der Code wurde neu erzeugt. Sichere diesen neuen Code und schalte dann ein.",
+  "sharedNotes.linkLine": "Diese Notizen gehören zu {project}.",
+  "sharedNotes.link": "Diesen Ordner verknüpfen",
+  "sharedNotes.waiting":
+    "Geteilte Notizen öffnen sich, sobald dieser Computer mit {project} verbunden ist.",
+  "sharedNotes.oldServer": "Geteilte Team-Notizen brauchen einen neueren Teamserver.",
+  "sharedNotes.renewing":
+    "Der Schlüssel wird gerade erneuert. Speichern ist pausiert, bis ein Inhaber oder Admin ihn erneuert hat.",
+  "sharedNotes.teamOffLine": "Teile Notizen verschlüsselt mit allen in {project}.",
+  "sharedNotes.askManager":
+    "Bitte einen Inhaber oder Admin von {project}, geteilte Notizen einzuschalten.",
+  "sharedNotes.updateServer":
+    "Aktualisiere den Teamserver, dann teilst du diese Notizen mit {project} ohne Code.",
+  "sharedNotes.shareLine": "Mit {project} teilen",
+  "sharedNotes.shareBody":
+    "Alle in {project} können diese Notizen dann lesen, auch wer später dazukommt. Ein Code ist nicht nötig.",
+  "sharedNotes.shareButton": "Teilen",
+  "sharedNotes.teamOnBody":
+    "Alle in {project} können diese Notizen lesen, auch wer später dazukommt. Ein Code ist nicht nötig.",
+  "sharedNotes.teamWorking": "Einen Moment, der Teamserver speichert den Schlüssel.",
 } as const satisfies Record<string, string>;
 
 export type MessageKey = keyof typeof de;
@@ -4725,8 +4743,7 @@ const en: Record<MessageKey, string> = {
   "sharedNotes.turnOn": "Turn on",
   "sharedNotes.lockedLine": "Shared notes are locked on this computer.",
   "sharedNotes.unlock": "Enter code",
-  "sharedNotes.teamLocked":
-    "These shared notes belong to a team. This version of Hangar cannot open them yet.",
+  "sharedNotes.teamLocked": "Shared notes of a team you are not in.",
   "sharedNotes.damaged": "The file vault.json is damaged. Restore it from the Git history.",
   "sharedNotes.newerFormat": "Made with a newer Hangar. Update Hangar to open them.",
   "sharedNotes.empty": "No shared notes yet.",
@@ -4761,6 +4778,23 @@ const en: Record<MessageKey, string> = {
   "sharedNotes.codeInRepository":
     "Do not save the code inside a repository, where it could end up in a commit. Choose another folder.",
   "sharedNotes.codeChanged": "A new code was created. Save this new code, then turn notes on.",
+  "sharedNotes.linkLine": "These notes belong to {project}.",
+  "sharedNotes.link": "Link this folder",
+  "sharedNotes.waiting": "Shared notes open once this computer is connected to {project}.",
+  "sharedNotes.oldServer": "Shared team notes need a newer team server.",
+  "sharedNotes.renewing":
+    "The key is being renewed. Saving is paused until an owner or admin has renewed it.",
+  "sharedNotes.teamOffLine": "Share notes with everyone in {project}, encrypted.",
+  "sharedNotes.askManager": "Ask an owner or admin of {project} to turn on shared notes.",
+  "sharedNotes.updateServer":
+    "Update the team server to share these notes with {project} without a code.",
+  "sharedNotes.shareLine": "Share with {project}",
+  "sharedNotes.shareBody":
+    "Everyone in {project} can then read these notes, including people who join later. No code needed.",
+  "sharedNotes.shareButton": "Share",
+  "sharedNotes.teamOnBody":
+    "Everyone in {project} can read these notes, including people who join later. No code needed.",
+  "sharedNotes.teamWorking": "One moment, the team server is storing the key.",
 };
 
 const el: Record<MessageKey, string> = {
@@ -7133,8 +7167,7 @@ const el: Record<MessageKey, string> = {
   "sharedNotes.turnOn": "Ενεργοποίηση",
   "sharedNotes.lockedLine": "Οι κοινόχρηστες σημειώσεις είναι κλειδωμένες σε αυτόν τον υπολογιστή.",
   "sharedNotes.unlock": "Εισαγωγή κωδικού",
-  "sharedNotes.teamLocked":
-    "Αυτές οι κοινόχρηστες σημειώσεις ανήκουν σε μια ομάδα. Αυτή η έκδοση του Hangar δεν μπορεί ακόμη να τις ανοίξει.",
+  "sharedNotes.teamLocked": "Κοινόχρηστες σημειώσεις μιας ομάδας στην οποία δεν ανήκεις.",
   "sharedNotes.damaged":
     "Το αρχείο vault.json είναι κατεστραμμένο. Επανάφερέ το από το ιστορικό του Git.",
   "sharedNotes.newerFormat":
@@ -7174,6 +7207,26 @@ const el: Record<MessageKey, string> = {
     "Μην αποθηκεύεις τον κωδικό μέσα σε αποθετήριο, γιατί μπορεί να καταλήξει σε commit. Διάλεξε άλλο φάκελο.",
   "sharedNotes.codeChanged":
     "Δημιουργήθηκε νέος κωδικός. Αποθήκευσε αυτόν τον νέο κωδικό και μετά ενεργοποίησε.",
+  "sharedNotes.linkLine": "Αυτές οι σημειώσεις ανήκουν στο «{project}».",
+  "sharedNotes.link": "Σύνδεση αυτού του φακέλου",
+  "sharedNotes.waiting":
+    "Οι κοινόχρηστες σημειώσεις ανοίγουν μόλις αυτός ο υπολογιστής συνδεθεί με το «{project}».",
+  "sharedNotes.oldServer":
+    "Οι κοινόχρηστες σημειώσεις ομάδας χρειάζονται νεότερο διακομιστή ομάδας.",
+  "sharedNotes.renewing":
+    "Το κλειδί ανανεώνεται. Η αποθήκευση έχει παύσει μέχρι να το ανανεώσει ένας ιδιοκτήτης ή διαχειριστής.",
+  "sharedNotes.teamOffLine": "Μοιράσου σημειώσεις κρυπτογραφημένες με όλους στο «{project}».",
+  "sharedNotes.askManager":
+    "Ζήτα από έναν ιδιοκτήτη ή διαχειριστή του «{project}» να ενεργοποιήσει τις κοινόχρηστες σημειώσεις.",
+  "sharedNotes.updateServer":
+    "Ενημέρωσε τον διακομιστή ομάδας για να μοιράζεσαι αυτές τις σημειώσεις με το «{project}» χωρίς κωδικό.",
+  "sharedNotes.shareLine": "Κοινή χρήση με το «{project}»",
+  "sharedNotes.shareBody":
+    "Όλοι στο «{project}» θα μπορούν να διαβάζουν αυτές τις σημειώσεις, και όσοι μπουν αργότερα. Δεν χρειάζεται κωδικός.",
+  "sharedNotes.shareButton": "Κοινή χρήση",
+  "sharedNotes.teamOnBody":
+    "Όλοι στο «{project}» μπορούν να διαβάζουν αυτές τις σημειώσεις, και όσοι μπουν αργότερα. Δεν χρειάζεται κωδικός.",
+  "sharedNotes.teamWorking": "Μια στιγμή, ο διακομιστής ομάδας αποθηκεύει το κλειδί.",
 };
 
 const es: Record<MessageKey, string> = {
@@ -9524,8 +9577,7 @@ const es: Record<MessageKey, string> = {
   "sharedNotes.turnOn": "Activar",
   "sharedNotes.lockedLine": "Las notas compartidas están bloqueadas en este equipo.",
   "sharedNotes.unlock": "Introducir código",
-  "sharedNotes.teamLocked":
-    "Estas notas compartidas pertenecen a un equipo. Esta versión de Hangar aún no puede abrirlas.",
+  "sharedNotes.teamLocked": "Notas compartidas de un equipo del que no formas parte.",
   "sharedNotes.damaged": "El archivo vault.json está dañado. Recupéralo del historial de Git.",
   "sharedNotes.newerFormat": "Creadas con un Hangar más reciente. Actualiza Hangar para abrirlas.",
   "sharedNotes.empty": "Aún no hay notas compartidas.",
@@ -9561,6 +9613,26 @@ const es: Record<MessageKey, string> = {
   "sharedNotes.codeInRepository":
     "No guardes el código dentro de un repositorio, podría acabar en un commit. Elige otra carpeta.",
   "sharedNotes.codeChanged": "Se creó un código nuevo. Guarda este código nuevo y luego activa.",
+  "sharedNotes.linkLine": "Estas notas pertenecen a {project}.",
+  "sharedNotes.link": "Vincular esta carpeta",
+  "sharedNotes.waiting":
+    "Las notas compartidas se abren en cuanto este dispositivo esté conectado a {project}.",
+  "sharedNotes.oldServer":
+    "Las notas compartidas del equipo necesitan un servidor del equipo más reciente.",
+  "sharedNotes.renewing":
+    "La clave se está renovando. Guardar está en pausa hasta que un propietario o administrador la renueve.",
+  "sharedNotes.teamOffLine": "Comparte notas cifradas con todos en {project}.",
+  "sharedNotes.askManager":
+    "Pide a un propietario o administrador de {project} que active las notas compartidas.",
+  "sharedNotes.updateServer":
+    "Actualiza el servidor del equipo para compartir estas notas con {project} sin código.",
+  "sharedNotes.shareLine": "Compartir con {project}",
+  "sharedNotes.shareBody":
+    "Todos en {project} podrán leer estas notas, también quienes se unan después. No hace falta código.",
+  "sharedNotes.shareButton": "Compartir",
+  "sharedNotes.teamOnBody":
+    "Todos en {project} pueden leer estas notas, también quienes se unan después. No hace falta código.",
+  "sharedNotes.teamWorking": "Un momento, el servidor del equipo está guardando la clave.",
 };
 
 const fr: Record<MessageKey, string> = {
@@ -11933,8 +12005,7 @@ const fr: Record<MessageKey, string> = {
   "sharedNotes.turnOn": "Activer",
   "sharedNotes.lockedLine": "Les notes partagées sont verrouillées sur cet ordinateur.",
   "sharedNotes.unlock": "Saisir le code",
-  "sharedNotes.teamLocked":
-    "Ces notes partagées appartiennent à une équipe. Cette version de Hangar ne peut pas encore les ouvrir.",
+  "sharedNotes.teamLocked": "Notes partagées d'une équipe dont tu ne fais pas partie.",
   "sharedNotes.damaged":
     "Le fichier vault.json est endommagé. Restaure-le depuis l'historique Git.",
   "sharedNotes.newerFormat":
@@ -11973,6 +12044,26 @@ const fr: Record<MessageKey, string> = {
   "sharedNotes.codeInRepository":
     "N'enregistre pas le code dans un dépôt, il pourrait finir dans un commit. Choisis un autre dossier.",
   "sharedNotes.codeChanged": "Un nouveau code a été créé. Sauvegarde ce nouveau code, puis active.",
+  "sharedNotes.linkLine": "Ces notes appartiennent à {project}.",
+  "sharedNotes.link": "Lier ce dossier",
+  "sharedNotes.waiting":
+    "Les notes partagées s'ouvrent dès que cet ordinateur est connecté à {project}.",
+  "sharedNotes.oldServer":
+    "Les notes d'équipe partagées nécessitent un serveur d'équipe plus récent.",
+  "sharedNotes.renewing":
+    "La clé est en cours de renouvellement. L'enregistrement est en pause jusqu'à ce qu'un propriétaire ou un admin l'ait renouvelée.",
+  "sharedNotes.teamOffLine": "Partage des notes chiffrées avec tous les membres de {project}.",
+  "sharedNotes.askManager":
+    "Demande à un propriétaire ou un admin de {project} d'activer les notes partagées.",
+  "sharedNotes.updateServer":
+    "Mets à jour le serveur d'équipe pour partager ces notes avec {project} sans code.",
+  "sharedNotes.shareLine": "Partager avec {project}",
+  "sharedNotes.shareBody":
+    "Tous les membres de {project} pourront lire ces notes, y compris ceux qui arrivent plus tard. Aucun code n'est nécessaire.",
+  "sharedNotes.shareButton": "Partager",
+  "sharedNotes.teamOnBody":
+    "Tous les membres de {project} peuvent lire ces notes, y compris ceux qui arrivent plus tard. Aucun code n'est nécessaire.",
+  "sharedNotes.teamWorking": "Un instant, le serveur d'équipe enregistre la clé.",
 };
 
 const it: Record<MessageKey, string> = {
@@ -14321,8 +14412,7 @@ const it: Record<MessageKey, string> = {
   "sharedNotes.turnOn": "Attiva",
   "sharedNotes.lockedLine": "Le note condivise sono bloccate su questo computer.",
   "sharedNotes.unlock": "Inserisci codice",
-  "sharedNotes.teamLocked":
-    "Queste note condivise appartengono a un team. Questa versione di Hangar non può ancora aprirle.",
+  "sharedNotes.teamLocked": "Note condivise di un team di cui non fai parte.",
   "sharedNotes.damaged": "Il file vault.json è danneggiato. Ripristinalo dalla cronologia di Git.",
   "sharedNotes.newerFormat": "Create con un Hangar più recente. Aggiorna Hangar per aprirle.",
   "sharedNotes.empty": "Ancora nessuna nota condivisa.",
@@ -14360,6 +14450,25 @@ const it: Record<MessageKey, string> = {
     "Non salvare il codice in un repository, potrebbe finire in un commit. Scegli un'altra cartella.",
   "sharedNotes.codeChanged":
     "È stato creato un nuovo codice. Salva questo nuovo codice e poi attiva.",
+  "sharedNotes.linkLine": "Queste note appartengono a {project}.",
+  "sharedNotes.link": "Collega questa cartella",
+  "sharedNotes.waiting":
+    "Le note condivise si aprono appena questo computer è connesso a {project}.",
+  "sharedNotes.oldServer": "Le note condivise del team richiedono un server del team più recente.",
+  "sharedNotes.renewing":
+    "La chiave è in fase di rinnovo. Il salvataggio è in pausa finché un proprietario o admin non l'ha rinnovata.",
+  "sharedNotes.teamOffLine": "Condividi note cifrate con tutti in {project}.",
+  "sharedNotes.askManager":
+    "Chiedi a un proprietario o admin di {project} di attivare le note condivise.",
+  "sharedNotes.updateServer":
+    "Aggiorna il server del team per condividere queste note con {project} senza codice.",
+  "sharedNotes.shareLine": "Condividi con {project}",
+  "sharedNotes.shareBody":
+    "Tutti in {project} potranno leggere queste note, anche chi entra più tardi. Non serve alcun codice.",
+  "sharedNotes.shareButton": "Condividi",
+  "sharedNotes.teamOnBody":
+    "Tutti in {project} possono leggere queste note, anche chi entra più tardi. Non serve alcun codice.",
+  "sharedNotes.teamWorking": "Un momento, il server del team sta salvando la chiave.",
 };
 
 const ja: Record<MessageKey, string> = {
@@ -16707,8 +16816,7 @@ const ja: Record<MessageKey, string> = {
   "sharedNotes.turnOn": "オンにする",
   "sharedNotes.lockedLine": "このコンピューターでは共有メモがロックされています。",
   "sharedNotes.unlock": "コードを入力",
-  "sharedNotes.teamLocked":
-    "この共有メモはチームのものです。このバージョンの Hangar ではまだ開けません。",
+  "sharedNotes.teamLocked": "あなたが参加していないチームの共有メモです。",
   "sharedNotes.damaged": "vault.json が壊れています。Git の履歴から復元してください。",
   "sharedNotes.newerFormat":
     "新しい Hangar で作成されています。開くには Hangar を更新してください。",
@@ -16745,6 +16853,24 @@ const ja: Record<MessageKey, string> = {
     "コードをリポジトリ内に保存しないでください。コミットに含まれるおそれがあります。別のフォルダーを選んでください。",
   "sharedNotes.codeChanged":
     "新しいコードが作成されました。この新しいコードを保管してから、オンにしてください。",
+  "sharedNotes.linkLine": "これらのメモは {project} のものです。",
+  "sharedNotes.link": "このフォルダーをリンク",
+  "sharedNotes.waiting": "このコンピューターが {project} に接続されると、共有メモが開きます。",
+  "sharedNotes.oldServer": "チームの共有メモには、より新しいチームサーバーが必要です。",
+  "sharedNotes.renewing":
+    "キーを更新中です。オーナーまたは管理者が更新するまで、保存は一時停止しています。",
+  "sharedNotes.teamOffLine": "{project} の全員とメモを暗号化して共有します。",
+  "sharedNotes.askManager":
+    "{project} のオーナーまたは管理者に、共有メモをオンにするよう頼んでください。",
+  "sharedNotes.updateServer":
+    "チームサーバーを更新すると、コードなしで {project} とこのメモを共有できます。",
+  "sharedNotes.shareLine": "{project} と共有",
+  "sharedNotes.shareBody":
+    "{project} の全員が、あとから参加する人も含めて、このメモを読めるようになります。コードは不要です。",
+  "sharedNotes.shareButton": "共有",
+  "sharedNotes.teamOnBody":
+    "{project} の全員が、あとから参加する人も含めて、このメモを読めます。コードは不要です。",
+  "sharedNotes.teamWorking": "少々お待ちください。チームサーバーがキーを保存しています。",
 };
 
 const pl: Record<MessageKey, string> = {
@@ -19070,8 +19196,7 @@ const pl: Record<MessageKey, string> = {
   "sharedNotes.turnOn": "Włącz",
   "sharedNotes.lockedLine": "Udostępnione notatki są zablokowane na tym komputerze.",
   "sharedNotes.unlock": "Wpisz kod",
-  "sharedNotes.teamLocked":
-    "Te udostępnione notatki należą do zespołu. Ta wersja Hangar nie potrafi ich jeszcze otworzyć.",
+  "sharedNotes.teamLocked": "Udostępnione notatki zespołu, do którego nie należysz.",
   "sharedNotes.damaged": "Plik vault.json jest uszkodzony. Przywróć go z historii Git.",
   "sharedNotes.newerFormat": "Utworzone w nowszym Hangar. Zaktualizuj Hangar, aby je otworzyć.",
   "sharedNotes.empty": "Brak udostępnionych notatek.",
@@ -19107,6 +19232,25 @@ const pl: Record<MessageKey, string> = {
   "sharedNotes.codeInRepository":
     "Nie zapisuj kodu w repozytorium, bo może trafić do commita. Wybierz inny folder.",
   "sharedNotes.codeChanged": "Utworzono nowy kod. Zapisz ten nowy kod, a potem włącz.",
+  "sharedNotes.linkLine": "Te notatki należą do projektu „{project}”.",
+  "sharedNotes.link": "Połącz ten folder",
+  "sharedNotes.waiting":
+    "Udostępnione notatki otworzą się, gdy ten komputer połączy się z projektem „{project}”.",
+  "sharedNotes.oldServer": "Udostępnione notatki zespołu wymagają nowszego serwera zespołu.",
+  "sharedNotes.renewing":
+    "Klucz jest odnawiany. Zapisywanie jest wstrzymane, dopóki właściciel lub administrator go nie odnowi.",
+  "sharedNotes.teamOffLine": "Udostępniaj zaszyfrowane notatki wszystkim w projekcie „{project}”.",
+  "sharedNotes.askManager":
+    "Poproś właściciela lub administratora projektu „{project}” o włączenie udostępnionych notatek.",
+  "sharedNotes.updateServer":
+    "Zaktualizuj serwer zespołu, aby udostępniać te notatki projektowi „{project}” bez kodu.",
+  "sharedNotes.shareLine": "Udostępnij projektowi „{project}”",
+  "sharedNotes.shareBody":
+    "Wszyscy w projekcie „{project}” będą mogli czytać te notatki, także osoby, które dołączą później. Kod nie jest potrzebny.",
+  "sharedNotes.shareButton": "Udostępnij",
+  "sharedNotes.teamOnBody":
+    "Wszyscy w projekcie „{project}” mogą czytać te notatki, także osoby, które dołączą później. Kod nie jest potrzebny.",
+  "sharedNotes.teamWorking": "Chwileczkę, serwer zespołu zapisuje klucz.",
 };
 
 const pt: Record<MessageKey, string> = {
@@ -21445,8 +21589,7 @@ const pt: Record<MessageKey, string> = {
   "sharedNotes.turnOn": "Ativar",
   "sharedNotes.lockedLine": "As notas compartilhadas estão bloqueadas neste computador.",
   "sharedNotes.unlock": "Digitar código",
-  "sharedNotes.teamLocked":
-    "Estas notas compartilhadas pertencem a uma equipe. Esta versão do Hangar ainda não consegue abri-las.",
+  "sharedNotes.teamLocked": "Notas compartilhadas de uma equipe da qual você não faz parte.",
   "sharedNotes.damaged": "O arquivo vault.json está danificado. Restaure-o pelo histórico do Git.",
   "sharedNotes.newerFormat": "Criadas com um Hangar mais novo. Atualize o Hangar para abri-las.",
   "sharedNotes.empty": "Ainda não há notas compartilhadas.",
@@ -21482,6 +21625,26 @@ const pt: Record<MessageKey, string> = {
   "sharedNotes.codeInRepository":
     "Não salve o código dentro de um repositório, ele pode acabar em um commit. Escolha outra pasta.",
   "sharedNotes.codeChanged": "Um novo código foi criado. Guarde este novo código e depois ative.",
+  "sharedNotes.linkLine": "Estas notas pertencem a {project}.",
+  "sharedNotes.link": "Vincular esta pasta",
+  "sharedNotes.waiting":
+    "As notas compartilhadas abrem assim que este computador estiver conectado a {project}.",
+  "sharedNotes.oldServer":
+    "As notas compartilhadas da equipe precisam de um servidor da equipe mais recente.",
+  "sharedNotes.renewing":
+    "A chave está sendo renovada. Salvar está pausado até que um proprietário ou administrador a renove.",
+  "sharedNotes.teamOffLine": "Compartilhe notas criptografadas com todos em {project}.",
+  "sharedNotes.askManager":
+    "Peça a um proprietário ou administrador de {project} para ativar as notas compartilhadas.",
+  "sharedNotes.updateServer":
+    "Atualize o servidor da equipe para compartilhar estas notas com {project} sem código.",
+  "sharedNotes.shareLine": "Compartilhar com {project}",
+  "sharedNotes.shareBody":
+    "Todos em {project} poderão ler estas notas, inclusive quem entrar depois. Não é preciso código.",
+  "sharedNotes.shareButton": "Compartilhar",
+  "sharedNotes.teamOnBody":
+    "Todos em {project} podem ler estas notas, inclusive quem entrar depois. Não é preciso código.",
+  "sharedNotes.teamWorking": "Um momento, o servidor da equipe está guardando a chave.",
 };
 
 const ru: Record<MessageKey, string> = {
@@ -23799,8 +23962,7 @@ const ru: Record<MessageKey, string> = {
   "sharedNotes.turnOn": "Включить",
   "sharedNotes.lockedLine": "Общие заметки на этом компьютере заблокированы.",
   "sharedNotes.unlock": "Ввести код",
-  "sharedNotes.teamLocked":
-    "Эти общие заметки принадлежат команде. Эта версия Hangar пока не может их открыть.",
+  "sharedNotes.teamLocked": "Общие заметки команды, в которой тебя нет.",
   "sharedNotes.damaged": "Файл vault.json повреждён. Восстанови его из истории Git.",
   "sharedNotes.newerFormat": "Созданы в более новом Hangar. Обнови Hangar, чтобы открыть их.",
   "sharedNotes.empty": "Общих заметок пока нет.",
@@ -23835,6 +23997,25 @@ const ru: Record<MessageKey, string> = {
   "sharedNotes.codeInRepository":
     "Не сохраняй код внутри репозитория, иначе он может попасть в коммит. Выбери другую папку.",
   "sharedNotes.codeChanged": "Создан новый код. Сохрани этот новый код, затем включи.",
+  "sharedNotes.linkLine": "Эти заметки принадлежат проекту «{project}».",
+  "sharedNotes.link": "Связать эту папку",
+  "sharedNotes.waiting":
+    "Общие заметки откроются, как только этот компьютер подключится к проекту «{project}».",
+  "sharedNotes.oldServer": "Для общих заметок команды нужен более новый сервер команды.",
+  "sharedNotes.renewing":
+    "Ключ обновляется. Сохранение приостановлено, пока владелец или администратор его не обновит.",
+  "sharedNotes.teamOffLine": "Делись зашифрованными заметками со всеми в проекте «{project}».",
+  "sharedNotes.askManager":
+    "Попроси владельца или администратора проекта «{project}» включить общие заметки.",
+  "sharedNotes.updateServer":
+    "Обнови сервер команды, чтобы делиться этими заметками с проектом «{project}» без кода.",
+  "sharedNotes.shareLine": "Поделиться с проектом «{project}»",
+  "sharedNotes.shareBody":
+    "Все в проекте «{project}» смогут читать эти заметки, в том числе те, кто присоединится позже. Код не нужен.",
+  "sharedNotes.shareButton": "Поделиться",
+  "sharedNotes.teamOnBody":
+    "Все в проекте «{project}» могут читать эти заметки, в том числе те, кто присоединится позже. Код не нужен.",
+  "sharedNotes.teamWorking": "Минуту, сервер команды сохраняет ключ.",
 };
 
 const tr: Record<MessageKey, string> = {
@@ -26139,8 +26320,7 @@ const tr: Record<MessageKey, string> = {
   "sharedNotes.turnOn": "Aç",
   "sharedNotes.lockedLine": "Paylaşılan notlar bu bilgisayarda kilitli.",
   "sharedNotes.unlock": "Kodu gir",
-  "sharedNotes.teamLocked":
-    "Bu paylaşılan notlar bir ekibe ait. Hangar'ın bu sürümü onları henüz açamıyor.",
+  "sharedNotes.teamLocked": "Üyesi olmadığın bir ekibin paylaşılan notları.",
   "sharedNotes.damaged": "vault.json dosyası bozuk. Onu Git geçmişinden geri getir.",
   "sharedNotes.newerFormat": "Daha yeni bir Hangar ile oluşturulmuş. Açmak için Hangar'ı güncelle.",
   "sharedNotes.empty": "Henüz paylaşılan not yok.",
@@ -26175,6 +26355,25 @@ const tr: Record<MessageKey, string> = {
   "sharedNotes.codeInRepository":
     "Kodu bir depo içine kaydetme, bir commit'e girebilir. Başka bir klasör seç.",
   "sharedNotes.codeChanged": "Yeni bir kod oluşturuldu. Bu yeni kodu sakla, sonra aç.",
+  "sharedNotes.linkLine": "Bu notlar “{project}” projesine ait.",
+  "sharedNotes.link": "Bu klasörü bağla",
+  "sharedNotes.waiting":
+    "Paylaşılan notlar, bu bilgisayar “{project}” projesine bağlanınca açılır.",
+  "sharedNotes.oldServer": "Paylaşılan ekip notları daha yeni bir ekip sunucusu gerektirir.",
+  "sharedNotes.renewing":
+    "Anahtar yenileniyor. Bir sahip veya yönetici yenileyene kadar kaydetme duraklatıldı.",
+  "sharedNotes.teamOffLine": "Notları “{project}” projesindeki herkesle şifreli olarak paylaş.",
+  "sharedNotes.askManager":
+    "“{project}” projesinin bir sahibinden veya yöneticisinden paylaşılan notları açmasını iste.",
+  "sharedNotes.updateServer":
+    "Bu notları kodsuz olarak “{project}” projesiyle paylaşmak için ekip sunucusunu güncelle.",
+  "sharedNotes.shareLine": "“{project}” projesiyle paylaş",
+  "sharedNotes.shareBody":
+    "“{project}” projesindeki herkes, sonradan katılanlar dahil, bu notları okuyabilecek. Kod gerekmez.",
+  "sharedNotes.shareButton": "Paylaş",
+  "sharedNotes.teamOnBody":
+    "“{project}” projesindeki herkes, sonradan katılanlar dahil, bu notları okuyabilir. Kod gerekmez.",
+  "sharedNotes.teamWorking": "Bir dakika, ekip sunucusu anahtarı kaydediyor.",
 };
 
 const zh: Record<MessageKey, string> = {
@@ -28352,7 +28551,7 @@ const zh: Record<MessageKey, string> = {
   "sharedNotes.turnOn": "开启",
   "sharedNotes.lockedLine": "共享笔记在此电脑上处于锁定状态。",
   "sharedNotes.unlock": "输入代码",
-  "sharedNotes.teamLocked": "这些共享笔记属于一个团队。此版本的 Hangar 暂时无法打开它们。",
+  "sharedNotes.teamLocked": "你不在其中的团队的共享笔记。",
   "sharedNotes.damaged": "vault.json 文件已损坏。请从 Git 历史中恢复它。",
   "sharedNotes.newerFormat": "由更新版本的 Hangar 创建。请更新 Hangar 以打开它们。",
   "sharedNotes.empty": "还没有共享笔记。",
@@ -28386,6 +28585,19 @@ const zh: Record<MessageKey, string> = {
   "sharedNotes.codeInRepository":
     "不要把代码保存在仓库中，否则它可能进入某次提交。请选择其他文件夹。",
   "sharedNotes.codeChanged": "已生成新代码。请先保存这个新代码，然后再开启。",
+  "sharedNotes.linkLine": "这些笔记属于 {project}。",
+  "sharedNotes.link": "关联此文件夹",
+  "sharedNotes.waiting": "这台电脑连接到 {project} 后，共享笔记就会打开。",
+  "sharedNotes.oldServer": "团队共享笔记需要更新版本的团队服务器。",
+  "sharedNotes.renewing": "正在更新密钥。在所有者或管理员完成更新之前，保存已暂停。",
+  "sharedNotes.teamOffLine": "与 {project} 中的所有人加密共享笔记。",
+  "sharedNotes.askManager": "请让 {project} 的所有者或管理员开启共享笔记。",
+  "sharedNotes.updateServer": "更新团队服务器后，无需代码即可与 {project} 共享这些笔记。",
+  "sharedNotes.shareLine": "与 {project} 共享",
+  "sharedNotes.shareBody": "{project} 中的所有人（包括以后加入的人）都将能阅读这些笔记。无需代码。",
+  "sharedNotes.shareButton": "共享",
+  "sharedNotes.teamOnBody": "{project} 中的所有人（包括以后加入的人）都能阅读这些笔记。无需代码。",
+  "sharedNotes.teamWorking": "请稍候，团队服务器正在保存密钥。",
 };
 
 export const DICTIONARIES: Record<Language, Record<MessageKey, string>> = {

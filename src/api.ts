@@ -436,6 +436,20 @@ export const api = {
   /** Check with `parseUnlock`. */
   sharedNotesUnlock: (folder: NoteFolder, code: string, label: string, untitled: string) =>
     invoke<unknown>("shared_notes_unlock", { folder, code, label, untitled }),
+  /** The team the folder's shared notes belong to; check with `parseTeamNotes` (`null`: none). */
+  sharedNotesTeam: (folder: NoteFolder) => invoke<unknown>("shared_notes_team", { folder }),
+  /**
+   * Turns team notes on (owner or admin, no code); waits until the relay stored the team's key.
+   * Check with `parseSharedStatus`.
+   */
+  sharedNotesTeamEnable: (folder: NoteFolder, label: string, untitled: string) =>
+    invoke<unknown>("shared_notes_team_enable", { folder, label, untitled }),
+  /** Shares the unlocked solo notes with the linked team. Check with `parseSharedStatus`. */
+  sharedNotesToTeam: (folder: NoteFolder, label: string, untitled: string) =>
+    invoke<unknown>("shared_notes_to_team", { folder, label, untitled }),
+  /** Links this clone to the team its shared notes belong to. Check with `parseSharedStatus`. */
+  sharedNotesLink: (folder: NoteFolder, label: string, untitled: string) =>
+    invoke<unknown>("shared_notes_link", { folder, label, untitled }),
   /**
    * Main window only: opens the detached side panel or brings it to the front. `bounds` is where
    * it was last; the backend ignores a place that is no longer on a monitor.

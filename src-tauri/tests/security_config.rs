@@ -270,6 +270,10 @@ fn panel_note_commands_check_the_handed_folder() {
         "shared_notes_cancel",
         "shared_notes_enable",
         "shared_notes_unlock",
+        "shared_notes_team",
+        "shared_notes_team_enable",
+        "shared_notes_to_team",
+        "shared_notes_link",
     ] {
         let body = command_body(&commands, name);
         assert!(

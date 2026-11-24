@@ -4,6 +4,20 @@
     "date": null,
     "items": [
       {
+        "de": "Geteilte Notizen gibt es jetzt fürs ganze Team: Ein Inhaber oder Admin schaltet sie ein, der Schlüssel kommt über das Team. Ein Code ist nicht nötig.",
+        "en": "Shared notes now work for the whole team: an owner or admin turns them on and the key arrives through the team. No code needed.",
+        "el": "Οι κοινόχρηστες σημειώσεις λειτουργούν πλέον για όλη την ομάδα: ένας ιδιοκτήτης ή διαχειριστής τις ενεργοποιεί και το κλειδί έρχεται μέσω της ομάδας.",
+        "es": "Las notas compartidas ahora sirven para todo el equipo: un propietario o administrador las activa y la clave llega por el equipo. Sin código.",
+        "fr": "Les notes partagées fonctionnent pour toute l'équipe : un propriétaire ou un admin les active, la clé arrive par l'équipe. Aucun code nécessaire.",
+        "it": "Le note condivise ora funzionano per tutto il team: un proprietario o admin le attiva e la chiave arriva tramite il team. Nessun codice.",
+        "ja": "共有メモがチーム全体で使えるようになりました。オーナーまたは管理者がオンにすると、キーはチーム経由で届きます。コードは不要です。",
+        "pl": "Udostępnione notatki działają teraz dla całego zespołu: właściciel lub administrator je włącza, a klucz przychodzi przez zespół. Bez kodu.",
+        "pt": "As notas compartilhadas agora funcionam para toda a equipe: um proprietário ou administrador as ativa e a chave chega pela equipe. Sem código.",
+        "ru": "Общие заметки теперь работают для всей команды: владелец или администратор включает их, а ключ приходит через команду. Код не нужен.",
+        "tr": "Paylaşılan notlar artık tüm ekip için çalışıyor: bir sahip veya yönetici açar, anahtar ekip üzerinden gelir. Kod gerekmez.",
+        "zh": "共享笔记现在可供整个团队使用：所有者或管理员开启后，密钥通过团队送达。无需代码。"
+      },
+      {
         "de": "Updates klappen wieder; seit 0.14 brachen sie mit einem Fehler ab. Mit 0.14 oder 0.15 installierst du 0.16 einmal von Hand.",
         "en": "Updates work again; since 0.14 they stopped with an error. On 0.14 or 0.15, install 0.16 once by hand.",
         "el": "Οι ενημερώσεις λειτουργούν ξανά· από την 0.14 σταματούσαν με σφάλμα. Από 0.14 ή 0.15, εγκατάστησε την 0.16 μία φορά χειροκίνητα.",

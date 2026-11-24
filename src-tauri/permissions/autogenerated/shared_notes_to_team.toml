@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-shared-notes-to-team"
+description = "Enables the shared_notes_to_team command without any pre-configured scope."
+commands.allow = ["shared_notes_to_team"]
+
+[[permission]]
+identifier = "deny-shared-notes-to-team"
+description = "Denies the shared_notes_to_team command without any pre-configured scope."
+commands.deny = ["shared_notes_to_team"]

@@ -5,6 +5,8 @@
 //! HANGAR_INTEROP_BASE=http://127.0.0.1:8080          the relay's PUBLIC_URL (origin)
 //! HANGAR_INTEROP_LINK_A=<login link for the owner>   `hangar-server login-link a@example.org`
 //! HANGAR_INTEROP_LINK_B=<login link for the member>  `hangar-server login-link b@example.org`
+//! HANGAR_INTEROP_LINK_C=<login link, second member>   only `team_notes_against_a_self_hosted_relay`
+//! HANGAR_INTEROP_OLD_BASE / HANGAR_INTEROP_OLD_LINK  optional: a relay of protocol version 1
 //! HANGAR_INTEROP_SHORT_TIMERS=1                      optional: the relay runs with
 //!     RESERVATION_INACTIVITY_SECS=120 RESERVATION_WARN_SECS=60 CONNECTION_MAX_AGE_SECS=60,
 //!     which adds the hold expiry and the connection age close (4401) to the run
@@ -30,6 +32,8 @@ use hangar_lib::account::{AccountState, AccountView, BaseUrl, IdleNotice, PollRe
 use hangar_lib::account_api::{AccountApi, ApiError};
 use hangar_lib::account_service::{AccountService, Options as AccountOptions};
 use hangar_lib::claims::{ChangeKind, Claim, LineRange, OverlapLevel};
+use hangar_lib::notes::NoteFolder;
+use hangar_lib::project_notes::{LockReason, ProjectNotes, SharedStatus};
 use hangar_lib::secrets::{SecretError, SecretStore};
 use hangar_lib::team::{self, TeamSnapshot, TeamStatus, Timing};
 use hangar_lib::team_service::{Options, Task, TeamService};
@@ -1735,6 +1739,396 @@ fn live_agents_claude_and_codex_hold_each_others_files() {
         assert!(
             findings.0.is_empty(),
             "live agents:\n{}",
+            findings.0.join("\n")
+        );
+    });
+}
+
+// ------------------------------------------------------------------------------------------
+// Shared team notes (ADR 0006, phase 2)
+// ------------------------------------------------------------------------------------------
+
+/// Runs `git` in `dir` with a fixed identity; panics on failure.
+fn git_in(dir: &std::path::Path, args: &[&str]) -> String {
+    let output = std::process::Command::new("git")
+        .args([
+            "-c",
+            "user.name=Interop",
+            "-c",
+            "user.email=interop@example.org",
+        ])
+        .args(args)
+        .current_dir(dir)
+        .output()
+        .expect("git runs");
+    assert!(output.status.success(), "git {args:?}: {output:?}");
+    String::from_utf8_lossy(&output.stdout).trim().to_owned()
+}
+
+/// One Hangar's shared notes on the team service of `app`.
+fn notes_of(app: &App) -> ProjectNotes {
+    let notes = ProjectNotes::new(&app.dir.0.join("notes"), Arc::new(MemoryStore::default()));
+    notes.set_team(Arc::new(app.team.clone()));
+    notes
+}
+
+fn shared_folder(repo: &std::path::Path) -> NoteFolder {
+    NoteFolder {
+        path: Some(repo.to_path_buf()),
+        shared: true,
+    }
+}
+
+/// The notes calls block (git, the team's answer), as in the app's background threads.
+async fn blocking<T: Send + 'static>(
+    notes: &ProjectNotes,
+    work: impl FnOnce(&ProjectNotes) -> T + Send + 'static,
+) -> T {
+    let notes = notes.clone();
+    tauri::async_runtime::spawn_blocking(move || work(&notes))
+        .await
+        .expect("background task")
+}
+
+async fn notes_status(notes: &ProjectNotes, repo: &std::path::Path) -> SharedStatus {
+    let folder = shared_folder(repo);
+    blocking(notes, move |n| n.status(&folder, "other", "Untitled"))
+        .await
+        .expect("status")
+}
+
+async fn notes_until(
+    notes: &ProjectNotes,
+    repo: &std::path::Path,
+    what: &str,
+    test: impl Fn(&SharedStatus) -> bool,
+) -> bool {
+    let deadline = Instant::now() + WAIT;
+    loop {
+        let status = notes_status(notes, repo).await;
+        if test(&status) {
+            eprintln!("interop: {what}: {status:?}");
+            return true;
+        }
+        if Instant::now() >= deadline {
+            eprintln!("interop: {what}: still {status:?}");
+            return false;
+        }
+        tokio::time::sleep(Duration::from_millis(200)).await;
+    }
+}
+
+async fn read(notes: &ProjectNotes, repo: &std::path::Path, id: &str) -> Option<String> {
+    let folder = shared_folder(repo);
+    let id = id.to_owned();
+    blocking(notes, move |n| n.read_note(&folder, &id))
+        .await
+        .ok()
+}
+
+async fn write(notes: &ProjectNotes, repo: &std::path::Path, title: &str, text: &str) -> String {
+    let folder = shared_folder(repo);
+    let (title, text) = (title.to_owned(), text.to_owned());
+    blocking(notes, move |n| {
+        let id = n.create_note(&folder, &title)?;
+        n.write_note(&folder, &id, &text)?;
+        Ok::<_, hangar_lib::project_notes::ProjectNotesError>(id)
+    })
+    .await
+    .expect("note written")
+}
+
+/// Invites the account behind `browser` into `team` and accepts.
+async fn join_team(
+    client: &reqwest::Client,
+    origin: &str,
+    api: &AccountApi,
+    owner: &str,
+    browser: &Browser,
+    team: &str,
+) {
+    let tokens = browser.tokens(client, api).await;
+    let me = api.me(&tokens.access).await.expect("/me");
+    let invited = relay_api(
+        client,
+        origin,
+        reqwest::Method::POST,
+        &format!("/v1/teams/{team}/invitations"),
+        owner,
+        Some(&serde_json::json!({ "emails": [me.email], "role": "member" })),
+    )
+    .await;
+    assert_eq!(invited.status, 200, "invite: {}", invited.text());
+    let link = invited.json()["invitations"][0]["link"]
+        .as_str()
+        .expect("invitation link")
+        .to_owned();
+    let token = link.rsplit('/').next().unwrap().to_owned();
+    let accepted = relay_api(
+        client,
+        origin,
+        reqwest::Method::POST,
+        "/v1/invitations/accept",
+        &tokens.access,
+        Some(&serde_json::json!({ "token": token })),
+    )
+    .await;
+    assert_eq!(accepted.status, 200, "accept: {}", accepted.text());
+}
+
+/// Turns sharing on in `app` and has `owner` confirm its device.
+async fn admit(app: &App, owner: &App, team: &str, member: &str) {
+    app.team.enable(team).await.unwrap();
+    app.until(team, "waits for confirmation", |s| {
+        matches!(s, TeamStatus::WaitingForConfirmation { .. })
+    })
+    .await;
+    until("the owner is asked to confirm", || {
+        owner.team.pending().iter().any(|p| p.member == member)
+    })
+    .await;
+    let pending = owner
+        .team
+        .pending()
+        .into_iter()
+        .find(|p| p.member == member)
+        .unwrap();
+    owner.team.confirm(&pending.id).await.unwrap();
+}
+
+/// Shared team notes against a self-hosted relay of protocol version 2: turning them on,
+/// a member reading, a removal with a new key, and a member admitted afterwards reading every
+/// note while the removed one cannot read what followed. Needs a third login link:
+///
+/// ```text
+/// HANGAR_INTEROP_LINK_C=<login link for a second member>   `hangar-server login-link c@example.org`
+/// ```
+///
+/// With `HANGAR_INTEROP_OLD_BASE` and `HANGAR_INTEROP_OLD_LINK` (a relay of version 1 and a
+/// login link there) it also checks that this app and that relay settle on version 1 and that
+/// shared team notes are offered nowhere.
+#[test]
+#[ignore = "needs a running self-hosted relay, see the module documentation"]
+fn team_notes_against_a_self_hosted_relay() {
+    let Some(origin) = env("HANGAR_INTEROP_BASE") else {
+        eprintln!("interop: HANGAR_INTEROP_BASE not set, skipped");
+        return;
+    };
+    let origin = origin.trim_end_matches('/').to_owned();
+    let link_a = env("HANGAR_INTEROP_LINK_A").expect("HANGAR_INTEROP_LINK_A");
+    let link_b = env("HANGAR_INTEROP_LINK_B").expect("HANGAR_INTEROP_LINK_B");
+    let link_c = env("HANGAR_INTEROP_LINK_C").expect("HANGAR_INTEROP_LINK_C");
+    tauri::async_runtime::block_on(async move {
+        let mut findings = Findings::default();
+        let client = client();
+        let base = BaseUrl::parse(&format!("{origin}/api/v1")).unwrap();
+        let api = AccountApi::new(base.clone()).unwrap();
+        let alice = Browser::sign_in(&client, &origin, &link_a).await;
+        let bob = Browser::sign_in(&client, &origin, &link_b).await;
+        let carol = Browser::sign_in(&client, &origin, &link_c).await;
+        let alice_tokens = alice.tokens(&client, &api).await;
+        let created = relay_api(
+            &client,
+            &origin,
+            reqwest::Method::POST,
+            "/v1/teams",
+            &alice_tokens.access,
+            Some(&serde_json::json!({ "name": "Notes interop" })),
+        )
+        .await;
+        assert_eq!(created.status, 201, "team: {}", created.text());
+        let team = created.json()["id"].as_str().unwrap().to_owned();
+        join_team(&client, &origin, &api, &alice_tokens.access, &bob, &team).await;
+
+        let a1 = App::new(&base, "notes-a1", Duration::from_secs(3));
+        let b1 = App::new(&base, "notes-b1", Duration::from_secs(3));
+        let alice_id = a1.sign_in(&client, &alice).await;
+        let bob_id = b1.sign_in(&client, &bob).await;
+        a1.team.enable(&team).await.unwrap();
+        a1.connected(&team, 1, 1, 1).await;
+        admit(&b1, &a1, &team, &bob_id).await;
+        b1.connected(&team, 1, 2, 2).await;
+
+        // The repository both work in, linked to the team on Alice's side.
+        let work = TempDir::new("notes-repo");
+        let repo = work.0.join("shop");
+        std::fs::create_dir_all(&repo).unwrap();
+        git_in(&repo, &["init", "-q"]);
+        std::fs::write(repo.join("readme.txt"), "shop\n").unwrap();
+        git_in(&repo, &["add", "readme.txt"]);
+        git_in(&repo, &["commit", "-qm", "root"]);
+        let root = git_in(&repo, &["rev-list", "--max-parents=0", "HEAD"]);
+        a1.team
+            .link_folder(&team, &root, &repo.to_string_lossy())
+            .unwrap();
+
+        // ---- Turning on: the relay stores the ring, then the files are written ----
+        let notes_a = notes_of(&a1);
+        until("alice's relay speaks version 2", || {
+            a1.team
+                .notes_keys(&team)
+                .is_some_and(|v| v.speaks == Some(true) && v.exists.is_some())
+        })
+        .await;
+        let folder = shared_folder(&repo);
+        let enabled = blocking(&notes_a, move |n| {
+            n.enable_team(&folder, "other", "Untitled")
+        })
+        .await;
+        findings.check(
+            matches!(
+                enabled,
+                Ok(SharedStatus::Unlocked {
+                    renewing: false,
+                    ..
+                })
+            ),
+            format!("an owner turns shared team notes on -> {enabled:?}"),
+        );
+        let before = write(&notes_a, &repo, "Plan", "before the removal").await;
+
+        // ---- A member reads after linking the folder from the notes ----
+        let notes_b = notes_of(&b1);
+        let locked = notes_status(&notes_b, &repo).await;
+        findings.check(
+            locked
+                == SharedStatus::Locked {
+                    reason: LockReason::Link,
+                },
+            format!("an unlinked member's clone offers the link -> {locked:?}"),
+        );
+        let folder = shared_folder(&repo);
+        let linked = blocking(&notes_b, move |n| n.link_team(&folder, "other", "Untitled")).await;
+        findings.check(linked.is_ok(), format!("link from the notes -> {linked:?}"));
+        notes_until(&notes_b, &repo, "bob's notes open", |s| {
+            matches!(s, SharedStatus::Unlocked { .. })
+        })
+        .await;
+        findings.check(
+            read(&notes_b, &repo, &before).await.as_deref() == Some("before the removal"),
+            "a member reads the owner's note",
+        );
+
+        // ---- Removal: rotation, a new notes key, the removed member is shut out ----
+        let removed = relay_api(
+            &client,
+            &origin,
+            reqwest::Method::DELETE,
+            &format!("/v1/teams/{team}/members/{bob_id}"),
+            &alice_tokens.access,
+            None,
+        )
+        .await;
+        assert_eq!(removed.status, 204, "remove member: {}", removed.text());
+        a1.until(&team, "alice alone in epoch 2", |s| {
+            matches!(
+                s,
+                TeamStatus::Connected {
+                    epoch: 2,
+                    members: 1,
+                    ..
+                }
+            )
+        })
+        .await;
+        findings.check(
+            wait("the ring is renewed under epoch 2", WAIT, || {
+                a1.team.notes_keys(&team).is_some_and(|v| {
+                    !v.renewing
+                        && v.fresh.map(|e| e.0) == Some(2)
+                        && v.ring.as_ref().is_some_and(|r| r.len() == 2)
+                })
+            })
+            .await,
+            "after a removal the owner's device re-seals the ring with a new key",
+        );
+        notes_until(&notes_a, &repo, "alice may save again", |s| {
+            matches!(
+                s,
+                SharedStatus::Unlocked {
+                    renewing: false,
+                    ..
+                }
+            )
+        })
+        .await;
+        let after = write(&notes_a, &repo, "Later", "after the removal").await;
+        findings.check(
+            read(&notes_b, &repo, &before).await.as_deref() == Some("before the removal"),
+            "the removed member keeps what was written before",
+        );
+        findings.check(
+            read(&notes_b, &repo, &after).await.is_none(),
+            "the removed member cannot read what was written after the removal",
+        );
+
+        // ---- A member admitted later reads every note ----
+        join_team(&client, &origin, &api, &alice_tokens.access, &carol, &team).await;
+        let c1 = App::new(&base, "notes-c1", Duration::from_secs(3));
+        let carol_id = c1.sign_in(&client, &carol).await;
+        admit(&c1, &a1, &team, &carol_id).await;
+        c1.connected(&team, 2, 2, 2).await;
+        let notes_c = notes_of(&c1);
+        let folder = shared_folder(&repo);
+        let _ = blocking(&notes_c, move |n| n.link_team(&folder, "other", "Untitled")).await;
+        notes_until(&notes_c, &repo, "carol's notes open", |s| {
+            matches!(s, SharedStatus::Unlocked { .. })
+        })
+        .await;
+        findings.check(
+            read(&notes_c, &repo, &before).await.as_deref() == Some("before the removal")
+                && read(&notes_c, &repo, &after).await.as_deref() == Some("after the removal"),
+            "a member admitted after the removal reads every note",
+        );
+        let _ = alice_id;
+        a1.team.shutdown();
+        b1.team.shutdown();
+        c1.team.shutdown();
+
+        // ---- This app against a relay of version 1 ----
+        if let (Some(old), Some(old_link)) = (
+            env("HANGAR_INTEROP_OLD_BASE"),
+            env("HANGAR_INTEROP_OLD_LINK"),
+        ) {
+            let old = old.trim_end_matches('/').to_owned();
+            let old_base = BaseUrl::parse(&format!("{old}/api/v1")).unwrap();
+            let old_api = AccountApi::new(old_base.clone()).unwrap();
+            let owner = Browser::sign_in(&client, &old, &old_link).await;
+            let owner_tokens = owner.tokens(&client, &old_api).await;
+            let created = relay_api(
+                &client,
+                &old,
+                reqwest::Method::POST,
+                "/v1/teams",
+                &owner_tokens.access,
+                Some(&serde_json::json!({ "name": "Old relay" })),
+            )
+            .await;
+            assert_eq!(created.status, 201, "team: {}", created.text());
+            let old_team = created.json()["id"].as_str().unwrap().to_owned();
+            let o1 = App::new(&old_base, "notes-old", Duration::from_secs(3));
+            o1.sign_in(&client, &owner).await;
+            o1.team.enable(&old_team).await.unwrap();
+            o1.connected(&old_team, 1, 1, 1).await;
+            findings.check(
+                o1.team
+                    .notes_keys(&old_team)
+                    .is_some_and(|v| v.speaks == Some(false) && v.exists.is_none()),
+                "a relay of version 1 settles on version 1 and is never asked for notes keys",
+            );
+            let refused = o1.team.notes_enable(&old_team, None).await;
+            findings.check(
+                matches!(refused, Err(team::TeamError::NotesUnsupported)),
+                format!("turning team notes on against a relay of version 1 -> {refused:?}"),
+            );
+            o1.team.shutdown();
+        } else {
+            eprintln!("interop: HANGAR_INTEROP_OLD_BASE not set, the version 1 part is skipped");
+        }
+
+        assert!(
+            findings.0.is_empty(),
+            "interop mismatches:\n{}",
             findings.0.join("\n")
         );
     });

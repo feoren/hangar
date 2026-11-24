@@ -268,6 +268,7 @@ fn turn_on_write_lock_and_unlock() {
         ignored,
         unreadable,
         resolved,
+        ..
     } = status
     else {
         panic!("{status:?}");
@@ -1239,4 +1240,359 @@ fn a_fifo_note_never_blocks() {
     assert!(rx
         .recv_timeout(Duration::from_secs(2))
         .expect("the read blocked"));
+}
+
+// ---------------------------------------------------------------------------------------------
+// Team vaults (ADR 0006, phase 2)
+// ---------------------------------------------------------------------------------------------
+
+use crate::team::{LinkedRepo, TeamError};
+use crate::team_engine::NotesKeysView;
+use crate::team_service::NotesTeam;
+use hangar_team_protocol::ids::Epoch;
+
+/// The team side as the notes see it, with one team `p1`; `enable` stores a ring as the relay
+/// would (the adopted one plus a new key, or a new one).
+struct FakeTeam {
+    team: Mutex<NotesTeam>,
+    refuse: Mutex<Option<TeamError>>,
+}
+
+impl FakeTeam {
+    fn new(view: Option<NotesKeysView>) -> Arc<Self> {
+        Arc::new(Self {
+            team: Mutex::new(NotesTeam {
+                project: "p1".to_owned(),
+                key: "k1".to_owned(),
+                linked: Vec::new(),
+                view,
+            }),
+            refuse: Mutex::new(None),
+        })
+    }
+
+    fn view(&self, change: impl FnOnce(&mut NotesKeysView)) {
+        let mut team = lock(&self.team);
+        let view = team.view.get_or_insert_with(NotesKeysView::default);
+        change(view);
+    }
+
+    fn unview(&self) {
+        lock(&self.team).view = None;
+    }
+
+    fn link_repo(&self, repo: &Path) {
+        let g = git().unwrap();
+        let root = crate::claims_service::root_commit(&g, repo)
+            .unwrap()
+            .unwrap();
+        lock(&self.team).linked.push(LinkedRepo {
+            root,
+            folder: Some(repo.to_string_lossy().into_owned()),
+            name: "repo".to_owned(),
+        });
+    }
+}
+
+impl TeamSide for FakeTeam {
+    fn teams(&self) -> Vec<NotesTeam> {
+        vec![lock(&self.team).clone()]
+    }
+    fn enable(&self, project: &str, adopt: Option<KeyRing>) -> Result<(), TeamError> {
+        assert_eq!(project, "p1");
+        if let Some(error) = lock(&self.refuse).take() {
+            return Err(error);
+        }
+        let mut ring = match adopt {
+            Some(mut solo) => {
+                solo.add_generated(&mut OsEntropy).unwrap();
+                solo
+            }
+            None => KeyRing::generate(&mut OsEntropy).unwrap(),
+        };
+        self.view(|v| {
+            if let Some(team) = &v.ring {
+                ring.merge(team).unwrap();
+            }
+            v.ring = Some(ring);
+            v.fresh = v.log_epoch;
+            v.exists = Some(true);
+        });
+        Ok(())
+    }
+    fn link(&self, project: &str, root: &str, folder: &str) -> Result<(), TeamError> {
+        assert_eq!(project, "p1");
+        lock(&self.team).linked.push(LinkedRepo {
+            root: root.to_owned(),
+            folder: Some(folder.to_owned()),
+            name: "repo".to_owned(),
+        });
+        Ok(())
+    }
+    fn person(&self) -> String {
+        "Alice".to_owned()
+    }
+}
+
+fn manager_view(epoch: u32) -> NotesKeysView {
+    NotesKeysView {
+        speaks: Some(true),
+        exists: Some(false),
+        manager: true,
+        log_epoch: Some(Epoch(epoch)),
+        ..NotesKeysView::default()
+    }
+}
+
+fn committed_repo(g: &Git, dir: &Path) -> PathBuf {
+    let repo = dir.join("repo");
+    init_repo(g, &repo);
+    fs::write(repo.join("readme.txt"), "x\n").unwrap();
+    git_ok(g, &repo, &["add", "readme.txt"]);
+    git_ok(g, &repo, &["commit", "-qm", "root"]);
+    repo
+}
+
+type TeamVault = (PathBuf, ProjectNotes, Arc<MemoryStore>, Arc<FakeTeam>);
+
+/// A repository whose team vault is turned on through the fake team.
+fn team_vault(g: &Git, dir: &Path) -> TeamVault {
+    let repo = committed_repo(g, dir);
+    let (notes, keychain) = store(dir);
+    let team = FakeTeam::new(Some(manager_view(1)));
+    notes.set_team(team.clone());
+    team.link_repo(&repo);
+    let status = notes.enable_team(&shared(&repo), LABEL, UNTITLED).unwrap();
+    assert!(
+        matches!(
+            status,
+            SharedStatus::Unlocked {
+                renewing: false,
+                ..
+            }
+        ),
+        "{status:?}"
+    );
+    (repo, notes, keychain, team)
+}
+
+#[test]
+fn a_team_turns_notes_on_without_a_code_and_a_linked_clone_reads_them() {
+    let Some(g) = git() else { return };
+    let dir = TempDir::new("team-notes-on");
+    let repo = committed_repo(&g, dir.path());
+    let (notes, _) = store(dir.path());
+    let team = FakeTeam::new(Some(manager_view(1)));
+    notes.set_team(team.clone());
+    let folder = shared(&repo);
+    // Not linked: no team offered, turning on is refused.
+    assert_eq!(notes.team_notes(&folder).unwrap(), None);
+    assert!(matches!(
+        notes.enable_team(&folder, LABEL, UNTITLED),
+        Err(ProjectNotesError::NotLinked)
+    ));
+    team.link_repo(&repo);
+    let offered = notes.team_notes(&folder).unwrap().unwrap();
+    assert!(offered.linked && offered.manager);
+    assert_eq!(offered.speaks, Some(true));
+    notes.enable_team(&folder, LABEL, UNTITLED).unwrap();
+    let text = fs::read_to_string(repo.join(".hangar/notes/vault.json")).unwrap();
+    let VaultFile::Known(Vault {
+        mode: VaultMode::Team { team: hint },
+        ..
+    }) = parse_vault(text.as_bytes())
+    else {
+        panic!("{text}");
+    };
+    assert_eq!(
+        hint,
+        crypto::team_hint(&hangar_team_protocol::ids::TeamId::new("p1").unwrap())
+    );
+    assert!(!text.contains("codeSlot"));
+    let id = notes.create_note(&folder, "Plan").unwrap();
+    notes.write_note(&folder, &id, "# Plan\nteam text").unwrap();
+    let file = fs::read_to_string(repo.join(format!(".hangar/notes/{id}.note"))).unwrap();
+    assert!(!file.contains("team text"));
+
+    // A second computer of the team: not linked yet, then linked from the notes.
+    let other = dir.path().join("other");
+    fs::create_dir_all(&other).unwrap();
+    let (second, _) = store(&other);
+    let theirs = FakeTeam::new(lock(&team.team).view.clone());
+    second.set_team(theirs);
+    assert_eq!(
+        second.status(&folder, LABEL, UNTITLED).unwrap(),
+        SharedStatus::Locked {
+            reason: LockReason::Link
+        }
+    );
+    second.link_team(&folder, LABEL, UNTITLED).unwrap();
+    assert_eq!(
+        second.read_note(&folder, &id).unwrap().as_str(),
+        "# Plan\nteam text"
+    );
+
+    // Someone outside the team, and a linked clone that has no key yet.
+    let strange_dir = dir.path().join("stranger");
+    fs::create_dir_all(&strange_dir).unwrap();
+    let (stranger, _) = store(&strange_dir);
+    let nobody = FakeTeam::new(None);
+    lock(&nobody.team).project = "p2".to_owned();
+    stranger.set_team(nobody);
+    assert_eq!(
+        stranger.status(&folder, LABEL, UNTITLED).unwrap(),
+        SharedStatus::Locked {
+            reason: LockReason::Team
+        }
+    );
+    let wait_dir = dir.path().join("waiting");
+    fs::create_dir_all(&wait_dir).unwrap();
+    let (waiting, _) = store(&wait_dir);
+    let empty = FakeTeam::new(Some(manager_view(1)));
+    empty.link_repo(&repo);
+    waiting.set_team(empty.clone());
+    assert_eq!(
+        waiting.status(&folder, LABEL, UNTITLED).unwrap(),
+        SharedStatus::Locked {
+            reason: LockReason::Waiting
+        }
+    );
+    empty.view(|v| v.speaks = Some(false));
+    assert_eq!(
+        waiting.status(&folder, LABEL, UNTITLED).unwrap(),
+        SharedStatus::Locked {
+            reason: LockReason::OldServer
+        }
+    );
+}
+
+/// Without this rule the newest key, which whoever left still has, would keep sealing notes.
+#[test]
+fn saving_waits_while_the_log_is_ahead_of_the_rings_newest_key_also_after_a_restart() {
+    let Some(g) = git() else { return };
+    let dir = TempDir::new("team-notes-renew");
+    let (repo, notes, keychain, team) = team_vault(&g, dir.path());
+    let folder = shared(&repo);
+    let id = notes.create_note(&folder, "Plan").unwrap();
+
+    // A member left and the log rotated: the ring's newest key is from epoch 1.
+    team.view(|v| v.log_epoch = Some(Epoch(2)));
+    assert!(matches!(
+        notes.status(&folder, LABEL, UNTITLED).unwrap(),
+        SharedStatus::Unlocked { renewing: true, .. }
+    ));
+    assert!(matches!(
+        notes.write_note(&folder, &id, "after the removal"),
+        Err(ProjectNotesError::Renewing)
+    ));
+    assert!(matches!(
+        notes.create_note(&folder, "New"),
+        Err(ProjectNotesError::Renewing)
+    ));
+    // Reading goes on.
+    assert_eq!(notes.read_note(&folder, &id).unwrap().as_str(), "");
+
+    // A removal whose rotation has not landed: refused as well.
+    team.view(|v| {
+        v.log_epoch = Some(Epoch(1));
+        v.urgent = true;
+    });
+    assert!(matches!(
+        notes.write_note(&folder, &id, "x"),
+        Err(ProjectNotesError::Renewing)
+    ));
+
+    // The log moved on again; then a restart before the first connection: no log, no ring
+    // from the team, the stored decision holds.
+    team.view(|v| {
+        v.urgent = false;
+        v.log_epoch = Some(Epoch(2));
+    });
+    assert!(notes.write_note(&folder, &id, "y").is_err());
+    let restarted = ProjectNotes::new(&dir.path().join("app"), keychain.clone());
+    let ring = lock(&team.team).view.clone().unwrap().ring.unwrap();
+    team.unview();
+    restarted.set_team(team.clone());
+    assert!(matches!(
+        restarted.status(&folder, LABEL, UNTITLED).unwrap(),
+        SharedStatus::Unlocked { renewing: true, .. }
+    ));
+    assert!(matches!(
+        restarted.write_note(&folder, &id, "z"),
+        Err(ProjectNotesError::Renewing)
+    ));
+
+    // A relay of version 1: the log is verified, the ring cannot follow it; still refused.
+    team.view(|v| {
+        v.speaks = Some(false);
+        v.log_epoch = Some(Epoch(2));
+    });
+    assert!(matches!(
+        restarted.write_note(&folder, &id, "z"),
+        Err(ProjectNotesError::Renewing)
+    ));
+
+    // An owner or admin renewed the ring under epoch 2: saving again.
+    team.view(|v| {
+        v.speaks = Some(true);
+        let mut renewed = ring.clone();
+        renewed.add_generated(&mut OsEntropy).unwrap();
+        v.ring = Some(renewed);
+        v.fresh = Some(Epoch(2));
+    });
+    restarted.write_note(&folder, &id, "renewed").unwrap();
+    assert_eq!(
+        restarted.read_note(&folder, &id).unwrap().as_str(),
+        "renewed"
+    );
+    let cached = lock(&keychain.0)["team/k1"].to_string();
+    assert!(cached.starts_with("t1 2 0 v1 "), "{cached}");
+}
+
+#[test]
+fn a_solo_vault_becomes_the_teams_only_after_the_relay_stored_its_keys() {
+    let Some(g) = git() else { return };
+    let dir = TempDir::new("team-notes-solo");
+    let (repo, notes, _) = enabled(&g, dir.path());
+    notes.enable(&shared(&repo), LABEL, UNTITLED).unwrap();
+    let folder = shared(&repo);
+    let id = notes.create_note(&folder, "Old").unwrap();
+    notes.write_note(&folder, &id, "solo text").unwrap();
+    let team = FakeTeam::new(Some(manager_view(1)));
+    notes.set_team(team.clone());
+    team.link_repo(&repo);
+    let vault_path = repo.join(".hangar/notes/vault.json");
+    let before = fs::read_to_string(&vault_path).unwrap();
+    *lock(&team.refuse) = Some(TeamError::Busy);
+    assert!(notes.to_team(&folder, LABEL, UNTITLED).is_err());
+    assert_eq!(fs::read_to_string(&vault_path).unwrap(), before);
+
+    notes.to_team(&folder, LABEL, UNTITLED).unwrap();
+    let after = fs::read_to_string(&vault_path).unwrap();
+    assert!(after.contains("\"mode\": \"team\"") && !after.contains("codeSlot"));
+    // The note written before still opens, now with the team's ring.
+    assert_eq!(notes.read_note(&folder, &id).unwrap().as_str(), "solo text");
+    let ring = lock(&team.team).view.clone().unwrap().ring.unwrap();
+    assert_eq!(ring.len(), 2);
+}
+
+#[test]
+fn the_keychain_keeps_only_the_newest_team_keys() {
+    let mut ring = KeyRing::generate(&mut OsEntropy).unwrap();
+    for _ in 1..crypto::MAX_KEYS {
+        ring.add_generated(&mut OsEntropy).unwrap();
+    }
+    let text = team::cache_text(&team::TeamCache {
+        fresh: Some(Epoch(254)),
+        stale: true,
+        ring: ring.clone(),
+    });
+    assert!(text.encode_utf16().count() <= crate::secrets::MAX_VALUE_UNITS);
+    let cache = team::parse_cache(&text).unwrap();
+    assert_eq!(cache.ring.len(), CACHED_TEAM_KEYS);
+    assert_eq!(cache.ring.newest().id(), ring.newest().id());
+    assert_eq!(cache.fresh, Some(Epoch(254)));
+    assert!(cache.stale);
+    assert!(team::parse_cache("t2 1 0 v1").is_none());
+    assert!(team::parse_cache("v1 0123456789abcdef:00").is_none());
 }

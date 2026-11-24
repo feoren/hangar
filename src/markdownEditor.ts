@@ -14,7 +14,7 @@ import {
 } from "@codemirror/commands";
 import { markdown, markdownLanguage } from "@codemirror/lang-markdown";
 import { HighlightStyle, syntaxHighlighting, syntaxTree } from "@codemirror/language";
-import { EditorSelection, EditorState, type Range } from "@codemirror/state";
+import { Compartment, EditorSelection, EditorState, type Range } from "@codemirror/state";
 import {
   Decoration,
   EditorView,
@@ -42,6 +42,8 @@ export interface MarkdownEditor {
   setText: (next: string) => void;
   /** Ticks or unticks the task on line `index` (0-based); from the preview. */
   toggleTask: (index: number) => void;
+  /** Read only: the text can be read, selected and copied, but not changed. */
+  setReadOnly: (readOnly: boolean) => void;
   destroy: () => void;
 }
 
@@ -145,6 +147,8 @@ function taskDecorations(view: EditorView, label: string): DecorationSet {
 
 /** Flips "[ ]" and "[x]" at `from` (start of a task marker). */
 function flipTask(view: EditorView, from: number): boolean {
+  // A dispatch is not stopped by `readOnly`, so a read-only note keeps its boxes as they are.
+  if (view.state.readOnly) return false;
   const mark = view.state.sliceDoc(from, from + 3);
   if (!/^\[[ xX]\]$/.test(mark)) return false;
   view.dispatch({
@@ -206,11 +210,14 @@ function indentList(more: boolean) {
 
 export function createMarkdownEditor(parent: HTMLElement, options: EditorOptions): MarkdownEditor {
   let selected = false;
+  let readOnly = false;
+  const lock = new Compartment();
   const state = (text: string, label: string) =>
     EditorState.create({
       doc: text,
       selection: EditorSelection.cursor(text.length),
       extensions: [
+        lock.of(EditorState.readOnly.of(readOnly)),
         history(),
         keymap.of([
           {
@@ -280,6 +287,11 @@ export function createMarkdownEditor(parent: HTMLElement, options: EditorOptions
       const line = view.state.doc.line(number);
       const offset = taskMarkOffset(line.text);
       if (offset !== null) flipTask(view, line.from + offset - 1);
+    },
+    setReadOnly: (next) => {
+      if (next === readOnly) return;
+      readOnly = next;
+      view.dispatch({ effects: lock.reconfigure(EditorState.readOnly.of(next)) });
     },
     destroy: () => {
       view.destroy();

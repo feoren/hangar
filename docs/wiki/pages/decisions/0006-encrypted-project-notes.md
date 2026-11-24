@@ -438,7 +438,7 @@ section 3 and 5 left open; where it differs from them, this section wins.
   6), and sealing that subset would take older keys away from every member who joins later. A
   manager without a complete ring waits for another owner's or admin's device.
 - **Conflicts.** `conflict` on `notes.keys.set` means another device wrote first: fetch, merge,
-  decide again. At most two refused writes per connection, then the device waits for the next
+  decide again. At most three refused writes per connection, then the device waits for the next
   connection, as for `key.rotate`.
 - **At the cap.** A ring of 255 keys takes no new key: the re-seal under the new epoch keeps the
   newest key, and the Team view logs nothing more. 255 removals in one team are far beyond any
@@ -533,24 +533,45 @@ test pins the same strings.
   write with the old key. On the rotating device the re-seal follows at once; connected member
   devices stop saving until it lands.
 
-## Phase 2 as built (2026-11-22, partial)
-- **Done:** protocol version 2 in `crates/hangar-team-protocol` (`ENVELOPE_VERSION` 1,
+## Phase 2 as built (2026-11-22)
+- **Crates:** protocol version 2 in `crates/hangar-team-protocol` (`ENVELOPE_VERSION` 1,
   `PROTOCOL_VERSION` 2, `ProtoRange::CURRENT` `{1, 2}`, `since()`, the four `notes.keys` kinds);
   the `notes-keys` record in `crates/hangar-team-crypto` (`seal_notes_keys`, `open_notes_keys`,
   `team_hint`, `MAX_KEYS` 255, vectors `VECTOR_NOTES_KEYS` and `VECTOR_TEAM_HINT` recomputed by
-  `test_vectors.py`); the relay of the team server (per connection version filter in both
-  directions, compare and set, storage, tests); the app's engine part
-  (`src-tauri/src/team_engine/notes.rs`: fetch after every `welcome` of version 2, union, re-seal
-  with a new key after a rotation, compare and set with merge on `conflict`, turn-on and
-  solo-to-team requests as `Engine::notes_enable`, `NotesKeysView` with `renewing`), with engine
-  tests against an in-memory relay of version 1 and 2.
-- **Not built yet:** the worker and `TeamService` plumbing that hands `NotesKeysView` and
-  `notes_enable` to the window; team vaults in `src-tauri/src/project_notes.rs` (team hint,
-  keychain cache of the newest 12 keys under `team/<team key>`, linked check, link prompt,
-  states of section 8, refusing saves while `renewing`, solo to team after the `ack`); the UI and
-  its texts in `src/i18n.ts`; interop runs in `src-tauri/tests/relay_interop.rs` and
-  `src-tauri/tests/team.rs`. Until then team vaults stay locked as in phase 1 and nothing of
-  phase 2 reaches the window; the engine only fetches the record on relays of version 2.
+  `test_vectors.py`).
+- **Team server:** a filter on the negotiated version in both directions, compare and set,
+  storage (migration `0012_notes_keys.sql`), and `GET /api/v1/projects/{id}/members` for the
+  self-hosted server. The interop run showed that without that route an owner's device never
+  learned of a removal on a self-hosted server, so no rotation and no new notes key followed.
+- **Engine** (`src-tauri/src/team_engine/notes.rs`): fetch after every `welcome` of version 2,
+  union, re-seal with a new key after a rotation, compare and set with merge on `conflict` (at
+  most three refused writes per connection, `MAX_SET_FAILURES`), turn-on and solo-to-team as
+  `Engine::notes_enable`. `NotesKeysView` also carries `fresh` (the epoch the newest key was
+  confirmed under), `log_epoch` and `urgent` from the verified log, also on a relay of version 1.
+- **Service** (`src-tauri/src/team_service.rs`): the view per team (`notes_keys`, `notes_teams`),
+  `notes_enable` answered once the engine has an outcome (at most 20 s), `link_folder` for a
+  folder without a running session. `TeamService` implements `project_notes::TeamSide`.
+- **Team vaults** (`src-tauri/src/project_notes/team.rs`):
+  - The team hint finds the team; "linked" means a link of that team with the repository's root
+    commit whose folder resolves to the same main worktree.
+  - Keychain cache `team/<team key>` as `t1 <fresh epoch> <stale 0|1> v1 <newest 12 keys>`.
+  - **Save rule:** saving (create, write, rename, restore) is refused (`Renewing`) while the
+    verified log reports `rotation_urgent()` or knows a newer epoch than the newest key was
+    confirmed under. Without a verified log in this run (after a restart) the decision stored
+    with the cache holds; on a relay of version 1 the ring cannot be renewed, so saving stays
+    refused once the log moved past it. Reading always goes on.
+  - States: `locked` with `team` (not a member), `link`, `waiting`, `oldServer`; `unlocked` with
+    `renewing`. Commands `shared_notes_team`, `shared_notes_team_enable`,
+    `shared_notes_to_team`, `shared_notes_link` (contract in [[notes]]).
+  - Solo to team rewrites `vault.json` only after the relay stored the ring; a refusal changes
+    no file. Team notes carry the editor's display name in `by`.
+- **UI** in the notes panel and the notes window, texts in 12 languages.
+- **Tests:** engine tests against an in-memory relay of version 1 and 2; team vault tests with a
+  fake team side (states, link, save rule across a restart and on version 1, solo to team, cache
+  size); interop `team_notes_against_a_self_hosted_relay` in `src-tauri/tests/relay_interop.rs`
+  against a real relay of version 2 (turn on, member reads, removal with a new key, the removed
+  member cannot read what followed, a member admitted later reads everything) and a relay
+  limited to version 1 (settles on 1, `NotesUnsupported`).
 
 ## Evidence
 - [[note-gitattributes-measurement]]: `.gitattributes` behaviour and conflict stages on Windows.
