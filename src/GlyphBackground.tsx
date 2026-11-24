@@ -23,8 +23,8 @@ import {
 /** Frames per second while something is uncovered; the fade is slow, more would only cost. */
 const FPS = 30;
 /** Opacity of a fully uncovered glyph, per colour: a faint text tone under a faint accent. */
-const TEXT_PEAK = 0.14;
-const ACCENT_PEAK = 0.32;
+const TEXT_PEAK = 0.17;
+const ACCENT_PEAK = 0.4;
 /** A new trace only after the pointer moved this far, which keeps the list short. */
 const TRACE_SPACING = 10;
 

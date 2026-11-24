@@ -141,8 +141,8 @@ export interface Pulse extends Point {
 export const PULSE_PEAK = 1;
 
 /** Seconds between two pulses, at least and at most. */
-export const PULSE_GAP_MIN = 1;
-export const PULSE_GAP_MAX = 3.5;
+export const PULSE_GAP_MIN = 0.4;
+export const PULSE_GAP_MAX = 1.6;
 
 /** A new pulse somewhere in the `width` x `height` area, of a random size and shape. */
 export function spawnPulse(width: number, height: number, t: number, random: () => number): Pulse {
