@@ -507,6 +507,8 @@ impl TokenSet {
 pub struct Me {
     #[serde(deserialize_with = "opaque_id")]
     pub id: String,
+    /// Shown in the window like the name, so cleaned the same way ([`clean_text`]).
+    #[serde(deserialize_with = "cleaned")]
     pub email: String,
     #[serde(default, deserialize_with = "optional_cleaned")]
     pub name: Option<String>,
@@ -1541,6 +1543,18 @@ mod tests {
         )
         .unwrap();
         assert_eq!(me.name.as_deref(), Some("Ada"));
+    }
+
+    #[test]
+    fn me_cleans_the_email_like_the_name() {
+        let me: Me = serde_json::from_str(
+            "{\"id\":\"7\",\"email\":\"ada\u{202e}@exa\u{200b}mple\u{2066}.test\u{2028}\"}",
+        )
+        .unwrap();
+        assert_eq!(me.email, "ada@example.test");
+        let long = "a".repeat(MAX_TEXT_CHARS + 50);
+        let me: Me = serde_json::from_str(&format!(r#"{{"id":"7","email":"{long}"}}"#)).unwrap();
+        assert_eq!(me.email.chars().count(), MAX_TEXT_CHARS);
     }
 
     #[test]
