@@ -9,7 +9,7 @@
 //! a waiting session shows itself, the daily budget with its early warning and the day and level
 //! its notice last showed, whether the morning summary is offered and for which day it last was,
 //! and whether the dictation key is on), the partner projects ([`crate::partners`]: which
-//! projects may send each other messages) and the recently closed sessions
+//! projects may send each other messages) and the recently opened sessions
 //! ([`ClosedSession`]: program and folder to start again with one click).
 //!
 //! The panel and file viewer windows share the main window's origin and with it its
@@ -19,7 +19,7 @@
 //! program in a folder of its choice, point the next start at such a folder, start it private
 //! (without the gate), silence the notices of a session that waits for the person, hide the
 //! budget notice (a budget out of reach, today marked as warned), turn the dictation key on, so
-//! that holding it opens the microphone, or plant a recently closed session that starts a program
+//! that holding it opens the microphone, or plant a recently opened session that starts a program
 //! in a folder of its choice on the next click. Here the files sit in the local app data folder, written
 //! atomically ([`crate::persist::write_atomic`]) and validated on reading and on writing; the
 //! commands answer the main window only ([`check_main`]).
@@ -49,9 +49,10 @@ pub const SUB_AGENTS_FILE: &str = "sub-agent-settings.json";
 pub const PARTNERS_FILE: &str = "partner-projects.json";
 /// Messages agents sent to partner projects that wait for the person ([`crate::partner_inbox`]).
 pub const INBOX_FILE: &str = "partner-messages.json";
-/// Sessions the person closed, to start again with one click (`recentlyClosed.ts`).
+/// The recently opened sessions, to start again with one click (`recentlyOpened.ts`). The file
+/// keeps its first name, so a list from before carries over.
 pub const RECENTLY_CLOSED_FILE: &str = "recently-closed.json";
-/// Recently closed sessions kept, as the window bounds them (`recentlyClosed.ts` `KEEP_LIMIT`).
+/// Recently opened sessions kept, as the window bounds them (`recentlyOpened.ts` `KEEP_LIMIT`).
 pub const MAX_RECENTLY_CLOSED: usize = 10;
 /// Every entry at its longest in escaped JSON: folder, program, title, marker and id, with room.
 const MAX_RECENTLY_CLOSED_BYTES: usize = MAX_RECENTLY_CLOSED
@@ -117,7 +118,7 @@ pub enum MainStoreError {
     InvalidTemplate(&'static str),
     #[error("Invalid preference: {0}")]
     InvalidPrefs(&'static str),
-    #[error("Invalid recently closed session: {0}")]
+    #[error("Invalid recently opened session: {0}")]
     InvalidClosed(&'static str),
     #[error(transparent)]
     Partners(#[from] crate::partners::PartnerError),
@@ -640,9 +641,10 @@ pub fn validate_prefs(prefs: &MainPrefs) -> Result<(), MainStoreError> {
     Ok(())
 }
 
-/// A session the person closed (`recentlyClosed.ts`, `ClosedSession`): its program, folder, title
+/// A recently opened session (`recentlyOpened.ts`, `RecentSession`): its program, folder, title
 /// and marker, and the conversation id the agent CLI resumes (`None` for programs without one).
-/// `closed_at` is in milliseconds since the Unix epoch.
+/// `closed_at` is when it was last used, in milliseconds since the Unix epoch; 0 means unknown
+/// (an entry taken over from the recent folders, `UNKNOWN_TIME`).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct ClosedSession {
@@ -658,7 +660,7 @@ pub struct ClosedSession {
     pub closed_at: u64,
 }
 
-/// The bounds the window keeps (`parseRecentlyClosed`): not too many entries, a program ID like
+/// The bounds the window keeps (`parseRecentSessions`): not too many entries, a program ID like
 /// the last program's, a folder like the menu's, a title as the backend stores session titles, a
 /// marker as the workspace keeps it, and a conversation id that is a lowercase UUID used once:
 /// two entries with one id would resume one conversation twice.
@@ -834,7 +836,7 @@ impl MainStore {
         save(&self.dir.join(PREFS_FILE), &prefs)
     }
 
-    /// The recently closed sessions, most recent first. A missing, damaged or invalid file gives
+    /// The recently opened sessions, most recent first. A missing, damaged or invalid file gives
     /// none, so a planted file starts nothing.
     pub fn load_recently_closed(&self) -> Vec<ClosedSession> {
         let path = self.dir.join(RECENTLY_CLOSED_FILE);
