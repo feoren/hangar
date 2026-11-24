@@ -4,8 +4,9 @@
 // a second Claude Code session started as the "hangar-security" sub-agent, Gemini CLI done with the
 // API docs in the project "acme-docs", a PowerShell running the docs site's dev server and a
 // signed-in account with two teammates online. Three of the agents form a link group with a lead.
-// Per scene it adds what that scene shows: the sessions opened recently, notes, a crew of
-// reviewers, messages of the group that wait for a click or a commit held by the secret guard.
+// Per scene it adds what that scene shows: the sessions opened recently, the team's shared notes,
+// a crew of reviewers with two visitors that are not Hangar's own, the home view's glyph field,
+// messages of the group that wait for a click or a commit held by the secret guard.
 // The driver (run.mjs) picks what each screenshot shows by clicking through the real frontend.
 // Nothing here talks to a real process, file or network, and every name in it is made up.
 
@@ -45,10 +46,12 @@ const SCENE = ((): string => {
 })();
 /** The scene whose sidebar rows send output fast enough for the flow to run busy. */
 const FAST_OUTPUT = SCENE === "overview";
-/** The recently opened scene: three sessions, so the five entries of the group stand in full. */
-const FEW = SCENE === "recently-opened";
 /** The sub-agents scene: the lead reviews with a different crew. */
 const REVIEW = SCENE === "sub-agents";
+/** The team notes scene: an admin shares the project's notes with the team. */
+const SHARE_WITH_TEAM = SCENE === "team-notes";
+/** The home view scene: its glyph field holds still for the screenshot. */
+const HOME_GLYPHS = SCENE === "home-glyphs";
 
 const MINUTE = 60_000;
 const HOUR = 60 * MINUTE;
@@ -81,6 +84,27 @@ if (WAIT_JUMP > 0) {
     jumped = true;
   }, JUMP_AFTER_MS);
 }
+// The home view's glyph field (GlyphBackground.tsx) draws from Math.random and fades by
+// performance.now. In its scene both are pinned: a seeded random, so the field and its pulses come
+// out alike in each run, and a clock that stops with the driver's freeze, so the patch the pointer
+// just uncovered and the blot pulsing up stay as they are until the screenshot is taken.
+if (HOME_GLYPHS) {
+  let seed = 0x2f6e2b1;
+  Math.random = () => {
+    seed = (seed + 0x6d2b79f5) | 0;
+    let value = Math.imul(seed ^ (seed >>> 15), 1 | seed);
+    value = (value + Math.imul(value ^ (value >>> 7), 61 | value)) ^ value;
+    return ((value ^ (value >>> 14)) >>> 0) / 4294967296;
+  };
+  const realPerformanceNow = performance.now.bind(performance);
+  let frozenAt: number | null = null;
+  performance.now = () => {
+    if (!control.freeze) return realPerformanceNow();
+    frozenAt ??= realPerformanceNow();
+    return frozenAt;
+  };
+}
+
 /** A moment `ms` before the screenshot. */
 const ago = (ms: number) => SHOT_TIME - ms;
 
@@ -188,21 +212,17 @@ const baseSessions = [
 ];
 /**
  * The sessions of the scene. A list keeps the order of the base list, so each session keeps its
- * number (and its script): the recently opened scene has the first three, the overview leaves out
- * the docs server so its sidebar shows every row whole.
+ * number (and its script): the overview and the sub-agents scene leave out the docs server, so
+ * their sidebars, with the lead's crew in a tree, show every row whole.
  */
-const mainSessions = FEW
-  ? baseSessions.slice(0, 3)
-  : SCENE === "overview"
-    ? baseSessions.slice(0, 4)
-    : baseSessions;
+const mainSessions = SCENE === "overview" || REVIEW ? baseSessions.slice(0, 4) : baseSessions;
 const workspace = { version: 1, activeKey: uuid(1), sessions: mainSessions };
 /** Minutes each session has been running, in creation order. */
 const AGE_MINUTES = [52, 47, 38, 31, 64];
 
 // "Recently opened" (recentlyOpened.ts): programs started in a folder before, none of them open
-// now, newest first. The recently opened scene shows five, the overview two (its sidebar holds the
-// link group's bracket and the lead's crew above them), the others the first three. Times count
+// now, newest first. The overview shows two (its sidebar holds the link group's bracket and the
+// lead's crew above them), the others the first three (folded away in most scenes). Times count
 // back from the clock's start, so the ages read the same however long the scene takes to settle.
 const recent = (
   profileId: string,
@@ -228,7 +248,7 @@ const recentlyOpened = [
   recent("gemini", ROOT, "Search ranking", DAY + 3 * HOUR, 3),
   recent("pwsh", INFRA, "acme-infra", 3 * DAY, null),
   recent("claude", MOBILE, "Push notifications", 6 * DAY, 4),
-].slice(0, FEW ? 5 : SCENE === "overview" ? 2 : 3);
+].slice(0, SCENE === "overview" ? 2 : 3);
 
 // ANSI helpers
 const E = "\x1b[";
@@ -296,15 +316,17 @@ const claudeCrewOut = lines([
 ]);
 
 /**
- * The sub-agents scene: the lead has the retries reviewed before the merge. The manager is done,
- * the security agent searches, the researcher has just started.
+ * The sub-agents scene: the lead has the retries reviewed before the merge, by two of Hangar's
+ * agents and two visitors, the team's own code-reviewer and load-tester. The manager finished a
+ * while ago (the sidebar keeps it, the stage no longer), the security agent searches, the
+ * code-reviewer reads and the load-tester has just started.
  */
 const claudeReviewOut = lines([
   dim("> ") + "Review the webhook retries before we merge",
   "",
   "● I'll have the diff reviewed, the payment",
-  "  code audited and the retry limits checked",
-  "  against the provider's guidance.",
+  "  code audited, the style checked and the",
+  "  retries tried under load.",
   "",
   task("hangar-manager", "Review the diff"),
   dim("  ⎿  ") + "Done (12 tool uses · 18.4k tokens · 48s)",
@@ -312,9 +334,12 @@ const claudeReviewOut = lines([
   task("hangar-security", "Audit retry handling"),
   dim("  ⎿  ") + "Grep(apiKey|secret, src/payments)",
   dim("     Found 3 matches in 2 files"),
-  dim("     +4 more tool uses"),
   "",
-  task("hangar-researcher", "Check retry limits"),
+  task("code-reviewer", "Check naming and style"),
+  dim("  ⎿  ") + "Read(src/payments/webhook.ts)",
+  dim("     Read 86 lines"),
+  "",
+  task("load-tester", "Retries under load"),
   dim("  ⎿  ") + dim("Starting…"),
   "",
   SAVE_CURSOR + claudeSpinner(CLAUDE_START_SECONDS, 0),
@@ -671,8 +696,8 @@ const reviewCrew = [
     "manager",
     "Review the diff",
     "hangar-manager",
-    51_000,
-    3_000,
+    2 * MINUTE,
+    50_000,
     "Read",
     "src/payments/webhook.ts",
     18_420,
@@ -688,16 +713,19 @@ const reviewCrew = [
     "apiKey|secret",
     27_310,
   ),
+  // Two visitors, the person's own definitions: each wears the drawn guest figure in its color,
+  // its initial on the badge.
   subAgent(
-    "researcher",
-    "Check retry limits",
-    "hangar-researcher",
-    6_000,
-    6_000,
-    null,
-    null,
-    2_140,
+    "reviewer",
+    "Check naming and style",
+    "code-reviewer",
+    34_000,
+    1_500,
+    "Read",
+    "src/payments/webhook.ts",
+    11_640,
   ),
+  subAgent("load", "Retries under load", "load-tester", 6_000, 6_000, null, null, 2_140),
 ];
 const subAgents = REVIEW ? reviewCrew : buildCrew;
 
@@ -716,8 +744,7 @@ function watchSubAgents(args: Args): null {
   if (channel === undefined) return null;
   subAgentWatch.set(sessionId, channel);
   setTimeout(() => {
-    // The recently opened scene keeps the sidebar short: no tree under the lead.
-    const agents = sessionId === 1 && !FEW ? subAgents : [];
+    const agents = sessionId === 1 ? subAgents : [];
     send(channel, { type: "snapshot", located: true, agents });
     sendSubAgentLog(channel, args.focus);
   }, 50);
@@ -971,8 +998,34 @@ function bundledDefinition(role: string) {
   };
 }
 const bundledDefs = BUNDLED_ROLES.map(bundledDefinition);
+/** The person's own definitions next to Hangar's: visitors, drawn in their frontmatter color. */
+const ownDefinition = (name: string, description: string, color: string, tools: string[]) => ({
+  name,
+  description,
+  model: null,
+  color,
+  tools,
+  extras: [],
+  scope: "global",
+  folder: null,
+  file: `${name}.md`,
+});
+const ownDefs = [
+  ownDefinition(
+    "code-reviewer",
+    "Reviews a diff for naming, structure and readability before a merge.",
+    "green",
+    ["Read", "Grep", "Glob"],
+  ),
+  ownDefinition(
+    "load-tester",
+    "Runs load tests against a local build and reports latency and errors.",
+    "orange",
+    ["Read", "Bash"],
+  ),
+];
 const subAgentLibrary = {
-  defs: bundledDefs,
+  defs: [...bundledDefs, ...ownDefs],
   codexDefs: [],
   problems: [],
   installed: ["claude", "codex"],
@@ -1187,8 +1240,10 @@ const secretOutcome = {
   tree: "5d41402abc4b2a76b9719d911017c592ae1f7e2b",
 };
 
-// Notes: two of the person's own in acme-shop, one shared with the team and one in General. The
-// overview shows them in the right panel, with their excerpts and checklist progress.
+// Notes: three of the person's own in acme-shop, one in General and four shared ones of acme-shop,
+// encrypted in the repository. The overview shows the private ones in the right panel; the team
+// notes scene the shared ones, with their excerpts and checklist progress, behind the dialog that
+// shares them with the whole team (`shared_notes_team`).
 const NOTE_TEXT: Record<string, string> = {
   "note-retries": [
     "# Webhook retries",
@@ -1211,12 +1266,30 @@ const NOTE_TEXT: Record<string, string> = {
     "",
     "Round once at the end, not per line. Check the tax rounding with the accountant.",
   ].join("\n"),
+  "note-oncall": [
+    "# On-call handover",
+    "",
+    "Mika has payments until Friday, Jonas takes the weekend. Failed webhooks above 2 % page the on-call.",
+  ].join("\n"),
   "note-release": [
-    "# Release checklist",
+    "# Release 2.4 checklist",
+    "",
+    "Freeze on Thursday, ship on Monday morning.",
     "",
     "- [x] Changelog",
+    "- [x] Webhook retries merged",
     "- [ ] Check the refund e-mails in all languages",
     "- [ ] Tag the release",
+  ].join("\n"),
+  "note-review": [
+    "# Review rules",
+    "",
+    "Two approvals for anything under src/payments. Small pull requests, one topic each.",
+  ].join("\n"),
+  "note-sandbox": [
+    "# Payment sandbox",
+    "",
+    "The sandbox resets every Monday. Test cards live in the provider's dashboard, never in the repo.",
   ].join("\n"),
   "note-ideas": [
     "# Ideas",
@@ -1230,11 +1303,24 @@ const noteInfo = (id: string, title: string, updatedAgo: number, order: number) 
   updatedAt: ago(updatedAgo),
   order,
 });
+/** The `path` of a notes call's `folder` argument; `null` for General. */
+function folderPath(args: Args): unknown {
+  const folder = typeof args.folder === "object" && args.folder !== null ? args.folder : {};
+  return "path" in folder ? folder.path : null;
+}
 function listNotes(args: Args): unknown[] {
   const folder = typeof args.folder === "object" && args.folder !== null ? args.folder : {};
   const path = "path" in folder ? folder.path : null;
   const shared = "shared" in folder && folder.shared === true;
-  if (shared) return [noteInfo("note-release", "Release checklist", 3 * HOUR, 0)];
+  if (shared && path === ROOT) {
+    return [
+      noteInfo("note-oncall", "On-call handover", 18 * MINUTE, 0),
+      noteInfo("note-release", "Release 2.4 checklist", 2 * HOUR, 1),
+      noteInfo("note-review", "Review rules", DAY + 4 * HOUR, 2),
+      noteInfo("note-sandbox", "Payment sandbox", 3 * DAY, 3),
+    ];
+  }
+  if (shared) return [];
   if (path === ROOT) {
     return [
       noteInfo("note-retries", "Webhook retries", 6 * MINUTE, 0),
@@ -1245,6 +1331,26 @@ function listNotes(args: Args): unknown[] {
   if (path === null) return [noteInfo("note-ideas", "Ideas", 2 * DAY, 0)];
   return [];
 }
+
+// The activity calendar on the home view: Sam's own commits of the last year, as author times in
+// seconds. Weekdays are busier than weekends, the last months busier than the first, and a quiet
+// stretch in August is a holiday. A fixed formula, so the calendar is the same in every run.
+const gitActivity = (() => {
+  const commits: number[] = [];
+  const today = Math.floor(FIXED_START / DAY) * DAY;
+  for (let back = 0; back < 365; back++) {
+    const day = today - back * DAY;
+    const weekday = new Date(day).getUTCDay();
+    const holiday = back > 95 && back < 112;
+    const weekend = weekday === 0 || weekday === 6;
+    const wave = (Math.sin(back * 1.7) + Math.sin(back * 0.43 + 1)) / 2;
+    const busy = (1 - back / 520) * (weekend ? 0.25 : 1) * (0.55 + 0.45 * wave);
+    const count = holiday ? 0 : Math.max(0, Math.round(busy * 9 - 1));
+    for (let n = 0; n < count; n++)
+      commits.push(Math.floor((day + 9 * HOUR + n * 37 * MINUTE) / 1000));
+  }
+  return { commits };
+})();
 
 // Events: the frontend listens through the event plugin; the mock answers some right away.
 const listeners = new Map<string, number[]>();
@@ -1322,13 +1428,25 @@ const handlers: Record<string, (args: Args) => unknown> = {
   write_note: () => null,
   search_notes: () => [],
   list_trash: () => [],
-  shared_notes_status: () => ({
-    state: "unlocked",
-    uncommitted: 0,
-    ignored: false,
-    unreadable: 0,
-    resolved: [],
-  }),
+  // Shared notes in acme-shop, open on this computer; the docs project has none. In the team
+  // notes scene Sam, an admin of the team, still has them on a code of their own: the panel offers
+  // to share them with the team, after which the key arrives through the team.
+  shared_notes_status: (args) =>
+    folderPath(args) === ROOT
+      ? {
+          state: "unlocked",
+          uncommitted: 0,
+          ignored: false,
+          unreadable: 0,
+          resolved: [],
+          team: !SHARE_WITH_TEAM,
+        }
+      : { state: "unavailable" },
+  // The team of acme-shop, which links this clone and whose server holds team keys.
+  shared_notes_team: (args) =>
+    folderPath(args) === ROOT
+      ? { project: PROJECT, manager: SHARE_WITH_TEAM, speaks: true, linked: true, exists: true }
+      : null,
   account_status: () => accountView,
   account_projects: () => projects,
   team_status: () => teamStatus,
@@ -1385,6 +1503,7 @@ const handlers: Record<string, (args: Args) => unknown> = {
     );
   },
   git_changed_count: (args) => changedFiles[sessionCwd(args)] ?? 0,
+  git_activity: () => gitActivity,
   profile_path: () => null,
   configure_gate: () => null,
   configure_command_guard: () => null,

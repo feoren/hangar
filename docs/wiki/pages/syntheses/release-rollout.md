@@ -4,7 +4,7 @@ type: synthesis
 tags: [release, updater, nsis, windows, linux, appimage, deb, macos, dmg]
 sources: ["[[tauri-updater-and-nsis]]", "[[code-signing-research]]", "[[linux-bundling-reading]]", "[[macos-release-reading]]"]
 created: 2026-11-07
-updated: 2026-11-23
+updated: 2026-11-25
 ---
 
 # Rolling out a release
@@ -111,8 +111,9 @@ collects its items under that same version without a date. `src/versionSync.test
    (`README_SHOTS_BROWSER` picks a specific executable) and writes one image per scene and color
    scheme into `docs/images/` (1296 x 839): the overview `hangar-dark.png` and `hangar-light.png`
    (at most 400 KB each) and `hangar-<scene>-dark.png` / `-light.png` for each further scene (at
-   most 300 KB each): one per most visible feature of the release. Since 0.15.0 these are six:
-   `link-groups`, `waiting-message`, `link-add`, `recently-opened`, `sub-agents` and `secret-guard`. A release keeps the overview plus six to nine scenes and
+   most 300 KB each): one per most visible feature of the release. Since 0.16.0 these are six:
+   `team-notes`, `sub-agents`, `home-glyphs`, `waiting-message`, `link-groups` and
+   `secret-guard`. A release keeps the overview plus six to nine scenes and
    replaces the ones whose feature is no longer among the best. The README and the website use
    these stable names. `--scene <name>` renders only some scenes. Times are deterministic: the mock runs
    a fixed clock and the browser renders in UTC; animations stop on a fixed frame. It cleans up

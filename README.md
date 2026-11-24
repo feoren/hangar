@@ -35,7 +35,7 @@ your own accounts, on your own machine. The desktop app is open source under the
 
 <picture>
   <source media="(prefers-color-scheme: light)" srcset="docs/images/hangar-light.png">
-  <img alt="Hangar with a Claude Code session whose sub-agents hangar-backend, hangar-frontend and hangar-tester stand on round stages in the crew column, each with a speech bubble saying what it edits or runs, and the notes panel open on the right; the sidebar groups the sessions by project with a teal bracket labeled Group · 3 around the linked ones, the hangar-security session has waited for 12 minutes, the Recently opened group lists acme-billing and acme-web with their program and age, and the bar above the terminal shows the session's name, a blue Buy me a coffee badge and the switch for the right panel" src="docs/images/hangar-dark.png">
+  <img alt="Hangar with a Claude Code session whose sub-agents hangar-backend, hangar-frontend and hangar-tester stand on round stages in the crew column, each with a speech bubble saying what it edits or runs, and the notes panel open on the right with three private notes and four shared ones; the sidebar groups the sessions by project with a teal bracket labeled Group · 3 around the linked ones, the hangar-security session has waited for 12 minutes, the Recently opened group lists acme-billing and acme-web with their program and age, and the bar above the terminal shows the session's name, a blue Buy me a coffee badge and the switch for the right panel" src="docs/images/hangar-dark.png">
 </picture>
 
 ## Features
@@ -166,7 +166,9 @@ your own accounts, on your own machine. The desktop app is open source under the
   shown as cards or as a table; one click opens an agent's model and figure. Add a new one by
   pasting it or from a file; Hangar never replaces a file unasked.
 - **A figure for every Hangar agent.** Each of Hangar's sub-agents wears a whole figure: one of 41
-  bundled ones or your own image, also animated. Your own agents show their initial. A session
+  bundled ones or your own image, also animated. Agents that are not Hangar's, your own or built-in
+  ones such as Explore, stand on the stage and under their session as drawn visitors with a name
+  badge. A session
   started as a sub-agent wears its figure in the sidebar, and the crew column shows it while the
   sub-agent works.
 - **Start as an agent.** Quick access starts a Claude Code session as one of your sub-agents
@@ -228,6 +230,8 @@ your own accounts, on your own machine. The desktop app is open source under the
 - **Shared, encrypted notes.** Turn on shared notes for a project and they live encrypted in the
   repository, so they travel with your commits. A recovery code makes sure they can always be
   opened again.
+- **Notes for the whole team.** In a team project an owner or admin turns shared notes on, and
+  every member gets the key through the team, without a code.
 - **A panel you can detach.** Notes, Changes and Files share a side panel that one switch in the bar
   above the terminal slides open and closed, and that can live in its own window on a second screen.
 
@@ -276,20 +280,27 @@ Team features need the Team plan; the free plan is for one person. See
   <tr>
     <td width="50%" valign="top">
       <picture>
-        <source media="(prefers-color-scheme: light)" srcset="docs/images/hangar-recently-opened-light.png">
-        <img alt="The Recently opened group above New session with five entries, acme-billing with Claude Code 5 min. ago, acme-web with Codex CLI 2 hr. ago, acme-shop with Gemini CLI yesterday, acme-infra with PowerShell 3 days ago and acme-mobile with Claude Code 6 days ago; the hovered acme-web row shows its remove button, beside two terminals working side by side" src="docs/images/hangar-recently-opened-dark.png">
+        <source media="(prefers-color-scheme: light)" srcset="docs/images/hangar-team-notes-light.png">
+        <img alt="The dialog Share with acme-shop over the notes panel: everyone in acme-shop can then read these notes, including people who join later, no code needed, with Cancel and Share; behind it the Shared tab of the project acme-shop lists four notes stored in the repository, On-call handover, Release 2.4 checklist with two of four items done, Review rules and Payment sandbox, with the link Share with acme-shop below them" src="docs/images/hangar-team-notes-dark.png">
       </picture>
-      <br><sub>Recently opened: one click brings a session back with its folder and conversation.</sub>
+      <br><sub>Shared notes for the whole team: the key arrives through the team, no code needed.</sub>
     </td>
     <td width="50%" valign="top">
       <picture>
         <source media="(prefers-color-scheme: light)" srcset="docs/images/hangar-sub-agents-light.png">
-        <img alt="The crew column of a Claude Code session reviewing a change: hangar-manager on a green-ringed stage saying Done, hangar-security searching for apiKey|secret, and hangar-researcher with typing dots in its bubble, beside a Codex CLI session" src="docs/images/hangar-sub-agents-dark.png">
+        <img alt="The crew column of a Claude Code session reviewing a change: hangar-security searching for apiKey|secret above two drawn visitors with name badges, code-reviewer reading webhook.ts and load-tester with typing dots; the sidebar lists hangar-manager as done, hangar-security and both visitors under the session" src="docs/images/hangar-sub-agents-dark.png">
       </picture>
-      <br><sub>The crew on its stage: the light ring shows each sub-agent's state.</sub>
+      <br><sub>Sub-agents that are not Hangar's stand on the stage as drawn visitors with a name badge.</sub>
     </td>
   </tr>
   <tr>
+    <td width="50%" valign="top">
+      <picture>
+        <source media="(prefers-color-scheme: light)" srcset="docs/images/hangar-home-glyphs-light.png">
+        <img alt="The home view with the activity calendar of 564 commits and the project cards for acme-shop and acme-docs; a faint field of drifting glyphs shows only where the pointer passed at the bottom right and where a soft pulse glows near the top" src="docs/images/hangar-home-glyphs-dark.png">
+      </picture>
+      <br><sub>The home view hides a field of drifting glyphs that the pointer uncovers like fog.</sub>
+    </td>
     <td width="50%" valign="top">
       <picture>
         <source media="(prefers-color-scheme: light)" srcset="docs/images/hangar-waiting-message-light.png">
@@ -297,21 +308,14 @@ Team features need the Team plan; the free plan is for one person. See
       </picture>
       <br><sub>A new group introduces itself to its lead; messages from other agents wait for your click.</sub>
     </td>
+  </tr>
+  <tr>
     <td width="50%" valign="top">
       <picture>
         <source media="(prefers-color-scheme: light)" srcset="docs/images/hangar-link-groups-light.png">
         <img alt="The Edit group dialog of a link group with three members, shop, cart and docs, the session hangar-security under Add session, the lead set to the Webhook retries session and the group's cost today of 2.2M tokens, about $15.18, while a teal bracket labeled Group · 3 holds the linked sessions together in the sidebar" src="docs/images/hangar-link-groups-dark.png">
       </picture>
       <br><sub>Link agents into a group with a lead that hands out tasks and collects the results.</sub>
-    </td>
-  </tr>
-  <tr>
-    <td width="50%" valign="top">
-      <picture>
-        <source media="(prefers-color-scheme: light)" srcset="docs/images/hangar-link-add-light.png">
-        <img alt="The Edit group dialog after hangar-security was added to a link group of three: the new member shows a dashed dot, the label new and the name security with a remove button below shop, cart and docs, while the teal bracket labeled Group · 3 holds the linked sessions together in the sidebar" src="docs/images/hangar-link-add-dark.png">
-      </picture>
-      <br><sub>Link groups can grow: add another session to a group that already works together.</sub>
     </td>
     <td width="50%" valign="top">
       <picture>

@@ -1,6 +1,6 @@
 // Renders the README screenshots into docs/images from the real frontend with a mocked backend
 // (mock.ts) in a headless Chromium based browser: one image per scene and color scheme, e.g.
-// hangar-dark.png (the overview) and hangar-link-add-light.png.
+// hangar-dark.png (the overview) and hangar-team-notes-light.png.
 //
 // Usage: pnpm readme:shots [--scene <name>]...   (default: every scene)
 //
@@ -31,6 +31,11 @@ const SIDEBAR_WIDTH = 352;
 const KB = 1024;
 const SCHEMES = ["dark", "light"];
 const TITLE = "README-SHOTS-HARNESS";
+/** Pause before a scene's pointer path, and between two of its points. */
+const POINTER_FADE_MS = 2800;
+const POINTER_STEP_MS = 60;
+/** How long a scene's pointer path repeats at most while it waits for its `freezeWhen`. */
+const POINTER_TIMEOUT_MS = 30_000;
 
 /** Clicks the first element matching `selector` whose text contains `text` (if given). */
 const click = (selector, text = null) => `(() => {
@@ -59,6 +64,22 @@ const working = (count) => `(() => {
  * wait for something else instead (`settled`).
  */
 const SETTLED = `(${working(2)} && ${shows(".session", "done")})`;
+
+/**
+ * True while a pulse of the home view's glyph field stands out in the open band between the bar
+ * above the work area and the activity calendar, where it covers no text: enough clearly lit
+ * pixels on the canvas there. The pointer's patch lies far below it.
+ */
+const GLYPH_PULSE = `(() => {
+  const canvas = document.querySelector(".glyph-background");
+  const context = canvas?.getContext("2d");
+  if (!context) return false;
+  const host = canvas.getBoundingClientRect();
+  const band = context.getImageData(0, 0, canvas.width, Math.max(1, 120 - Math.round(host.top)));
+  let lit = 0;
+  for (let i = 3; i < band.data.length; i += 4) if (band.data[i] >= 40) lit += 1;
+  return lit > 450;
+})()`;
 
 /** The tree flow in its default style, without the rates at the rows' ends. */
 const FLOW = { treeFlow: { enabled: true, style: "stream", showRate: false } };
@@ -126,8 +147,9 @@ const SINGLE = { snapLayout: "single", closedGroups: FOLDED };
  * the sidebar must show before the steps start (default: SETTLED); `boot`: what must show for the
  * app to count as started, given the version shown (default: BOOT); `steps`: what to run once the
  * app is up, each followed by what must show before the next; `hover`: the element the pointer
- * rests on for the screenshot (default: none, the pointer leaves the window). The mock reads the
- * scene's name too (mock.ts `SCENE`).
+ * rests on for the screenshot (default: none, the pointer leaves the window); `pointer`: a path of
+ * [x, y] points the pointer moves along right before the screenshot, for what follows the pointer
+ * (the home view's glyph field), repeated until `freezeWhen` holds (default: once). The mock reads the scene's name too (mock.ts `SCENE`).
  */
 const SCENES = [
   {
@@ -154,6 +176,66 @@ const SCENES = [
           document.querySelectorAll(".recent-row").length === 2 &&
           document.querySelectorAll(".note-row").length === 3)`,
       },
+    ],
+  },
+  {
+    // Shared notes for the whole team: the notes panel on its "Shared" side lists the four shared
+    // notes of acme-shop, and an admin of the team has clicked "Share with acme-shop" under them.
+    // The dialog says everyone in the team can read them, also people who join later, no code
+    // needed, with Cancel and Share.
+    name: "team-notes",
+    file: "hangar-team-notes",
+    maxBytes: 300 * KB,
+    layout: { ...SINGLE, sideOpen: true, sideTab: "notes", notesWidth: 420 },
+    steps: [
+      { ready: shows(".notes-side-count") },
+      {
+        run: click(".notes-sides input[value=shared]"),
+        ready: `(document.querySelectorAll(".notes-group .note-row").length === 4 &&
+          ${shows(".notes-team-action", "Share with acme-shop")})`,
+      },
+      { run: click(".notes-team-action"), ready: shows(".shared-notes-dialog", "No code needed") },
+      { run: BLUR, ready: "true" },
+    ],
+  },
+  {
+    // The crew beside the lead: Hangar's security agent searching, and two visitors that are not
+    // Hangar's own, the person's code-reviewer and load-tester, drawn as guests in their colors
+    // with their initial on a badge, the newest typing dots. The sidebar's tree lists the same
+    // four under the lead, the manager done, each guest with its figure.
+    name: "sub-agents",
+    file: "hangar-sub-agents",
+    maxBytes: 300 * KB,
+    layout: { snapLayout: "pair", paneRatios: { pair: [0.61] }, closedGroups: FOLDED },
+    boot: (version) => BOOT(version, 4),
+    steps: [
+      {
+        ready: `(document.querySelectorAll(".crew-item").length === 3 &&
+          document.querySelectorAll(".crew-item .agent-figure.guest").length === 2 &&
+          document.querySelectorAll(".subagent-tree-item .agent-figure.guest").length === 2 &&
+          document.querySelector(".crew-typing") !== null)`,
+      },
+    ],
+  },
+  {
+    // The home view with its hidden glyph field: the pointer has just wiped a patch free like fog
+    // on a window, and a blot pulses up on its own in an open spot. The mock stops the field's
+    // clock for the screenshot (mock.ts `HOME_GLYPHS`).
+    name: "home-glyphs",
+    file: "hangar-home-glyphs",
+    maxBytes: 300 * KB,
+    layout: SINGLE,
+    steps: [{ run: click(".sidebar-home"), ready: shows(".empty.home") }],
+    // A blot is up well away from the pointer's patch.
+    freezeWhen: GLYPH_PULSE,
+    // Through the open field below the project cards, where nothing covers what it uncovers.
+    pointer: [
+      [880, 800],
+      [930, 770],
+      [990, 750],
+      [1050, 745],
+      [1110, 752],
+      [1160, 770],
     ],
   },
   {
@@ -199,54 +281,6 @@ const SCENES = [
         ready: shows(".waiting-message-status", "Sends when the session is ready"),
       },
       { run: BLUR, ready: "true" },
-    ],
-  },
-  {
-    // A link group grows: the "Group · 3" label on the colored bracket opens "Edit group", where
-    // a click on "hangar-security" under "Add session" adds it as a new member, named after its job.
-    name: "link-add",
-    file: "hangar-link-add",
-    maxBytes: 300 * KB,
-    layout: SINGLE,
-    steps: [
-      { run: click(".link-bracket-label"), ready: shows(".link-add-session", "hangar-security") },
-      {
-        run: click(".link-add-session", "hangar-security"),
-        ready: `(${shows(".link-joining")} && !${shows(".link-add-session")})`,
-      },
-      {
-        // The default name comes from folder and program; a person names it after its job.
-        run: typeInto(".link-joining input", "security"),
-        ready: `document.querySelector(".link-joining input").value === "security"`,
-      },
-      { run: BLUR, ready: "true" },
-    ],
-  },
-  {
-    // "Recently opened": five programs started in other folders, newest first, one click from a
-    // fresh start with their conversation; the pointer rests on one, so its × shows.
-    name: "recently-opened",
-    file: "hangar-recently-opened",
-    maxBytes: 300 * KB,
-    layout: { snapLayout: "pair", paneRatios: { pair: [0.55] }, closedGroups: ["newSession"] },
-    boot: (version) => BOOT(version, 3),
-    settled: `(${working(2)} && document.querySelectorAll(".recent-row").length === 5)`,
-    steps: [],
-    hover: { selector: ".recent-row", index: 1 },
-  },
-  {
-    // The crew beside the lead: each sub-agent on a round stage whose light ring shows its state:
-    // the manager done, the security agent searching, the researcher just started, typing dots.
-    name: "sub-agents",
-    file: "hangar-sub-agents",
-    maxBytes: 300 * KB,
-    layout: { snapLayout: "pair", paneRatios: { pair: [0.61] }, closedGroups: FOLDED },
-    steps: [
-      {
-        ready: `(document.querySelectorAll(".crew-item").length === 3 &&
-          document.querySelector(".crew-item.state-done") !== null &&
-          document.querySelector(".crew-typing") !== null)`,
-      },
     ],
   },
   {
@@ -440,6 +474,24 @@ async function render(page, url, scene, scheme, version) {
     })()`);
     if (point === null) throw new Error(`Nothing to point at: ${selector} #${index}`);
     await page.send("Input.dispatchMouseEvent", { type: "mouseMoved", x: point.x, y: point.y });
+  }
+  if (scene.pointer) {
+    // Whatever the move into the corner uncovered fades first (glyphField.ts `REVEAL_LIFE`).
+    await sleep(POINTER_FADE_MS);
+    // The path again and again, so what it uncovers stays fresh, until the page shows what the
+    // scene waits for (`freezeWhen`), or for a while at most.
+    const deadline = Date.now() + POINTER_TIMEOUT_MS;
+    for (;;) {
+      for (const [x, y] of scene.pointer) {
+        await page.send("Input.dispatchMouseEvent", { type: "mouseMoved", x, y });
+        await sleep(POINTER_STEP_MS);
+      }
+      if (!scene.freezeWhen || (await page.evaluate(scene.freezeWhen))) break;
+      if (Date.now() > deadline) {
+        console.warn(`${scene.name}: what the scene waits for did not show; taken as it is.`);
+        break;
+      }
+    }
   }
   await page.evaluate("window.__readmeShots.freeze = true");
   // The app's clocks tick once a second; let them pick up the frozen time.

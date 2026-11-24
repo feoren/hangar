@@ -1639,3 +1639,7 @@ Hangar now reads these keys (and Codex project hooks) before a start: `repoSetti
 pasting for an unsure member. Corrected the Codex and Gemini trust reasoning and the connection
 limits in [[agent-gate-adapters]], and stated the notice token's residual risk in
 [[0016-permission-notices]]. New: [[claude-repo-settings-hooks-measurement]].
+
+## [2026-11-25] query | README scenes for 0.16.0
+The 0.16.0 screenshots replace `link-add` and `recently-opened` with `team-notes` and
+`home-glyphs` and show visitor figures in `sub-agents`. Updated: [[release-rollout]].
