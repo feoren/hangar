@@ -167,10 +167,19 @@ export type SessionMode = "private" | "team";
 /**
  * Rust `GateStatus`: "none" (not for this program, gate off, update session), "active", or why a
  * program that could take the gate does not get it ("noEndpoint", "launcher", "profileSettings",
- * "installPath", "hookFiles").
+ * "installPath", "hookFiles", "repoHooks"), or that the working folder's own settings may switch
+ * the hooks off ("repoSettings").
  */
 export type GateStatus =
-  "none" | "active" | "noEndpoint" | "launcher" | "profileSettings" | "installPath" | "hookFiles";
+  | "none"
+  | "active"
+  | "noEndpoint"
+  | "launcher"
+  | "profileSettings"
+  | "installPath"
+  | "hookFiles"
+  | "repoSettings"
+  | "repoHooks";
 
 export type SessionKind = "agent" | "update";
 

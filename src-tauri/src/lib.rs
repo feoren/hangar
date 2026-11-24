@@ -81,6 +81,7 @@ pub mod project_notes;
 pub mod push;
 #[cfg(unix)]
 pub mod quit_signal;
+pub mod repo_hooks;
 pub mod report;
 pub mod resolve;
 pub mod resources;

@@ -4162,19 +4162,22 @@ pub async fn link_state(
     Ok(links.snapshot(work_log::now_ms(), &unattended))
 }
 
-/// What an introduction says about a member's program, and whether its agent runs without
-/// asking before tools.
+/// What an introduction says about a member's program, whether its agent runs without asking
+/// before tools, and whether its notice hooks may be switched off by its folder's settings.
 async fn member_facts(
     manager: &SessionManager,
+    gate: &GateService,
 ) -> Result<impl Fn(&SessionInfo) -> MemberFacts, LinkServiceError> {
     let names = manager.profile_names();
     let unattended = unattended_sessions(manager).await?;
+    let gate = gate.clone();
     Ok(move |info: &SessionInfo| MemberFacts {
         program: names
             .get(&info.profile_id)
             .cloned()
             .unwrap_or_else(|| info.profile_id.clone()),
         unattended: unattended.get(&info.id).copied().unwrap_or(false),
+        notices_unsure: gate.notices_unsure(info.id),
     })
 }
 
@@ -4183,17 +4186,19 @@ async fn member_facts(
 /// `lead` (the member that leads) and `ask_first` are optional. Every member gets Hangar's
 /// introduction for its role.
 #[tauri::command]
+#[allow(clippy::too_many_arguments)] // One Tauri command: its states and one argument per field.
 pub async fn link_sessions(
     window: tauri::Window,
     manager: Manager<'_>,
     links: State<'_, LinkService>,
+    gate: State<'_, GateService>,
     ids: Vec<SessionId>,
     names: Option<Vec<MemberName>>,
     lead: Option<SessionId>,
     ask_first: Option<bool>,
 ) -> Result<GroupView, LinkServiceError> {
     main_store::check_main(window.label())?;
-    let facts = member_facts(&manager).await?;
+    let facts = member_facts(&manager, &gate).await?;
     let request = LinkRequest {
         names: names.unwrap_or_default(),
         lead,
@@ -4207,17 +4212,19 @@ pub async fn link_sessions(
 /// is optional; `lead` is the group's lead afterwards (`null`: none). The newcomers get Hangar's
 /// introduction, the members one that names them.
 #[tauri::command]
+#[allow(clippy::too_many_arguments)] // One Tauri command: its states and one argument per field.
 pub async fn add_to_link_group(
     window: tauri::Window,
     manager: Manager<'_>,
     links: State<'_, LinkService>,
+    gate: State<'_, GateService>,
     group: GroupId,
     ids: Vec<SessionId>,
     names: Option<Vec<MemberName>>,
     lead: Option<SessionId>,
 ) -> Result<GroupView, LinkServiceError> {
     main_store::check_main(window.label())?;
-    let facts = member_facts(&manager).await?;
+    let facts = member_facts(&manager, &gate).await?;
     links.add(
         group,
         &ids,
@@ -4243,17 +4250,19 @@ pub fn unlink_group(
 /// New member names, the "Ask before pasting" toggle and the lead (`null`: none) of link group
 /// `group`. A changed lead introduces the group's roles to every member again.
 #[tauri::command]
+#[allow(clippy::too_many_arguments)] // One Tauri command: its states and one argument per field.
 pub async fn edit_link_group(
     window: tauri::Window,
     manager: Manager<'_>,
     links: State<'_, LinkService>,
+    gate: State<'_, GateService>,
     group: GroupId,
     names: Vec<MemberName>,
     ask_first: bool,
     lead: Option<SessionId>,
 ) -> Result<(), LinkServiceError> {
     main_store::check_main(window.label())?;
-    let facts = member_facts(&manager).await?;
+    let facts = member_facts(&manager, &gate).await?;
     links.edit(
         group,
         &names,

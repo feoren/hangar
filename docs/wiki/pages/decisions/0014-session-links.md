@@ -6,7 +6,7 @@ superseded_by:
 tags: [sessions, agents, hooks, security, pty, sidebar]
 sources: ["[[0012-cross-project-messages]]", "[[cross-project-paste-measurement]]", "[[paste-opencode-gemini-measurement]]", "[[unattended-settings-reading]]"]
 created: 2026-11-19
-updated: 2026-11-23
+updated: 2026-11-24
 ---
 
 # ADR 0014: Linked sessions that work together
@@ -350,8 +350,10 @@ simply offers "Send" again.
 > Automatic Enter while an agent shows a permission or trust prompt: the target state must be
 > "waiting for you" at the prompt, not at a dialog. The readiness signals of 0012 cannot always tell
 > these apart; the loop brake and the per-group toggle are the fallback. For Claude Code from
-> 2.1.268 the notice hooks of [[0016-permission-notices]] close this gap for permission and MCP
-> input dialogs; a trust dialog at the first start has no hook and keeps the fallback.
+> 2.1.268 the notice hooks of [[0016-permission-notices]] narrow this gap for permission and MCP
+> input dialogs, without closing it: any process of the agent holds the notice token and can clear
+> the signal, and a working folder's settings can switch the hooks off (such a member makes its
+> group ask before pasting). A trust dialog at the first start has no hook and keeps the fallback.
 
 > [!note] Secret guard
 > A member's message whose text seems to hold a key or token waits as a card with a hint and never

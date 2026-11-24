@@ -452,6 +452,10 @@ const de = {
     "Änderungen werden in dieser Session nicht angehalten: Der Pfad von Hangars Programm enthält Zeichen, die der Hook-Befehl dieses Agents nicht sicher weitergeben kann.",
   "gate.hookFiles":
     "Änderungen werden in dieser Session nicht angehalten: Hangar konnte die Hook-Dateien nicht in seinen Datenordner schreiben.",
+  "gate.repoSettings":
+    "Änderungen werden in dieser Session vielleicht nicht angehalten: Claude-Code-Einstellungen des Projekts oder deine eigenen schalten Hooks ab oder schränken sie ein.",
+  "gate.repoHooks":
+    "Änderungen werden in dieser Session nicht angehalten: Der Projektordner bringt eigene Codex-Hooks mit, die sonst ungeprüft laufen würden.",
   "settings.subAgentExcerpts": "Texte von Sub-Agents zeigen",
   "settings.subAgentExcerptsHelp":
     "Zeigt Auftrag, Text und Werkzeugaufrufe jedes Sub-Agents mit ihren Befehlen, Dateipfaden und Webadressen, die ersten Zeilen jedes Ergebnisses und in der Seitenleiste, woran der neueste Aufruf arbeitet. Hangar blendet Schlüssel und Passwörter aus, die es erkennt, kann aber nicht jedes finden. Gespeichert wird nichts. Ausgeschaltet stehen nur die Namen der Werkzeuge und Zahlen da.",
@@ -2851,6 +2855,10 @@ const en: Record<MessageKey, string> = {
     "Edits are not paused in this session: the path of Hangar's program contains characters this agent's hook command cannot pass on safely.",
   "gate.hookFiles":
     "Edits are not paused in this session: Hangar could not write the hook files to its data folder.",
+  "gate.repoSettings":
+    "Edits may not be paused in this session: the project's Claude Code settings or your own switch hooks off or limit them.",
+  "gate.repoHooks":
+    "Edits are not paused in this session: the project folder has Codex hooks of its own, which would otherwise run unchecked.",
   "settings.subAgentExcerpts": "Show sub-agent text",
   "settings.subAgentExcerptsHelp":
     "Shows each sub-agent's task, text and tool calls with their commands, file paths and web addresses, the first lines of each result, and in the sidebar what the newest call works on. Hangar hides keys and passwords it recognizes, but cannot catch every one. Nothing is stored. When off, only tool names and counts show.",
@@ -5216,6 +5224,10 @@ const el: Record<MessageKey, string> = {
     "Οι αλλαγές δεν σταματούν σε αυτή τη συνεδρία: η διαδρομή του προγράμματος του Hangar περιέχει χαρακτήρες που η εντολή hook αυτού του πράκτορα δεν μπορεί να μεταφέρει με ασφάλεια.",
   "gate.hookFiles":
     "Οι αλλαγές δεν σταματούν σε αυτή τη συνεδρία: το Hangar δεν μπόρεσε να γράψει τα αρχεία hook στον φάκελο δεδομένων του.",
+  "gate.repoSettings":
+    "Οι αλλαγές ίσως δεν σταματούν σε αυτή τη συνεδρία: ρυθμίσεις του Claude Code του έργου ή του χρήστη απενεργοποιούν ή περιορίζουν τα hooks.",
+  "gate.repoHooks":
+    "Οι αλλαγές δεν σταματούν σε αυτή τη συνεδρία: ο φάκελος του έργου φέρνει δικά του hooks του Codex, που αλλιώς θα έτρεχαν χωρίς έλεγχο.",
   "settings.subAgentExcerpts": "Εμφάνιση κειμένου υπο-πρακτόρων",
   "settings.subAgentExcerptsHelp":
     "Δείχνει την εργασία, το κείμενο και τις κλήσεις εργαλείων κάθε υπο-πράκτορα με τις εντολές, τις διαδρομές αρχείων και τις διευθύνσεις ιστού τους, τις πρώτες γραμμές κάθε αποτελέσματος και, στην πλευρική στήλη, με τι ασχολείται η πιο πρόσφατη κλήση. Το Hangar κρύβει τα κλειδιά και τους κωδικούς που αναγνωρίζει, αλλά δεν μπορεί να τα εντοπίσει όλα. Τίποτα δεν αποθηκεύεται. Όταν είναι ανενεργό, φαίνονται μόνο τα ονόματα εργαλείων και αριθμοί.",
@@ -7645,6 +7657,10 @@ const es: Record<MessageKey, string> = {
     "En esta sesión los cambios no se detienen: la ruta del programa de Hangar contiene caracteres que el comando de hook de este agente no puede pasar de forma segura.",
   "gate.hookFiles":
     "En esta sesión los cambios no se detienen: Hangar no pudo escribir los archivos de hooks en su carpeta de datos.",
+  "gate.repoSettings":
+    "En esta sesión puede que los cambios no se detengan: la configuración de Claude Code del proyecto o del usuario desactiva o limita los hooks.",
+  "gate.repoHooks":
+    "En esta sesión los cambios no se detienen: la carpeta del proyecto trae sus propios hooks de Codex, que si no se ejecutarían sin revisión.",
   "settings.subAgentExcerpts": "Mostrar el texto de los subagentes",
   "settings.subAgentExcerptsHelp":
     "Muestra la tarea, el texto y las llamadas a herramientas de cada subagente con sus comandos, rutas de archivo y direcciones web, las primeras líneas de cada resultado y, en la barra lateral, en qué trabaja la llamada más reciente. Hangar oculta las claves y contraseñas que reconoce, pero no puede detectarlas todas. No se guarda nada. Desactivado, solo aparecen los nombres de las herramientas y las cifras.",
@@ -10052,6 +10068,10 @@ const fr: Record<MessageKey, string> = {
     "Les modifications ne sont pas retenues dans cette session : le chemin du programme Hangar contient des caractères que la commande de hook de cet agent ne peut pas transmettre sans risque.",
   "gate.hookFiles":
     "Les modifications ne sont pas retenues dans cette session : Hangar n'a pas pu écrire les fichiers de hooks dans son dossier de données.",
+  "gate.repoSettings":
+    "Les modifications ne sont peut-être pas retenues dans cette session : des réglages de Claude Code du projet ou de l'utilisateur désactivent ou limitent les hooks.",
+  "gate.repoHooks":
+    "Les modifications ne sont pas retenues dans cette session : le dossier du projet apporte ses propres hooks Codex, qui sinon s'exécuteraient sans vérification.",
   "settings.subAgentExcerpts": "Afficher le texte des sous-agents",
   "settings.subAgentExcerptsHelp":
     "Affiche la tâche, le texte et les appels d'outils de chaque sous-agent avec leurs commandes, chemins de fichiers et adresses web, les premières lignes de chaque résultat et, dans la barre latérale, ce sur quoi porte l'appel le plus récent. Hangar masque les clés et mots de passe qu'il reconnaît, mais ne peut pas tous les repérer. Rien n'est enregistré. Désactivé, seuls les noms des outils et les nombres s'affichent.",
@@ -12479,6 +12499,10 @@ const it: Record<MessageKey, string> = {
     "In questa sessione le modifiche non vengono fermate: il percorso del programma Hangar contiene caratteri che il comando hook di questo agente non può passare in modo sicuro.",
   "gate.hookFiles":
     "In questa sessione le modifiche non vengono fermate: Hangar non è riuscito a scrivere i file degli hook nella sua cartella dati.",
+  "gate.repoSettings":
+    "In questa sessione le modifiche potrebbero non venire fermate: impostazioni di Claude Code del progetto o dell'utente disattivano o limitano gli hook.",
+  "gate.repoHooks":
+    "In questa sessione le modifiche non vengono fermate: la cartella del progetto porta propri hook di Codex, che altrimenti verrebbero eseguiti senza controllo.",
   "settings.subAgentExcerpts": "Mostra il testo dei sotto-agenti",
   "settings.subAgentExcerptsHelp":
     "Mostra il compito, il testo e le chiamate agli strumenti di ogni sotto-agente con i loro comandi, percorsi di file e indirizzi web, le prime righe di ogni risultato e, nella barra laterale, su cosa lavora la chiamata più recente. Hangar nasconde le chiavi e le password che riconosce, ma non può individuarle tutte. Non viene salvato nulla. Se disattivato, compaiono solo i nomi degli strumenti e i conteggi.",
@@ -14895,6 +14919,10 @@ const ja: Record<MessageKey, string> = {
     "このセッションでは変更は一時停止されません。Hangar のプログラムのパスに、このエージェントのフックコマンドが安全に渡せない文字が含まれています。",
   "gate.hookFiles":
     "このセッションでは変更は一時停止されません。Hangar がデータフォルダーにフック用ファイルを書き込めませんでした。",
+  "gate.repoSettings":
+    "このセッションでは変更が一時停止されない可能性があります。プロジェクトまたはユーザーの Claude Code 設定がフックを無効にするか制限しています。",
+  "gate.repoHooks":
+    "このセッションでは変更は一時停止されません。プロジェクトフォルダーに独自の Codex フックがあり、そのままでは確認なしに実行されるためです。",
   "settings.subAgentExcerpts": "サブエージェントのテキストを表示",
   "settings.subAgentExcerptsHelp":
     "各サブエージェントのタスク、テキスト、ツール呼び出し（コマンド、ファイルパス、Web アドレスを含む）、各結果の最初の数行、そしてサイドバーには最新の呼び出しが扱っている対象を表示します。Hangar は認識できるキーやパスワードを隠しますが、すべてを見つけられるわけではありません。何も保存されません。オフの場合はツール名と数値だけが表示されます。",
@@ -17285,6 +17313,10 @@ const pl: Record<MessageKey, string> = {
     "W tej sesji zmiany nie są wstrzymywane: ścieżka programu Hangar zawiera znaki, których polecenie hooka tego agenta nie może bezpiecznie przekazać.",
   "gate.hookFiles":
     "W tej sesji zmiany nie są wstrzymywane: Hangar nie mógł zapisać plików hooków w swoim folderze danych.",
+  "gate.repoSettings":
+    "W tej sesji zmiany mogą nie być wstrzymywane: ustawienia Claude Code projektu lub użytkownika wyłączają lub ograniczają hooki.",
+  "gate.repoHooks":
+    "W tej sesji zmiany nie są wstrzymywane: folder projektu ma własne hooki Codex, które inaczej działałyby bez sprawdzenia.",
   "settings.subAgentExcerpts": "Pokazuj tekst podagentów",
   "settings.subAgentExcerptsHelp":
     "Pokazuje zadanie, tekst i wywołania narzędzi każdego podagenta wraz z ich poleceniami, ścieżkami plików i adresami stron, pierwsze wiersze każdego wyniku, a na pasku bocznym to, czym zajmuje się najnowsze wywołanie. Hangar ukrywa klucze i hasła, które rozpoznaje, ale nie wychwyci wszystkich. Nic nie jest zapisywane. Po wyłączeniu widać tylko nazwy narzędzi i liczby.",
@@ -19667,6 +19699,10 @@ const pt: Record<MessageKey, string> = {
     "Nesta sessão as alterações não são pausadas: o caminho do programa do Hangar contém caracteres que o comando de hook deste agente não consegue repassar com segurança.",
   "gate.hookFiles":
     "Nesta sessão as alterações não são pausadas: o Hangar não conseguiu gravar os arquivos de hooks na sua pasta de dados.",
+  "gate.repoSettings":
+    "Nesta sessão as alterações talvez não sejam pausadas: configurações do Claude Code do projeto ou do usuário desativam ou limitam os hooks.",
+  "gate.repoHooks":
+    "Nesta sessão as alterações não são pausadas: a pasta do projeto traz hooks próprios do Codex, que de outro modo rodariam sem verificação.",
   "settings.subAgentExcerpts": "Mostrar o texto dos subagentes",
   "settings.subAgentExcerptsHelp":
     "Mostra a tarefa, o texto e as chamadas de ferramentas de cada subagente com seus comandos, caminhos de arquivo e endereços da web, as primeiras linhas de cada resultado e, na barra lateral, no que a chamada mais recente está trabalhando. O Hangar oculta as chaves e senhas que reconhece, mas não consegue pegar todas. Nada é salvo. Desativado, aparecem só os nomes das ferramentas e números.",
@@ -22058,6 +22094,10 @@ const ru: Record<MessageKey, string> = {
     "В этой сессии изменения не приостанавливаются: путь к программе Hangar содержит символы, которые команда хука этого агента не может безопасно передать.",
   "gate.hookFiles":
     "В этой сессии изменения не приостанавливаются: Hangar не смог записать файлы хуков в свою папку данных.",
+  "gate.repoSettings":
+    "В этой сессии изменения могут не приостанавливаться: настройки Claude Code проекта или пользователя отключают или ограничивают хуки.",
+  "gate.repoHooks":
+    "В этой сессии изменения не приостанавливаются: в папке проекта есть собственные хуки Codex, которые иначе запускались бы без проверки.",
   "settings.subAgentExcerpts": "Показывать текст субагентов",
   "settings.subAgentExcerptsHelp":
     "Показывает задачу, текст и вызовы инструментов каждого субагента с их командами, путями к файлам и веб-адресами, первые строки каждого результата, а в боковой панели то, над чем работает последний вызов. Hangar скрывает ключи и пароли, которые распознаёт, но не может найти все. Ничего не сохраняется. Если выключено, видны только названия инструментов и числа.",
@@ -24428,6 +24468,10 @@ const tr: Record<MessageKey, string> = {
     "Bu oturumda değişiklikler duraklatılmıyor: Hangar programının yolu, bu ajanın hook komutunun güvenle aktaramayacağı karakterler içeriyor.",
   "gate.hookFiles":
     "Bu oturumda değişiklikler duraklatılmıyor: Hangar hook dosyalarını veri klasörüne yazamadı.",
+  "gate.repoSettings":
+    "Bu oturumda değişiklikler duraklatılmayabilir: projenin veya kullanıcının Claude Code ayarları hook'ları kapatıyor veya sınırlıyor.",
+  "gate.repoHooks":
+    "Bu oturumda değişiklikler duraklatılmıyor: proje klasörünün kendi Codex hook'ları var; aksi halde bunlar denetlenmeden çalışırdı.",
   "settings.subAgentExcerpts": "Alt ajan metnini göster",
   "settings.subAgentExcerptsHelp":
     "Her alt ajanın görevini, metnini ve araç çağrılarını komutları, dosya yolları ve web adresleriyle birlikte, her sonucun ilk satırlarını ve kenar çubuğunda en yeni çağrının neyle uğraştığını gösterir. Hangar tanıdığı anahtarları ve parolaları gizler, ancak hepsini yakalayamaz. Hiçbir şey kaydedilmez. Kapalıyken yalnızca araç adları ve sayılar görünür.",
@@ -26767,6 +26811,10 @@ const zh: Record<MessageKey, string> = {
   "gate.installPath":
     "此会话中的修改不会暂停：Hangar 程序的路径包含此代理的钩子命令无法安全传递的字符。",
   "gate.hookFiles": "此会话中的修改不会暂停：Hangar 无法将钩子文件写入其数据文件夹。",
+  "gate.repoSettings":
+    "此会话中的修改可能不会暂停：项目或用户的 Claude Code 设置关闭或限制了钩子。",
+  "gate.repoHooks":
+    "此会话中的修改不会暂停：项目文件夹自带 Codex 钩子，否则它们会在未经检查的情况下运行。",
   "settings.subAgentExcerpts": "显示子代理文本",
   "settings.subAgentExcerptsHelp":
     "显示每个子代理的任务、文本和工具调用（包括其命令、文件路径和网址）、每个结果的前几行，并在侧边栏显示最新调用正在处理的内容。Hangar 会隐藏它能识别的密钥和密码，但无法全部发现。不会保存任何内容。关闭时只显示工具名称和数字。",

@@ -103,6 +103,13 @@ pub const MAX_PENDING_PER_SESSION: usize = 3;
 pub const MAX_WAITERS: usize = 4;
 /// Longest file path or tool name accepted from a hook, in bytes.
 pub const MAX_FIELD_BYTES: usize = 4096;
+/// Largest tool hook body read (`PreToolUse`). Its string fields (`command`, `file_path`, `cwd`)
+/// are kept whole while parsing (serde_json buffers a string before it can be checked), so this
+/// bounds the memory of one request, not only the time. A tool input is what the model wrote in
+/// one reply: Claude Code's largest output is about 128 000 tokens, roughly 0.5 MB of text, and
+/// JSON escaping at most multiplies it by six for control characters; 8 MiB leaves room above
+/// that. Bigger bodies are answered as a call Hangar cannot read, before they are read.
+pub const MAX_TOOL_BODY_BYTES: u64 = 8 * 1024 * 1024;
 /// Longest session title or path in a text for the agent or the window, in characters.
 const MAX_NAME_CHARS: usize = 120;
 /// Other sessions named in one reason.
