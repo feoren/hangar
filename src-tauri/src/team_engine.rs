@@ -729,9 +729,13 @@ pub struct Engine {
     account: Option<MemberId>,
     website_role: Role,
     owner: Option<MemberId>,
-    /// The website's member list as last read; `None` before the first read and after a member
-    /// entry the relay refused (until the next read).
+    /// The website's member list as last read; `None` before the first read. Without it nobody
+    /// new is offered for admission.
     roster: Option<Roster>,
+    /// The relay refused a member entry from [`Engine::roster`]: no further one until the next
+    /// read, so a refusing relay cannot make this device send it in a loop. The list itself
+    /// stays, so admissions keep following the website meanwhile.
+    roster_spent: bool,
     /// When the last [`Effect::CheckWebsite`] a relay event (or a device the list does not name)
     /// asked for went out (clock milliseconds).
     website_checked_at: Option<u64>,
@@ -929,6 +933,7 @@ impl Engine {
             website_role: setup.website_role,
             owner: setup.owner,
             roster: None,
+            roster_spent: false,
             website_checked_at: None,
             website_wanted: false,
             members_checked_at: None,
@@ -1016,6 +1021,14 @@ impl Engine {
                 members: members.into_iter().map(|m| (m.member, m.role)).collect(),
                 at,
             });
+            self.roster_spent = false;
+            // A device offered under the last list goes when this one no longer names its
+            // member, not only with the next device poll.
+            let pending = std::mem::take(&mut self.pending);
+            self.pending = pending
+                .into_iter()
+                .filter(|p| self.confirmation_body(&p.info).is_some())
+                .collect();
         }
         self.reconcile()
     }
@@ -1487,9 +1500,10 @@ impl Engine {
                 eprintln!("hangar: team log entry refused ({code:?})");
                 self.creating = false;
                 if std::mem::take(&mut self.appending) {
-                    // A member entry from the website's list: not again before the next read,
-                    // so a refusing relay cannot make this device send it in a loop.
-                    self.roster = None;
+                    // A member entry from the website's list: not again before the next read.
+                    // The list stays for admissions; dropping it would leave nothing to check a
+                    // new member against.
+                    self.roster_spent = true;
                 }
                 self.sync_log()
             }
@@ -1904,6 +1918,9 @@ impl Engine {
         }
         if !self.manages() {
             self.promotions.clear();
+            return Vec::new();
+        }
+        if self.roster_spent {
             return Vec::new();
         }
         let (Some(roster), Some(state), Some(me)) =
@@ -2379,13 +2396,9 @@ impl Engine {
             if !new_member || role_rank(role) > role_rank(Role::Admin) {
                 return None;
             }
-            // Only someone the website's list names, when this device has one: the relay alone
-            // must not get anyone offered for admission.
-            if self
-                .roster
-                .as_ref()
-                .is_some_and(|r| !r.members.contains_key(&info.holder.member))
-            {
+            // Only someone the website's list names: the relay alone must not get anyone offered
+            // for admission, so without a list (not read yet) nobody new is.
+            if !self.website_lists(&info.holder.member) {
                 return None;
             }
             // Always as a member: a higher role on the website becomes its own confirmation on
@@ -2410,8 +2423,15 @@ impl Engine {
         }
     }
 
+    /// Whether the website's list as last read names `member`; `false` without a list.
+    fn website_lists(&self, member: &MemberId) -> bool {
+        self.roster
+            .as_ref()
+            .is_some_and(|r| r.members.contains_key(member))
+    }
+
     /// The waiting devices from `devices.get`; `true` when one belongs to a new member the
-    /// website's list does not name (yet).
+    /// website's list does not name (yet), or no list was read yet.
     fn update_pending(&mut self, devices: Vec<DeviceInfo>) -> bool {
         let mut pending = Vec::new();
         let mut unlisted = false;
@@ -2419,10 +2439,7 @@ impl Engine {
             let Some((kind, _, log_full)) = self.confirmation_body(&info) else {
                 unlisted |= self.verifier.state().is_some_and(|s| {
                     s.member(&info.holder.member).is_none()
-                        && self
-                            .roster
-                            .as_ref()
-                            .is_some_and(|r| !r.members.contains_key(&info.holder.member))
+                        && !self.website_lists(&info.holder.member)
                 });
                 continue;
             };
@@ -5535,24 +5552,42 @@ mod tests {
         let fail_draw = Arc::new(Mutex::new(None));
         let clock = Arc::new(std::sync::atomic::AtomicU64::new(1_000));
         let read = Arc::clone(&clock);
+        let mut engine = Engine::new(EngineSetup {
+            project: "p1".to_owned(),
+            team: team(),
+            device: DeviceId::new(device).unwrap(),
+            identity,
+            member: None,
+            account: Some(MemberId::new(member).unwrap()),
+            website_role: role,
+            // Every test team is alice's.
+            owner: Some(MemberId::new("alice").unwrap()),
+            keys: StoredKeys::default(),
+            local: LocalState::default(),
+            now: Box::new(move || read.load(std::sync::atomic::Ordering::SeqCst)),
+            entropy: Box::new(Scripted(Arc::clone(&fail_draw))),
+            website_every_ms: WEBSITE_CHECK_EVERY_MS,
+            members_every_ms: MEMBERS_CHECK_EVERY_MS,
+        });
+        // The website lists every test member, as read before the team began (`at: 0`): new
+        // members can be admitted, and the list is too old to remove anyone. Tests about the
+        // list replace it with `set_website` or clear it.
+        engine.roster = Some(Roster {
+            members: ["alice", "bob", "carol", "mallory"]
+                .into_iter()
+                .map(|m| {
+                    let role = if m == "alice" {
+                        Role::Owner
+                    } else {
+                        Role::Member
+                    };
+                    (MemberId::new(m).unwrap(), Some(role))
+                })
+                .collect(),
+            at: 0,
+        });
         Client {
-            engine: Engine::new(EngineSetup {
-                project: "p1".to_owned(),
-                team: team(),
-                device: DeviceId::new(device).unwrap(),
-                identity,
-                member: None,
-                account: Some(MemberId::new(member).unwrap()),
-                website_role: role,
-                // Every test team is alice's.
-                owner: Some(MemberId::new("alice").unwrap()),
-                keys: StoredKeys::default(),
-                local: LocalState::default(),
-                now: Box::new(move || read.load(std::sync::atomic::Ordering::SeqCst)),
-                entropy: Box::new(Scripted(Arc::clone(&fail_draw))),
-                website_every_ms: WEBSITE_CHECK_EVERY_MS,
-                members_every_ms: MEMBERS_CHECK_EVERY_MS,
-            }),
+            engine,
             holder: holder(member, device),
             role,
             inbox: Vec::new(),
@@ -6722,6 +6757,119 @@ mod tests {
         let pending = a1.engine.pending();
         assert_eq!(pending.len(), 1);
         assert_eq!(pending[0].kind, PendingKind::NewMember);
+        // The website drops bob again before anyone confirmed him: the request goes with the
+        // new list, not only with the next device poll.
+        a1.engine.roster_asked_at = Some(a1.engine.state().unwrap().head().index);
+        let alone = listing(&[("alice", Role::Owner)]);
+        let effects = a1.engine.set_website(website(Role::Owner, Some(alone)));
+        assert!(a1.engine.pending().is_empty());
+        assert_eq!(
+            a1.engine.confirm(&pending[0].id).err(),
+            Some(TeamError::UnknownRequest)
+        );
+        run(&mut relay, &mut [&mut a1, &mut b1], vec![(0, effects)]);
+        assert!(a1.engine.pending().is_empty());
+    }
+
+    #[test]
+    fn before_the_first_member_list_nobody_new_is_offered_for_admission() {
+        let mut relay = Relay::new();
+        let mut a1 = client("alice", "a1", Role::Owner);
+        let mut b1 = client("bob", "b1", Role::Member);
+        // Just started: the website's list was not read yet.
+        a1.engine.roster = None;
+        let hello = a1.engine.hello(ticket());
+        run(&mut relay, &mut [&mut a1, &mut b1], vec![(0, hello)]);
+        let hello = b1.engine.hello(ticket());
+        run(&mut relay, &mut [&mut a1, &mut b1], vec![(1, hello)]);
+        let checks = a1.checks.len();
+        let poll = a1.engine.poll_devices();
+        run(&mut relay, &mut [&mut a1, &mut b1], vec![(0, poll)]);
+        // The relay alone names bob's device: nobody is offered, and the list is read now.
+        assert!(a1.engine.pending().is_empty());
+        assert_eq!(a1.checks[checks..], [(false, true)]);
+        // The list arrives and names bob: his device is offered with the next poll.
+        a1.engine.roster_asked_at = Some(a1.engine.state().unwrap().head().index);
+        let both = listing(&[("alice", Role::Owner), ("bob", Role::Member)]);
+        let effects = a1.engine.set_website(website(Role::Owner, Some(both)));
+        run(&mut relay, &mut [&mut a1, &mut b1], vec![(0, effects)]);
+        let poll = a1.engine.poll_devices();
+        run(&mut relay, &mut [&mut a1, &mut b1], vec![(0, poll)]);
+        let pending = a1.engine.pending();
+        assert_eq!(pending.len(), 1);
+        assert_eq!(pending[0].kind, PendingKind::NewMember);
+        assert_eq!(pending[0].member, "bob");
+    }
+
+    #[test]
+    fn a_refused_member_entry_keeps_the_list_for_admissions() {
+        let (mut relay, mut a1, mut b1) = team_of_two();
+        let mut c1 = client("carol", "c1", Role::Member);
+        let mut m1 = client("mallory", "m1", Role::Member);
+        for at in [2, 3] {
+            let mut clients = [&mut a1, &mut b1, &mut c1, &mut m1];
+            let hello = clients[at].engine.hello(ticket());
+            run(&mut relay, &mut clients, vec![(at, hello)]);
+        }
+        // The website removed bob and lists carol; mallory is nobody's teammate there.
+        let bob = MemberId::new("bob").unwrap();
+        a1.engine.roster_asked_at = Some(a1.engine.state().unwrap().head().index);
+        let list = listing(&[("alice", Role::Owner), ("carol", Role::Member)]);
+        let effects = a1.engine.set_website(website(Role::Owner, Some(list)));
+        assert_eq!(
+            appended_kind(&effects),
+            EntryKind::RemoveMember {
+                member: bob.clone()
+            }
+        );
+        let id = effects
+            .iter()
+            .find_map(|e| match e {
+                Effect::Send(ClientFrame {
+                    id,
+                    message: ClientMessage::MemberLogAppend(_),
+                    ..
+                }) => Some(id.clone()),
+                _ => None,
+            })
+            .unwrap();
+        // The relay refuses the removal.
+        let refused = relay.text(
+            Some(id),
+            None,
+            ServerMessage::Err(ErrorBody {
+                code: ErrorCode::Forbidden,
+                retry_after_ms: None,
+                holder: None,
+            }),
+        );
+        let after = a1.engine.on_text(&refused);
+        run(
+            &mut relay,
+            &mut [&mut a1, &mut b1, &mut c1, &mut m1],
+            vec![(0, after)],
+        );
+        // Not sent again before the next read of the list.
+        assert!(a1.engine.state().unwrap().member(&bob).is_some());
+        // The list read last still decides who is offered: carol, never mallory.
+        let poll = a1.engine.poll_devices();
+        run(
+            &mut relay,
+            &mut [&mut a1, &mut b1, &mut c1, &mut m1],
+            vec![(0, poll)],
+        );
+        let pending = a1.engine.pending();
+        assert_eq!(pending.len(), 1, "{pending:?}");
+        assert_eq!(pending[0].kind, PendingKind::NewMember);
+        assert_eq!(pending[0].member, "carol");
+        // The next read of the list tries the removal once more.
+        a1.engine.roster_asked_at = Some(a1.engine.state().unwrap().head().index);
+        let list = listing(&[("alice", Role::Owner), ("carol", Role::Member)]);
+        let effects = a1.engine.set_website(website(Role::Owner, Some(list)));
+        assert_eq!(
+            appended_kind(&effects),
+            EntryKind::RemoveMember { member: bob }
+        );
     }
 
     /// Alice, bob and carol; the website removes carol, alice's device writes the removal and
