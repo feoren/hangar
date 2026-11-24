@@ -266,7 +266,14 @@ import {
   type SendTarget,
 } from "./NotesPanel";
 import { SidePanel } from "./SidePanel";
-import { dropText, insertPathText, shellKind, unsafeDropPath, type TreePath } from "./pathQuote";
+import {
+  dropText,
+  insertPathText,
+  shellKind,
+  skipsDropPath,
+  type ShellKind,
+  type TreePath,
+} from "./pathQuote";
 import { promptVerdict } from "./promptTitle";
 import { pushEventFor, PushScheduler, PUSH_TEXTS } from "./phonePush";
 import { isQuietTime, noticesAt } from "./quietHours";
@@ -513,13 +520,14 @@ import type { LineMatch } from "./sessionSearch";
 import { useActivityRecorder } from "./activityStore";
 import { localSessionsOf } from "./fileActivity";
 import { FilesPanel, type PathDrag } from "./FilesPanel";
-import { mentionText } from "./fileTree";
 import { fileOf, forgetFile, rememberFile } from "./fileContext";
 import { parseGitDiff } from "./gitDiff";
 import {
   capDiff,
   expandVariables,
+  fileValue,
   missingSummary,
+  unsafeSummary,
   usedVariables,
   type SnippetVariable,
   type VariableValues,
@@ -641,8 +649,12 @@ const MISSING_REASONS: Record<SnippetVariable, MessageKey> = {
   folder: "snippets.missingFolder",
 };
 
-/** A text with its variables filled for one session, or what is missing there. */
-type Filled = { ok: true; text: string } | { ok: false; details: string };
+/**
+ * A text with its variables filled for one session, or why it was not: `notice` words it, with
+ * the session's name when the text went to several (`null` for the visible one).
+ */
+type Filled =
+  { ok: true; text: string } | { ok: false; notice: (session: string | null) => string };
 
 /** The card title of Hangar's introduction of a link group, by its kind (linkIntro.ts). */
 const INTRO_TITLES: Record<IntroKind, MessageKey> = {
@@ -3787,7 +3799,10 @@ export function App() {
     if (session === undefined) return;
     const profile = profilesRef.current.find((p) => p.id === session.profileId);
     const text = insertPathText(item, session.cwd, shellKind(profile?.command ?? ""));
-    if (text === "") return;
+    if (text === "") {
+      setStartHint(createTranslator(settingsRef.current.language)("paste.dropSkipped"));
+      return;
+    }
     sendFromNotes(text, session.id);
     countFeature("pathMentioned");
   };
@@ -3824,8 +3839,9 @@ export function App() {
       const terminal = target ? terminals.get(target.id) : undefined;
       if (!target || !terminal) return;
       const profile = profilesRef.current.find((p) => p.id === target.profileId);
-      const text = dropText(event.paths, shellKind(profile?.command ?? ""));
-      if (event.paths.some(unsafeDropPath)) {
+      const kind = shellKind(profile?.command ?? "");
+      const text = dropText(event.paths, kind);
+      if (event.paths.some((path) => skipsDropPath(path, kind))) {
         setStartHint(createTranslator(settingsRef.current.language)("paste.dropSkipped"));
       }
       if (text === "") return;
@@ -4447,6 +4463,7 @@ export function App() {
   const variableValues = async (
     id: number,
     names: readonly SnippetVariable[],
+    kind: ShellKind,
   ): Promise<VariableValues> => {
     const session = stateRef.current.sessions.find((s) => s.id === id);
     if (session === undefined) return {};
@@ -4462,7 +4479,7 @@ export function App() {
           break;
         case "file": {
           const path = fileOf(id);
-          if (path !== null) values.file = mentionText(path, false).trimEnd();
+          if (path !== null) values.file = fileValue(path, kind);
           break;
         }
         case "branch": {
@@ -4485,16 +4502,35 @@ export function App() {
     return values;
   };
 
-  /** Fills a text's variables for one session; text without variables passes unchanged. */
+  /**
+   * Fills a text's variables for one session; text without variables passes unchanged. A shell
+   * gets each value quoted as one word, and a value it would read as code stops the text
+   * (`expandVariables`).
+   */
   const fillVariables = async (id: number, text: string): Promise<Filled> => {
     const used = usedVariables(text);
     // Unknown names stay as written (Jinja or Mustache examples in a prompt).
     if (used.known.length === 0) return { ok: true, text };
-    const result = expandVariables(text, await variableValues(id, used.known));
+    const kind = terminals.get(id)?.shellKind() ?? "agent";
+    const result = expandVariables(text, await variableValues(id, used.known, kind), kind);
     if (result.ok) return { ok: true, text: result.text };
+    if ("unsafe" in result) {
+      const details = unsafeSummary(result.unsafe);
+      return {
+        ok: false,
+        notice: (session) =>
+          session === null
+            ? t("snippets.unsafe", { details })
+            : t("snippets.unsafeIn", { session, details }),
+      };
+    }
+    const details = missingSummary(result.missing, (name) => t(MISSING_REASONS[name]));
     return {
       ok: false,
-      details: missingSummary(result.missing, (name) => t(MISSING_REASONS[name])),
+      notice: (session) =>
+        session === null
+          ? t("snippets.notSent", { details })
+          : t("snippets.notSentIn", { session, details }),
     };
   };
 
@@ -4509,7 +4545,7 @@ export function App() {
     const id = session.id;
     void fillVariables(id, snippet.text).then((filled) => {
       if (filled.ok) pasteIntoSession(id, filled.text);
-      else setError(t("snippets.notSent", { details: filled.details }));
+      else setError(filled.notice(null));
     });
   };
 
@@ -4548,7 +4584,7 @@ export function App() {
     );
     for (const { id, result } of filled) {
       if (!result.ok) {
-        return t("snippets.notSentIn", { session: sessionName(id), details: result.details });
+        return result.notice(sessionName(id));
       }
     }
     setDialog(null);
@@ -4581,7 +4617,7 @@ export function App() {
         return;
       }
       if (key !== undefined) changeQueue(queueMessage(queueRef.current, key, text));
-      setError(t("snippets.notSentIn", { session: sessionName(id), details: filled.details }));
+      setError(filled.notice(sessionName(id)));
     });
   };
   // The attention listener lives outside React; it always reaches the newest values.

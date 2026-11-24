@@ -6,7 +6,7 @@
 
 import type { FileChange } from "./gitDiff";
 import { changeKind, lineKind } from "./gitDiff";
-import { quotePath } from "./pathQuote";
+import { mentionPath } from "./pathQuote";
 import { secretKinds, type SecretKind } from "./secretScan";
 
 /** Whether a file's changes are in the index: all of them, some of them, or none. */
@@ -212,7 +212,7 @@ export function newLineNumbers(lines: readonly string[]): (number | null)[] {
 export function lineComment(path: string, line: number, comment: string): string | null {
   const text = comment.replace(/\s+/g, " ").trim();
   if (text === "") return null;
-  return `@${quotePath(path, "agent")}:${String(line)}: ${text}`;
+  return `@${mentionPath(path)}:${String(line)}: ${text}`;
 }
 
 /** What a key does in a focused diff: move the line cursor, or open the comment field. */

@@ -5,7 +5,7 @@
 
 import type { FolderEntry, FolderListing, PathEntry } from "./api";
 import type { ChangeKind, Claim } from "./claims";
-import { quotePath, type TreePath } from "./pathQuote";
+import { mentionPath, type TreePath } from "./pathQuote";
 import type { PeerView } from "./team";
 
 // ---------------------------------------------------------------------------------------------
@@ -83,7 +83,7 @@ export function ancestors(path: string): string[] {
  * gives the same mention to agents and a shell's own form to shells.
  */
 export function mentionText(path: string, folder: boolean): string {
-  return `@${quotePath(folder ? `${path}/` : path, "agent")} `;
+  return `@${mentionPath(folder ? `${path}/` : path)} `;
 }
 
 /** A tree row as the right click and a drag insert it (`insertPathText`). */

@@ -40,12 +40,13 @@ export interface BroadcastTarget {
 /**
  * Text sent without a question (a broadcast, a queued message, an agent command) may carry
  * content the user did not read, such as a diff or a selection filled in for a variable. Without
- * bracketed paste a line break runs what follows it, and invisible characters make the text run
- * differently than it reads, so such text does not go to that target at all.
+ * bracketed paste a line break runs what follows it, so such text does not go to that target.
+ * Invisible characters make the text read differently than it runs, and an agent reads tag
+ * characters as an instruction nobody saw; bracketed paste does not change that, so they block
+ * every target. Line breaks, tabs and emoji joiners do not count (`pasteWarning`).
  */
 export function blockedFor(target: Pick<BroadcastTarget, "bracketedPaste">, text: string): boolean {
-  if (target.bracketedPaste()) return false;
-  const warning = pasteWarning(text, false);
+  const warning = pasteWarning(text, target.bracketedPaste());
   return warning !== null && (warning.runsLines || warning.hidden);
 }
 

@@ -1,6 +1,6 @@
 // Quoting dropped file paths and pasted image paths for the program running in a session. Each
-// shell has its own rules; agent CLIs read the input as text and only need quotes around paths
-// with spaces.
+// shell has its own rules. Agent CLIs read the input as text, but their `!` mode passes it to a
+// shell, so their quoting never leaves `$` or backticks where a shell would expand them.
 //
 // Known limit: the kind follows the program the session's profile starts, not whatever runs in
 // the session right now. Bash started inside a cmd session still gets cmd quoting, an agent
@@ -70,7 +70,10 @@ export function quotePath(path: string, kind: ShellKind): string {
       // Windows file names cannot contain `"`, so plain double quotes are enough. Known limit:
       // cmd expands `%NAME%` even inside double quotes when NAME is a defined variable, and an
       // interactive command line has no escape for `%`. Undefined names stay literal; such file
-      // names are rare enough to accept this.
+      // names are rare enough to accept this. `$` and backticks mean nothing to cmd, but a cmd
+      // profile often starts pwsh, which expands them inside double quotes: such a path is
+      // skipped (empty).
+      if (SHELL_EXPANDS.test(path)) return "";
       return SAFE_WINDOWS.test(path) ? path : `"${path}"`;
     case "posix":
       return posixQuote(path);
@@ -81,16 +84,40 @@ export function quotePath(path: string, kind: ShellKind): string {
   }
 }
 
+/** `$` and backticks: POSIX shells and PowerShell expand them inside double quotes. */
+const SHELL_EXPANDS = /[$`]/;
+
+/** Nothing to quote for an agent: no space, quote, `$` or backtick. */
+const AGENT_PLAIN = /^[^\s"'$`]+$/u;
+
 /**
- * A path in an agent's prompt is read, not parsed by a shell: quote it with a quote kind it does
- * not contain. Only a path with both kinds gets backslash escapes, and then backslashes too, so
- * the text stays unambiguous. A path with control or reordering characters is shown in git's
- * quoting instead (`visiblePath`).
+ * A dropped path or pasted image for an agent CLI. The agent reads it as text, but its `!` mode
+ * hands the line to bash, and an agent started from PowerShell may pass it on. Double quotes,
+ * which the CLIs know for attaching images, stay for a path without `$` or a backtick: nothing
+ * else in it expands inside them. Other paths get single quotes, which neither POSIX shells nor
+ * PowerShell expand; a path that also holds `'` is skipped (empty). A path with control or
+ * reordering characters is shown in git's quoting instead (`visiblePath`).
  */
 function agentQuote(path: string): string {
   if (unsafeDropPath(path)) return visiblePath(path);
-  if (/^[^\s"']+$/u.test(path)) return path;
-  if (!path.includes('"')) return `"${path}"`;
+  if (AGENT_PLAIN.test(path)) return path;
+  if (!path.includes('"') && !SHELL_EXPANDS.test(path)) return `"${path}"`;
+  if (!path.includes("'")) return `'${path}'`;
+  return "";
+}
+
+/**
+ * A path in an @ mention (Files tab, line comments): read by the agent, not by a shell, so it
+ * keeps the double quotes agent CLIs know from mentions with spaces (`@"my notes.md"`). A name
+ * holding `"`, `$` or a backtick gets single quotes, so it does not expand should it reach a
+ * shell. Only a path with both quote kinds gets backslash escapes, and then backslashes too, so
+ * the text stays unambiguous. A path with control or reordering characters is shown in git's
+ * quoting instead (`visiblePath`).
+ */
+export function mentionPath(path: string): string {
+  if (unsafeDropPath(path)) return visiblePath(path);
+  if (AGENT_PLAIN.test(path)) return path;
+  if (!path.includes('"') && !SHELL_EXPANDS.test(path)) return `"${path}"`;
   if (!path.includes("'")) return `'${path}'`;
   return `"${path.replace(/[\\"]/g, "\\$&")}"`;
 }
@@ -187,13 +214,14 @@ export function insertPathText(item: TreePath, sessionCwd: string, kind: ShellKi
   switch (kind) {
     case "agent": {
       const path = relative ?? absolute;
-      return `@${agentQuote(item.folder ? `${path}/` : path)} `;
+      return `@${mentionPath(item.folder ? `${path}/` : path)} `;
     }
     case "powershell":
     case "cmd": {
       const path = relative === null ? absolute : notAnOption(relative, "/");
       const native = windows ? path.replace(/\//g, "\\") : path;
-      return `${quotePath(native, kind)} `;
+      const quoted = quotePath(native, kind);
+      return quoted === "" ? "" : `${quoted} `;
     }
     case "posix": {
       if (relative !== null) return `${posixQuote(notAnOption(relative, "/"))} `;
@@ -278,7 +306,16 @@ export function visiblePath(path: string): string {
  */
 export function dropText(paths: readonly string[], kind: ShellKind): string {
   const quoted = paths
-    .filter((path) => path !== "" && !unsafeDropPath(path))
+    .filter((path) => path !== "" && !skipsDropPath(path, kind))
     .map((path) => quotePath(path, kind));
   return quoted.length === 0 ? "" : `${quoted.join(" ")} `;
+}
+
+/**
+ * Whether `dropText` leaves this path out for a program of `kind`: it is unsafe everywhere
+ * (`unsafeDropPath`), or the program's quoting has no safe form for it (`$` or a backtick for
+ * cmd, `'` together with `"`, `$` or a backtick for an agent). The caller says so to the user.
+ */
+export function skipsDropPath(path: string, kind: ShellKind): boolean {
+  return path !== "" && (unsafeDropPath(path) || quotePath(path, kind) === "");
 }
