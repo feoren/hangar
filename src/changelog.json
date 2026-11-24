@@ -2,7 +2,64 @@
   {
     "version": "0.16.0",
     "date": null,
-    "items": []
+    "items": [
+      {
+        "de": "Updates klappen wieder; seit 0.14 brachen sie mit einem Fehler ab. Mit 0.14 oder 0.15 installierst du 0.16 einmal von Hand.",
+        "en": "Updates work again; since 0.14 they stopped with an error. On 0.14 or 0.15, install 0.16 once by hand.",
+        "el": "Οι ενημερώσεις λειτουργούν ξανά· από την 0.14 σταματούσαν με σφάλμα. Από 0.14 ή 0.15, εγκατάστησε την 0.16 μία φορά χειροκίνητα.",
+        "es": "Las actualizaciones vuelven a funcionar; desde la 0.14 fallaban. Con la 0.14 o 0.15, instala la 0.16 una vez a mano.",
+        "fr": "Les mises à jour refonctionnent ; depuis la 0.14 elles échouaient. Avec la 0.14 ou 0.15, installe la 0.16 une fois à la main.",
+        "it": "Gli aggiornamenti funzionano di nuovo; dalla 0.14 fallivano. Con la 0.14 o 0.15, installa la 0.16 una volta a mano.",
+        "ja": "アップデートが再び動作します。0.14 以降はエラーで止まっていました。0.14 または 0.15 では 0.16 を一度手動でインストールしてください。",
+        "pl": "Aktualizacje znów działają; od 0.14 kończyły się błędem. Z 0.14 lub 0.15 zainstaluj 0.16 raz ręcznie.",
+        "pt": "As atualizações voltam a funcionar; desde a 0.14 falhavam. Com a 0.14 ou 0.15, instala a 0.16 uma vez à mão.",
+        "ru": "Обновления снова работают; с 0.14 они прерывались ошибкой. С 0.14 или 0.15 установи 0.16 один раз вручную.",
+        "tr": "Güncellemeler yeniden çalışıyor; 0.14'ten beri hatayla duruyordu. 0.14 veya 0.15'te 0.16'yı bir kez elle kur.",
+        "zh": "更新又能正常使用了；自 0.14 起更新会出错中断。使用 0.14 或 0.15 时，请手动安装一次 0.16。"
+      },
+      {
+        "de": "Ist ein Projekt mit dem Teamserver verbunden, trägt das Hangar-Symbol im Infobereich einen kleinen grünen Punkt.",
+        "en": "While a project is connected to the team server, the Hangar icon in the notification area carries a small green dot.",
+        "el": "Όσο ένα έργο είναι συνδεδεμένο με τον διακομιστή ομάδας, το εικονίδιο του Hangar στην περιοχή ειδοποιήσεων έχει μια μικρή πράσινη κουκκίδα.",
+        "es": "Mientras un proyecto está conectado al servidor del equipo, el icono de Hangar en el área de notificaciones lleva un pequeño punto verde.",
+        "fr": "Tant qu'un projet est connecté au serveur d'équipe, l'icône de Hangar dans la zone de notification porte un petit point vert.",
+        "it": "Finché un progetto è collegato al server del team, l'icona di Hangar nell'area di notifica mostra un piccolo punto verde.",
+        "ja": "プロジェクトがチームサーバーに接続している間、通知領域の Hangar アイコンに小さな緑の点が付きます。",
+        "pl": "Gdy projekt jest połączony z serwerem zespołu, ikona Hangar w obszarze powiadomień ma małą zieloną kropkę.",
+        "pt": "Enquanto um projeto está ligado ao servidor da equipa, o ícone do Hangar na área de notificação mostra um pequeno ponto verde.",
+        "ru": "Пока проект подключён к серверу команды, значок Hangar в области уведомлений отмечен маленькой зелёной точкой.",
+        "tr": "Bir proje ekip sunucusuna bağlıyken bildirim alanındaki Hangar simgesinde küçük yeşil bir nokta görünür.",
+        "zh": "当项目连接到团队服务器时，通知区域中的 Hangar 图标会带一个绿色小圆点。"
+      },
+      {
+        "de": "Sub-Agenten, die nicht von Hangar stammen, stehen jetzt als gezeichnete Besucher mit Namensschild auf dem Podest und in der Seitenleiste.",
+        "en": "Sub-agents that do not come from Hangar now stand on the stage and in the sidebar as drawn visitors with a name badge.",
+        "el": "Οι υπο-πράκτορες που δεν προέρχονται από το Hangar εμφανίζονται τώρα στη σκηνή και στην πλαϊνή στήλη ως ζωγραφισμένοι επισκέπτες με κονκάρδα.",
+        "es": "Los subagentes que no vienen de Hangar aparecen ahora en el escenario y en la barra lateral como visitantes dibujados con una tarjeta de nombre.",
+        "fr": "Les sous-agents qui ne viennent pas de Hangar se tiennent maintenant sur la scène et dans la barre latérale comme des visiteurs dessinés avec un badge.",
+        "it": "I sub-agenti che non vengono da Hangar ora stanno sul palco e nella barra laterale come visitatori disegnati con un badge.",
+        "ja": "Hangar 以外のサブエージェントは、ステージとサイドバーに名札を付けたイラストの来訪者として表示されます。",
+        "pl": "Podagenci spoza Hangar stoją teraz na scenie i w pasku bocznym jako narysowani goście z identyfikatorem.",
+        "pt": "Os subagentes que não vêm do Hangar aparecem agora no palco e na barra lateral como visitantes desenhados com um crachá.",
+        "ru": "Субагенты не из Hangar теперь стоят на сцене и в боковой панели как нарисованные гости с бейджем.",
+        "tr": "Hangar'dan gelmeyen alt ajanlar artık sahnede ve kenar çubuğunda isim kartlı çizilmiş ziyaretçiler olarak duruyor.",
+        "zh": "不是来自 Hangar 的子代理现在会以佩戴名牌的手绘访客形象出现在舞台和侧边栏中。"
+      },
+      {
+        "de": "Die Startansicht hat einen ruhigen Hintergrund aus Zeichen, die leicht aufleuchten, wo die Maus ist.",
+        "en": "The home view has a calm background of glyphs that light up faintly where the mouse is.",
+        "el": "Η αρχική προβολή έχει ένα ήρεμο φόντο από χαρακτήρες που φωτίζονται ελαφρά εκεί όπου βρίσκεται το ποντίκι.",
+        "es": "La vista de inicio tiene un fondo tranquilo de caracteres que se iluminan levemente donde está el ratón.",
+        "fr": "La vue d'accueil a un fond calme de caractères qui s'allument légèrement là où se trouve la souris.",
+        "it": "La vista iniziale ha uno sfondo tranquillo di caratteri che si illuminano leggermente dove si trova il mouse.",
+        "ja": "ホーム画面に、マウスのある所がほのかに光る文字の落ち着いた背景が付きました。",
+        "pl": "Widok startowy ma spokojne tło ze znaków, które lekko rozjaśniają się tam, gdzie jest mysz.",
+        "pt": "A vista inicial tem um fundo calmo de caracteres que se iluminam levemente onde está o rato.",
+        "ru": "У начального экрана спокойный фон из символов, которые слегка подсвечиваются там, где находится мышь.",
+        "tr": "Ana görünümde, farenin olduğu yerde hafifçe parlayan karakterlerden oluşan sakin bir arka plan var.",
+        "zh": "主页视图有一个安静的字符背景，鼠标所在处会微微发亮。"
+      }
+    ]
   },
   {
     "version": "0.15.0",
