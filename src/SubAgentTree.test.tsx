@@ -65,6 +65,12 @@ describe("SubAgentItem", () => {
     expect(button).toMatch(/>schließen<\/button>/);
   });
 
+  it("draws a built-in type that is not Hangar's as the visitor figure, as on the stage", () => {
+    const html = item("running");
+    expect(html).toContain("agent-figure");
+    expect(html).toContain("guest");
+  });
+
   it("keeps run time and tokens in the first line of a finished row", () => {
     expect(item("finished")).toContain('class="subagent-node-time"');
   });
