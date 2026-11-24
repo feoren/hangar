@@ -33,4 +33,18 @@ describe("revealInvisible", () => {
     ]);
     expect(placeholder("\u0007")).toBe("<U+0007>");
   });
+
+  // Tag characters show nothing, but a language model reads them: "ASCII smuggling".
+  it("finds tag characters as one code point each", () => {
+    const hidden = "ok\u{e0069}\u{e0067}\u{e006e}";
+    expect(hasInvisible(hidden)).toBe(true);
+    expect(hasInvisible("\u{e0000}")).toBe(true);
+    expect(hasInvisible("\u{e007f}")).toBe(true);
+    expect(hasInvisible("\u{e0080}")).toBe(false);
+    expect(revealInvisible(hidden)).toBe("ok<U+E0069><U+E0067><U+E006E>");
+    expect(invisibleSegments("a\u{e0041}")).toEqual([
+      { text: "a", hidden: false },
+      { text: "<U+E0041>", hidden: true },
+    ]);
+  });
 });

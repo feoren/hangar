@@ -5,12 +5,14 @@
 
 // Bidi embeddings and overrides, isolates, zero-width and direction marks, the Arabic letter
 // mark, the word joiner and invisible operators, line and paragraph separators, the byte order
-// mark, C0 controls except tab, DEL and C1 controls.
+// mark, C0 controls except tab, DEL and C1 controls, and the tag characters U+E0000 to U+E007F:
+// they show nothing, yet a language model reads them as text, so they can smuggle an instruction
+// past the eye ("ASCII smuggling"). The `u` flag makes the tags one code point each.
 const CLASS =
   "[\\u202a-\\u202e\\u2066-\\u2069\\u200b-\\u200f\\u061c\\u2060-\\u2064\\u2028\\u2029\\ufeff" +
-  "\\u0000-\\u0008\\u000a-\\u001f\\u007f-\\u009f]";
-const INVISIBLE = new RegExp(CLASS);
-const INVISIBLE_ALL = new RegExp(CLASS, "g");
+  "\\u0000-\\u0008\\u000a-\\u001f\\u007f-\\u009f\\u{e0000}-\\u{e007f}]";
+const INVISIBLE = new RegExp(CLASS, "u");
+const INVISIBLE_ALL = new RegExp(CLASS, "gu");
 
 export interface TextSegment {
   text: string;

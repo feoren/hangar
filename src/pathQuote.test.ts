@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import {
   dropText,
+  gitBashPath,
   hasControl,
   unsafeDropPath,
   insertPathText,
@@ -260,6 +261,7 @@ describe("unsafeDropPath", () => {
     expect(unsafeDropPath("/tmp/a\u202eb")).toBe(true);
     expect(unsafeDropPath("/tmp/a\u2029b")).toBe(true);
     expect(unsafeDropPath("/tmp/a\u061cb")).toBe(true);
+    expect(unsafeDropPath("/tmp/a\u{e0069}b")).toBe(true);
     expect(unsafeDropPath("/tmp/\u0645\u06cc\u200c\u0631\u0648\u0645")).toBe(false);
     expect(unsafeDropPath("C:\\Users\\Jane Doe\\Übersicht 日本.txt")).toBe(false);
   });
@@ -395,13 +397,11 @@ describe("insertPathText", () => {
       expect(insertPathText(file("ä.md", "/home/zoë"), "/tmp", "posix")).toBe("/home/zoë/ä.md ");
     });
 
+    // Such a path is no longer inserted into a shell (see "special characters"); the drive
+    // mapping itself still has to cope with it.
     it("maps the drive of an absolute path holding line or paragraph separators", () => {
-      expect(insertPathText(file("a\u2028b.md"), String.raw`D:\x`, "posix")).toBe(
-        "'/c/work/shop/a\u2028b.md' ",
-      );
-      expect(insertPathText(file("a\u2029b.md"), String.raw`D:\x`, "wsl")).toBe(
-        "'/mnt/c/work/shop/a\u2029b.md' ",
-      );
+      expect(gitBashPath("C:/work/shop/a\u2028b.md")).toBe("/c/work/shop/a\u2028b.md");
+      expect(wslPath("C:/work/shop/a\u2029b.md")).toBe("/mnt/c/work/shop/a\u2029b.md");
     });
   });
 
@@ -432,6 +432,21 @@ describe("insertPathText", () => {
         expect(insertPathText(file("a\u009bb", "/srv"), "/srv", kind)).toBe("");
         expect(insertPathText(file("a.md", "/sr\rv"), "/srv", kind)).toBe("");
       }
+    });
+
+    // A shell runs what it reads while the person sees something else; the agent gets the
+    // path as a mention it reads itself, and the drop warning covers it there.
+    it("inserts nothing into a shell for a name that reads otherwise than it is", () => {
+      for (const kind of ["powershell", "cmd", "posix", "wsl"] as const) {
+        expect(insertPathText(file("invoice‮txt.sh", "/srv"), "/srv", kind)).toBe("");
+        expect(insertPathText(file("a b", "/srv"), "/srv", kind)).toBe("");
+        expect(insertPathText(file("a\u{e0069}b", "/srv"), "/srv", kind)).toBe("");
+        expect(insertPathText(file("a.md", "/s⁦rv"), "/srv", kind)).toBe("");
+      }
+      // Joiners in Persian names and emoji change no reading order and stay.
+      const persian = "می‌ر";
+      expect(insertPathText(file(persian, "/srv"), "/srv", "posix")).toContain(persian);
+      expect(insertPathText(file("a‮b", "/srv"), "/srv", "agent")).not.toBe("");
     });
   });
 

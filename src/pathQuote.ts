@@ -140,7 +140,7 @@ function relativeTo(path: string, folder: string, windows: boolean): string | nu
 }
 
 /** `C:/x/y` as Git Bash sees it (`/c/x/y`); a share keeps its `//server/share` form. */
-function gitBashPath(path: string): string {
+export function gitBashPath(path: string): string {
   // `s` for names holding U+2028 or U+2029, as in `wslPath`.
   const drive = /^([a-z]):\/?(.*)$/is.exec(path);
   if (drive?.[1] === undefined) return path;
@@ -171,10 +171,14 @@ function notAnOption(relative: string, separator: string): string {
  * next word apart.
  *
  * Empty for a path with control characters (a line break, ESC): no quoting makes them safe in
- * every shell, and a program without bracketed paste would run what follows a line break.
+ * every shell, and a program without bracketed paste would run what follows a line break. In a
+ * shell also empty for a path that reads otherwise than it is (bidi controls, the line and
+ * paragraph separators, tag characters): the shell runs what it reads, the person sees something
+ * else.
  */
 export function insertPathText(item: TreePath, sessionCwd: string, kind: ShellKind): string {
   if (CONTROL.test(item.root) || CONTROL.test(item.path)) return "";
+  if (kind !== "agent" && (REORDERING.test(item.root) || REORDERING.test(item.path))) return "";
   const windows = isWindowsPath(item.root);
   const root = normalized(item.root, windows);
   const inner = item.path.replace(/^\/+|\/+$/g, "");
@@ -209,11 +213,12 @@ export function hasControl(path: string): boolean {
 
 /**
  * Bidi embeddings, overrides and isolates, the direction marks, the Arabic letter mark and the
- * line and paragraph separators: they reorder or break what the terminal shows. Zero-width
- * joiners and non-joiners stay allowed: Persian and Indic file names and emoji need them, and
- * they change no reading order.
+ * line and paragraph separators: they reorder or break what the terminal shows. The tag
+ * characters U+E0000 to U+E007F show nothing, but a language model reads them as text, so a path
+ * could carry a hidden instruction. Zero-width joiners and non-joiners stay allowed: Persian and
+ * Indic file names and emoji need them, and they change no reading order.
  */
-const REORDERING = /[\u202a-\u202e\u2066-\u2069\u200e\u200f\u061c\u2028\u2029]/u;
+const REORDERING = /[\u202a-\u202e\u2066-\u2069\u200e\u200f\u061c\u2028\u2029\u{e0000}-\u{e007f}]/u;
 
 /**
  * A dropped path no quoting makes safe: a control character (a line break, ESC), or a character
