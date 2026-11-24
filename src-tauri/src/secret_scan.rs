@@ -10,6 +10,9 @@
 //!
 //! A helper, not a boundary: a key split across lines, encoded or of another kind passes unseen.
 
+use std::borrow::Cow;
+use std::ops::Range;
+
 use serde::Serialize;
 
 /// One kind of secret; the window names it in its own language.
@@ -129,32 +132,34 @@ fn starts<'a>(text: &'a str, prefix: &'a str) -> impl Iterator<Item = usize> + '
     text.match_indices(prefix).map(|(at, _)| at)
 }
 
-/// Whether a token `prefix` + a run of `class` of `min` to [`MAX_TOKEN_BODY`] bytes appears, with a
-/// boundary of `before` in front, the run not followed by a byte of `after`, and a plausible body.
+/// The bodies of tokens `prefix` + a run of `class` of `min` to [`MAX_TOKEN_BODY`] bytes, with a
+/// boundary of `before` in front, the run not followed by a byte of `after`, and a plausible body;
+/// as byte ranges after the prefix.
 ///
 /// Linear: the boundary is checked before the run is read, and every `class` lies inside its
 /// `before`, so a prefix inside an earlier run fails at once and no byte is read twice by runs.
-fn token(
-    text: &str,
-    prefix: &str,
+fn token<'a>(
+    text: &'a str,
+    prefix: &'a str,
     before: fn(u8) -> bool,
     class: fn(u8) -> bool,
     after: fn(u8) -> bool,
     min: usize,
-) -> bool {
+) -> impl Iterator<Item = Range<usize>> + 'a {
     let bytes = text.as_bytes();
-    starts(text, prefix).any(|at| {
+    starts(text, prefix).filter_map(move |at| {
         if !boundary_before(bytes, at, before) {
-            return false;
+            return None;
         }
         let body_start = at + prefix.len();
         let end = run_end(bytes, body_start, class);
         let followed = bytes.get(end).is_some_and(|b| after(*b));
         let length = end - body_start;
-        length >= min
+        (length >= min
             && length <= MAX_TOKEN_BODY
             && !followed
-            && plausible(&bytes[body_start..end], 10)
+            && plausible(&bytes[body_start..end], 10))
+        .then_some(body_start..end)
     })
 }
 
@@ -162,13 +167,30 @@ fn nothing(_: u8) -> bool {
     false
 }
 
-fn private_key(text: &str) -> bool {
+fn base64(b: u8) -> bool {
+    b.is_ascii_alphanumeric() || b == b'+' || b == b'/' || b == b'='
+}
+
+/// How far after a private key header [`mask`] looks for its `-----END ` line; a 8192 bit RSA key
+/// takes about 6.5 KiB, colour sequences between its lines included.
+const PEM_MASK_WINDOW: usize = 16 * 1024;
+
+/// The bodies of private key blocks: from the end of the header to the `-----END ` line, or, if
+/// none follows within [`PEM_MASK_WINDOW`], to the end of that window. The flag tells whether the
+/// end line was found.
+fn private_key(text: &str) -> impl Iterator<Item = (Range<usize>, bool)> + '_ {
     let bytes = text.as_bytes();
     // Where the body search of an earlier header stopped: a run that started before it was read
     // whole and was too short, so a later window that overlaps starts after it (linear on text
     // full of headers).
     let mut read_to = 0;
-    starts(text, "-----BEGIN ").any(|at| {
+    // The end of the last block found: a header inside it belongs to that block, so no byte is
+    // searched for an end line twice.
+    let mut block_to = 0;
+    starts(text, "-----BEGIN ").filter_map(move |at| {
+        if at < block_to {
+            return None;
+        }
         let label_start = at + "-----BEGIN ".len();
         let label_end = run_end(bytes, label_start, |b| upper_or_digit(b) || b == b' ');
         let label = &text[label_start..label_end];
@@ -176,126 +198,306 @@ fn private_key(text: &str) -> bool {
             || !(label.ends_with("PRIVATE KEY") || label.ends_with("PRIVATE KEY BLOCK"))
             || !text[label_end..].starts_with("-----")
         {
-            return false;
+            return None;
         }
         let body_start = label_end + "-----".len();
         let window_end = (body_start + PEM_BODY_WINDOW).min(bytes.len());
         let mut index = body_start.max(read_to);
+        let mut found = false;
         while index < window_end {
-            let end = run_end(bytes, index, |b| {
-                b.is_ascii_alphanumeric() || b == b'+' || b == b'/' || b == b'='
-            });
+            let end = run_end(bytes, index, base64);
             if end - index >= PEM_BODY_RUN {
-                return true;
+                found = true;
+                break;
             }
             index = end + 1;
         }
         read_to = read_to.max(index);
-        false
+        if !found {
+            return None;
+        }
+        let limit = (body_start + PEM_MASK_WINDOW).min(bytes.len());
+        let end_line = bytes[body_start..limit]
+            .windows(b"-----END ".len())
+            .position(|w| w == b"-----END ");
+        let block = match end_line {
+            Some(offset) => (body_start..body_start + offset, true),
+            None => (body_start..limit, false),
+        };
+        block_to = block.0.end;
+        Some(block)
     })
 }
 
-fn aws_access_key(text: &str) -> bool {
+/// The bodies of AWS access key ids, after their four letter prefix.
+fn aws_access_key(text: &str) -> impl Iterator<Item = Range<usize>> + '_ {
     let bytes = text.as_bytes();
-    ["AKIA", "ASIA", "ABIA", "ACCA"].iter().any(|prefix| {
-        starts(text, prefix).any(|at| {
-            if !boundary_before(bytes, at, base62) {
-                return false;
-            }
-            let body_start = at + prefix.len();
-            let end = run_end(bytes, body_start, upper_or_digit);
-            let body = &bytes[body_start..end];
-            end - body_start == 16
-                && !bytes.get(end).is_some_and(|b| base62(*b))
-                && !body.ends_with(b"EXAMPLE")
-                && plausible(body, 8)
+    ["AKIA", "ASIA", "ABIA", "ACCA"]
+        .into_iter()
+        .flat_map(move |prefix| {
+            starts(text, prefix).filter_map(move |at| {
+                if !boundary_before(bytes, at, base62) {
+                    return None;
+                }
+                let body_start = at + prefix.len();
+                let end = run_end(bytes, body_start, upper_or_digit);
+                let body = &bytes[body_start..end];
+                (end - body_start == 16
+                    && !bytes.get(end).is_some_and(|b| base62(*b))
+                    && !body.ends_with(b"EXAMPLE")
+                    && plausible(body, 8))
+                .then_some(body_start..end)
+            })
         })
-    })
 }
 
-fn github_token(text: &str) -> bool {
+fn github_token(text: &str) -> impl Iterator<Item = Range<usize>> + '_ {
     ["ghp_", "gho_", "ghu_", "ghs_", "ghr_"]
-        .iter()
-        .any(|prefix| token(text, prefix, word, base62, |b| b == b'_', 36))
-        || token(text, "github_pat_", word, word, nothing, 60)
+        .into_iter()
+        .flat_map(move |prefix| token(text, prefix, word, base62, |b| b == b'_', 36))
+        .chain(token(text, "github_pat_", word, word, nothing, 60))
 }
 
-fn anthropic_key(text: &str) -> bool {
+fn anthropic_key(text: &str) -> impl Iterator<Item = Range<usize>> + '_ {
     token(text, "sk-ant-", word_or_dash, word_or_dash, nothing, 40)
 }
 
-fn openai_key(text: &str) -> bool {
+fn openai_key(text: &str) -> impl Iterator<Item = Range<usize>> + '_ {
     let modern = ["sk-proj-", "sk-svcacct-", "sk-admin-"]
-        .iter()
-        .any(|prefix| token(text, prefix, word_or_dash, word_or_dash, nothing, 40));
+        .into_iter()
+        .flat_map(move |prefix| token(text, prefix, word_or_dash, word_or_dash, nothing, 40));
     let bytes = text.as_bytes();
     // Legacy keys: `sk-` and 48 letters and digits with "T3BlbkFJ" (base64 of "OpenAI") inside.
-    let legacy = starts(text, "sk-").any(|at| {
+    let legacy = starts(text, "sk-").filter_map(move |at| {
         // The boundary first, so runs never overlap (see `token`).
         if !boundary_before(bytes, at, word_or_dash) {
-            return false;
+            return None;
         }
         let body_start = at + 3;
         let end = run_end(bytes, body_start, base62);
         let body = &bytes[body_start..end];
-        (40..=MAX_TOKEN_BODY).contains(&body.len())
+        ((40..=MAX_TOKEN_BODY).contains(&body.len())
             && !bytes.get(end).is_some_and(|b| *b == b'_' || *b == b'-')
             && body.windows(8).any(|w| w == b"T3BlbkFJ")
-            && plausible(body, 10)
+            && plausible(body, 10))
+        .then_some(body_start..end)
     });
-    modern || legacy
+    modern.chain(legacy)
 }
 
-fn slack_token(text: &str) -> bool {
+fn slack_token(text: &str) -> impl Iterator<Item = Range<usize>> + '_ {
     let bytes = text.as_bytes();
     let dash_or_base62 = |b: u8| base62(b) || b == b'-';
     [
         "xoxb-", "xoxp-", "xoxa-", "xoxr-", "xoxs-", "xoxo-", "xapp-",
     ]
-    .iter()
-    .any(|prefix| {
-        starts(text, prefix).any(|at| {
+    .into_iter()
+    .flat_map(move |prefix| {
+        starts(text, prefix).filter_map(move |at| {
             // The boundary first, so runs never overlap (see `token`): with the run read first,
             // text made of the prefix again and again took quadratic time.
             if !boundary_before(bytes, at, word_or_dash) {
-                return false;
+                return None;
             }
             let body_start = at + prefix.len();
             let end = run_end(bytes, body_start, dash_or_base62);
             let body = &bytes[body_start..end];
-            (20..=MAX_TOKEN_BODY).contains(&body.len())
+            ((20..=MAX_TOKEN_BODY).contains(&body.len())
                 && body.contains(&b'-')
                 && body.iter().any(u8::is_ascii_digit)
-                && plausible(body, 10)
+                && plausible(body, 10))
+            .then_some(body_start..end)
         })
     })
 }
 
-fn stripe_key(text: &str) -> bool {
+fn stripe_key(text: &str) -> impl Iterator<Item = Range<usize>> + '_ {
     ["sk_live_", "rk_live_"]
-        .iter()
-        .any(|prefix| token(text, prefix, word, base62, nothing, 24))
+        .into_iter()
+        .flat_map(move |prefix| token(text, prefix, word, base62, nothing, 24))
 }
 
-/// One shape's check.
-type Check = fn(&str) -> bool;
+/// The token bodies of every kind but private keys, in no particular order.
+fn token_bodies(text: &str) -> impl Iterator<Item = Range<usize>> + '_ {
+    aws_access_key(text)
+        .chain(github_token(text))
+        .chain(anthropic_key(text))
+        .chain(openai_key(text))
+        .chain(slack_token(text))
+        .chain(stripe_key(text))
+}
 
 /// The kinds of secret `text` holds, each once, in [`SecretKind`] order; empty for none.
 pub fn scan(text: &str) -> Vec<SecretKind> {
-    let checks: [(SecretKind, Check); 7] = [
-        (SecretKind::PrivateKey, private_key),
-        (SecretKind::AwsAccessKey, aws_access_key),
-        (SecretKind::GithubToken, github_token),
-        (SecretKind::AnthropicKey, anthropic_key),
-        (SecretKind::OpenaiKey, openai_key),
-        (SecretKind::SlackToken, slack_token),
-        (SecretKind::StripeKey, stripe_key),
+    let found = [
+        (SecretKind::PrivateKey, private_key(text).next().is_some()),
+        (
+            SecretKind::AwsAccessKey,
+            aws_access_key(text).next().is_some(),
+        ),
+        (SecretKind::GithubToken, github_token(text).next().is_some()),
+        (
+            SecretKind::AnthropicKey,
+            anthropic_key(text).next().is_some(),
+        ),
+        (SecretKind::OpenaiKey, openai_key(text).next().is_some()),
+        (SecretKind::SlackToken, slack_token(text).next().is_some()),
+        (SecretKind::StripeKey, stripe_key(text).next().is_some()),
     ];
-    checks
-        .iter()
-        .filter(|(_, check)| check(text))
-        .map(|(kind, _)| *kind)
+    found
+        .into_iter()
+        .filter(|(_, hit)| *hit)
+        .map(|(kind, _)| kind)
         .collect()
+}
+
+/// The character a masked secret byte becomes; outside every shape's body class, so a masked
+/// text holds no shape any more.
+pub const MASK: char = '*';
+
+/// Without an end line, a private key block's window may reach into the text after a cut key;
+/// runs of base64 characters shorter than this are left alone there.
+const PEM_MASK_RUN: usize = 16;
+
+/// One terminal escape sequence: where it ends, and for a string (OSC, DCS, SOS, PM, APC) where
+/// its payload lies between the introducer and the terminator.
+struct Escape {
+    end: usize,
+    payload: Option<Range<usize>>,
+}
+
+/// The terminal escape sequence that starts at `at` (an ESC byte), looked for up to `limit`: a
+/// CSI ends at its final byte, a string at BEL or ST, any other after its intermediates and one
+/// final byte. One without its end reaches `limit`; an ESC before the final byte starts the next
+/// sequence, as on a terminal. Every end lies after an ASCII byte or at `limit`, so a sequence
+/// covers whole characters.
+fn escape(bytes: &[u8], at: usize, limit: usize) -> Escape {
+    match bytes.get(at + 1) {
+        Some(b'[') => Escape {
+            end: (at + 2..limit)
+                .find(|&i| bytes[i] == 0x1b || (0x40..=0x7e).contains(&bytes[i]))
+                .map_or(limit, |i| if bytes[i] == 0x1b { i } else { i + 1 }),
+            payload: None,
+        },
+        Some(b']' | b'P' | b'X' | b'^' | b'_') => {
+            let start = (at + 2).min(limit);
+            let terminator = (start..limit).find_map(|i| match bytes[i] {
+                0x07 => Some((i, i + 1)),
+                0x1b if bytes.get(i + 1) == Some(&b'\\') && i + 1 < limit => Some((i, i + 2)),
+                _ => None,
+            });
+            let (payload_end, end) = terminator.unwrap_or((limit, limit));
+            Escape {
+                end,
+                payload: Some(start..payload_end),
+            }
+        }
+        Some(_) => {
+            let end = run_end(&bytes[..limit], (at + 1).min(limit), |b| {
+                (0x20..=0x2f).contains(&b)
+            });
+            // Only a final byte (0x30 to 0x7e) belongs to the sequence; the lead byte of a
+            // character or an ESC is left for the text or the next sequence.
+            let end = match bytes[..limit].get(end) {
+                Some(final_byte) if (0x30..=0x7e).contains(final_byte) => end + 1,
+                _ => end,
+            };
+            Escape { end, payload: None }
+        }
+        None => Escape {
+            end: limit,
+            payload: None,
+        },
+    }
+}
+
+/// `text` as the shapes see it on a terminal: every byte of an escape sequence except a string's
+/// payload becomes ESC, so a colour sequence right in front of a token (`ESC [ 1 m`, whose final
+/// `m` is a word character) is a boundary and no run reaches into a sequence. Offsets stay those
+/// of `text`; a link's address in an OSC 8 payload stays visible to the shapes.
+fn plain_view(text: &str) -> Cow<'_, str> {
+    let bytes = text.as_bytes();
+    if !bytes.contains(&0x1b) {
+        return Cow::Borrowed(text);
+    }
+    let mut plain = bytes.to_vec();
+    let mut index = 0;
+    while index < bytes.len() {
+        if bytes[index] != 0x1b {
+            index += 1;
+            continue;
+        }
+        let found = escape(bytes, index, bytes.len());
+        for (offset, byte) in plain[index..found.end].iter_mut().enumerate() {
+            let at = index + offset;
+            if !found.payload.as_ref().is_some_and(|p| p.contains(&at)) {
+                *byte = 0x1b;
+            }
+        }
+        index = found.end;
+    }
+    // Every replaced byte span starts and ends on an ASCII byte and became ASCII, so the result
+    // is UTF-8; should that ever fail, the shapes look at the text as it is.
+    String::from_utf8(plain).map_or(Cow::Borrowed(text), Cow::Owned)
+}
+
+/// The runs of at least `min` base64 characters in `block` outside terminal escape sequences,
+/// strings included, so masking never touches a sequence between the lines of a key.
+fn base64_runs(bytes: &[u8], block: Range<usize>, min: usize, out: &mut Vec<Range<usize>>) {
+    let mut index = block.start;
+    while index < block.end {
+        if bytes[index] == 0x1b {
+            // Bounded by the block, so blocks full of unterminated strings stay linear.
+            index = escape(bytes, index, block.end).end;
+            continue;
+        }
+        if !base64(bytes[index]) {
+            index += 1;
+            continue;
+        }
+        let end = run_end(bytes, index, base64).min(block.end);
+        if end - index >= min {
+            out.push(index..end);
+        }
+        index = end;
+    }
+}
+
+/// `text` with the body of every secret [`scan`] finds replaced by [`MASK`], one for each byte;
+/// made for terminal text such as a saved scrollback.
+///
+/// The prefix that names the kind stays (`ghp_****...`), so the reader still sees what was there,
+/// and the replacement keeps the body's length: every body byte is ASCII and one terminal column
+/// wide, so a restored scrollback keeps its line wraps and cursor moves. Terminal escape
+/// sequences stay as they are ([`plain_view`]); a private key block keeps its header and end
+/// line. Only full matches are masked, never a part that merely looks like the start of a key.
+/// Borrowed when nothing was found.
+pub fn mask(text: &str) -> Cow<'_, str> {
+    let plain = plain_view(text);
+    let mut ranges: Vec<Range<usize>> = token_bodies(&plain).collect();
+    for (block, closed) in private_key(&plain) {
+        let min = if closed { 1 } else { PEM_MASK_RUN };
+        base64_runs(text.as_bytes(), block, min, &mut ranges);
+    }
+    if ranges.is_empty() {
+        return Cow::Borrowed(text);
+    }
+    ranges.sort_by_key(|range| range.start);
+    let mut out = String::with_capacity(text.len());
+    let mut cursor = 0;
+    for range in ranges {
+        if range.end <= cursor {
+            continue;
+        }
+        let start = range.start.max(cursor);
+        // Every range covers ASCII bytes only, the same in `text` and its plain view, so both of
+        // its ends lie on character boundaries.
+        out.push_str(&text[cursor..start]);
+        out.extend(std::iter::repeat_n(MASK, range.end - start));
+        cursor = range.end;
+    }
+    out.push_str(&text[cursor..]);
+    Cow::Owned(out)
 }
 
 /// The kinds as an English list for a text the agent reads ("GitHub token, private key").
@@ -492,6 +694,181 @@ pub(crate) mod tests {
             scan(&format!("{}_live_{}", "sk", &body[..MAX_TOKEN_BODY])),
             [SecretKind::StripeKey]
         );
+    }
+
+    /// A made-up base64 body ("Marker fake key body for tests only not a key"), as in the vectors.
+    const PEM_BODY: &str = "TWFya2VyIGZha2Uga2V5IGJvZHkgZm9yIHRlc3RzIG9ubHkgbm90IGEga2V5";
+
+    /// A private key header or end line of `label`, joined at run time like the shared vectors,
+    /// so no complete key shape is stored in the repository.
+    fn pem_line(edge: &str, label: &str) -> String {
+        format!("-----{edge} {label}PRIV{}-----", "ATE KEY")
+    }
+
+    /// Which bytes differ between a text and its masked form; each must have become [`MASK`].
+    fn changed_bytes(text: &str, masked: &str) -> usize {
+        assert_eq!(masked.len(), text.len());
+        text.bytes()
+            .zip(masked.bytes())
+            .filter(|(before, after)| {
+                if before != after {
+                    assert_eq!(*after, MASK as u8);
+                }
+                before != after
+            })
+            .count()
+    }
+
+    #[test]
+    fn every_hit_of_the_shared_vectors_is_masked_in_place() {
+        let (hits, _) = vectors();
+        for vector in hits {
+            let masked = mask(&vector.text);
+            assert!(
+                changed_bytes(&vector.text, &masked) >= 16,
+                "{}",
+                vector.name
+            );
+            assert!(scan(&masked).is_empty(), "{}: {masked}", vector.name);
+            // The prefix that names the kind stays readable.
+            let probe = &vector.text[..3];
+            assert!(masked.starts_with(probe), "{}: {masked}", vector.name);
+        }
+    }
+
+    #[test]
+    fn no_miss_of_the_shared_vectors_is_masked() {
+        let (_, misses) = vectors();
+        for vector in misses {
+            assert!(
+                matches!(mask(&vector.text), Cow::Borrowed(text) if text == vector.text),
+                "{}",
+                vector.name
+            );
+        }
+    }
+
+    #[test]
+    fn masking_keeps_the_prefix_and_the_length() {
+        let token = format!("{}p_Fake0Marker1Value2Test3Hangar4Only5N", "gh");
+        let text = format!("export TOKEN={token} # hangar-test-marker");
+        let masked = mask(&text);
+        assert_eq!(
+            masked,
+            format!(
+                "export TOKEN={}p_{} # hangar-test-marker",
+                "gh",
+                "*".repeat(36)
+            )
+        );
+        assert!(matches!(
+            mask("nothing here"),
+            Cow::Borrowed("nothing here")
+        ));
+        assert!(matches!(mask(""), Cow::Borrowed("")));
+    }
+
+    /// The serialized scrollback carries colour and cursor sequences between the lines of a key;
+    /// masking leaves every one of them as it was and keeps the header and end line.
+    #[test]
+    fn masking_keeps_terminal_escape_sequences_intact() {
+        let begin = pem_line("BEGIN", "RSA ");
+        let end = pem_line("END", "RSA ");
+        let (first, second) = PEM_BODY.split_at(44);
+        let link = "\x1b]8;;https://hangar-test.invalid/a\x07link\x1b]8;;\x07";
+        let text = format!(
+            "\x1b[32m{begin}\x1b[0m\r\n\x1b[38;2;10;200;30m{first}\x1b[0m\r\n\x1b[1m{second}\x1b[m\
+             \r\n\x1b[32m{end}\x1b[0m\r\n{link}\x1b[2Kdone"
+        );
+        let masked = mask(&text);
+        assert_eq!(changed_bytes(&text, &masked), PEM_BODY.len());
+        assert_eq!(
+            masked,
+            format!(
+                "\x1b[32m{begin}\x1b[0m\r\n\x1b[38;2;10;200;30m{}\x1b[0m\r\n\x1b[1m{}\x1b[m\
+                 \r\n\x1b[32m{end}\x1b[0m\r\n{link}\x1b[2Kdone",
+                "*".repeat(first.len()),
+                "*".repeat(second.len())
+            )
+        );
+
+        // A token right after a colour sequence (whose final `m` is a word character, no
+        // boundary to the plain shapes), and one inside a link's address.
+        let token = format!("{}_live_Fake0Marker1Value2Test3Hangar4", "sk");
+        let text = format!(
+            "\x1b[1m{token}\x1b[0m \x1b]8;;https://hangar-test.invalid/?k={token}\x1b\\x\x1b]8;;\x1b\\"
+        );
+        assert!(scan(&format!("m{token}")).is_empty());
+        let masked = mask(&text);
+        let hidden = format!("{}_live_{}", "sk", "*".repeat(30));
+        assert_eq!(
+            masked,
+            format!(
+                "\x1b[1m{hidden}\x1b[0m \x1b]8;;https://hangar-test.invalid/?k={hidden}\x1b\\x\x1b]8;;\x1b\\"
+            )
+        );
+        // A sequence cut off at the end of the text changes nothing in front of it.
+        let text = format!("{token} \x1b[");
+        assert_eq!(mask(&text), format!("{hidden} \x1b["));
+    }
+
+    /// An ESC before a character or another ESC ends the sequence there: the plain view stays
+    /// UTF-8, so the shapes still see the sequences as boundaries, and the next one is read whole.
+    #[test]
+    fn a_broken_sequence_leaves_the_next_character_and_sequence_whole() {
+        let token = format!("{}_live_Fake0Marker1Value2Test3Hangar4", "sk");
+        let hidden = format!("{}_live_{}", "sk", "*".repeat(30));
+        for lead in ["\x1b\u{e9}", "\x1b\x1b", "\x1b[\x1b"] {
+            let text = format!("{lead}x \x1b[1m{token}\x1b[0m");
+            assert_eq!(
+                mask(&text),
+                format!("{lead}x \x1b[1m{hidden}\x1b[0m"),
+                "{lead:?}"
+            );
+        }
+        for lead in ["\x1b\x1b", "\x1b[\x1b"] {
+            let text = format!("{lead}[1m{token}");
+            assert_eq!(mask(&text), format!("{lead}[1m{hidden}"), "{lead:?}");
+        }
+    }
+
+    /// Without its end line a key block is masked only in long base64 runs, so the prose after a
+    /// cut key stays readable.
+    #[test]
+    fn a_key_without_its_end_line_masks_only_long_runs() {
+        let begin = pem_line("BEGIN", "");
+        let text = format!("{begin}\n{PEM_BODY}\n$ ls src\nmain.rs lib.rs\n");
+        let masked = mask(&text);
+        assert_eq!(
+            masked,
+            format!(
+                "{begin}\n{}\n$ ls src\nmain.rs lib.rs\n",
+                "*".repeat(PEM_BODY.len())
+            )
+        );
+        // Two blocks in one text are masked both.
+        let block = format!("{begin}\n{PEM_BODY}\n{}\n", pem_line("END", ""));
+        let text = format!("{block}between\n{block}");
+        let masked = mask(&text);
+        assert_eq!(masked.matches(PEM_BODY).count(), 0);
+        assert_eq!(masked.matches("between").count(), 1);
+        assert_eq!(scan(&masked), []);
+    }
+
+    #[test]
+    fn masking_stays_linear_on_8_mib_of_one_prefix_repeated() {
+        let header = format!("{}\n{}", pem_line("BEGIN", ""), "A1b2".repeat(10));
+        for unit in [header.as_str(), "-----BEGIN ", "ghp_a", "sk-A1", "xoxb-"] {
+            let text = unit.repeat(8 * 1024 * 1024 / unit.len());
+            let started = std::time::Instant::now();
+            let masked = mask(&text);
+            let took = started.elapsed();
+            assert_eq!(masked.len(), text.len());
+            assert!(
+                took < std::time::Duration::from_secs(10),
+                "{unit:?}: {took:?}"
+            );
+        }
     }
 
     #[test]

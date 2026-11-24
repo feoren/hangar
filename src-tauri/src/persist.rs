@@ -7,7 +7,8 @@
 //!
 //! Writing is atomic (temporary file, `sync_all`, then `rename`), so a crash in the middle of
 //! saving never leaves half a file behind. Contents are never logged: scrollback may contain
-//! secrets (printed tokens, pasted keys).
+//! secrets (printed tokens, pasted keys). The key shapes the secret guard knows are masked
+//! before a scrollback is written ([`Store::save_scrollback`]); others are stored as printed.
 //!
 //! Permissions: on Unix folders 0700 and files 0600. On Windows the files live in the
 //! user profile (`%LOCALAPPDATA%\<identifier>`) and inherit its ACL (user, SYSTEM,
@@ -305,6 +306,9 @@ impl Store {
         Some(workspace)
     }
 
+    /// Saves a session's scrollback with every key the secret guard knows masked in place
+    /// ([`crate::secret_scan::mask`]): agents print tokens and `.env` files, and the file outlives
+    /// the session and lands in backups. The mask keeps the length, so the restored layout stays.
     pub fn save_scrollback(&self, key: &str, data: &str) -> Result<(), PersistError> {
         let path = self.scrollback_path(key)?;
         if data.len() > MAX_SCROLLBACK_BYTES {
@@ -313,7 +317,8 @@ impl Store {
                 max: MAX_SCROLLBACK_BYTES,
             });
         }
-        write_atomic(&path, data.as_bytes()).map_err(io_error(&path))
+        let masked = crate::secret_scan::mask(data);
+        write_atomic(&path, masked.as_bytes()).map_err(io_error(&path))
     }
 
     /// `Ok(None)` if there is no scrollback or the file is unusable (too large, not
@@ -1274,6 +1279,45 @@ mod tests {
         assert_eq!(names, ["foreign.txt"]);
         // The workspace stays.
         assert!(store.0.load_workspace().is_some());
+    }
+
+    /// Keys an agent printed do not reach the disk: every shape the secret guard knows is masked
+    /// in place, the terminal sequences around it and the rest of the text stay as they were.
+    #[test]
+    fn printed_keys_are_masked_before_the_scrollback_is_saved() {
+        let store = TempStore::new("sb-masked");
+        let (hits, _) = crate::secret_scan::tests::vectors();
+        for vector in hits {
+            let text = format!(
+                "\x1b[32m$ cat .env\x1b[0m\r\n{}\r\nhangar-test-marker",
+                vector.text
+            );
+            store.0.save_scrollback(KEY, &text).unwrap();
+            let on_disk = fs::read_to_string(store.0.scrollback_path(KEY).unwrap()).unwrap();
+            assert_eq!(on_disk.len(), text.len(), "{}", vector.name);
+            assert!(
+                crate::secret_scan::scan(&on_disk).is_empty(),
+                "{}",
+                vector.name
+            );
+            assert!(on_disk.starts_with("\x1b[32m$ cat .env\x1b[0m\r\n"));
+            assert!(on_disk.ends_with("\r\nhangar-test-marker"));
+            assert_eq!(
+                store.0.load_scrollback(KEY).unwrap().as_deref(),
+                Some(on_disk.as_str())
+            );
+        }
+        // Text without a key is stored byte for byte.
+        let (_, misses) = crate::secret_scan::tests::vectors();
+        for vector in misses {
+            store.0.save_scrollback(KEY, &vector.text).unwrap();
+            assert_eq!(
+                store.0.load_scrollback(KEY).unwrap().as_deref(),
+                Some(vector.text.as_str()),
+                "{}",
+                vector.name
+            );
+        }
     }
 
     #[test]

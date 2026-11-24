@@ -1625,3 +1625,7 @@ Updated: [[notes]] (commands, states), index.
 Traced the repeated `Stop hook failed` and `UserPromptSubmit hook failed` with `read ECONNRESET` on
 another PC to the hook endpoint closing silent connections once 8 were open; reproduced in a test
 and relaxed the limits for 0.16.0. Updated: [[0016-permission-notices]].
+
+## [2026-11-24] query | Scrollback keeps no printed keys
+The saved scrollback now masks every key shape of the secret guard in place (same length, prefix
+kept, terminal escape sequences intact) before it is written. Updated: [[session-restore]].
