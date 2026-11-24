@@ -359,11 +359,17 @@ pub fn read_target(target: &Target) -> Result<FileContent, FileViewerError> {
 
 /// Size and time of the last change, for the live refresh; resolves the target like a read.
 pub fn stamp_target(target: &Target) -> Result<FileStamp, FileViewerError> {
-    let path = resolve_target(target)?;
-    let meta = fs::metadata(&path).map_err(not_found_or_io)?;
-    if !meta.is_file() {
-        return Err(FileViewerError::NotAFile);
-    }
+    stamp_file(&resolve_target(target)?)
+}
+
+/// The stamp of a resolved file, taken like a read: the path was checked, but the stamp is
+/// polled every second, so a process in the session may have swapped the file or a parent folder
+/// for a link since. The metadata therefore comes from the handle [`open_file`] opens, which
+/// follows no link at the last part and is no regular file otherwise, never from a lookup that
+/// follows links (`fs::metadata`). A parent folder swapped for a link in the moment between the
+/// walk and the open is not caught, as for a read: that takes a process already running here.
+fn stamp_file(path: &Path) -> Result<FileStamp, FileViewerError> {
+    let meta = open_file(path)?.metadata().map_err(FileViewerError::Io)?;
     Ok(FileStamp {
         modified: modified_millis(&meta),
         size: meta.len(),
@@ -1021,6 +1027,50 @@ mod tests {
             stamp_target(&target),
             Err(FileViewerError::NotFound)
         ));
+    }
+
+    /// The stamp is taken from the opened file, not by following the path: a file swapped for a
+    /// link after the check reports nothing of the link's target (its size, its time, or an access
+    /// to a share it points to).
+    #[test]
+    fn a_stamp_does_not_follow_a_file_swapped_for_a_link() {
+        let outside = TempDir::new("file-viewer-stamp-outside");
+        let foreign = outside.path().join("foreign.txt");
+        fs::write(&foreign, "hangar-test-marker foreign content").unwrap();
+        let dir = TempDir::new("file-viewer-stamp-link");
+        fs::write(dir.path().join("a.txt"), "one").unwrap();
+        let target = target_for(dir.path(), "a.txt");
+        assert_eq!(stamp_file(&target.path).unwrap().size, 3);
+        // What a process in the session could do between the check and the stamp. A folder link
+        // (a junction on Windows, which needs no privilege) to a place that does not exist:
+        // following it would look for that place and answer "not found". Opened as the link
+        // itself, it is refused on Unix as no regular file (O_NOFOLLOW) and on Windows as a
+        // folder opened without backup semantics, before its target is ever looked at.
+        fs::remove_file(&target.path).unwrap();
+        if link_dir(&outside.path().join("missing"), &target.path) {
+            let got = stamp_file(&target.path);
+            #[cfg(windows)]
+            let refused = matches!(&got, Err(FileViewerError::Io(e)) if e.kind() == io::ErrorKind::PermissionDenied);
+            #[cfg(not(windows))]
+            let refused = matches!(got, Err(FileViewerError::NotAFile));
+            assert!(refused, "{got:?}");
+            // A junction goes with remove_dir, a Unix symlink with remove_file.
+            fs::remove_file(&target.path)
+                .or_else(|_| fs::remove_dir(&target.path))
+                .unwrap();
+        } else {
+            eprintln!("folder links cannot be created here, skipping that part");
+        }
+        if !link_file(&foreign, &target.path) {
+            eprintln!("file symlinks cannot be created here, skipping that part");
+            return;
+        }
+        assert!(matches!(
+            stamp_file(&target.path),
+            Err(FileViewerError::NotAFile)
+        ));
+        // The next poll resolves again and refuses the link before anything is opened.
+        assert!(matches!(stamp_target(&target), Err(FileViewerError::Link)));
     }
 
     #[test]
