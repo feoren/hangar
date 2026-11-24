@@ -960,6 +960,19 @@ fn known_folders(sessions: Vec<PathBuf>, store: &MainStore) -> Vec<PathBuf> {
         .collect()
 }
 
+/// Whether a definition's project folder named by the window is one the backend knows
+/// ([`known_folders`]); `None` (the global definition) always is.
+fn folder_permitted(
+    folder: Option<&std::path::Path>,
+    sessions: Vec<PathBuf>,
+    store: &MainStore,
+) -> bool {
+    folder.is_none_or(|folder| {
+        !agent_provision::permitted(&[folder.to_path_buf()], &known_folders(sessions, store))
+            .is_empty()
+    })
+}
+
 fn session_folders(manager: &SessionManager) -> Vec<PathBuf> {
     manager.list().into_iter().map(|info| info.cwd).collect()
 }
@@ -1067,11 +1080,8 @@ pub async fn set_sub_agent_model(
     let sessions = session_folders(&manager);
     let store = store.inner().clone();
     defs_blocking(manager, move |home| {
-        if let Some(folder) = &folder {
-            let known = known_folders(sessions, &store);
-            if agent_provision::permitted(std::slice::from_ref(folder), &known).is_empty() {
-                return Err(DefError::NotFound(name));
-            }
+        if !folder_permitted(folder.as_deref(), sessions, &store) {
+            return Err(DefError::NotFound(name));
         }
         let choice = ModelChoice { model, effort };
         agent_defs::set_model(home, program, &name, folder.as_deref(), &choice, confirmed)
@@ -1121,14 +1131,23 @@ pub async fn save_sub_agent_settings(
 }
 
 /// Opens a definition's file in the default editor: the global one without `folder`, else that
-/// project's. The path comes from the backend's own listing, never from the window.
+/// project's, and only in a folder the backend knows, as for a model change. The path comes from
+/// the backend's own listing, never from the window.
 #[tauri::command]
 pub async fn open_sub_agent(
+    window: tauri::Window,
     manager: Manager<'_>,
+    store: State<'_, MainStore>,
     name: String,
     folder: Option<PathBuf>,
 ) -> Result<(), DefError> {
+    main_store::check_main(window.label()).map_err(|_| DefError::WrongWindow)?;
+    let sessions = session_folders(&manager);
+    let store = store.inner().clone();
     defs_blocking(manager, move |home| {
+        if !folder_permitted(folder.as_deref(), sessions, &store) {
+            return Err(DefError::NotFound(name));
+        }
         let path = agent_defs::def_path(home, &name, folder.as_deref())?;
         desktop::open_text_file(&path).map_err(|source| DefError::Io { path, source })
     })
@@ -2635,9 +2654,17 @@ pub async fn snapshot_restore(
 
 /// Deletes the session's snapshots and its key; the window calls it once the session is closed,
 /// or on quit when sessions are not restored. Works after the session ended: the binding keeps
-/// its folder.
+/// its folder. Scoped like [`snapshot_restore`]: a window may forget only a session it may address.
 #[tauri::command]
-pub async fn snapshot_forget(app: tauri::AppHandle, id: SessionId) -> Result<(), SnapshotError> {
+pub async fn snapshot_forget(
+    window: tauri::Window,
+    scope: State<'_, PanelScope>,
+    app: tauri::AppHandle,
+    id: SessionId,
+) -> Result<(), SnapshotError> {
+    if !in_scope(&window, &scope, id) {
+        return Err(SnapshotError::UnknownSession(id));
+    }
     let notify = app.clone();
     snapshot_call(app, move |snapshots, env| snapshots.forget(env, id)).await?;
     snapshots_changed(&notify, id);
@@ -4625,6 +4652,39 @@ mod tests {
         let empty = MainStore::new(dir.path().join("empty"));
         let allowed = activity_folders(&requested, vec![PathBuf::from("C:/Work/Session")], &empty);
         assert_eq!(allowed, [PathBuf::from("C:/Work/Session")]);
+    }
+
+    /// Opening or changing a project's definition takes only a folder the backend knows: a
+    /// session's, a favorite or a recent one. The global definition needs no folder.
+    #[test]
+    fn definitions_open_only_in_folders_the_backend_knows() {
+        let dir = crate::test_support::TempDir::new("commands-def-folders");
+        let store = MainStore::new(dir.path().to_path_buf());
+        let prefs = MainPrefs {
+            favorites: vec!["C:/Work/Favorite".to_owned()],
+            recent: vec!["C:/Work/Recent".to_owned()],
+            ..MainPrefs::default()
+        };
+        store.save_prefs(prefs).unwrap();
+        let sessions = || vec![PathBuf::from("C:/Work/Session")];
+        assert!(folder_permitted(None, sessions(), &store));
+        for known in ["C:/Work/Favorite", "C:/Work/Recent", "C:/Work/Session"] {
+            assert!(
+                folder_permitted(Some(std::path::Path::new(known)), sessions(), &store),
+                "{known}"
+            );
+        }
+        for unknown in ["C:/Elsewhere", r"\\hangar-test.invalid\share", ""] {
+            assert!(
+                !folder_permitted(Some(std::path::Path::new(unknown)), sessions(), &store),
+                "{unknown}"
+            );
+        }
+        assert!(!folder_permitted(
+            Some(std::path::Path::new("C:/Work/Session")),
+            Vec::new(),
+            &MainStore::new(dir.path().join("empty"))
+        ));
     }
 
     #[test]
