@@ -137,16 +137,16 @@ export interface Pulse extends Point {
   life: number;
 }
 
-/** How bright a pulse gets at its height: well below the pointer's light, so it stays a hint. */
-export const PULSE_PEAK = 0.85;
+/** How bright a pulse gets at its height: as bright as the pointer's light, so it can be seen. */
+export const PULSE_PEAK = 1;
 
 /** Seconds between two pulses, at least and at most. */
-export const PULSE_GAP_MIN = 1.5;
-export const PULSE_GAP_MAX = 5;
+export const PULSE_GAP_MIN = 1;
+export const PULSE_GAP_MAX = 3.5;
 
 /** A new pulse somewhere in the `width` x `height` area, of a random size and shape. */
 export function spawnPulse(width: number, height: number, t: number, random: () => number): Pulse {
-  const size = 45 + random() * 95;
+  const size = 60 + random() * 110;
   const stretch = 0.55 + random() * 0.45;
   return {
     x: random() * width,
