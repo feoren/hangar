@@ -7,26 +7,32 @@ import {
   type Field,
   GLYPHS,
   glyphAt,
+  livePulses,
   liveTraces,
   mutate,
+  type Pulse,
+  PULSE_GAP_MAX,
+  PULSE_GAP_MIN,
+  pulseAt,
   REVEAL_RADIUS,
   revealAt,
+  spawnPulse,
   type Trace,
 } from "./glyphField";
 
 /** Frames per second while something is uncovered; the fade is slow, more would only cost. */
 const FPS = 30;
 /** Opacity of a fully uncovered glyph, per colour: a faint text tone under a faint accent. */
-const TEXT_PEAK = 0.09;
-const ACCENT_PEAK = 0.13;
+const TEXT_PEAK = 0.12;
+const ACCENT_PEAK = 0.18;
 /** A new trace only after the pointer moved this far, which keeps the list short. */
 const TRACE_SPACING = 10;
 
 /**
  * The hidden glyph field behind the home view (model in `glyphField.ts`). Nothing shows until
- * the pointer passes: it uncovers a small spot like wiping fog, which fades back to nothing. The
- * field drifts slowly underneath in a random direction. While nothing is uncovered no frame is
- * drawn at all. The canvas ignores the pointer itself; moves are read on its parent, so every
+ * the pointer passes: it uncovers a small spot like wiping fog, which fades back to nothing. Now
+ * and then a faint blot pulses up somewhere on its own. The field drifts slowly underneath in a
+ * random direction. While nothing is uncovered or pulsing no frame is drawn at all. The canvas ignores the pointer itself; moves are read on its parent, so every
  * control in front keeps working. With reduced motion it stays empty.
  */
 export function GlyphBackground() {
@@ -44,6 +50,8 @@ export function GlyphBackground() {
     let width = 0;
     let height = 0;
     let traces: Trace[] = [];
+    let pulses: Pulse[] = [];
+    let pulseTimer = 0;
     let style = { text: "", accent: "", font: "" };
     let styleRead = -Infinity;
     let last = 0;
@@ -78,13 +86,16 @@ export function GlyphBackground() {
     const draw = (t: number) => {
       readStyle(t);
       context.clearRect(0, 0, width, height);
-      if (traces.length === 0) return;
-      // Only the cells around the traces can light up; the rest of the field stays untouched.
-      const reach = REVEAL_RADIUS * 1.5;
-      const left = Math.min(...traces.map((trace) => trace.x)) - reach;
-      const right = Math.max(...traces.map((trace) => trace.x)) + reach;
-      const top = Math.min(...traces.map((trace) => trace.y)) - reach;
-      const bottom = Math.max(...traces.map((trace) => trace.y)) + reach;
+      // Only the cells around the traces and the pulses can light up; the rest stays untouched.
+      const spots = [
+        ...traces.map((trace) => ({ x: trace.x, y: trace.y, reach: REVEAL_RADIUS * 1.5 })),
+        ...pulses.map((pulse) => ({ x: pulse.x, y: pulse.y, reach: pulse.rx * 1.9 })),
+      ];
+      if (spots.length === 0) return;
+      const left = Math.min(...spots.map((spot) => spot.x - spot.reach));
+      const right = Math.max(...spots.map((spot) => spot.x + spot.reach));
+      const top = Math.min(...spots.map((spot) => spot.y - spot.reach));
+      const bottom = Math.max(...spots.map((spot) => spot.y + spot.reach));
       const offset = driftOffset(t, angle);
       const shift = cellShift(offset);
       context.font = style.font;
@@ -99,7 +110,7 @@ export function GlyphBackground() {
         for (let col = firstCol; col <= lastCol; col++) {
           const x = col * CELL + shift.x + CELL / 2;
           const y = row * CELL + shift.y + CELL / 2;
-          const light = revealAt({ x, y }, traces, t);
+          const light = Math.max(revealAt({ x, y }, traces, t), pulseAt({ x, y }, pulses, t));
           if (light < 0.01) continue;
           lit.push({ x, y, glyph: GLYPHS[glyphAt(field, col, row, offset)] ?? "", light });
         }
@@ -117,20 +128,39 @@ export function GlyphBackground() {
       context.globalAlpha = 1;
     };
 
-    // Runs only while something is uncovered; the last frame clears the canvas and stops.
+    // Runs only while something shows; the last frame clears the canvas and stops.
     const tick = () => {
       const t = now();
       if (t - last >= 1 / FPS) {
         mutate(field, t - last, Math.random);
         last = t;
         traces = liveTraces(traces, t);
+        pulses = livePulses(pulses, t);
         draw(t);
-        if (traces.length === 0) {
+        if (traces.length === 0 && pulses.length === 0) {
           frame = 0;
           return;
         }
       }
       frame = requestAnimationFrame(tick);
+    };
+
+    const wake = () => {
+      if (frame !== 0) return;
+      last = now();
+      frame = requestAnimationFrame(tick);
+    };
+
+    // The next pulse after a random pause; a hidden window gets none, they would pile up.
+    const schedulePulse = () => {
+      const gap = PULSE_GAP_MIN + Math.random() * (PULSE_GAP_MAX - PULSE_GAP_MIN);
+      pulseTimer = window.setTimeout(() => {
+        if (!document.hidden && width > 0 && height > 0) {
+          pulses.push(spawnPulse(width, height, now(), Math.random));
+          wake();
+        }
+        schedulePulse();
+      }, gap * 1000);
     };
 
     const onMove = (event: PointerEvent) => {
@@ -143,18 +173,17 @@ export function GlyphBackground() {
       } else {
         traces.push({ x, y, time: now() });
       }
-      if (frame === 0) {
-        last = now();
-        frame = requestAnimationFrame(tick);
-      }
+      wake();
     };
 
     const observer = new ResizeObserver(resize);
     observer.observe(host);
     resize();
     host.addEventListener("pointermove", onMove);
+    schedulePulse();
     return () => {
       observer.disconnect();
+      window.clearTimeout(pulseTimer);
       cancelAnimationFrame(frame);
       host.removeEventListener("pointermove", onMove);
     };

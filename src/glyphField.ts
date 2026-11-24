@@ -1,8 +1,9 @@
 /**
  * The hidden glyph field behind the home view: a grid of random characters that is fully faded
- * out and drifts slowly in a direction picked at random. Only the pointer uncovers it, like
- * wiping fog off a window: a small area lights up where it passes and fades back to nothing
- * after a moment. Pure model, no DOM: `GlyphBackground` draws it on a canvas.
+ * out and drifts slowly in a direction picked at random. The pointer uncovers it, like wiping fog
+ * off a window: a small area lights up where it passes and fades back to nothing after a moment.
+ * Now and then a faint blot of random size and shape pulses up on its own somewhere. Pure model,
+ * no DOM: `GlyphBackground` draws it on a canvas.
  */
 
 /** Characters of the field: code punctuation, so the field reads as texture, not as words. */
@@ -116,6 +117,77 @@ export function revealAt(at: Point, traces: readonly Trace[], t: number): number
 /** The traces still uncovering something at time `t`. */
 export function liveTraces(traces: readonly Trace[], t: number): Trace[] {
   return traces.filter((trace) => t - trace.time <= REVEAL_LIFE);
+}
+
+/**
+ * A spot where the field pulses on its own now and then: an irregular blot, wider one way than
+ * the other and turned, that swells up softly and sinks back to nothing over its life.
+ */
+export interface Pulse extends Point {
+  /** Half widths along its own axes, in pixels. */
+  rx: number;
+  ry: number;
+  /** Turn of its axes, in radians. */
+  turn: number;
+  /** Bumps along its edge (2 to 4) and where they sit, so no two blots look alike. */
+  lobes: number;
+  phase: number;
+  start: number;
+  /** Seconds from appearing to gone. */
+  life: number;
+}
+
+/** How bright a pulse gets at its height: well below the pointer's light, so it stays a hint. */
+export const PULSE_PEAK = 0.6;
+
+/** Seconds between two pulses, at least and at most. */
+export const PULSE_GAP_MIN = 1.5;
+export const PULSE_GAP_MAX = 5;
+
+/** A new pulse somewhere in the `width` x `height` area, of a random size and shape. */
+export function spawnPulse(width: number, height: number, t: number, random: () => number): Pulse {
+  const size = 35 + random() * 105;
+  const stretch = 0.55 + random() * 0.45;
+  return {
+    x: random() * width,
+    y: random() * height,
+    rx: size,
+    ry: size * stretch,
+    turn: random() * Math.PI,
+    lobes: 2 + Math.floor(random() * 3),
+    phase: random() * Math.PI * 2,
+    start: t,
+    life: 3 + random() * 3,
+  };
+}
+
+/**
+ * The strongest light of the pulses at `at` and time `t`: soft inside its irregular outline,
+ * rising and falling smoothly over its life, never above `PULSE_PEAK`.
+ */
+export function pulseAt(at: Point, pulses: readonly Pulse[], t: number): number {
+  let light = 0;
+  for (const pulse of pulses) {
+    const age = t - pulse.start;
+    if (age < 0 || age > pulse.life) continue;
+    const dx = at.x - pulse.x;
+    const dy = at.y - pulse.y;
+    const cos = Math.cos(pulse.turn);
+    const sin = Math.sin(pulse.turn);
+    const u = (dx * cos + dy * sin) / pulse.rx;
+    const v = (dy * cos - dx * sin) / pulse.ry;
+    const edge = 1 + 0.22 * Math.sin(pulse.lobes * Math.atan2(v, u) + pulse.phase);
+    const d = Math.hypot(u, v) / edge;
+    if (d >= 1.5) continue;
+    const swell = Math.sin((Math.PI * age) / pulse.life) ** 2;
+    light = Math.max(light, PULSE_PEAK * swell * Math.exp(-3 * d * d));
+  }
+  return light;
+}
+
+/** The pulses still showing at time `t`. */
+export function livePulses(pulses: readonly Pulse[], t: number): Pulse[] {
+  return pulses.filter((pulse) => t - pulse.start <= pulse.life);
 }
 
 function wrap(value: number, size: number): number {

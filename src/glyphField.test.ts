@@ -7,8 +7,12 @@ import {
   driftOffset,
   GLYPHS,
   glyphAt,
+  livePulses,
   liveTraces,
   mutate,
+  PULSE_PEAK,
+  pulseAt,
+  spawnPulse,
   REVEAL_LIFE,
   REVEAL_RADIUS,
   revealAt,
@@ -112,5 +116,49 @@ describe("reveal", () => {
   it("is no brighter where traces overlap", () => {
     const many = [trace, { ...trace }, { ...trace, x: 105 }];
     expect(revealAt({ x: 100, y: 100 }, many, 0)).toBe(1);
+  });
+});
+
+describe("pulses", () => {
+  const pulse = {
+    x: 200,
+    y: 200,
+    rx: 80,
+    ry: 40,
+    turn: 0,
+    lobes: 3,
+    phase: 0,
+    start: 0,
+    life: 4,
+  };
+
+  it("swells up and sinks back to nothing, never above its peak", () => {
+    const centre = { x: 200, y: 200 };
+    expect(pulseAt(centre, [pulse], 0)).toBe(0);
+    expect(pulseAt(centre, [pulse], 2)).toBeCloseTo(PULSE_PEAK);
+    expect(pulseAt(centre, [pulse], 1)).toBeLessThan(pulseAt(centre, [pulse], 2));
+    expect(pulseAt(centre, [pulse], 4.1)).toBe(0);
+    expect(livePulses([pulse], 4.1)).toEqual([]);
+  });
+
+  it("is wider one way than the other", () => {
+    const along = pulseAt({ x: 260, y: 200 }, [pulse], 2);
+    const across = pulseAt({ x: 200, y: 260 }, [pulse], 2);
+    expect(along).toBeGreaterThan(across);
+    expect(pulseAt({ x: 600, y: 600 }, [pulse], 2)).toBe(0);
+  });
+
+  it("appears inside the area with its own size and shape", () => {
+    const random = seeded(7);
+    const spawned = Array.from({ length: 20 }, () => spawnPulse(800, 500, 10, random));
+    for (const p of spawned) {
+      expect(p.x).toBeGreaterThanOrEqual(0);
+      expect(p.x).toBeLessThanOrEqual(800);
+      expect(p.y).toBeGreaterThanOrEqual(0);
+      expect(p.y).toBeLessThanOrEqual(500);
+      expect(p.ry).toBeLessThanOrEqual(p.rx);
+      expect(p.start).toBe(10);
+    }
+    expect(new Set(spawned.map((p) => Math.round(p.rx))).size).toBeGreaterThan(10);
   });
 });
