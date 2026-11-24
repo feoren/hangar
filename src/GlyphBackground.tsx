@@ -23,8 +23,8 @@ import {
 /** Frames per second while something is uncovered; the fade is slow, more would only cost. */
 const FPS = 30;
 /** Opacity of a fully uncovered glyph, per colour: a faint text tone under a faint accent. */
-const TEXT_PEAK = 0.12;
-const ACCENT_PEAK = 0.18;
+const TEXT_PEAK = 0.14;
+const ACCENT_PEAK = 0.24;
 /** A new trace only after the pointer moved this far, which keeps the list short. */
 const TRACE_SPACING = 10;
 
@@ -151,12 +151,26 @@ export function GlyphBackground() {
       frame = requestAnimationFrame(tick);
     };
 
+    // The calendar and the project cards cover most of the area: a pulse under them would never
+    // show, so it goes where the field is open, trying a few random places.
+    const visiblePulse = (): Pulse | null => {
+      if (width <= 0 || height <= 0) return null;
+      const box = host.getBoundingClientRect();
+      for (let attempt = 0; attempt < 12; attempt++) {
+        const pulse = spawnPulse(width, height, now(), Math.random);
+        const top = document.elementFromPoint(box.left + pulse.x, box.top + pulse.y);
+        if (top === host || top?.classList.contains("empty") === true) return pulse;
+      }
+      return null;
+    };
+
     // The next pulse after a random pause; a hidden window gets none, they would pile up.
     const schedulePulse = () => {
       const gap = PULSE_GAP_MIN + Math.random() * (PULSE_GAP_MAX - PULSE_GAP_MIN);
       pulseTimer = window.setTimeout(() => {
-        if (!document.hidden && width > 0 && height > 0) {
-          pulses.push(spawnPulse(width, height, now(), Math.random));
+        const pulse = document.hidden ? null : visiblePulse();
+        if (pulse !== null) {
+          pulses.push(pulse);
           wake();
         }
         schedulePulse();
