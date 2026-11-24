@@ -63,6 +63,7 @@ import { TerminalLinks, type LinkRequest } from "./terminalLinkProvider";
 import { cellHidden, linkTexts, type LinkTexts } from "./terminalLinkWord";
 import { guardSecondaryClick } from "./terminalMouse";
 import { InputStalled, settleStalled } from "./sessionInput";
+import { RESET_INPUT_MODES, trustsBracketedPaste } from "./terminalModes";
 import { setupUnicode } from "./terminalUnicode";
 import { TypedInput } from "./typedInput";
 import {
@@ -928,10 +929,12 @@ export class SessionTerminal {
 
   /**
    * Whether the program has turned on bracketed paste (DECSET 2004). Without it `term.paste`
-   * turns line breaks into carriage returns, so pasted lines run (appPaste.ts).
+   * turns line breaks into carriage returns, so pasted lines run (appPaste.ts). In cmd and
+   * PowerShell the mode can only come from program output, so it does not count there
+   * (`trustsBracketedPaste`).
    */
   bracketedPaste(): boolean {
-    return this.term.modes.bracketedPasteMode;
+    return trustsBracketedPaste(this.shellKind()) && this.term.modes.bracketedPasteMode;
   }
 
   /** Text from the app (dropped paths): the same path as pasting, with bracketed paste. */
@@ -1193,6 +1196,8 @@ export class SessionTerminal {
     this.fallback = undefined;
     this.attention.reset();
     this.programSelection.reset();
+    // The new process starts with the default input modes, not with the old one's.
+    this.term.write(RESET_INPUT_MODES);
     this.term.write(`\r\n\x1b[2m${t("terminal.restarted")}\x1b[0m\r\n`);
   }
 
@@ -1219,6 +1224,8 @@ export class SessionTerminal {
   private handleEvent(event: SessionEvent): void {
     if (event.type === "resumeFallback") {
       this.attention.reset();
+      // The failed process is gone and a new one starts on this channel: like a restart.
+      this.term.write(RESET_INPUT_MODES);
       this.term.write(`\r\n\x1b[2m${t("terminal.resumeFallback")}\x1b[0m\r\n`);
       // Older backends send neither field: nothing changes then.
       if (event.cliSessionId !== undefined || event.subAgents !== undefined) {
@@ -1246,6 +1253,9 @@ export class SessionTerminal {
     this.exitCode = event.code;
     this.programSelection.reset();
     this.forgetDevServer();
+    // Queued after the last output, so a program that crashed with bracketed paste or mouse
+    // tracking on does not leave them on for the next one.
+    this.term.write(RESET_INPUT_MODES);
     const code = event.code === null ? t("terminal.unknownCode") : String(event.code);
     this.term.write(`\r\n\x1b[2m${t("terminal.exited", { code })}\x1b[0m\r\n`);
     this.onExit?.(event.code);

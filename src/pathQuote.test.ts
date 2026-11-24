@@ -7,7 +7,9 @@ import {
   unsafeDropPath,
   insertPathText,
   isShellKind,
+  mentionPath,
   quotePath,
+  skipsDropPath,
   shellKind,
   visiblePath,
   wslPath,
@@ -146,13 +148,25 @@ describe("WSL", () => {
 });
 
 describe("agent CLIs", () => {
-  it("quote only paths with spaces or quotes", () => {
+  it("quote only paths with spaces, quotes, $ or backticks, in double quotes when nothing expands", () => {
     expect(quotePath("C:\\a\\b.png", "agent")).toBe("C:\\a\\b.png");
     expect(quotePath("C:\\My Files\\b.png", "agent")).toBe('"C:\\My Files\\b.png"');
     expect(quotePath("/tmp/ada's.png", "agent")).toBe('"/tmp/ada\'s.png"');
     expect(quotePath('/tmp/say "hi".png', "agent")).toBe("'/tmp/say \"hi\".png'");
-    expect(quotePath('/tmp/ada\'s "x"\\y.png', "agent")).toBe('"/tmp/ada\'s \\"x\\"\\\\y.png"');
     expect(quotePath("C:\\Übersicht\\日本.png", "agent")).toBe("C:\\Übersicht\\日本.png");
+  });
+
+  // An agent's `!` mode hands the input to bash, and PowerShell expands double quotes too: a
+  // dropped path must not run `$(...)` or backticks there.
+  it("never puts $ or backticks inside double quotes, and skips what cannot be quoted", () => {
+    expect(quotePath("C:\\in\\report $(marker).txt", "agent")).toBe(
+      "'C:\\in\\report $(marker).txt'",
+    );
+    expect(quotePath("/tmp/a$(marker).png", "agent")).toBe("'/tmp/a$(marker).png'");
+    expect(quotePath("/tmp/a`marker`.png", "agent")).toBe("'/tmp/a`marker`.png'");
+    expect(quotePath("/tmp/ada's $(marker).png", "agent")).toBe("");
+    expect(quotePath("/tmp/ada's `marker`.png", "agent")).toBe("");
+    expect(quotePath('/tmp/ada\'s "x".png', "agent")).toBe("");
   });
 
   it("show control, separator and bidi characters in git's quoting", () => {
@@ -201,7 +215,38 @@ describe("visiblePath", () => {
   });
 });
 
+describe("mentionPath", () => {
+  it("keeps double quotes for spaces, single quotes once $ or a backtick is in the name", () => {
+    expect(mentionPath("src/app.ts")).toBe("src/app.ts");
+    expect(mentionPath("docs/my notes.md")).toBe('"docs/my notes.md"');
+    expect(mentionPath("docs/my $(marker).md")).toBe("'docs/my $(marker).md'");
+    expect(mentionPath("docs/a`marker`.md")).toBe("'docs/a`marker`.md'");
+    expect(mentionPath('say "hi".md')).toBe("'say \"hi\".md'");
+    expect(mentionPath('ada\'s "x"\\y.md')).toBe('"ada\'s \\"x\\"\\\\y.md"');
+  });
+});
+
+describe("skipsDropPath", () => {
+  it("skips paths no quoting makes safe for the program", () => {
+    expect(skipsDropPath("C:\\in\\report $(marker).txt", "cmd")).toBe(true);
+    expect(skipsDropPath("C:\\in\\a`marker`.txt", "cmd")).toBe(true);
+    expect(skipsDropPath("/tmp/ada's $(marker).png", "agent")).toBe(true);
+    expect(skipsDropPath("/tmp/a\nb", "posix")).toBe(true);
+    expect(skipsDropPath("C:\\in\\report $(marker).txt", "powershell")).toBe(false);
+    expect(skipsDropPath("C:\\in\\report $(marker).txt", "agent")).toBe(false);
+    expect(skipsDropPath("C:\\My Files\\b.txt", "cmd")).toBe(false);
+  });
+});
+
 describe("dropText", () => {
+  it("leaves out a path with $ or a backtick for cmd, which a pwsh behind it would expand", () => {
+    expect(dropText(["C:\\in\\report $(marker).txt"], "cmd")).toBe("");
+    expect(dropText(["C:\\in\\a.txt", "C:\\in\\b`marker`.txt"], "cmd")).toBe("C:\\in\\a.txt ");
+    expect(dropText(["C:\\in\\report $(marker).txt"], "agent")).toBe(
+      "'C:\\in\\report $(marker).txt' ",
+    );
+  });
+
   it("joins several paths and ends with a space", () => {
     expect(dropText(["C:\\a.txt", "C:\\b c.txt"], "powershell")).toBe("C:\\a.txt 'C:\\b c.txt' ");
   });
@@ -297,6 +342,10 @@ describe("insertPathText", () => {
       expect(insertPathText(file('say "hi".md'), repo, "agent")).toBe("@'say \"hi\".md' ");
     });
 
+    it("single-quotes a name with $ or a backtick, so a shell would not expand it", () => {
+      expect(insertPathText(file("my $(marker).md"), repo, "agent")).toBe("@'my $(marker).md' ");
+    });
+
     it("keeps umlauts and other scripts as they are", () => {
       expect(insertPathText(file("Übersicht/日本.md"), repo, "agent")).toBe("@Übersicht/日本.md ");
     });
@@ -375,6 +424,11 @@ describe("insertPathText", () => {
       expect(insertPathText(file("my notes/a&b.md"), repo, "cmd")).toBe('"my notes\\a&b.md" ');
       expect(insertPathText(folder("src"), repo, "cmd")).toBe("src ");
       expect(insertPathText(file("a.md"), String.raw`D:\x`, "cmd")).toBe("C:\\work\\shop\\a.md ");
+    });
+
+    it("inserts nothing for a name with $ or a backtick", () => {
+      expect(insertPathText(file("report $(marker).md"), repo, "cmd")).toBe("");
+      expect(insertPathText(file("a`marker`.md"), repo, "cmd")).toBe("");
     });
   });
 

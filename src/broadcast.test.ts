@@ -161,6 +161,21 @@ describe("blockedFor", () => {
     expect(blockedFor(off, "one line")).toBe(false);
     expect(blockedFor(on, "one\ntwo")).toBe(false);
   });
+
+  it("blocks hidden characters also when the program uses bracketed paste", () => {
+    const on = { bracketedPaste: () => true };
+    // Tag characters spell "marker" invisibly; an agent would still read them.
+    const tags = "\u{E006D}\u{E0061}\u{E0072}\u{E006B}\u{E0065}\u{E0072}";
+    expect(blockedFor(on, `Fix the tests${tags}`)).toBe(true);
+    expect(blockedFor(on, "Fix the \u202etests")).toBe(true);
+    expect(blockedFor(on, "Fix\u200bthe tests")).toBe(true);
+  });
+
+  it("lets line breaks, tabs and emoji joiners through when the program uses bracketed paste", () => {
+    const on = { bracketedPaste: () => true };
+    expect(blockedFor(on, "one\n\ttwo\r\nthree")).toBe(false);
+    expect(blockedFor(on, "Done \u{1F469}\u200d\u{1F4BB}")).toBe(false);
+  });
 });
 
 describe("sendToTargets with a stalled paste", () => {

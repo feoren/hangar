@@ -935,9 +935,9 @@ const de = {
   "link.checkTarget": "Der Text dieses Links passt nicht zu seinem Ziel. Er führt zu:",
   "link.open": "Öffnen",
   "paste.dropSkipped":
-    "Ein Pfad mit Zeilenumbruch, Steuerzeichen oder unsichtbaren Zeichen wurde ausgelassen.",
+    "Ein Pfad wurde ausgelassen: Er enthält Zeichen, die sich dort nicht sicher einfügen lassen.",
   "send.blocked":
-    "Nicht gesendet an {sessions}: Der Text hat mehrere Zeilen oder unsichtbare Zeichen, und das Programm dort würde jede Zeile sofort ausführen.",
+    "Nicht gesendet an {sessions}: Der Text enthält unsichtbare Zeichen oder mehrere Zeilen, die das Programm dort sofort ausführen würde.",
   "settings.warnMultilinePaste": "Vor riskantem Einfügen fragen",
   "settings.warnMultilinePasteHelp":
     "Bei mehreren Zeilen, die sofort laufen würden, oder unsichtbaren Zeichen. Bei vermuteten Schlüsseln fragt Hangar immer.",
@@ -1369,6 +1369,9 @@ const de = {
   "snippets.unknownHint": "Unbekannt, bleibt wörtlich stehen: {names}",
   "snippets.notSent": "Nicht gesendet. Es fehlt {details}",
   "snippets.notSentIn": "Nicht gesendet. In {session} fehlt {details}",
+  "snippets.unsafe": "Nicht gesendet. Die Shell würde Zeichen in {details} als Befehl lesen.",
+  "snippets.unsafeIn":
+    "Nicht gesendet. In {session} würde die Shell Zeichen in {details} als Befehl lesen.",
   "snippets.missingFile": "keine Datei offen oder gewählt",
   "snippets.missingBranch": "kein Git-Branch",
   "snippets.missingSelection": "nichts markiert",
@@ -3323,9 +3326,9 @@ const en: Record<MessageKey, string> = {
   "link.checkTarget": "This link’s text does not match where it leads. It goes to:",
   "link.open": "Open",
   "paste.dropSkipped":
-    "A path with a line break, a control character or an invisible character was left out.",
+    "A path was left out: it holds characters that cannot be inserted safely there.",
   "send.blocked":
-    "Not sent to {sessions}: the text has several lines or hidden characters, and the program there would run each line at once.",
+    "Not sent to {sessions}: the text has hidden characters, or several lines the program there would run at once.",
   "settings.warnMultilinePaste": "Ask before a risky paste",
   "settings.warnMultilinePasteHelp":
     "For several lines that would run at once, or invisible characters. For suspected keys, Hangar always asks.",
@@ -3754,6 +3757,9 @@ const en: Record<MessageKey, string> = {
   "snippets.unknownHint": "Unknown, sent as written: {names}",
   "snippets.notSent": "Not sent. Missing {details}",
   "snippets.notSentIn": "Not sent. {session} is missing {details}",
+  "snippets.unsafe": "Not sent. The shell would read characters in {details} as a command.",
+  "snippets.unsafeIn":
+    "Not sent. In {session}, the shell would read characters in {details} as a command.",
   "snippets.missingFile": "no file open or selected",
   "snippets.missingBranch": "no git branch",
   "snippets.missingSelection": "nothing selected",
@@ -5705,9 +5711,9 @@ const el: Record<MessageKey, string> = {
     "Το κείμενο αυτού του συνδέσμου δεν ταιριάζει με τον προορισμό του. Οδηγεί σε:",
   "link.open": "Άνοιγμα",
   "paste.dropSkipped":
-    "Παραλείφθηκε μια διαδρομή με αλλαγή γραμμής, χαρακτήρα ελέγχου ή αόρατο χαρακτήρα.",
+    "Μια διαδρομή παραλείφθηκε: περιέχει χαρακτήρες που δεν μπορούν να εισαχθούν με ασφάλεια εκεί.",
   "send.blocked":
-    "Δεν στάλθηκε σε {sessions}: το κείμενο έχει πολλές γραμμές ή αόρατους χαρακτήρες και το πρόγραμμα εκεί θα εκτελούσε κάθε γραμμή αμέσως.",
+    "Δεν στάλθηκε σε {sessions}: το κείμενο έχει αόρατους χαρακτήρες ή πολλές γραμμές που το πρόγραμμα εκεί θα εκτελούσε αμέσως.",
   "settings.warnMultilinePaste": "Ερώτηση πριν από επικίνδυνη επικόλληση",
   "settings.warnMultilinePasteHelp":
     "Για πολλές γραμμές που θα εκτελούνταν αμέσως ή αόρατους χαρακτήρες. Για πιθανά κλειδιά, το Hangar ρωτά πάντα.",
@@ -6149,6 +6155,9 @@ const el: Record<MessageKey, string> = {
   "snippets.unknownHint": "Άγνωστο, στέλνεται όπως γράφτηκε: {names}",
   "snippets.notSent": "Δεν στάλθηκε. Λείπει {details}",
   "snippets.notSentIn": "Δεν στάλθηκε. Στο {session} λείπει {details}",
+  "snippets.unsafe": "Δεν στάλθηκε. Το κέλυφος θα διάβαζε χαρακτήρες στο {details} ως εντολή.",
+  "snippets.unsafeIn":
+    "Δεν στάλθηκε. Στο {session}, το κέλυφος θα διάβαζε χαρακτήρες στο {details} ως εντολή.",
   "snippets.missingFile": "κανένα αρχείο ανοιχτό ή επιλεγμένο",
   "snippets.missingBranch": "κανένας κλάδος git",
   "snippets.missingSelection": "τίποτα επιλεγμένο",
@@ -8126,9 +8135,9 @@ const es: Record<MessageKey, string> = {
   "link.checkTarget": "El texto de este enlace no coincide con su destino. Lleva a:",
   "link.open": "Abrir",
   "paste.dropSkipped":
-    "Se omitió una ruta con un salto de línea, un carácter de control o un carácter invisible.",
+    "Se omitió una ruta: tiene caracteres que no se pueden insertar de forma segura allí.",
   "send.blocked":
-    "No se envió a {sessions}: el texto tiene varias líneas o caracteres ocultos, y el programa de allí ejecutaría cada línea al instante.",
+    "No se envió a {sessions}: el texto tiene caracteres ocultos, o varias líneas que el programa de allí ejecutaría al instante.",
   "settings.warnMultilinePaste": "Preguntar antes de un pegado arriesgado",
   "settings.warnMultilinePasteHelp":
     "Con varias líneas que se ejecutarían al instante o caracteres invisibles. Con posibles claves, Hangar pregunta siempre.",
@@ -8570,6 +8579,9 @@ const es: Record<MessageKey, string> = {
   "snippets.unknownHint": "Desconocido, se envía tal cual: {names}",
   "snippets.notSent": "No enviado. Falta {details}",
   "snippets.notSentIn": "No enviado. En {session} falta {details}",
+  "snippets.unsafe": "No enviado. La shell leería caracteres de {details} como un comando.",
+  "snippets.unsafeIn":
+    "No enviado. En {session}, la shell leería caracteres de {details} como un comando.",
   "snippets.missingFile": "ningún archivo abierto o elegido",
   "snippets.missingBranch": "ninguna rama de git",
   "snippets.missingSelection": "nada seleccionado",
@@ -10539,9 +10551,9 @@ const fr: Record<MessageKey, string> = {
   "link.checkTarget": "Le texte de ce lien ne correspond pas à sa destination. Il mène à :",
   "link.open": "Ouvrir",
   "paste.dropSkipped":
-    "Un chemin contenant un saut de ligne, un caractère de contrôle ou un caractère invisible a été ignoré.",
+    "Un chemin a été ignoré : il contient des caractères impossibles à insérer sans risque ici.",
   "send.blocked":
-    "Non envoyé à {sessions} : le texte a plusieurs lignes ou des caractères invisibles, et le programme là-bas exécuterait chaque ligne aussitôt.",
+    "Non envoyé à {sessions} : le texte contient des caractères invisibles, ou plusieurs lignes que le programme là-bas exécuterait aussitôt.",
   "settings.warnMultilinePaste": "Demander avant un collage risqué",
   "settings.warnMultilinePasteHelp":
     "Pour plusieurs lignes qui s’exécuteraient aussitôt ou des caractères invisibles. Pour une clé présumée, Hangar demande toujours.",
@@ -10982,6 +10994,9 @@ const fr: Record<MessageKey, string> = {
   "snippets.unknownHint": "Inconnu, envoyé tel quel : {names}",
   "snippets.notSent": "Non envoyé. Il manque {details}",
   "snippets.notSentIn": "Non envoyé. Dans {session}, il manque {details}",
+  "snippets.unsafe": "Non envoyé. Le shell lirait des caractères de {details} comme une commande.",
+  "snippets.unsafeIn":
+    "Non envoyé. Dans {session}, le shell lirait des caractères de {details} comme une commande.",
   "snippets.missingFile": "aucun fichier ouvert ou choisi",
   "snippets.missingBranch": "aucune branche git",
   "snippets.missingSelection": "rien de sélectionné",
@@ -12959,9 +12974,9 @@ const it: Record<MessageKey, string> = {
   "link.checkTarget": "Il testo di questo link non corrisponde alla sua destinazione. Porta a:",
   "link.open": "Apri",
   "paste.dropSkipped":
-    "Un percorso con un a capo, un carattere di controllo o un carattere invisibile è stato escluso.",
+    "Un percorso è stato escluso: contiene caratteri che lì non si possono inserire in modo sicuro.",
   "send.blocked":
-    "Non inviato a {sessions}: il testo ha più righe o caratteri invisibili, e il programma lì eseguirebbe subito ogni riga.",
+    "Non inviato a {sessions}: il testo ha caratteri invisibili, o più righe che il programma lì eseguirebbe subito.",
   "settings.warnMultilinePaste": "Chiedi prima di un incollaggio rischioso",
   "settings.warnMultilinePasteHelp":
     "Con più righe che verrebbero eseguite subito o caratteri invisibili. Con possibili chiavi, Hangar chiede sempre.",
@@ -13401,6 +13416,10 @@ const it: Record<MessageKey, string> = {
   "snippets.unknownHint": "Sconosciuto, inviato così com’è: {names}",
   "snippets.notSent": "Non inviato. Manca {details}",
   "snippets.notSentIn": "Non inviato. In {session} manca {details}",
+  "snippets.unsafe":
+    "Non inviato. La shell leggerebbe alcuni caratteri di {details} come un comando.",
+  "snippets.unsafeIn":
+    "Non inviato. In {session}, la shell leggerebbe alcuni caratteri di {details} come un comando.",
   "snippets.missingFile": "nessun file aperto o scelto",
   "snippets.missingBranch": "nessun branch git",
   "snippets.missingSelection": "niente selezionato",
@@ -15369,9 +15388,9 @@ const ja: Record<MessageKey, string> = {
   "link.leadsTo": "リンク先: {url}",
   "link.checkTarget": "このリンクの表示テキストはリンク先と一致しません。実際のリンク先:",
   "link.open": "開く",
-  "paste.dropSkipped": "改行、制御文字、または見えない文字を含むパスを除外しました。",
+  "paste.dropSkipped": "パスを除外しました: そこに安全に挿入できない文字が含まれています。",
   "send.blocked":
-    "{sessions} には送信しませんでした: テキストに複数の行または見えない文字があり、そこのプログラムは各行をすぐに実行してしまいます。",
+    "{sessions} には送信しませんでした: テキストに見えない文字があるか、そこのプログラムがすぐに実行してしまう複数の行があります。",
   "settings.warnMultilinePaste": "危険な貼り付けの前に確認する",
   "settings.warnMultilinePasteHelp":
     "すぐに実行されてしまう複数行や見えない文字がある場合です。キーらしきものがあるときは、Hangar は常に確認します。",
@@ -15811,6 +15830,10 @@ const ja: Record<MessageKey, string> = {
   "snippets.unknownHint": "不明な変数（そのまま送信）: {names}",
   "snippets.notSent": "送信していません。不足: {details}",
   "snippets.notSentIn": "送信していません。{session} で不足: {details}",
+  "snippets.unsafe":
+    "送信していません。シェルが {details} の文字をコマンドとして読んでしまいます。",
+  "snippets.unsafeIn":
+    "送信していません。{session} では、シェルが {details} の文字をコマンドとして読んでしまいます。",
   "snippets.missingFile": "開いているか選んだファイルがありません",
   "snippets.missingBranch": "git ブランチがありません",
   "snippets.missingSelection": "何も選択されていません",
@@ -17760,9 +17783,9 @@ const pl: Record<MessageKey, string> = {
   "link.checkTarget": "Tekst tego linku nie pasuje do jego celu. Prowadzi do:",
   "link.open": "Otwórz",
   "paste.dropSkipped":
-    "Pominięto ścieżkę z podziałem wiersza, znakiem sterującym lub niewidocznym znakiem.",
+    "Pominięto ścieżkę: zawiera znaki, których nie da się tam bezpiecznie wstawić.",
   "send.blocked":
-    "Nie wysłano do {sessions}: tekst ma kilka wierszy lub niewidoczne znaki, a tamten program wykonałby każdy wiersz od razu.",
+    "Nie wysłano do {sessions}: tekst ma niewidoczne znaki albo kilka wierszy, które tamten program wykonałby od razu.",
   "settings.warnMultilinePaste": "Pytaj przed ryzykownym wklejeniem",
   "settings.warnMultilinePasteHelp":
     "Przy kilku wierszach, które od razu by się wykonały, lub niewidocznych znakach. Przy podejrzanych kluczach Hangar pyta zawsze.",
@@ -18200,6 +18223,9 @@ const pl: Record<MessageKey, string> = {
   "snippets.unknownHint": "Nieznane, wysyłane dosłownie: {names}",
   "snippets.notSent": "Nie wysłano. Brakuje: {details}",
   "snippets.notSentIn": "Nie wysłano. W {session} brakuje: {details}",
+  "snippets.unsafe": "Nie wysłano. Powłoka odczytałaby znaki w {details} jako polecenie.",
+  "snippets.unsafeIn":
+    "Nie wysłano. W {session} powłoka odczytałaby znaki w {details} jako polecenie.",
   "snippets.missingFile": "brak otwartego lub wybranego pliku",
   "snippets.missingBranch": "brak gałęzi git",
   "snippets.missingSelection": "nic nie zaznaczono",
@@ -20145,9 +20171,9 @@ const pt: Record<MessageKey, string> = {
   "link.checkTarget": "O texto deste link não corresponde ao destino. Leva a:",
   "link.open": "Abrir",
   "paste.dropSkipped":
-    "Um caminho com quebra de linha, caractere de controle ou caractere invisível foi deixado de fora.",
+    "Um caminho foi deixado de fora: ele tem caracteres que não podem ser inseridos ali com segurança.",
   "send.blocked":
-    "Não enviado para {sessions}: o texto tem várias linhas ou caracteres ocultos, e o programa ali executaria cada linha na hora.",
+    "Não enviado para {sessions}: o texto tem caracteres ocultos, ou várias linhas que o programa ali executaria na hora.",
   "settings.warnMultilinePaste": "Perguntar antes de uma colagem arriscada",
   "settings.warnMultilinePasteHelp":
     "Com várias linhas que rodariam na hora ou caracteres invisíveis. Com possíveis chaves, o Hangar sempre pergunta.",
@@ -20584,6 +20610,9 @@ const pt: Record<MessageKey, string> = {
   "snippets.unknownHint": "Desconhecido, enviado como está: {names}",
   "snippets.notSent": "Não enviado. Falta {details}",
   "snippets.notSentIn": "Não enviado. Em {session} falta {details}",
+  "snippets.unsafe": "Não enviado. O shell leria caracteres de {details} como um comando.",
+  "snippets.unsafeIn":
+    "Não enviado. Em {session}, o shell leria caracteres de {details} como um comando.",
   "snippets.missingFile": "nenhum arquivo aberto ou escolhido",
   "snippets.missingBranch": "nenhum branch git",
   "snippets.missingSelection": "nada selecionado",
@@ -22530,9 +22559,9 @@ const ru: Record<MessageKey, string> = {
   "link.leadsTo": "Ведёт на {url}",
   "link.checkTarget": "Текст этой ссылки не совпадает с её целью. Она ведёт на:",
   "link.open": "Открыть",
-  "paste.dropSkipped": "Путь с переводом строки, управляющим или невидимым символом пропущен.",
+  "paste.dropSkipped": "Путь пропущен: в нём есть символы, которые нельзя безопасно вставить туда.",
   "send.blocked":
-    "Не отправлено в {sessions}: в тексте несколько строк или невидимые символы, а программа там выполнила бы каждую строку сразу.",
+    "Не отправлено в {sessions}: в тексте есть невидимые символы или несколько строк, которые программа там выполнила бы сразу.",
   "settings.warnMultilinePaste": "Спрашивать перед рискованной вставкой",
   "settings.warnMultilinePasteHelp":
     "При нескольких строках, которые сразу бы выполнились, или невидимых символах. Если текст похож на ключ, Hangar спрашивает всегда.",
@@ -22971,6 +23000,9 @@ const ru: Record<MessageKey, string> = {
   "snippets.unknownHint": "Неизвестно, отправится как есть: {names}",
   "snippets.notSent": "Не отправлено. Не хватает: {details}",
   "snippets.notSentIn": "Не отправлено. В {session} не хватает: {details}",
+  "snippets.unsafe": "Не отправлено. Оболочка прочла бы символы в {details} как команду.",
+  "snippets.unsafeIn":
+    "Не отправлено. В {session} оболочка прочла бы символы в {details} как команду.",
   "snippets.missingFile": "нет открытого или выбранного файла",
   "snippets.missingBranch": "нет ветки git",
   "snippets.missingSelection": "ничего не выделено",
@@ -24899,10 +24931,9 @@ const tr: Record<MessageKey, string> = {
   "link.leadsTo": "{url} adresine gider",
   "link.checkTarget": "Bu bağlantının metni, gittiği yerle uyuşmuyor. Şuraya gider:",
   "link.open": "Aç",
-  "paste.dropSkipped":
-    "Satır sonu, denetim karakteri veya görünmez karakter içeren bir yol atlandı.",
+  "paste.dropSkipped": "Bir yol atlandı: oraya güvenle eklenemeyen karakterler içeriyor.",
   "send.blocked":
-    "{sessions} oturumuna gönderilmedi: metinde birden çok satır veya görünmez karakter var ve oradaki program her satırı hemen çalıştırırdı.",
+    "{sessions} oturumuna gönderilmedi: metinde görünmez karakterler ya da oradaki programın hemen çalıştıracağı birden çok satır var.",
   "settings.warnMultilinePaste": "Riskli yapıştırmadan önce sor",
   "settings.warnMultilinePasteHelp":
     "Hemen çalışacak birden çok satırda veya görünmez karakterlerde. Anahtar olabilecek metinde Hangar her zaman sorar.",
@@ -25336,6 +25367,9 @@ const tr: Record<MessageKey, string> = {
   "snippets.unknownHint": "Bilinmiyor, yazıldığı gibi gönderilir: {names}",
   "snippets.notSent": "Gönderilmedi. Eksik: {details}",
   "snippets.notSentIn": "Gönderilmedi. {session} için eksik: {details}",
+  "snippets.unsafe": "Gönderilmedi. Kabuk, {details} içindeki karakterleri komut olarak okurdu.",
+  "snippets.unsafeIn":
+    "Gönderilmedi. {session} içinde kabuk, {details} içindeki karakterleri komut olarak okurdu.",
   "snippets.missingFile": "açık ya da seçili dosya yok",
   "snippets.missingBranch": "git dalı yok",
   "snippets.missingSelection": "seçili bir şey yok",
@@ -27223,8 +27257,8 @@ const zh: Record<MessageKey, string> = {
   "link.leadsTo": "指向 {url}",
   "link.checkTarget": "此链接的文字与它的目标不符。它指向:",
   "link.open": "打开",
-  "paste.dropSkipped": "已跳过一个含有换行符、控制字符或不可见字符的路径。",
-  "send.blocked": "未发送到 {sessions}:文本有多行或隐藏字符,那里的程序会立即执行每一行。",
+  "paste.dropSkipped": "已跳过一个路径:其中含有无法安全插入那里的字符。",
+  "send.blocked": "未发送到 {sessions}:文本含有隐藏字符,或有多行会被那里的程序立即执行。",
   "settings.warnMultilinePaste": "风险粘贴前询问",
   "settings.warnMultilinePasteHelp":
     "适用于会立即运行的多行内容或不可见字符。遇到疑似密钥时，Hangar 总会询问。",
@@ -27635,6 +27669,8 @@ const zh: Record<MessageKey, string> = {
   "snippets.unknownHint": "未知变量，按原样发送：{names}",
   "snippets.notSent": "未发送。缺少 {details}",
   "snippets.notSentIn": "未发送。{session} 缺少 {details}",
+  "snippets.unsafe": "未发送。shell 会把 {details} 中的字符当作命令读取。",
+  "snippets.unsafeIn": "未发送。在 {session} 中，shell 会把 {details} 中的字符当作命令读取。",
   "snippets.missingFile": "没有打开或选中的文件",
   "snippets.missingBranch": "没有 git 分支",
   "snippets.missingSelection": "没有选中内容",
