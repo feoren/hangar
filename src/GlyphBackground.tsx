@@ -1,31 +1,33 @@
 import { useEffect, useRef } from "react";
 import {
   CELL,
+  cellShift,
   createField,
+  driftOffset,
   type Field,
   GLYPHS,
-  glowCentres,
-  intensityAt,
-  liveRipples,
+  glyphAt,
+  liveTraces,
   mutate,
-  type Point,
-  type Ripple,
+  REVEAL_RADIUS,
+  revealAt,
+  type Trace,
 } from "./glyphField";
 
-/** Frames per second: the field moves slowly, more would only cost battery. */
-const FPS = 24;
-/** Opacity of an unlit glyph and the extra opacity at full light, per colour. */
-const BASE_ALPHA = 0.035;
-const TEXT_PEAK = 0.07;
-const ACCENT_PEAK = 0.16;
-/** Below this light a glyph gets no accent pass, which spares most of the draw calls. */
-const ACCENT_THRESHOLD = 0.03;
+/** Frames per second while something is uncovered; the fade is slow, more would only cost. */
+const FPS = 30;
+/** Opacity of a fully uncovered glyph, per colour: a faint text tone under a faint accent. */
+const TEXT_PEAK = 0.09;
+const ACCENT_PEAK = 0.13;
+/** A new trace only after the pointer moved this far, which keeps the list short. */
+const TRACE_SPACING = 10;
 
 /**
- * The glyph field behind the home view (model in `glyphField.ts`). It stays far in the
- * background: unlit glyphs are barely visible, the light is a faint accent tint. The canvas
- * ignores the pointer itself; moves and clicks are read on its parent, so every control in front
- * keeps working. With reduced motion it draws one still frame.
+ * The hidden glyph field behind the home view (model in `glyphField.ts`). Nothing shows until
+ * the pointer passes: it uncovers a small spot like wiping fog, which fades back to nothing. The
+ * field drifts slowly underneath in a random direction. While nothing is uncovered no frame is
+ * drawn at all. The canvas ignores the pointer itself; moves are read on its parent, so every
+ * control in front keeps working. With reduced motion it stays empty.
  */
 export function GlyphBackground() {
   const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -35,15 +37,15 @@ export function GlyphBackground() {
     const host = canvas?.parentElement;
     const context = canvas?.getContext("2d");
     if (!canvas || !host || !context) return;
-    const still = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+    if (window.matchMedia("(prefers-reduced-motion: reduce)").matches) return;
 
+    const angle = Math.random() * Math.PI * 2;
     let field: Field = createField(0, 0, Math.random);
     let width = 0;
     let height = 0;
-    let pointer: Point | null = null;
-    let ripples: Ripple[] = [];
-    let colours = { text: "", accent: "", font: "" };
-    let coloursRead = -Infinity;
+    let traces: Trace[] = [];
+    let style = { text: "", accent: "", font: "" };
+    let styleRead = -Infinity;
     let last = 0;
     let frame = 0;
     const started = performance.now();
@@ -58,89 +60,103 @@ export function GlyphBackground() {
       canvas.height = Math.round(height * ratio);
       context.setTransform(ratio, 0, 0, ratio, 0, 0);
       field = createField(width, height, Math.random);
-      if (still) draw(0);
     };
 
     // The theme can switch while the home view shows; reading the tokens once a second follows it.
-    const readColours = (t: number) => {
-      if (t - coloursRead < 1) return;
-      coloursRead = t;
-      const style = getComputedStyle(canvas);
-      colours = {
-        text: style.getPropertyValue("--text").trim() || "#d6dde6",
-        accent: style.getPropertyValue("--accent").trim() || "#5aa9ff",
+    const readStyle = (t: number) => {
+      if (t - styleRead < 1) return;
+      styleRead = t;
+      const css = getComputedStyle(canvas);
+      style = {
+        text: css.getPropertyValue("--text").trim() || "#d6dde6",
+        accent: css.getPropertyValue("--accent").trim() || "#5aa9ff",
         // The canvas font does not resolve CSS variables, so the token's value goes in itself.
-        font: `${String(CELL * 0.62)}px ${style.getPropertyValue("--mono").trim() || "monospace"}`,
+        font: `${String(CELL * 0.62)}px ${css.getPropertyValue("--mono").trim() || "monospace"}`,
       };
     };
 
     const draw = (t: number) => {
-      readColours(t);
+      readStyle(t);
       context.clearRect(0, 0, width, height);
-      context.font = colours.font;
+      if (traces.length === 0) return;
+      // Only the cells around the traces can light up; the rest of the field stays untouched.
+      const reach = REVEAL_RADIUS * 1.5;
+      const left = Math.min(...traces.map((trace) => trace.x)) - reach;
+      const right = Math.max(...traces.map((trace) => trace.x)) + reach;
+      const top = Math.min(...traces.map((trace) => trace.y)) - reach;
+      const bottom = Math.max(...traces.map((trace) => trace.y)) + reach;
+      const offset = driftOffset(t, angle);
+      const shift = cellShift(offset);
+      context.font = style.font;
       context.textAlign = "center";
       context.textBaseline = "middle";
-      const glows = glowCentres(t, width, height);
-      ripples = liveRipples(ripples, t);
+      const firstCol = Math.max(-1, Math.floor((left - shift.x) / CELL));
+      const lastCol = Math.min(field.cols, Math.ceil((right - shift.x) / CELL));
+      const firstRow = Math.max(-1, Math.floor((top - shift.y) / CELL));
+      const lastRow = Math.min(field.rows, Math.ceil((bottom - shift.y) / CELL));
       const lit: { x: number; y: number; glyph: string; light: number }[] = [];
-      context.fillStyle = colours.text;
-      for (let row = 0; row < field.rows; row++) {
-        for (let col = 0; col < field.cols; col++) {
-          const x = col * CELL + CELL / 2;
-          const y = row * CELL + CELL / 2;
-          const glyph = GLYPHS[field.glyphs[row * field.cols + col] ?? 0] ?? "";
-          const light = intensityAt({ x, y }, glows, pointer, ripples, t);
-          context.globalAlpha = BASE_ALPHA + light * TEXT_PEAK;
-          context.fillText(glyph, x, y);
-          if (light > ACCENT_THRESHOLD) lit.push({ x, y, glyph, light });
+      for (let row = firstRow; row <= lastRow; row++) {
+        for (let col = firstCol; col <= lastCol; col++) {
+          const x = col * CELL + shift.x + CELL / 2;
+          const y = row * CELL + shift.y + CELL / 2;
+          const light = revealAt({ x, y }, traces, t);
+          if (light < 0.01) continue;
+          lit.push({ x, y, glyph: GLYPHS[glyphAt(field, col, row, offset)] ?? "", light });
         }
       }
-      context.fillStyle = colours.accent;
-      for (const cell of lit) {
-        context.globalAlpha = cell.light * ACCENT_PEAK;
-        context.fillText(cell.glyph, cell.x, cell.y);
+      for (const [colour, peak] of [
+        [style.text, TEXT_PEAK],
+        [style.accent, ACCENT_PEAK],
+      ] as const) {
+        context.fillStyle = colour;
+        for (const cell of lit) {
+          context.globalAlpha = cell.light * peak;
+          context.fillText(cell.glyph, cell.x, cell.y);
+        }
       }
       context.globalAlpha = 1;
     };
 
+    // Runs only while something is uncovered; the last frame clears the canvas and stops.
     const tick = () => {
-      frame = requestAnimationFrame(tick);
       const t = now();
-      if (t - last < 1 / FPS) return;
-      mutate(field, t - last, Math.random);
-      last = t;
-      draw(t);
+      if (t - last >= 1 / FPS) {
+        mutate(field, t - last, Math.random);
+        last = t;
+        traces = liveTraces(traces, t);
+        draw(t);
+        if (traces.length === 0) {
+          frame = 0;
+          return;
+        }
+      }
+      frame = requestAnimationFrame(tick);
     };
 
-    const local = (event: PointerEvent): Point => {
-      const box = host.getBoundingClientRect();
-      return { x: event.clientX - box.left, y: event.clientY - box.top };
-    };
     const onMove = (event: PointerEvent) => {
-      pointer = local(event);
-    };
-    const onLeave = () => {
-      pointer = null;
-    };
-    const onDown = (event: PointerEvent) => {
-      ripples = [...ripples, { ...local(event), start: now() }];
+      const box = host.getBoundingClientRect();
+      const x = event.clientX - box.left;
+      const y = event.clientY - box.top;
+      const newest = traces[traces.length - 1];
+      if (newest && Math.hypot(x - newest.x, y - newest.y) < TRACE_SPACING) {
+        newest.time = now();
+      } else {
+        traces.push({ x, y, time: now() });
+      }
+      if (frame === 0) {
+        last = now();
+        frame = requestAnimationFrame(tick);
+      }
     };
 
     const observer = new ResizeObserver(resize);
     observer.observe(host);
     resize();
-    if (!still) {
-      host.addEventListener("pointermove", onMove);
-      host.addEventListener("pointerleave", onLeave);
-      host.addEventListener("pointerdown", onDown);
-      frame = requestAnimationFrame(tick);
-    }
+    host.addEventListener("pointermove", onMove);
     return () => {
       observer.disconnect();
       cancelAnimationFrame(frame);
       host.removeEventListener("pointermove", onMove);
-      host.removeEventListener("pointerleave", onLeave);
-      host.removeEventListener("pointerdown", onDown);
     };
   }, []);
 

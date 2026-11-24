@@ -1,7 +1,8 @@
 /**
- * The quiet glyph field behind the home view: a grid of random characters that stay nearly
- * invisible and only light up faintly where slow glows drift by, where the pointer moves and
- * where a click sends out a ring. Pure model, no DOM: `GlyphBackground` draws it on a canvas.
+ * The hidden glyph field behind the home view: a grid of random characters that is fully faded
+ * out and drifts slowly in a direction picked at random. Only the pointer uncovers it, like
+ * wiping fog off a window: a small area lights up where it passes and fades back to nothing
+ * after a moment. Pure model, no DOM: `GlyphBackground` draws it on a canvas.
  */
 
 /** Characters of the field: code punctuation, so the field reads as texture, not as words. */
@@ -13,23 +14,24 @@ export const CELL = 18;
 /** Glyphs that change per second, as a share of the whole field. */
 export const CHANGE_RATE = 0.02;
 
-/** Seconds a click ring lives, and how fast and how wide it runs (pixels per second, pixels). */
-export const RIPPLE_LIFE = 1.8;
-const RIPPLE_SPEED = 260;
-const RIPPLE_WIDTH = 34;
+/** Seconds an uncovered spot takes to fade back to nothing. */
+export const REVEAL_LIFE = 2.4;
 
-/** Radius of a drifting glow and of the pointer's light, in pixels. */
-const GLOW_RADIUS = 260;
-const POINTER_RADIUS = 110;
+/** Radius of the uncovered spot around the pointer, in pixels. */
+export const REVEAL_RADIUS = 90;
+
+/** Drift speed in pixels per second, and how far the path sways off its straight line. */
+const DRIFT_SPEED = 9;
+const DRIFT_SWAY = 40;
 
 export interface Point {
   x: number;
   y: number;
 }
 
-export interface Ripple extends Point {
-  /** Time of the click in seconds, on the same clock as `t`. */
-  start: number;
+/** One place the pointer passed, at `time` seconds. */
+export interface Trace extends Point {
+  time: number;
 }
 
 export interface Field {
@@ -39,10 +41,13 @@ export interface Field {
   glyphs: Uint8Array;
 }
 
-/** A field that covers `width` x `height` pixels, every cell with a random glyph. */
+/**
+ * A field that covers `width` x `height` pixels with one spare row and column, so the drift can
+ * wrap it around without a gap; every cell holds a random glyph.
+ */
 export function createField(width: number, height: number, random: () => number): Field {
-  const cols = Math.max(0, Math.ceil(width / CELL));
-  const rows = Math.max(0, Math.ceil(height / CELL));
+  const cols = width > 0 ? Math.ceil(width / CELL) + 1 : 0;
+  const rows = height > 0 ? Math.ceil(height / CELL) + 1 : 0;
   const glyphs = new Uint8Array(cols * rows);
   for (let i = 0; i < glyphs.length; i++) glyphs[i] = pick(random);
   return { cols, rows, glyphs };
@@ -61,57 +66,60 @@ export function mutate(field: Field, seconds: number, random: () => number): voi
 }
 
 /**
- * The centres of the three glows at time `t`: each one wanders on its own slow Lissajous path
- * across the area, so they never line up and never stop.
+ * How far the field has drifted at time `t`: steadily along `angle` (radians, picked at random
+ * once), swaying gently to both sides so the path never looks mechanical. A closed form, so the
+ * drift stays right even while nothing is drawn.
  */
-export function glowCentres(t: number, width: number, height: number): Point[] {
-  const paths = [
-    { fx: 0.031, fy: 0.023, px: 0, py: 1.3 },
-    { fx: 0.019, fy: 0.037, px: 2.1, py: 0.4 },
-    { fx: 0.027, fy: 0.015, px: 4.2, py: 3.1 },
-  ];
-  return paths.map((p) => ({
-    x: width * (0.5 + 0.42 * Math.sin(t * p.fx * Math.PI * 2 + p.px)),
-    y: height * (0.5 + 0.42 * Math.sin(t * p.fy * Math.PI * 2 + p.py)),
-  }));
-}
-
-/** Soft falloff: 1 at the centre, about 0 at `radius`. */
-function falloff(distance: number, radius: number): number {
-  const d = distance / radius;
-  return Math.exp(-4 * d * d);
+export function driftOffset(t: number, angle: number): Point {
+  const along = DRIFT_SPEED * t;
+  const sway = DRIFT_SWAY * Math.sin(t * 0.07) + 0.5 * DRIFT_SWAY * Math.sin(t * 0.031 + 1.7);
+  return {
+    x: along * Math.cos(angle) - sway * Math.sin(angle),
+    y: along * Math.sin(angle) + sway * Math.cos(angle),
+  };
 }
 
 /**
- * How brightly the cell at `cell` lights up, from 0 to 1: the glows, the pointer (when it is
- * over the area) and every living ring add up, capped at 1.
+ * The glyph that shows at screen cell (`col`, `row`) when the field has drifted by `offset`:
+ * the field wraps around, so it never runs out. The cell itself is drawn moved by `cellShift`.
  */
-export function intensityAt(
-  cell: Point,
-  glows: readonly Point[],
-  pointer: Point | null,
-  ripples: readonly Ripple[],
-  t: number,
-): number {
-  let light = 0;
-  for (const glow of glows) {
-    light += 0.55 * falloff(Math.hypot(cell.x - glow.x, cell.y - glow.y), GLOW_RADIUS);
-  }
-  if (pointer) {
-    light += 0.8 * falloff(Math.hypot(cell.x - pointer.x, cell.y - pointer.y), POINTER_RADIUS);
-  }
-  for (const ripple of ripples) {
-    const age = t - ripple.start;
-    if (age < 0 || age > RIPPLE_LIFE) continue;
-    const ring = Math.abs(Math.hypot(cell.x - ripple.x, cell.y - ripple.y) - age * RIPPLE_SPEED);
-    light += (1 - age / RIPPLE_LIFE) * falloff(ring, RIPPLE_WIDTH);
-  }
-  return Math.min(1, light);
+export function glyphAt(field: Field, col: number, row: number, offset: Point): number {
+  if (field.cols === 0 || field.rows === 0) return 0;
+  const c = wrap(col - Math.floor(offset.x / CELL), field.cols);
+  const r = wrap(row - Math.floor(offset.y / CELL), field.rows);
+  return field.glyphs[r * field.cols + c] ?? 0;
 }
 
-/** The rings that still show at time `t`. */
-export function liveRipples(ripples: readonly Ripple[], t: number): Ripple[] {
-  return ripples.filter((ripple) => t - ripple.start <= RIPPLE_LIFE);
+/** The drift's part below one cell, where the grid is drawn from (0 up to `CELL`). */
+export function cellShift(offset: Point): Point {
+  return { x: wrap(offset.x, CELL), y: wrap(offset.y, CELL) };
+}
+
+/**
+ * How far the spot at `at` is uncovered, from 0 (hidden) to 1: the strongest of the pointer's
+ * traces, each one soft at its edge and fading out over its life. The strongest, not the sum,
+ * so a slow pointer uncovers no brighter than a fast one.
+ */
+export function revealAt(at: Point, traces: readonly Trace[], t: number): number {
+  let light = 0;
+  for (const trace of traces) {
+    const age = t - trace.time;
+    if (age < 0 || age > REVEAL_LIFE) continue;
+    const d = Math.hypot(at.x - trace.x, at.y - trace.y) / REVEAL_RADIUS;
+    if (d >= 1.5) continue;
+    const fade = 1 - age / REVEAL_LIFE;
+    light = Math.max(light, Math.exp(-3 * d * d) * fade * fade);
+  }
+  return light;
+}
+
+/** The traces still uncovering something at time `t`. */
+export function liveTraces(traces: readonly Trace[], t: number): Trace[] {
+  return traces.filter((trace) => t - trace.time <= REVEAL_LIFE);
+}
+
+function wrap(value: number, size: number): number {
+  return ((value % size) + size) % size;
 }
 
 function pick(random: () => number): number {

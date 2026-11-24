@@ -46,18 +46,18 @@
         "zh": "不是来自 Hangar 的子代理现在会以佩戴名牌的手绘访客形象出现在舞台和侧边栏中。"
       },
       {
-        "de": "Die Startansicht hat einen ruhigen Hintergrund aus Zeichen, die leicht aufleuchten, wo die Maus ist.",
-        "en": "The home view has a calm background of glyphs that light up faintly where the mouse is.",
-        "el": "Η αρχική προβολή έχει ένα ήρεμο φόντο από χαρακτήρες που φωτίζονται ελαφρά εκεί όπου βρίσκεται το ποντίκι.",
-        "es": "La vista de inicio tiene un fondo tranquilo de caracteres que se iluminan levemente donde está el ratón.",
-        "fr": "La vue d'accueil a un fond calme de caractères qui s'allument légèrement là où se trouve la souris.",
-        "it": "La vista iniziale ha uno sfondo tranquillo di caratteri che si illuminano leggermente dove si trova il mouse.",
-        "ja": "ホーム画面に、マウスのある所がほのかに光る文字の落ち着いた背景が付きました。",
-        "pl": "Widok startowy ma spokojne tło ze znaków, które lekko rozjaśniają się tam, gdzie jest mysz.",
-        "pt": "A vista inicial tem um fundo calmo de caracteres que se iluminam levemente onde está o rato.",
-        "ru": "У начального экрана спокойный фон из символов, которые слегка подсвечиваются там, где находится мышь.",
-        "tr": "Ana görünümde, farenin olduğu yerde hafifçe parlayan karakterlerden oluşan sakin bir arka plan var.",
-        "zh": "主页视图有一个安静的字符背景，鼠标所在处会微微发亮。"
+        "de": "Die Startansicht hat einen verborgenen Hintergrund aus treibenden Zeichen. Die Maus deckt ihn wie Nebel kurz auf, dann verblasst er wieder.",
+        "en": "The home view has a hidden background of drifting glyphs. The mouse uncovers it like fog for a moment, then it fades away again.",
+        "el": "Η αρχική προβολή έχει ένα κρυφό φόντο από χαρακτήρες που κινούνται. Το ποντίκι το αποκαλύπτει για λίγο σαν ομίχλη και μετά σβήνει ξανά.",
+        "es": "La vista de inicio tiene un fondo oculto de caracteres a la deriva. El ratón lo descubre un momento como niebla y luego vuelve a desvanecerse.",
+        "fr": "La vue d'accueil a un fond caché de caractères qui dérivent. La souris le dévoile un instant comme de la brume, puis il s'efface.",
+        "it": "La vista iniziale ha uno sfondo nascosto di caratteri alla deriva. Il mouse lo scopre per un attimo come nebbia, poi svanisce di nuovo.",
+        "ja": "ホーム画面に、漂う文字の隠れた背景が付きました。マウスが霧のように一瞬だけ浮かび上がらせ、また消えていきます。",
+        "pl": "Widok startowy ma ukryte tło z dryfujących znaków. Mysz odsłania je na chwilę jak mgłę, potem znów znika.",
+        "pt": "A vista inicial tem um fundo escondido de caracteres à deriva. O rato revela-o por um momento como névoa e depois volta a desaparecer.",
+        "ru": "У начального экрана скрытый фон из плывущих символов. Мышь ненадолго проявляет его, как туман, а потом он снова тает.",
+        "tr": "Ana görünümde sürüklenen karakterlerden oluşan gizli bir arka plan var. Fare onu bir anlığına sis gibi açığa çıkarır, sonra yeniden kaybolur.",
+        "zh": "主页视图有一个由漂移字符组成的隐藏背景。鼠标经过时会像拨开雾气一样短暂显现，随后又慢慢消失。"
       }
     ]
   },
