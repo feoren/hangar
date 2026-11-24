@@ -128,6 +128,15 @@ pub struct MemberFacts {
     pub program: String,
     /// The agent runs without asking before tools ([`crate::links::runs_without_prompts`]).
     pub unattended: bool,
+    /// The working folder's settings may have switched off the agent's notice hooks
+    /// ([`crate::repo_hooks`]), so a permission dialog may go unreported: like `unattended`, it
+    /// makes the group ask before pasting, but the link dialog does not name it as such.
+    pub notices_unsure: bool,
+}
+
+/// A member whose group starts with "Ask before pasting" on.
+fn asks_first(facts: &MemberFacts) -> bool {
+    facts.unattended || facts.notices_unsure
 }
 
 /// A new name for a member, as the link dialog sends it.
@@ -315,7 +324,7 @@ impl LinkService {
             sessions
                 .iter()
                 .find(|info| info.id == *id)
-                .is_some_and(|info| facts(info).unattended)
+                .is_some_and(|info| asks_first(&facts(info)))
         });
         state
             .links
@@ -397,7 +406,7 @@ impl LinkService {
                 sessions
                     .iter()
                     .find(|info| info.id == entry.session)
-                    .is_some_and(|info| facts(info).unattended)
+                    .is_some_and(|info| asks_first(&facts(info)))
             });
             if unattended {
                 state.links.set_ask_first(group, true)?;
@@ -987,6 +996,7 @@ mod tests {
                 info.profile_id.clone()
             },
             unattended: info.profile_id == "yolo",
+            notices_unsure: info.profile_id == "unsure",
         }
     }
 
@@ -1722,6 +1732,49 @@ mod tests {
                 .unwrap()
                 .ask_first
         );
+    }
+
+    /// A member whose notice hooks a settings file of its folder may have switched off could
+    /// show a permission dialog Hangar never hears of: an automatic Enter would answer it.
+    #[test]
+    fn a_member_with_unsure_notices_makes_the_group_ask_first() {
+        let (links, _) = service();
+        let mut list = sessions();
+        list[1].profile_id = "unsure".into();
+        let group = links
+            .link(&[1, 2], &list, &facts, 0, &LinkRequest::default())
+            .unwrap();
+        assert!(group.ask_first);
+        let snapshot = links.snapshot(0, &attended);
+        assert!(snapshot.messages.iter().all(|m| !m.auto));
+        // Not named as an agent without prompts.
+        assert!(snapshot.unattended.is_empty());
+
+        let (links, _) = service();
+        let group = links
+            .link(&[1, 2], &sessions(), &facts, 0, &LinkRequest::default())
+            .unwrap();
+        assert!(!group.ask_first);
+        let grown = links
+            .add(
+                group.id,
+                &[3],
+                &[],
+                None,
+                &list_with(3, "unsure"),
+                &facts,
+                0,
+            )
+            .unwrap();
+        assert!(grown.ask_first);
+    }
+
+    fn list_with(id: SessionId, profile: &str) -> Vec<SessionInfo> {
+        let mut list = sessions();
+        if let Some(info) = list.iter_mut().find(|info| info.id == id) {
+            info.profile_id = profile.into();
+        }
+        list
     }
 
     #[test]

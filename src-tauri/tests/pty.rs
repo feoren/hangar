@@ -1684,7 +1684,7 @@ impl LaunchGate for RecordingGate {
     ) -> GatePlan {
         self.prepared.lock().unwrap().push(session);
         match agent.id() {
-            "gated" | "own-settings" => GatePlan::Launch(GateLaunch {
+            "gated" | "own-settings" | "repo-settings" => GatePlan::Launch(GateLaunch {
                 prepend: Vec::new(),
                 args: vec!["gate-arg-marker".into()],
                 env: vec![(
@@ -1726,9 +1726,50 @@ impl LaunchGate for RecordingGate {
         })
     }
 
+    fn repo_status(
+        &self,
+        _session: u64,
+        agent: &hangar_lib::agent_catalog::Agent,
+        _cwd: &std::path::Path,
+        _args: &[String],
+    ) -> Option<GateStatus> {
+        match agent.id() {
+            "repo-settings" => Some(GateStatus::RepoSettings),
+            "repo-hooks" => Some(GateStatus::RepoHooks),
+            _ => None,
+        }
+    }
+
     fn ended(&self, session: u64) {
         self.ended.lock().unwrap().push(session);
     }
+}
+
+/// The working folder's own settings: hooks that may be switched off still go in but the
+/// session never shows the gate as active; a folder with Codex hooks of its own gets none.
+#[test]
+fn the_folders_own_settings_keep_the_gate_from_showing_as_active() {
+    let manager = SessionManager::new(
+        vec![gate_probe("repo-settings"), gate_probe("repo-hooks")],
+        vec![
+            hooked_program("repo-settings"),
+            hooked_program("repo-hooks"),
+        ],
+        common::home(),
+    );
+    let gate = Arc::new(RecordingGate::default());
+    manager.set_launch_gate(gate.clone());
+
+    let (limited, rx) = start_team(&manager, "repo-settings", false);
+    assert_eq!(limited.gate, GateStatus::RepoSettings);
+    let (output, _) = collect_until_exit(&manager, limited.id, &rx);
+    assert!(output.contains("TOKEN=gate-token-marker"), "{output:?}");
+
+    let (own, rx) = start_team(&manager, "repo-hooks", false);
+    assert_eq!(own.gate, GateStatus::RepoHooks);
+    let (output, _) = collect_until_exit(&manager, own.id, &rx);
+    assert!(!output.contains("gate-arg-marker"), "{output:?}");
+    assert!(!gate.prepared.lock().unwrap().contains(&own.id));
 }
 
 #[test]

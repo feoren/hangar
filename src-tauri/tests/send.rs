@@ -356,6 +356,7 @@ fn linked_agents_message_each_other_by_member_name() {
             &|_| link_service::MemberFacts {
                 program: "Claude Code".into(),
                 unattended: false,
+                notices_unsure: false,
             },
             1,
             &link_service::LinkRequest::default(),

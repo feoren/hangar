@@ -4,7 +4,7 @@ type: decision
 status: accepted
 superseded_by:
 tags: [claude-code, hooks, attention, links, queue, sessions]
-sources: ["[[claude-notification-hooks-reference]]", "[[claude-permission-hooks-measurement]]", "[[claude-http-hook-measurement]]"]
+sources: ["[[claude-notification-hooks-reference]]", "[[claude-permission-hooks-measurement]]", "[[claude-http-hook-measurement]]", "[[claude-repo-settings-hooks-measurement]]"]
 created: 2026-11-20
 updated: 2026-11-24
 ---
@@ -72,6 +72,19 @@ Option 2.
 - New glossary terms: notice hook, notice token, waits for approval.
 - A parallel tool call that ends while another one's dialog is open clears the signal early; the
   screen check then stays the fallback. A stale signal only ever keeps a message as a card.
+- **The signal narrows ADR 0014's gap, it does not close it.** The notice token lives in the
+  child's environment, so every process the agent starts (its shell commands, a script in the
+  repository) can post to `/v1/notification/clear` and clear the signal while a dialog stands; the
+  next automatic Enter would then answer it. ADR 0014 already accepts that any process of a member
+  can act for it (`hangar-send` with the send token); this is the same trust boundary. A fix would
+  need a channel the agent's own children cannot reach, which Claude Code's hooks do not offer.
+- **A repository can switch the hooks off** (`disableAllHooks`, `allowedHttpHookUrls`,
+  `httpHookAllowedEnvVars` in a checked-in `.claude/settings.json`, measured:
+  [[claude-repo-settings-hooks-measurement]]). Hangar reads these keys before each start
+  (`src-tauri/src/repo_hooks.rs`); a session with a hit counts as unsure
+  (`GateService::notices_unsure`), and a link group with it starts with "Ask before pasting" on,
+  like one with an agent without prompts. A team session shows `repoSettings` instead of an
+  active gate.
 - Every tool call of a Claude Code session makes one local request on `PostToolUse`.
 - On a busy machine Claude Code may connect for several hooks at once and write their heads more
   than a second later. Up to 0.15.0 the endpoint closed such silent connections for newer ones

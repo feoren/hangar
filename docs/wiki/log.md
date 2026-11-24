@@ -1629,3 +1629,13 @@ and relaxed the limits for 0.16.0. Updated: [[0016-permission-notices]].
 ## [2026-11-24] query | Scrollback keeps no printed keys
 The saved scrollback now masks every key shape of the secret guard in place (same length, prefix
 kept, terminal escape sequences intact) before it is written. Updated: [[session-restore]].
+
+## [2026-11-24] ingest | A repository's settings against Hangar's hooks
+Measured with Claude Code 2.1.331 that a checked-in `.claude/settings.json` or
+`settings.local.json` with `disableAllHooks`, an `allowedHttpHookUrls` list without the endpoint or
+an `httpHookAllowedEnvVars` list without the token switches off or blanks the `--settings` hooks.
+Hangar now reads these keys (and Codex project hooks) before a start: `repoSettings` and
+`repoHooks` gate states, no Codex trust bypass where the folder has hooks, link groups ask before
+pasting for an unsure member. Corrected the Codex and Gemini trust reasoning and the connection
+limits in [[agent-gate-adapters]], and stated the notice token's residual risk in
+[[0016-permission-notices]]. New: [[claude-repo-settings-hooks-measurement]].

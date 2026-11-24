@@ -184,6 +184,20 @@ pub trait LaunchGate: Send + Sync {
     ) -> Option<GateLaunch> {
         None
     }
+    /// What the working folder `cwd`'s own agent settings do to a start of `agent` with `args`
+    /// (`repo_hooks.rs`), for a private or team agent session: `RepoSettings` when they may
+    /// switch Hangar's hooks off (the session is then never taken as safe for an automatic
+    /// Enter), `RepoHooks` when the folder brings hooks of its own that the gate's start would
+    /// run unreviewed. Reads the disk; `None` for nothing found or another program.
+    fn repo_status(
+        &self,
+        _session: SessionId,
+        _agent: &Agent,
+        _cwd: &Path,
+        _args: &[String],
+    ) -> Option<GateStatus> {
+        None
+    }
     fn ended(&self, session: SessionId);
 }
 
@@ -1982,9 +1996,20 @@ fn spawn(
         .capabilities
         .gate_format()
         .is_some_and(|format| format.conflicts_with(&args, &profile.env, &profile.secret_env));
+    // What the working folder's own settings do to the hooks (repo_hooks.rs): read for every
+    // agent start, private ones too, since their notice hooks can be switched off the same way.
+    let repo = match (launch.kind, shared.launch_gate()) {
+        (SessionKind::Agent, Some(gate)) if !own_hooks => gate.repo_status(id, agent, cwd, &args),
+        _ => None,
+    };
     let plan = match (launch.kind, launch.mode, shared.launch_gate()) {
         (SessionKind::Agent, SessionMode::Team, Some(gate)) if own_hooks && gate.applies(agent) => {
             GatePlan::Unavailable(GateStatus::ProfileSettings)
+        }
+        (SessionKind::Agent, SessionMode::Team, Some(gate))
+            if repo == Some(GateStatus::RepoHooks) && gate.applies(agent) =>
+        {
+            GatePlan::Unavailable(GateStatus::RepoHooks)
         }
         (SessionKind::Agent, SessionMode::Team, Some(gate)) => {
             let version = gate_version(shared, agent, &program);
@@ -1992,7 +2017,12 @@ fn spawn(
         }
         _ => GatePlan::Skip,
     };
-    let gate_status = plan.status();
+    // The hooks still go in where the folder's settings may switch them off: if they run after
+    // all, the gate works; the session just never claims it does.
+    let gate_status = match (&plan, repo) {
+        (GatePlan::Launch(_), Some(GateStatus::RepoSettings)) => GateStatus::RepoSettings,
+        _ => plan.status(),
+    };
     let gate = match plan {
         GatePlan::Launch(launch) => Some(launch),
         GatePlan::Skip | GatePlan::Unavailable(_) => None,

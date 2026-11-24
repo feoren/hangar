@@ -528,6 +528,8 @@ describe("gateHint", () => {
     expect(gateHint("profileSettings", t)).toBe(t("gate.profileSettings"));
     expect(gateHint("installPath", t)).toBe(t("gate.installPath"));
     expect(gateHint("hookFiles", t)).toBe(t("gate.hookFiles"));
+    expect(gateHint("repoSettings", t)).toBe(t("gate.repoSettings"));
+    expect(gateHint("repoHooks", t)).toBe(t("gate.repoHooks"));
     expect(gateHint("active", t)).toBeNull();
     expect(gateHint("none", t)).toBeNull();
     expect(gateHint(undefined, t)).toBeNull();

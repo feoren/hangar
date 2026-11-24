@@ -46,7 +46,7 @@
 //! only peeks and never blocks. A held request checks every [`WAIT_TICK`] whether the
 //! agent still waits, so an interrupted agent does not leave a card behind.
 
-use std::collections::{HashMap, VecDeque};
+use std::collections::{HashMap, HashSet, VecDeque};
 use std::ffi::OsStr;
 use std::io::{self, BufReader, Read, Write};
 use std::net::{Ipv4Addr, Shutdown, SocketAddr, TcpListener, TcpStream};
@@ -80,6 +80,7 @@ use crate::lock;
 use crate::manager::{GateLaunch, GatePlan, LaunchGate};
 use crate::partners::{read_send_request, SendRequest, MAX_SEND_BODY_BYTES, ROUTE_SEND};
 use crate::permission_wait::PermissionWaits;
+use crate::repo_hooks;
 use crate::session::{GateStatus, SessionId};
 use crate::team_share::TeammateFile;
 use crate::team_tasks::TeamTask;
@@ -187,6 +188,12 @@ struct Inner {
     helper: Mutex<Option<PathBuf>>,
     /// Hook file folders per session, removed when its process ends.
     session_dirs: Mutex<HashMap<SessionId, Vec<PathBuf>>>,
+    /// Sessions whose current process may have lost Claude Code's hooks to a settings file
+    /// ([`crate::repo_hooks`]): their notices cannot be relied on, so no automatic Enter.
+    hooks_off: Mutex<HashSet<SessionId>>,
+    /// Claude Code's user and managed settings files, read next to the project's; `None` for
+    /// the real ones ([`claude_extra_settings`]). Tests set their own.
+    claude_extra: Mutex<Option<Vec<PathBuf>>>,
     /// Makes each start's folder name unique, so removing a finished start's folder never
     /// touches the next start's.
     starts: AtomicUsize,
@@ -311,6 +318,8 @@ impl GateService {
                 team_tasks: Mutex::new(None),
                 helper: Mutex::new(std::env::current_exe().ok()),
                 session_dirs: Mutex::new(HashMap::new()),
+                hooks_off: Mutex::new(HashSet::new()),
+                claude_extra: Mutex::new(None),
                 starts: AtomicUsize::new(0),
                 rules: Mutex::new(Rules::default()),
                 guard: Mutex::new(Guard::default()),
@@ -631,13 +640,9 @@ impl GateService {
         if std::fs::read_to_string(&path).ok().as_deref() == Some(settings) {
             return Some(text);
         }
-        let written = std::fs::create_dir_all(&self.inner.settings_dir).and_then(|()| {
-            // Written whole under another name first, so a starting agent never reads half.
-            let temporary = path.with_extension(format!("{}.tmp", std::process::id()));
-            std::fs::write(&temporary, settings)?;
-            std::fs::rename(&temporary, &path)
-        });
-        match written {
+        // Written whole under a fresh, unique name first (created exclusively, so nothing put
+        // there beforehand is written through), then renamed: a starting agent never reads half.
+        match crate::persist::write_atomic(&path, settings.as_bytes()) {
             Ok(()) => Some(text),
             Err(error) => {
                 eprintln!("hangar: agent gate settings not written: {error}");
@@ -1104,7 +1109,45 @@ impl LaunchGate for GateService {
         })
     }
 
+    fn repo_status(
+        &self,
+        session: SessionId,
+        agent: &Agent,
+        cwd: &Path,
+        args: &[String],
+    ) -> Option<GateStatus> {
+        match agent.capabilities.gate_format()? {
+            HookFormat::ClaudeSettings => {
+                let port = self.ensure_server().ok()?;
+                let extra = lock(&self.inner.claude_extra)
+                    .clone()
+                    .unwrap_or_else(|| claude_extra_settings(agent));
+                let off = repo_hooks::claude_hooks_off(
+                    cwd,
+                    &extra,
+                    port,
+                    &[TOKEN_ENV, NOTIFY_TOKEN_ENV],
+                    &repo_hooks::Disk::real(),
+                );
+                if !off {
+                    return None;
+                }
+                lock(&self.inner.hooks_off).insert(session);
+                Some(GateStatus::RepoSettings)
+            }
+            // A person who passes the bypass in the profile has chosen it for every hook.
+            HookFormat::CodexConfigFlags
+                if !args.iter().any(|arg| arg == recipes::CODEX_TRUST_FLAG) =>
+            {
+                repo_hooks::codex_project_hooks(cwd, &repo_hooks::Disk::real())
+                    .then_some(GateStatus::RepoHooks)
+            }
+            _ => None,
+        }
+    }
+
     fn ended(&self, session: SessionId) {
+        lock(&self.inner.hooks_off).remove(&session);
         let ended = lock(&self.inner.gate).forget(session);
         self.remove_dirs(session);
         if !ended.is_empty() {
@@ -1119,6 +1162,13 @@ impl LaunchGate for GateService {
 }
 
 impl GateService {
+    /// Whether `session`'s current process may have lost Claude Code's hooks to a settings file
+    /// of its working folder ([`LaunchGate::repo_status`]): its notices cannot be relied on, so
+    /// a link group with it asks before pasting.
+    pub fn notices_unsure(&self, session: SessionId) -> bool {
+        lock(&self.inner.hooks_off).contains(&session)
+    }
+
     /// Removes the session's hook folders on a thread of its own: `ended` runs under the
     /// session lock, which must not wait for the disk.
     fn remove_dirs(&self, session: SessionId) {
@@ -1187,6 +1237,26 @@ fn file_problem(reason: &str) -> RuleSet {
         },
     );
     set
+}
+
+/// Claude Code's user settings (`CLAUDE_CONFIG_DIR` of the profile or of Hangar, else
+/// `~/.claude`) and the managed settings of this platform.
+fn claude_extra_settings(agent: &Agent) -> Vec<PathBuf> {
+    let config = agent
+        .profile
+        .env
+        .get("CLAUDE_CONFIG_DIR")
+        .cloned()
+        .or_else(|| std::env::var("CLAUDE_CONFIG_DIR").ok())
+        .filter(|dir| !dir.trim().is_empty())
+        .map(PathBuf::from)
+        .filter(|dir| dir.is_absolute())
+        .or_else(|| home_folder().map(|home| home.join(".claude")));
+    config
+        .map(|dir| dir.join("settings.json"))
+        .into_iter()
+        .chain(crate::unattended::claude_managed_settings())
+        .collect()
 }
 
 /// The user's home folder, where `~` and `$HOME` in a command lead.
@@ -2034,7 +2104,12 @@ impl Inner {
         };
         match path {
             ROUTE_PRE_TOOL_USE | ROUTE_PRE_TOOL_USE_JSON => {
-                match gate::parse_pre_tool_use(&mut body) {
+                let parsed = if head.content_length > gate::MAX_TOOL_BODY_BYTES {
+                    Err(gate::HookError::Shape)
+                } else {
+                    gate::parse_pre_tool_use(&mut body)
+                };
+                match parsed {
                     Ok(request) => (
                         Status::Ok,
                         filled(self.decide(session, request, stream).body()),
@@ -3130,6 +3205,71 @@ mod tests {
         let (_, again) = fixture.service.send_token(7).unwrap();
         fixture.service.ended(7);
         assert_eq!(post(port, ROUTE_SEND, Some(&again), body).0, 401);
+    }
+
+    /// Windows lets a second socket with `SO_REUSEADDR` bind a port another one listens on
+    /// unless the first holds it with `SO_EXCLUSIVEADDRUSE`, by the documentation. Measured on
+    /// Windows 11 with std's listener (no `SO_EXCLUSIVEADDRUSE`): the same address is refused
+    /// (`WSAEACCES`), and a wildcard bind of the port succeeds but gets none of the connections
+    /// to 127.0.0.1, which go to the more specific listener. Kept as a guard should that change.
+    #[cfg(windows)]
+    #[test]
+    fn no_other_socket_takes_the_endpoints_connections() {
+        use socket2::{Domain, Socket, Type};
+        let fixture = fixture(DECISION_TIMEOUT);
+        fixture.service.configure(true);
+        let (port, _) = launch(&fixture, 1);
+        let address = SocketAddr::from((Ipv4Addr::LOCALHOST, port));
+        let same = Socket::new(Domain::IPV4, Type::STREAM, None).unwrap();
+        same.set_reuse_address(true).unwrap();
+        assert!(
+            same.bind(&address.into()).is_err(),
+            "the same address was bound"
+        );
+
+        let wildcard = Socket::new(Domain::IPV4, Type::STREAM, None).unwrap();
+        wildcard.set_reuse_address(true).unwrap();
+        let any = SocketAddr::from((Ipv4Addr::UNSPECIFIED, port));
+        if wildcard.bind(&any.into()).is_ok() {
+            wildcard.listen(8).unwrap();
+            wildcard.set_nonblocking(true).unwrap();
+            for _ in 0..3 {
+                let client = TcpStream::connect(address).unwrap();
+                thread::sleep(Duration::from_millis(100));
+                assert!(
+                    wildcard.accept().is_err(),
+                    "the wildcard socket took a connection"
+                );
+                drop(client);
+            }
+        }
+    }
+
+    /// A tool hook's strings (command, path) are kept whole while its body is parsed, so its
+    /// size is bounded before anything is read: a body over [`gate::MAX_TOOL_BODY_BYTES`] is
+    /// answered at once as a call Hangar cannot read, never waited for.
+    #[test]
+    fn a_tool_hook_over_its_body_limit_is_answered_before_its_body_is_read() {
+        let fixture = fixture(DECISION_TIMEOUT);
+        fixture.service.configure(true);
+        let (port, token) = launch(&fixture, 1);
+        let mut stream = connect(port);
+        let head = format!(
+            "POST {ROUTE_PRE_TOOL_USE} HTTP/1.1\r\nHost: 127.0.0.1:{port}\r\n\
+             Authorization: Bearer {token}\r\nContent-Length: {}\r\n\r\n",
+            gate::MAX_TOOL_BODY_BYTES + 1
+        );
+        let started = Instant::now();
+        stream.write_all(head.as_bytes()).unwrap();
+        let (status, body) = read_response(stream);
+        // The fixture's body limit is 5 s; a read body would take that long.
+        assert!(
+            started.elapsed() < Duration::from_secs(3),
+            "{:?}",
+            started.elapsed()
+        );
+        assert_eq!(status, 200);
+        assert!(body.contains("\"deny\""), "{body}");
     }
 
     #[test]
@@ -4794,6 +4934,72 @@ mod tests {
             None,
         ));
         assert_eq!(own.prepend[0], "-c");
+    }
+
+    /// A checked-in `.claude/settings.json` that switches hooks off (measured with 2.1.331: the
+    /// `--settings` hooks then never run) makes the session's notices unsure until its process
+    /// ends; a folder without one changes nothing.
+    #[test]
+    fn claude_settings_of_the_folder_that_switch_hooks_off_are_reported() {
+        let fixture = fixture(DECISION_TIMEOUT);
+        fixture.service.configure(true);
+        *lock(&fixture.service.inner.claude_extra) = Some(Vec::new());
+        let repo = TempDir::new("gate-repo-settings");
+        std::fs::create_dir_all(repo.path().join(".git")).unwrap();
+        std::fs::create_dir_all(repo.path().join(".claude")).unwrap();
+        let status = |session| {
+            fixture
+                .service
+                .repo_status(session, &claude(), repo.path(), &[])
+        };
+        assert_eq!(status(1), None);
+        assert!(!fixture.service.notices_unsure(1));
+        std::fs::write(
+            repo.path().join(".claude").join("settings.json"),
+            r#"{"disableAllHooks":true}"#,
+        )
+        .unwrap();
+        assert_eq!(status(1), Some(GateStatus::RepoSettings));
+        assert!(fixture.service.notices_unsure(1));
+        assert!(!fixture.service.notices_unsure(2));
+        fixture.service.ended(1);
+        assert!(!fixture.service.notices_unsure(1));
+        // Another program does not read Claude Code's files.
+        assert_eq!(
+            fixture
+                .service
+                .repo_status(3, &plain_agent(), repo.path(), &[]),
+            None
+        );
+    }
+
+    /// Codex's session hook needs `--dangerously-bypass-hook-trust`, which would also run the
+    /// folder's own hooks unreviewed: such a folder gets no gate.
+    #[test]
+    fn a_folder_with_codex_hooks_of_its_own_gets_no_trust_bypass() {
+        let fixture = fixture(DECISION_TIMEOUT);
+        fixture.service.configure(true);
+        let codex = agent_in("codex_config_flags", false);
+        let repo = TempDir::new("gate-repo-codex");
+        std::fs::create_dir_all(repo.path().join(".git")).unwrap();
+        std::fs::create_dir_all(repo.path().join(".codex")).unwrap();
+        assert_eq!(
+            fixture.service.repo_status(1, &codex, repo.path(), &[]),
+            None
+        );
+        std::fs::write(repo.path().join(".codex").join("hooks.json"), "{}").unwrap();
+        assert_eq!(
+            fixture.service.repo_status(1, &codex, repo.path(), &[]),
+            Some(GateStatus::RepoHooks)
+        );
+        // A profile that passes the bypass itself has chosen it.
+        let own = [recipes::CODEX_TRUST_FLAG.to_owned()];
+        assert_eq!(
+            fixture.service.repo_status(1, &codex, repo.path(), &own),
+            None
+        );
+        // Codex's hooks never make the notices unsure: it has none.
+        assert!(!fixture.service.notices_unsure(1));
     }
 
     #[test]

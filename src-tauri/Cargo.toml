@@ -133,6 +133,12 @@ whisper-rs = "=0.16.0"
 # standard audio I/O crate, RustAudio org, Apache-2.0. Linux builds need the ALSA headers.
 cpal = "0.18"
 
+[target.'cfg(windows)'.dev-dependencies]
+# A test binds a second socket with SO_REUSEADDR next to the gate endpoint (gate_service.rs), which
+# std cannot set before a bind. Tests only; already in the tree at this version through tokio, so
+# it adds no code; MIT/Apache-2.0, rust-lang, maintained.
+socket2 = "0.6"
+
 [target.'cfg(windows)'.dependencies]
 windows-sys = { version = "0.61", features = [
   "Win32_Foundation",

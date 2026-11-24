@@ -60,6 +60,13 @@ pub enum GateStatus {
     InstallPath,
     /// The session's hook files could not be written to Hangar's data folder.
     HookFiles,
+    /// Claude Code settings in the working folder (or the user's or managed ones) switch hooks
+    /// off or limit them (`disableAllHooks`, `allowedHttpHookUrls`, `httpHookAllowedEnvVars`):
+    /// the hooks were passed, but may not run ([`crate::repo_hooks`]).
+    RepoSettings,
+    /// The working folder brings Codex hooks of its own; the gate's start would run them
+    /// unreviewed (`--dangerously-bypass-hook-trust`), so the session starts without the gate.
+    RepoHooks,
 }
 
 /// What the frontend learns about a session. The profile's environment (`env`) is left out
@@ -228,6 +235,13 @@ mod tests {
         assert_eq!(serde_json::to_value(&gated).unwrap()["gate"], "noEndpoint");
         gated.gate = GateStatus::Launcher;
         assert_eq!(serde_json::to_value(&gated).unwrap()["gate"], "launcher");
+        gated.gate = GateStatus::RepoSettings;
+        assert_eq!(
+            serde_json::to_value(&gated).unwrap()["gate"],
+            "repoSettings"
+        );
+        gated.gate = GateStatus::RepoHooks;
+        assert_eq!(serde_json::to_value(&gated).unwrap()["gate"], "repoHooks");
         let mut update = info();
         update.kind = SessionKind::Update;
         assert_eq!(serde_json::to_value(update).unwrap()["kind"], "update");

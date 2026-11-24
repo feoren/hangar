@@ -2,9 +2,9 @@
 title: "Agent gate adapters: Codex, Gemini, Copilot, Qwen, Pi, Oh My Pi, OpenCode and Droid"
 type: synthesis
 tags: [gate, hooks, team, codex, gemini, copilot, qwen, pi, omp, opencode, droid, catalog, helper]
-sources: ["[[agent-hooks-per-session-research]]", "[[agent-hooks-remaining-agents-research]]", "[[gate-hook-helper-measurement]]", "[[codex-gate-live-measurement]]", "[[opencode-gate-live-measurement]]", "[[pi-gate-live-measurement]]", "[[copilot-gate-live-measurement]]", "[[opencode2-and-gemini-gate-findings]]", "[[opencode2-gate-live-measurement]]", "[[agent-hooks-cursor-cline-gemini-opencode2-research]]", "[[cursor-gate-live-measurement]]", "[[claude-http-hook-measurement]]", "[[mixed-team-live-measurement]]"]
+sources: ["[[agent-hooks-per-session-research]]", "[[agent-hooks-remaining-agents-research]]", "[[gate-hook-helper-measurement]]", "[[codex-gate-live-measurement]]", "[[opencode-gate-live-measurement]]", "[[pi-gate-live-measurement]]", "[[copilot-gate-live-measurement]]", "[[opencode2-and-gemini-gate-findings]]", "[[opencode2-gate-live-measurement]]", "[[agent-hooks-cursor-cline-gemini-opencode2-research]]", "[[cursor-gate-live-measurement]]", "[[claude-http-hook-measurement]]", "[[mixed-team-live-measurement]]", "[[claude-repo-settings-hooks-measurement]]"]
 created: 2026-11-12
-updated: 2026-11-22
+updated: 2026-11-24
 ---
 
 # Agent gate adapters: Codex, Gemini, Copilot, Qwen, Pi, Oh My Pi, OpenCode and Droid
@@ -206,15 +206,33 @@ shell would read, or needs quotes through a cmd.exe launcher) and `hookFiles` (t
 could not be written). The window shows both like the other states; `profileSettings` now names
 "hook settings" instead of `--settings`.
 
+Two more read the working folder's own settings before a start (`src-tauri/src/repo_hooks.rs`,
+from the working folder up to the git root, plus the root checkout of a linked worktree):
+`repoHooks` (Codex: the folder brings `.codex/hooks.json` or a `hooks` table in
+`.codex/config.toml`; the session starts without the trust bypass and so without the gate) and
+`repoSettings` (Claude Code: `disableAllHooks`, `allowManagedHooksOnly`, an `allowedHttpHookUrls`
+without the endpoint's URLs or an `httpHookAllowedEnvVars` without the token variables; the hooks
+still go in, but the gate never shows as active, [[claude-repo-settings-hooks-measurement]]).
+
 ## Accepted risks
 
 - **Codex trust bypass.** `--dangerously-bypass-hook-trust` applies to the whole run: repository
-  and user hooks that the user never reviewed run too. Team sessions start only in a worktree of a
-  repository the user chose; a reviewed `hooks.state` trust hash would avoid it but its hash is not
-  a public contract.
+  and user hooks that the user never reviewed run too. Choosing a repository is not reviewing its
+  hooks: a cloned repository can ship `.codex/hooks.json` or a `[hooks]` table that would then run
+  unasked. So Hangar looks for project hooks first (the worktree up to its git root and the root
+  checkout, which Codex reads for a linked worktree) and passes the bypass only where there are
+  none; otherwise the session starts without the gate and shows `repoHooks`. A profile that passes
+  the bypass itself keeps it. What remains: the user's own hooks in `~/.codex` run unreviewed
+  (the user wrote them), and a project hook added while the session runs is not seen. A reviewed
+  `hooks.state` trust hash would avoid the bypass altogether, but its hash is not a public
+  contract.
 - **Gemini workspace trust.** `GEMINI_CLI_TRUST_WORKSPACE=true` trusts the session's worktree for
-  the session (its `.gemini/settings.json`, `.env` and project hooks) without asking. Set only
-  for a team session, which runs in a worktree of a repository the user chose. Child processes of
+  the session (its `.gemini/settings.json`, `.env` and project hooks) without asking. The same
+  reasoning as for Codex applies: choosing a repository does not review its `.gemini/` hooks and
+  settings, so this is no accepted risk but a precondition. Today it is unreachable (the catalog
+  keeps Gemini at `measured = false`); before Gemini is offered for team sessions, its start must
+  look for project hooks and settings under `.gemini/` the way Codex's does and leave the trust
+  variable out where there are any. Child processes of
   that Gemini session inherit the variable, so a Gemini CLI started from its shell trusts its own
   folder too.
 - **`HANGAR_GATE` visible to the agent.** The agent's shell commands see `HANGAR_GATE` (port and
@@ -228,9 +246,10 @@ could not be written). The window shows both like the other states; `profileSett
   the file with PowerShell). The file watcher (claims) stays the second line.
 - **In-process extensions fail open by choice.** Pi blocks a tool when a `tool_call` handler
   throws, and OpenCode when `tool.execute.before` throws, so a fail-closed gate would be easy. It
-  is not used: the endpoint closes connections over its limits unanswered (8 unauthenticated, 64
-  known) and answers 503, which would turn a busy moment into denied edits, and a session whose
-  endpoint is gone has no way to recover. So the extension catches every error and lets the edit
+  is not used: the endpoint closes connections over its limits unanswered (64 unauthenticated,
+  128 known: `MAX_UNAUTHENTICATED` and `MAX_CONNECTIONS` in `src-tauri/src/gate_service.rs`) and
+  answers 503, which would turn a busy moment into denied edits, and a session whose endpoint is
+  gone has no way to recover. So the extension catches every error and lets the edit
   through (Pi shows a warning in its UI), like the helper and Claude Code's HTTP hook; the
   extension waits at most 630 s.
 - **`OPENCODE_CONFIG_CONTENT` for the session.** Child processes of the OpenCode session inherit

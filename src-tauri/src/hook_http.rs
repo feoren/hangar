@@ -15,7 +15,9 @@ pub const MAX_HEADERS: usize = 64;
 /// Body limit. A `Write` hook carries the whole new file content; it is parsed as it streams in
 /// and never kept, so the limit only bounds the time spent reading. Larger bodies are refused,
 /// which Claude Code treats as a failed hook and lets the edit through (the step A warning then
-/// still applies).
+/// still applies). The notice routes drain the body without keeping it (`PostToolUse` carries the
+/// tool's result, an edited file's old content included); the tool hook route keeps its strings
+/// whole and so has a lower bound of its own ([`crate::gate::MAX_TOOL_BODY_BYTES`]).
 pub const MAX_BODY_BYTES: u64 = 32 * 1024 * 1024;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
