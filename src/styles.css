@@ -2578,6 +2578,25 @@ h2 .beta-badge {
   color: var(--tree-flow-b);
 }
 
+/* A narrow title line gives up the rate first and then the context's bar, so the title keeps
+   room to be read and nothing runs past the row's edge; the share and the state stay. Only the
+   title line does this; the lines below never drop a fact (sessionFactsCss.test.ts). */
+.session-title-row {
+  container: title-line / inline-size;
+}
+
+@container title-line (max-width: 330px) {
+  .tree-flow-rate {
+    display: none;
+  }
+}
+
+@container title-line (max-width: 230px) {
+  .session-context-mini .session-context-bar {
+    display: none;
+  }
+}
+
 /* Collapsed sessions with one waiting: dot with a ring, plus tooltip and screen reader text. */
 .group-waiting {
   display: inline-grid;
