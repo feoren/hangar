@@ -42,7 +42,13 @@ describe("hidden terminal panes", () => {
   });
 
   it("moves the panes out of the viewport while the home view shows", () => {
-    expect(hasDeclaration(".panes.put-aside > :not(.empty)", "visibility", /^hidden$/)).toBe(true);
+    expect(
+      hasDeclaration(
+        ".panes.put-aside > :not(.empty):not(.glyph-background)",
+        "visibility",
+        /^hidden$/,
+      ),
+    ).toBe(true);
     expect(hasDeclaration(".panes.put-aside > .pane", "translate", /^-\d+vw 0$/)).toBe(true);
   });
 

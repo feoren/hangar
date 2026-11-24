@@ -489,6 +489,7 @@ import {
   type PendingDecision,
 } from "./gate";
 import { GateCard, GateRuleNote } from "./GateCard";
+import { GlyphBackground } from "./GlyphBackground";
 import { HANGAR_BUILD } from "./buildInfo";
 import { withBuild } from "./version";
 import { VersionText } from "./VersionText";
@@ -7270,6 +7271,7 @@ export function App() {
                   />
                 </>
               )}
+              {homeShown && <GlyphBackground />}
               {homeShown && (
                 <div className={state.sessions.length > 0 ? "empty home" : "empty"}>
                   {state.sessions.length > 0 ? (
