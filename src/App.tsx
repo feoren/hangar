@@ -490,6 +490,7 @@ import {
 } from "./gate";
 import { GateCard, GateRuleNote } from "./GateCard";
 import { GlyphBackground } from "./GlyphBackground";
+import { needsLastPromptBar } from "./lastPrompt";
 import { HANGAR_BUILD } from "./buildInfo";
 import { withBuild } from "./version";
 import { VersionText } from "./VersionText";
@@ -7107,6 +7108,7 @@ export function App() {
                     active={active}
                     visible={active || paneInfo !== null}
                     split={paneInfo}
+                    promptBar={needsLastPromptBar(session.profileId)}
                     crew={
                       crewWatching && active && subAgentKey !== null && session.id === watchedId
                         ? {

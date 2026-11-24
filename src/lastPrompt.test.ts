@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { LAST_PROMPT_MAX, promptWorthShowing } from "./lastPrompt";
+import { LAST_PROMPT_MAX, needsLastPromptBar, promptWorthShowing } from "./lastPrompt";
 
 describe("promptWorthShowing", () => {
   it("keeps real prompts with their whitespace collapsed", () => {
@@ -20,5 +20,14 @@ describe("promptWorthShowing", () => {
     const text = promptWorthShowing("a".repeat(LAST_PROMPT_MAX + 50));
     expect(text).toHaveLength(LAST_PROMPT_MAX);
     expect(text?.endsWith("…")).toBe(true);
+  });
+});
+
+describe("needsLastPromptBar", () => {
+  // Claude Code pins the last prompt above its conversation itself; a second line would repeat it.
+  it("leaves the bar out for Claude Code and keeps it for other programs", () => {
+    expect(needsLastPromptBar("claude")).toBe(false);
+    expect(needsLastPromptBar("codex")).toBe(true);
+    expect(needsLastPromptBar("gemini")).toBe(true);
   });
 });

@@ -37,6 +37,8 @@ interface Props {
   split: PaneSplit | null;
   /** Files are being dragged over this pane: show where they will land. */
   dropping: boolean;
+  /** The last prompt bar above the terminal; off for programs that show it themselves. */
+  promptBar: boolean;
   /** Clicked in split view: this pane gets the focus. */
   onFocusPane: (id: number) => void;
   /** Double click on the header: show only this session. */
@@ -197,7 +199,7 @@ export function TerminalPane(props: Props) {
           <span className="sr-only">{split.status}</span>
         </div>
       )}
-      {visible && <LastPromptBar terminal={terminal} />}
+      {visible && props.promptBar && <LastPromptBar terminal={terminal} />}
       {visible && props.crew && form === "strip" && <CrewColumn {...props.crew} form="strip" />}
       <div className="pane-row">
         <div className="pane-body">

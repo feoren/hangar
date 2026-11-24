@@ -5,6 +5,17 @@
 export const LAST_PROMPT_MAX = 2000;
 
 /**
+ * Programs that keep the user's last prompt in view themselves (Claude Code pins it above its
+ * conversation): Hangar's bar would show the same line twice there.
+ */
+const OWN_LAST_PROMPT: ReadonlySet<string> = new Set(["claude"]);
+
+/** Whether a session of this program gets Hangar's last prompt bar above its terminal. */
+export function needsLastPromptBar(profileId: string): boolean {
+  return !OWN_LAST_PROMPT.has(profileId);
+}
+
+/**
  * A submitted line worth showing as "your last prompt": not empty, not a slash command and not a
  * one-character answer to a menu or a yes/no question ("1", "y").
  */

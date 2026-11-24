@@ -77,6 +77,7 @@ function mount(withCrew: boolean) {
         visible
         split={null}
         dropping={false}
+        promptBar
         onFocusPane={() => undefined}
         onMaximize={() => undefined}
         onHeaderMenu={() => undefined}
