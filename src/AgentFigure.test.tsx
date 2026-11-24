@@ -100,11 +100,26 @@ describe("AgentFigure", () => {
     expect(image).toContain('src="data:image/png;base64,AA"');
     expect(image).toContain('aria-label="backend"');
 
-    const initial = renderToStaticMarkup(
-      <AgentFigure figure={{ kind: "initial", letter: "W", color: "#8b5cc8" }} size={20} />,
+    // The face shows the initial on its color; the whole figure is the drawn visitor in that
+    // color with the initial on its badge, no capsule.
+    const face = renderToStaticMarkup(
+      <AgentFigure
+        figure={{ kind: "initial", letter: "W", color: "#8b5cc8" }}
+        size={20}
+        crop="head"
+      />,
     );
-    expect(initial).toContain(">W<");
-    expect(initial).toContain("background:#8b5cc8");
+    expect(face).toContain(">W<");
+    expect(face).toContain("background:#8b5cc8");
+
+    const whole = renderToStaticMarkup(
+      <AgentFigure figure={{ kind: "initial", letter: "W", color: "#8b5cc8" }} size={60} />,
+    );
+    expect(whole).toContain("agent-figure full guest");
+    expect(whole).toContain("<svg");
+    expect(whole).toContain(">W</text>");
+    expect(whole).toContain("fill:#8b5cc8");
+    expect(whole).not.toContain("background:#8b5cc8");
   });
 
   // The idle loop of a bundled figure is its own animated WebP (figureMotion.ts), not CSS; no

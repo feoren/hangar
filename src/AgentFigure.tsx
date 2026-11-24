@@ -45,6 +45,13 @@ export function AgentFigure({ figure, size, crop = "full", label }: Props) {
       : { width: crop === "head" ? size : Math.round((size * 2) / 3), height: size };
   const a11y =
     label === undefined ? { "aria-hidden": true as const } : { role: "img", "aria-label": label };
+  if (figure.kind === "initial" && crop === "full") {
+    return (
+      <span className={`${classes} guest`} style={style} {...a11y}>
+        <GuestFigure letter={figure.letter} color={figure.color} />
+      </span>
+    );
+  }
   if (figure.kind === "initial") {
     // The letter is as large as half the box's width.
     const fontSize =
@@ -82,6 +89,103 @@ export function AgentFigure({ figure, size, crop = "full", label }: Props) {
           <MovingImage still={url} animated={animated} />
         ))}
     </span>
+  );
+}
+
+/** Outline of the guest figure, the dark ink line the bundled figures are drawn with. */
+const INK = "#1b1712";
+
+/**
+ * The whole figure of an agent that is not one of Hangar's (`defaultFigure`): a small visitor in
+ * the bundled figures' style, big head, ink outline, dressed in the agent's color, with a visitor
+ * badge on a lanyard that carries the initial. Drawn on the bundled figures' 240 x 360 grid and
+ * standing on its lower edge, so the stage and the sidebar place it like any other figure.
+ */
+function GuestFigure({ letter, color }: { letter: string; color: string }) {
+  const light = `color-mix(in srgb, ${color} 10%, #f2d2b6)`;
+  const dark = `color-mix(in srgb, ${color} 55%, ${INK})`;
+  return (
+    <svg viewBox="0 0 240 360" className="guest-figure">
+      <g stroke={INK} strokeWidth={5} strokeLinejoin="round">
+        <rect x={88} y={280} width={28} height={56} rx={10} style={{ fill: dark }} />
+        <rect x={124} y={280} width={28} height={56} rx={10} style={{ fill: dark }} />
+        <rect x={80} y={328} width={40} height={20} rx={10} fill="#2e251d" />
+        <rect x={120} y={328} width={40} height={20} rx={10} fill="#2e251d" />
+        <rect
+          x={58}
+          y={186}
+          width={24}
+          height={84}
+          rx={12}
+          transform="rotate(10 70 186)"
+          style={{ fill: color }}
+        />
+        <rect
+          x={158}
+          y={186}
+          width={24}
+          height={84}
+          rx={12}
+          transform="rotate(-10 170 186)"
+          style={{ fill: color }}
+        />
+        <circle cx={57} cy={268} r={13} style={{ fill: light }} />
+        <circle cx={183} cy={268} r={13} style={{ fill: light }} />
+        <path
+          d="M80 192 Q80 178 96 176 L144 176 Q160 178 160 192 L166 282 Q166 292 156 292 L84 292 Q74 292 74 282 Z"
+          style={{ fill: color }}
+        />
+        <rect x={107} y={156} width={26} height={24} rx={6} style={{ fill: light }} />
+        <circle cx={120} cy={100} r={68} style={{ fill: light }} />
+        <path
+          d="M52 102 A68 68 0 0 1 188 102 C176 84 154 74 132 82 C112 70 78 78 52 102 Z"
+          style={{ fill: dark }}
+        />
+      </g>
+      <ellipse cx={92} cy={64} rx={20} ry={10} fill="#fff" opacity={0.16} />
+      <ellipse cx={96} cy={114} rx={9} ry={12} fill={INK} />
+      <ellipse cx={144} cy={114} rx={9} ry={12} fill={INK} />
+      <circle cx={99} cy={109} r={3.5} fill="#fff" />
+      <circle cx={147} cy={109} r={3.5} fill="#fff" />
+      <ellipse cx={80} cy={134} rx={9} ry={5} fill="#ff8f7a" opacity={0.35} />
+      <ellipse cx={160} cy={134} rx={9} ry={5} fill="#ff8f7a" opacity={0.35} />
+      <path
+        d="M111 136 Q120 144 129 136"
+        fill="none"
+        stroke={INK}
+        strokeWidth={4}
+        strokeLinecap="round"
+      />
+      <path
+        d="M102 178 L114 212 M138 178 L126 212"
+        fill="none"
+        stroke={INK}
+        strokeWidth={4}
+        strokeLinecap="round"
+      />
+      <rect
+        x={95}
+        y={208}
+        width={50}
+        height={54}
+        rx={9}
+        fill="#f6f1e7"
+        stroke={INK}
+        strokeWidth={5}
+      />
+      <rect x={111} y={214} width={18} height={5} rx={2.5} fill={INK} />
+      <text
+        x={120}
+        y={251}
+        textAnchor="middle"
+        fontSize={30}
+        fontWeight={700}
+        fontFamily="system-ui, sans-serif"
+        style={{ fill: dark }}
+      >
+        {letter}
+      </text>
+    </svg>
   );
 }
 
