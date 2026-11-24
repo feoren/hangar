@@ -15245,12 +15245,14 @@ button.sub-agent-card:focus-visible {
   bottom: calc(-1 * (var(--row-border-drawn) + 2px));
 }
 
+/* A run's ends sit flush with the outer edges of its first and last row, so the bracket closes
+   exactly around the rows it holds. */
 .session > .link-bracket.start {
-  top: 4px;
+  top: calc(-1 * var(--row-border-drawn));
 }
 
 .session > .link-bracket.end {
-  bottom: 4px;
+  bottom: calc(-1 * var(--row-border-drawn));
 }
 
 /* Waiting messages and the sub-agent tree below a row inside the run: the line passes by, across
