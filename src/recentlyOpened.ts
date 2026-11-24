@@ -204,6 +204,24 @@ export function seedRecent(
   return list;
 }
 
+/** What the window has read so far; the first list needs all of it. */
+export interface SeedInputs {
+  prefsReady: boolean;
+  profilesReady: boolean;
+  /** The protected settings hold which programs are hidden. */
+  protectedReady: boolean;
+}
+
+/**
+ * Whether the recently opened sessions may be read and the first list made: only once the
+ * preferences, the programs and the protected settings are known. Before the protected settings
+ * the program a start would use may still be one the person hid, and the first list is made only
+ * once.
+ */
+export function seedReady(inputs: SeedInputs): boolean {
+  return inputs.prefsReady && inputs.profilesReady && inputs.protectedReady;
+}
+
 /** localStorage key: the first list was made once; a list emptied by hand stays empty. */
 export const SEEDED_STORAGE_KEY = "hangar.recentlyOpened.seeded";
 

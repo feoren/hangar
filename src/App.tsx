@@ -372,6 +372,7 @@ import {
   needsSeed,
   pushRecent,
   recentEntry,
+  seedReady,
   seedRecent,
   shownRecent,
   UNKNOWN_TIME,
@@ -4722,7 +4723,8 @@ export function App() {
   /** What the sidebar and Ctrl+Shift+O offer to reopen: nothing that is open already. */
   const recentShown = shownRecent(recentSessions, state.sessions);
   /** The program the next start would use, once the preferences and programs are read. */
-  const seedProgram = profilesReady && prefsReady ? nextProgram?.id : undefined;
+  const recentReadable = seedReady({ prefsReady, profilesReady, protectedReady });
+  const seedProgram = recentReadable ? nextProgram?.id : undefined;
   /**
    * Reads the recently opened sessions once the preferences and programs are known. When the
    * backend holds none yet, the first list (once per machine) is the recent folders with
@@ -4730,7 +4732,7 @@ export function App() {
    * marks that as done, so a list emptied by hand stays empty.
    */
   useEffect(() => {
-    if (recentRequested.current || !prefsReady || !profilesReady) return;
+    if (recentRequested.current || !recentReadable) return;
     recentRequested.current = true;
     const recentFolders = folders.recent;
     void loadRecentSessions().then((stored) => {
@@ -4744,7 +4746,7 @@ export function App() {
         current.reduceRight((list, entry) => pushRecent(list, entry), base),
       );
     });
-  }, [prefsReady, profilesReady, folders.recent, seedProgram]);
+  }, [recentReadable, folders.recent, seedProgram]);
   /**
    * Starts a recently opened session again: the same program in the same folder, privately,
    * with its title and marker, resuming its conversation (without a known one, the start

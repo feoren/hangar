@@ -10,6 +10,7 @@ import {
   pushRecent,
   recentEntry,
   SEEDED_STORAGE_KEY,
+  seedReady,
   seedRecent,
   SHOW_LIMIT,
   shownRecent,
@@ -294,5 +295,17 @@ describe("loadRecentSessions and saveRecentSessions", () => {
     const list = [entry()];
     await saveRecentSessions(list, fake);
     expect(fake.saved).toEqual([list]);
+  });
+});
+
+describe("seedReady", () => {
+  // Before the protected settings arrive, the program a start would use may be one the person
+  // hid; the first list is made only once, so it must wait for them as well.
+  it("waits for the preferences, the programs and the protected settings", () => {
+    const all = { prefsReady: true, profilesReady: true, protectedReady: true };
+    expect(seedReady(all)).toBe(true);
+    expect(seedReady({ ...all, protectedReady: false })).toBe(false);
+    expect(seedReady({ ...all, prefsReady: false })).toBe(false);
+    expect(seedReady({ ...all, profilesReady: false })).toBe(false);
   });
 });
