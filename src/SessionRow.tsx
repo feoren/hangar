@@ -68,6 +68,12 @@ export interface RowBodyProps {
    * the last line below the title. Missing or `null`: none. It never makes a line show.
    */
   rate?: ReactNode;
+  /**
+   * The running sub-agents' dot (SubAgentCount.tsx), decorative, on the corner of the program's
+   * badge wherever the row shows it; outside the flow, so it takes no width. Missing or `null`:
+   * none.
+   */
+  badgeCount?: ReactNode;
 }
 
 function hasFigure(props: RowBodyProps): boolean {
@@ -80,14 +86,23 @@ function Look({
   crop,
   ...props
 }: { look: BadgeLook; crop?: "full" | "head" } & RowBodyProps) {
-  if (props.session === undefined) return <Badge look={look} />;
+  const shown =
+    props.session === undefined ? (
+      <Badge look={look} />
+    ) : (
+      <SessionLook
+        look={look}
+        session={props.session}
+        {...(crop === undefined ? {} : { crop })}
+        {...(props.programName === undefined ? {} : { programName: props.programName })}
+      />
+    );
+  if (props.badgeCount === undefined || props.badgeCount === null) return shown;
   return (
-    <SessionLook
-      look={look}
-      session={props.session}
-      {...(crop === undefined ? {} : { crop })}
-      {...(props.programName === undefined ? {} : { programName: props.programName })}
-    />
+    <span className="badge-anchor">
+      {shown}
+      {props.badgeCount}
+    </span>
   );
 }
 

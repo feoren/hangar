@@ -425,3 +425,23 @@ describe("the cost on the row", () => {
     expect(html).toContain("~$3.42");
   });
 });
+
+describe("the sub-agent count on the badge", () => {
+  const dot = <span className="subagent-count badge-count">2</span>;
+
+  it("sits on the program's badge, outside the lines' flow", () => {
+    const html = row(DEFAULT_ROW_LAYOUT, { badge: PROGRAM, badgeCount: dot });
+    expect(count(html, "badge-anchor")).toBe(1);
+    expect(html).toMatch(
+      /class="badge-anchor"><span class="badge"[^>]*>C<\/span><span class="subagent-count badge-count">2<\/span><\/span>/,
+    );
+    const avatar = row(presetLayout("avatar"), { badgeCount: dot });
+    expect(avatar).toMatch(/class="session-avatar"[^>]*><span class="badge-anchor">/);
+  });
+
+  it("is left out where the row shows no badge, and adds nothing without a count", () => {
+    expect(count(row(DEFAULT_ROW_LAYOUT, { badgeCount: dot }), "badge-count")).toBe(0);
+    const none = row(DEFAULT_ROW_LAYOUT, { badge: PROGRAM, badgeCount: null });
+    expect(count(none, "badge-anchor")).toBe(0);
+  });
+});

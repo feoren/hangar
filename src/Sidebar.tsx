@@ -124,6 +124,13 @@ import {
   type RowPlan,
 } from "./rowLayout";
 import { SessionRowBody } from "./SessionRow";
+import {
+  railCountId,
+  RailSubAgentCount,
+  SubAgentCountLabel,
+  SubAgentCountMark,
+  useRunningSubAgents,
+} from "./SubAgentCount";
 import { useSessionContext } from "./useContextUsage";
 import { CompactAction } from "./CompactAction";
 import { commandBusy, sessionCommands } from "./agentCommands";
@@ -925,6 +932,9 @@ export function Sidebar(props: Props) {
                       .filter(Boolean)
                       .join(", ")}
                     aria-current={session.id === activeId ? "true" : undefined}
+                    // The aria-label hides the button's content: the sub-agent count is read
+                    // from its own text, which exists only while sub-agents run.
+                    aria-describedby={railCountId(session.id)}
                     onClick={() => {
                       props.onActivate(session.id);
                     }}
@@ -952,6 +962,11 @@ export function Sidebar(props: Props) {
                         {session.marker.emoji}
                       </span>
                     )}
+                    <RailSubAgentCount
+                      sessionId={session.id}
+                      cliSessionId={session.cliSessionId ?? null}
+                      exited={session.status === "exited"}
+                    />
                     {waitingCount > 0 && (
                       <span className="rail-waiting" aria-hidden="true">
                         {waitingCount}
@@ -1921,6 +1936,7 @@ function SessionItem({
   // row re-renders when this session's numbers change.
   const context = useSessionContext(session.id);
   const exited = session.status === "exited";
+  const subAgents = useRunningSubAgents(session.id, session.cliSessionId ?? null, exited);
   const waiting = state === "attention";
   const line = lines.status;
   const where = lines.detail;
@@ -2052,6 +2068,9 @@ function SessionItem({
             context={context}
             cost={cost}
             language={language}
+            badgeCount={
+              subAgents > 0 ? <SubAgentCountMark running={subAgents} place="badge" /> : null
+            }
             rate={
               showRate ? (
                 <TreeFlowRate sessionId={session.id} live={flow.live} language={language} />
@@ -2106,8 +2125,13 @@ function SessionItem({
               )
             }
           />
+          {/* Last in the button: the row's own text first, then how many sub-agents run. */}
+          <SubAgentCountLabel running={subAgents} />
         </button>
       )}
+      {/* Without a badge in the row's layout the dot takes the row's top right corner (styles.css
+          hides it while the badge carries one). */}
+      <SubAgentCountMark running={subAgents} place="corner" />
       <div className="session-actions">
         <span className="row-pulse" aria-hidden="true" />
         {!editing && (

@@ -848,6 +848,15 @@ pub fn unwatch_sub_agents(watchers: State<'_, Watchers>, session_id: SessionId) 
     watchers.stop(session_id)
 }
 
+/// The running sub-agents of the sessions (subagent_counts.rs); later changes arrive as
+/// `sub-agent-counts-changed` events with the same shape.
+#[tauri::command]
+pub fn sub_agent_counts(
+    counts: State<'_, crate::subagent_counts::SubAgentCounts>,
+) -> crate::subagent_counts::CountSnapshot {
+    counts.snapshot()
+}
+
 /// The newest context use of the sessions (context_usage.rs); later changes arrive as
 /// `context-usage-changed` events with the same shape.
 #[tauri::command]

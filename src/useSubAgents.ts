@@ -16,6 +16,7 @@ import {
   viewOf,
   watchKey,
 } from "./subAgentStore";
+import { runningIn } from "./subAgentCounts";
 import { visibleAgents, type SubAgent, type SubAgentLog, type SubAgentView } from "./subAgents";
 
 /** The one watch's state; there is at most one watch at a time (watchedSession). */
@@ -117,6 +118,19 @@ export interface SubAgentSummary {
   /** `null` until the first snapshot arrived. */
   located: boolean | null;
   error: string | null;
+}
+
+/**
+ * Running sub-agents of the session while its watch has a snapshot, so the row's count says what
+ * its tree shows at the same moment; `null` while the session is not watched (then the count of
+ * useSubAgentCounts.ts applies). A primitive: other snapshot changes do not re-render the caller.
+ */
+export function useWatchedRunning(sessionId: number, cliSessionId: string | null): number | null {
+  const key = watchKey(sessionId, cliSessionId);
+  return useSyncExternalStore(store.subscribe, () => {
+    const view = viewOf(store.current(), key);
+    return view.located === null ? null : runningIn(view.agents);
+  });
 }
 
 /** The sub-agents of the watch `key` right now, for event handlers (no re-render). */

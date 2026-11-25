@@ -30,6 +30,20 @@
         "ru": "Решения команды: записывай, что решили и почему. Claude Code их читает, а в другие сессии их можно отправить.",
         "tr": "Ekip kararları: neyin neden kararlaştırıldığını kaydet. Claude Code bunları okur, diğer oturumlara gönderebilirsin.",
         "zh": "团队决定：记录决定了什么以及原因。Claude Code 会读取，也可以发送到其他会话。"
+      },
+      {
+        "de": "Die Seitenleiste zeigt an jeder Session einen roten Punkt mit der Zahl ihrer laufenden Sub-Agents, auch eingeklappt.",
+        "en": "The sidebar shows a red dot on every session with the number of its running sub-agents, collapsed too.",
+        "el": "Η πλαϊνή στήλη δείχνει σε κάθε session μια κόκκινη κουκκίδα με τον αριθμό των υπο-πρακτόρων που εκτελούνται, και όταν είναι μαζεμένη.",
+        "es": "La barra lateral muestra en cada sesión un punto rojo con el número de sus subagentes en ejecución, también plegada.",
+        "fr": "La barre latérale affiche sur chaque session un point rouge avec le nombre de ses sous-agents en cours, même repliée.",
+        "it": "La barra laterale mostra su ogni sessione un punto rosso con il numero dei suoi sotto-agenti in esecuzione, anche quando è chiusa.",
+        "ja": "サイドバーの各セッションに、実行中のサブエージェントの数を示す赤い丸が表示されます。折りたたんだ状態でも表示されます。",
+        "pl": "Pasek boczny pokazuje przy każdej sesji czerwoną kropkę z liczbą jej działających podagentów, także po zwinięciu.",
+        "pt": "A barra lateral mostra em cada sessão um ponto vermelho com o número de subagentes em execução, também quando recolhida.",
+        "ru": "Боковая панель показывает у каждой сессии красную точку с числом её работающих субагентов, и в свёрнутом виде тоже.",
+        "tr": "Kenar çubuğu her oturumda çalışan alt ajanlarının sayısını kırmızı bir noktayla gösterir, daraltılmışken de.",
+        "zh": "侧边栏在每个会话上用红点显示其正在运行的子代理数量，折叠时也会显示。"
       }
     ]
   },

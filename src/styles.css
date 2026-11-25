@@ -60,6 +60,10 @@
   --scrim: rgb(0 0 0 / 38%);
   --danger: #b3392f;
   --danger-hover: #c4453a;
+  /* The round count of running sub-agents on a session row: white on red, 5.9 : 1 here and
+     5.4 : 1 in light mode. */
+  --subagent-count-bg: var(--danger);
+  --subagent-count-fg: #ffffff;
   /* Notes: Markdown highlighting and preview */
   --md-heading: #e6edf3;
   --md-code: #e0b4ff;
@@ -790,6 +794,58 @@ h2 .beta-badge {
 }
 
 .session-signs:empty {
+  display: none;
+}
+
+/* Sub-agent count (SubAgentCount.tsx): a round red dot with the number of running sub-agents,
+   "9+" from ten on, cut free by a ring in the sidebar's color. Always outside the flow, so it
+   never takes width from the row's lines (their right parts stay in line with the next rows and
+   the title line's container queries do not switch). Still, no animation: it changes only when a
+   sub-agent starts or ends. Below the hover actions (z-index 2), which lie over it. */
+.subagent-count {
+  position: absolute;
+  z-index: 1;
+  display: grid;
+  place-items: center;
+  box-sizing: border-box;
+  min-width: 15px;
+  height: 15px;
+  padding: 0 3px;
+  border-radius: 8px;
+  background: var(--subagent-count-bg);
+  color: var(--subagent-count-fg);
+  box-shadow: 0 0 0 1.5px var(--panel);
+  font-size: 9px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  line-height: 1;
+}
+
+/* The program's badge in the row carries the dot on its top right corner (the state dot of an
+   avatar sits on the bottom right one). */
+.badge-anchor {
+  position: relative;
+  display: inline-flex;
+  flex: none;
+}
+
+.badge-count {
+  top: -6px;
+  right: -7px;
+}
+
+/* A row whose layout shows no badge: the dot takes the row's top right corner. */
+.row-corner {
+  top: 2px;
+  right: 3px;
+}
+
+.session:has(.badge-count) > .row-corner {
+  display: none;
+}
+
+/* A layout with the avatar beside the lines and the program in a line: one dot, on the avatar. */
+.session-text:has(.row-span .badge-count) .row-line .badge-count {
   display: none;
 }
 
@@ -4221,6 +4277,19 @@ body.resizing-horizontal * {
   right: 6px;
   font-size: 11px;
   line-height: 1;
+}
+
+/* The sub-agent count in the badge's top right corner, ringed in the panel color so it stands
+   off the badge; an emoji there moves down to the middle of the edge. */
+.rail-subagents {
+  top: 1px;
+  right: 4px;
+}
+
+.rail-session:has(.rail-subagents) .rail-emoji {
+  top: 50%;
+  right: 2px;
+  transform: translateY(-50%);
 }
 
 /* A session that changes a file another one changes too: the same icon as in the expanded

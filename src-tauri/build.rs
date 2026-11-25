@@ -135,6 +135,7 @@ const COMMANDS: &[&str] = &[
     "focus_sub_agent",
     "unwatch_sub_agents",
     "context_usage",
+    "sub_agent_counts",
     "cost_report",
     "account_status",
     "account_sign_in",

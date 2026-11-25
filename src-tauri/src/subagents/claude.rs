@@ -168,6 +168,9 @@ pub struct ClaudeSource {
     scanned: Option<Option<SystemTime>>,
     /// `false`: assistant text is never read, `excerpt` stays `null`.
     excerpts: bool,
+    /// `false` ([`Self::counting`]): transcripts are never opened, only listed; the status needs
+    /// no more than their times and the meta files.
+    details: bool,
     agents: BTreeMap<String, AgentState>,
     focus: Option<FocusLog>,
     /// [`LOG_INITIAL_TAIL`]; smaller in tests.
@@ -187,9 +190,21 @@ impl ClaudeSource {
             locate_delay: LOCATE_INTERVAL,
             scanned: None,
             excerpts,
+            details: true,
             agents: BTreeMap::new(),
             focus: None,
             log_initial: LOG_INITIAL_TAIL,
+        }
+    }
+
+    /// A source only for [`SubAgentSource::running`], the count on a session's sidebar row: it
+    /// lists the sub-agent folder, reads the small meta files and asks an unfinished transcript
+    /// for its time, but never reads one, so counting every session costs a directory listing
+    /// per session and poll plus one open per unfinished sub-agent.
+    pub fn counting(target: &Target) -> Self {
+        Self {
+            details: false,
+            ..Self::new(target, false)
         }
     }
 
@@ -328,10 +343,22 @@ impl ClaudeSource {
         state: &mut AgentState,
         files: (Option<Stamp>, Option<Stamp>),
         excerpts: bool,
+        details: bool,
     ) {
         let (transcript, meta) = files;
-        if let Some((_, modified)) = transcript {
+        if let Some((_, listed)) = transcript {
             let path = dir.join(format!("agent-{id}.jsonl"));
+            // On NTFS the folder listing keeps the old time of a file held open for writing until
+            // someone opens it. The watch's reads below do that on every poll; the count never
+            // reads, so it asks the file itself (an open without a read) until the agent finished.
+            let modified = if details || state.meta.finished == Some(true) {
+                listed
+            } else {
+                fs::metadata(&path)
+                    .and_then(|m| m.modified())
+                    .ok()
+                    .or(listed)
+            };
             if state.started_at.is_none() {
                 state.started_at = fs::metadata(&path)
                     .and_then(|m| m.created())
@@ -345,7 +372,7 @@ impl ClaudeSource {
             // because on Windows the directory entry of a file that is held open can lag behind.
             let settled = state.meta.finished == Some(true) && state.transcript_stamp == transcript;
             // A read error (file just deleted, locked for a moment) is retried on the next poll.
-            if !settled {
+            if details && !settled {
                 if let Ok(lines) = state.tail.read_new(&path) {
                     state.transcript_stamp = transcript;
                     for line in lines {
@@ -364,12 +391,11 @@ impl ClaudeSource {
             }
         }
     }
-}
 
-impl SubAgentSource for ClaudeSource {
-    fn poll(&mut self, now: SystemTime) -> Snapshot {
+    /// Brings [`Self::agents`] up to the folder's state; `false` while the folder is not found.
+    fn refresh(&mut self) -> bool {
         let Some(dir) = self.subagents_dir(Instant::now()) else {
-            return Snapshot::default();
+            return false;
         };
         let found = if self.contained(&dir) {
             Self::scan(&dir)
@@ -379,7 +405,16 @@ impl SubAgentSource for ClaudeSource {
         self.agents.retain(|id, _| found.contains_key(id));
         for (id, files) in found {
             let state = self.agents.entry(id.clone()).or_default();
-            Self::update_agent(&dir, &id, state, files, self.excerpts);
+            Self::update_agent(&dir, &id, state, files, self.excerpts, self.details);
+        }
+        true
+    }
+}
+
+impl SubAgentSource for ClaudeSource {
+    fn poll(&mut self, now: SystemTime) -> Snapshot {
+        if !self.refresh() {
+            return Snapshot::default();
         }
         let mut agents: Vec<SubAgent> = self
             .agents
@@ -476,6 +511,17 @@ impl SubAgentSource for ClaudeSource {
             tool_uses: focus.parser.tool_uses(),
         })
     }
+
+    /// The same status as [`Self::poll`] gives each sub-agent, without building the snapshot.
+    fn running(&mut self, now: SystemTime) -> usize {
+        if !self.refresh() {
+            return 0;
+        }
+        self.agents
+            .values()
+            .filter(|state| status_of(state, now) == AgentStatus::Running)
+            .count()
+    }
 }
 
 /// At most `max` entries: the newest ones after a gap, and with `keep_task` a leading task too,
@@ -495,18 +541,28 @@ fn bounded(mut entries: Vec<LogEntry>, max: usize, keep_task: bool) -> Vec<LogEn
     entries
 }
 
-fn view(id: &str, state: &AgentState, now: SystemTime) -> SubAgent {
-    let last_activity = state.last_activity.or(state.meta_stamp.and_then(|m| m.1));
-    let status = if state.meta.finished == Some(true) {
+/// The newest write of the transcript, else of the meta file.
+fn last_activity(state: &AgentState) -> Option<SystemTime> {
+    state.last_activity.or(state.meta_stamp.and_then(|m| m.1))
+}
+
+/// The one definition of a sub-agent's status, for the snapshot and for the count alike.
+fn status_of(state: &AgentState, now: SystemTime) -> AgentStatus {
+    if state.meta.finished == Some(true) {
         AgentStatus::Finished
-    } else if last_activity
+    } else if last_activity(state)
         .and_then(|at| now.duration_since(at).ok())
         .is_some_and(|idle| idle > STALE_AFTER)
     {
         AgentStatus::Stale
     } else {
         AgentStatus::Running
-    };
+    }
+}
+
+fn view(id: &str, state: &AgentState, now: SystemTime) -> SubAgent {
+    let last_activity = last_activity(state);
+    let status = status_of(state, now);
     SubAgent {
         id: id.to_owned(),
         description: state
@@ -1165,6 +1221,75 @@ mod tests {
         fs::remove_file(sub.join("agent-a1.jsonl")).unwrap();
         let after = source.poll(now);
         assert_eq!(after.agents.len(), 1);
+    }
+
+    #[test]
+    fn the_count_sees_writes_to_a_transcript_held_open() {
+        let fx = Fixture::new("count-held-open");
+        let project = fx.project(&encode_project(&fx.cwd));
+        let sub = fx.subagents(&project);
+        let path = sub.join("agent-a1.jsonl");
+        append(&path, &assistant("{\"type\":\"text\",\"text\":\"one\"}"));
+        let now = SystemTime::now();
+        let old = now - STALE_AFTER - Duration::from_secs(60);
+        fs::File::options()
+            .write(true)
+            .open(&path)
+            .unwrap()
+            .set_modified(old)
+            .unwrap();
+        // The sub-agent writes on through a handle it keeps open: on NTFS the folder listing keeps
+        // the old time until the file is opened by someone (measured on Windows 11).
+        let mut writer = fs::OpenOptions::new().append(true).open(&path).unwrap();
+        writer
+            .write_all(assistant("{\"type\":\"text\",\"text\":\"two\"}").as_bytes())
+            .unwrap();
+        let mut counter = ClaudeSource::counting(&fx.target());
+        assert_eq!(counter.running(SystemTime::now()), 1);
+        drop(writer);
+    }
+
+    #[test]
+    fn the_count_matches_the_snapshot_and_reads_no_transcript() {
+        let fx = Fixture::new("count");
+        let mut counter = ClaudeSource::counting(&fx.target());
+        // Not located yet: nothing runs.
+        assert_eq!(counter.running(SystemTime::now()), 0);
+        let project = fx.project(&encode_project(&fx.cwd));
+        let sub = fx.subagents(&project);
+        for id in ["a1", "a2", "a3"] {
+            append(
+                &sub.join(format!("agent-{id}.jsonl")),
+                &assistant("{\"type\":\"text\",\"text\":\"TEXT-MARKER\"}"),
+            );
+        }
+        fs::write(sub.join("agent-a3.meta.json"), "{\"finished\":true}").unwrap();
+        counter.next_locate = None;
+        let mut source = ClaudeSource::new(&fx.target(), true);
+        let now = SystemTime::now();
+        let running = |s: &Snapshot| {
+            s.agents
+                .iter()
+                .filter(|a| a.status == AgentStatus::Running)
+                .count()
+        };
+        assert_eq!(counter.running(now), 2);
+        assert_eq!(running(&source.poll(now)), 2);
+        // The trait's own count, from the snapshot, says the same.
+        let mut generic: Box<dyn SubAgentSource> = Box::new(ClaudeSource::new(&fx.target(), false));
+        assert_eq!(generic.running(now), 2);
+        // Stale ones are not running, in both.
+        let later = now + STALE_AFTER + Duration::from_secs(2);
+        assert_eq!(counter.running(later), 0);
+        assert_eq!(running(&source.poll(later)), 0);
+        // A finish counts at once; a removed sub-agent is no longer counted.
+        fs::write(sub.join("agent-a1.meta.json"), "{\"finished\":true}").unwrap();
+        fs::remove_file(sub.join("agent-a2.jsonl")).unwrap();
+        assert_eq!(counter.running(now), 0);
+        // The counter never opened a transcript: nothing of one was read.
+        assert!(counter.agents.values().all(|state| state.tokens.is_none()
+            && state.excerpt.is_none()
+            && state.transcript_stamp.is_none()));
     }
 
     #[test]

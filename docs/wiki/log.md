@@ -1722,3 +1722,10 @@ who withdrew many: the engine now deletes the person's own spare withdrawals fir
 (also after a relay `limit`), and names one person's limit honestly (`decisionLimitOwn`). A new
 test shows a forked decision under an older epoch marks nobody (the check fails under the
 mutation that drops the epoch rule). Updated: [[0021-team-decisions]], [[relay-v4-server-spec]].
+
+## [2026-11-26] query | Running sub-agents counted on every session row
+Built the sidebar count of running sub-agents per session: one backend thread counts them for
+every session with a sub-agent source (folder listing and meta files only, the snapshot's own
+status), sends `sub-agent-counts-changed` on a change, and the rows show a round red dot ("9+"
+from ten on), the watched session from its own snapshot. Updated: [[agent-workflow-features]]
+(item 23).
