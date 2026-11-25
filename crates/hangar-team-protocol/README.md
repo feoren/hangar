@@ -214,5 +214,26 @@ Protocol version 1 is not deployed yet, so additions before the first release ke
     role), `base` equal to the stored version (else `conflict`), one record per team, the
     version counted up from 1.
 
+- **Version 3 (2026-11-25): proof of possession at `hello`, and `blob.delete`.** Mixed versions
+  keep working: a peer of version 1 or 2 negotiates its own version and sees no new field or
+  kind. Server specification: `docs/wiki/pages/syntheses/relay-v3-server-spec.md`.
+  - `PROTOCOL_VERSION` becomes 3, `ProtoRange::CURRENT` `{1, 3}`; new constant
+    `PROOF_PROTOCOL_VERSION` (3).
+  - **`Welcome.challenge: Option<e2e::Challenge>`** (32 random bytes as 43 characters of
+    canonical base64url): present exactly when `proto` is 3 or newer, checked on encoding and
+    decoding (`EncodeError::Invalid`, `DecodeError::Body`). When absent it is left out of the
+    text, so a welcome of version 1 or 2 is byte for byte what a relay of version 2 wrote: an app
+    of version 2 refuses unknown fields in a welcome.
+  - New client kind **`device.prove {sign, signature}`** (version 3, not deduplicated): the
+    answer to the challenge, made and checked with `hangar_team_crypto::possession`.
+  - New client kind **`blob.delete {blob}`** (version 3, deduplicated, no epoch): the author
+    or an owner or admin (`hangar_team_crypto::relay::check_blob_delete`); `ack`, `notFound`,
+    `forbidden`. No server kind is new.
+  - **`ClientMessage::allowed_before_proof`**: what a device that does not count as a device of
+    the log may send (`hello`, `ticket.renew`, `device.keys`, `device.prove`, `devices.get`,
+    `memberlog.get`, `ping`); the relay applies it with
+    `hangar_team_crypto::possession::check_restricted`, on every version for devices the log
+    does not list, and on version 3 also for listed devices without a passing proof.
+
 The crate is standalone (its own `Cargo.toml` and `Cargo.lock`, no workspace), so it builds
 without Tauri and without touching the app's build folder.

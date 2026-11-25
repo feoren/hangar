@@ -240,6 +240,65 @@ impl fmt::Debug for KeyProof {
     }
 }
 
+/// Bytes of a connection challenge.
+pub const CHALLENGE_BYTES: usize = 32;
+
+/// Not 32 bytes as canonical base64url (43 characters, no padding).
+#[derive(Debug, Clone, PartialEq, Eq, Error)]
+#[error("a challenge is 32 bytes as 43 characters of base64url without padding")]
+pub struct InvalidChallenge;
+
+/// The relay's random challenge in a `welcome` of protocol version 3 or newer: 32 bytes from the
+/// relay's secure random number generator, new for every `welcome`, so it names one team on one
+/// connection. The device answers it with `device.prove`, its signature over the challenge, the
+/// team, its holder, its signing key and the negotiated version (step E,
+/// `hangar_team_crypto::possession`). Not secret; on the wire 43 characters of canonical
+/// base64url, like [`PublicKey`].
+#[derive(Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(try_from = "String", into = "String")]
+pub struct Challenge([u8; CHALLENGE_BYTES]);
+
+impl Challenge {
+    /// Wraps the raw bytes.
+    pub fn from_bytes(bytes: [u8; CHALLENGE_BYTES]) -> Self {
+        Self(bytes)
+    }
+
+    /// The raw bytes.
+    pub fn as_bytes(&self) -> &[u8; CHALLENGE_BYTES] {
+        &self.0
+    }
+
+    /// The 43 base64url characters the wire carries.
+    pub fn to_base64url(&self) -> String {
+        encode_base64url(&self.0)
+    }
+}
+
+impl TryFrom<String> for Challenge {
+    type Error = InvalidChallenge;
+    fn try_from(value: String) -> Result<Self, Self::Error> {
+        if value.len() != PUBLIC_KEY_CHARS {
+            return Err(InvalidChallenge);
+        }
+        let bytes = decode_base64url(&value).ok_or(InvalidChallenge)?;
+        let bytes: [u8; CHALLENGE_BYTES] = bytes.try_into().map_err(|_| InvalidChallenge)?;
+        Ok(Self(bytes))
+    }
+}
+
+impl From<Challenge> for String {
+    fn from(value: Challenge) -> String {
+        value.to_base64url()
+    }
+}
+
+impl fmt::Debug for Challenge {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "Challenge({})", self.to_base64url())
+    }
+}
+
 /// Not 64 lowercase hex digits.
 #[derive(Debug, Clone, PartialEq, Eq, Error)]
 #[error("a membership log hash is 64 lowercase hex digits")]
@@ -813,6 +872,30 @@ mod tests {
             assert_eq!(
                 KeyProof::try_from(bad.clone()),
                 Err(InvalidKeyProof),
+                "{bad}"
+            );
+        }
+    }
+
+    #[test]
+    fn challenges_are_32_bytes_with_one_spelling() {
+        let challenge = Challenge::from_bytes(core::array::from_fn(|i| i as u8));
+        let text = challenge.to_base64url();
+        assert_eq!(text.len(), PUBLIC_KEY_CHARS);
+        assert_eq!(Challenge::try_from(text.clone()), Ok(challenge));
+        let json = serde_json::to_string(&challenge).unwrap();
+        assert_eq!(serde_json::from_str::<Challenge>(&json).unwrap(), challenge);
+        for bad in [
+            String::new(),
+            "A".repeat(42),
+            "A".repeat(44),
+            format!("{}=", "A".repeat(42)),
+            // 43 characters whose last one sets an unused bit.
+            format!("{}B", "A".repeat(42)),
+        ] {
+            assert_eq!(
+                Challenge::try_from(bad.clone()),
+                Err(InvalidChallenge),
                 "{bad}"
             );
         }

@@ -1654,3 +1654,27 @@ The library listed project definitions from a worktree session's main repository
 chosen, not yet started target, while `open_sub_agent` and `set_sub_agent_model` refused them.
 `known_folders` now adds the main repository of sessions in Hangar's worktrees; the listing names
 the folders that take an open or model change (`editable`). Updated: [[sub-agent-library]].
+
+## [2026-11-25] query | Team protocol version 3: proof of possession and blob.delete
+Protocol version 3 in both crates and the app: `welcome.challenge` (only from version 3 on, left
+out of the text before), `device.prove` signed under `hangar-team/v1/connection-proof` over team,
+holder, key, challenge and version, sent right after `device.keys`; the relay rule
+`possession::check_restricted` (unlisted devices restricted on every version, unproven listed
+ones on version 3); `blob.delete` for the author, owners and admins (`relay::check_blob_delete`).
+The app stores no blob yet, so it deletes none. New: [[0020-proof-of-possession-at-hello]],
+[[relay-v3-server-spec]]. Updated: [[team-protocol]], [[team-crypto]],
+[[0005-team-collaboration]] (decisions now need version 4), index.
+
+## [2026-11-25] query | Protocol version 3 after the security review
+Departing `welcome` with a challenge and `device.keys`/`device.prove` acknowledged there; the
+app reads a pending log answer before a refused proof ends the connection; targeted unlogged
+messages and join/leave side effects only for connections that count; proof rows only for a key
+the log lists, closing the holder's version 2 connections (4401); arrival order per connection;
+`check_blob_delete` requires a listed device; corrected the residual risks (no relay identity
+binding needed, device identity per relay base). Updated: [[relay-v3-server-spec]],
+[[0020-proof-of-possession-at-hello]], [[team-protocol]].
+
+## [2026-11-25] query | Relay version 3 spec: migration numbers
+The server already has migrations 0012 to 0015, among them `0014_blobs_member_index.sql` with
+`relay_blobs_member`. The proof table becomes the next free migration (0016 when written), and
+no index migration is needed. Updated: [[relay-v3-server-spec]], [[0020-proof-of-possession-at-hello]], index.

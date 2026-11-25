@@ -12,7 +12,10 @@
 //! | --- | --- |
 //! | [`check_wrap`] | every `key.wrap`, after the epoch check |
 //! | [`check_registered_keys`] | every `memberlog.append`, before [`crate::memberlog::LogVerifier::admit`] |
+//! | [`check_blob_delete`] | every `blob.delete` (protocol version 3), once the blob was found |
+//! | [`crate::possession::check_restricted`] | every intent of a team with a log, first |
 
+use hangar_team_protocol::ids::MemberId;
 use hangar_team_protocol::limits::MAX_KEY_PACKAGES;
 use hangar_team_protocol::wire::{ErrorCode, Holder, KeyWrap, MemberLogAppend, Role};
 use thiserror::Error;
@@ -119,4 +122,48 @@ pub fn check_registered_keys(
         }
     }
     Ok(())
+}
+
+/// Why a `blob.delete` is refused (the blob exists in the frame's team).
+#[derive(Debug, Clone, PartialEq, Eq, Error)]
+#[error("only the blob's author, an owner or an admin deletes a blob")]
+pub struct BlobDeleteForbidden;
+
+impl BlobDeleteForbidden {
+    /// The `err` code the relay answers with.
+    pub fn code(&self) -> ErrorCode {
+        ErrorCode::Forbidden
+    }
+}
+
+/// The relay's check of a `blob.delete` (protocol version 3), after
+/// [`crate::possession::check_restricted`] and after it found the blob in the frame's team
+/// (`notFound` otherwise, before this check, so nothing is told about other teams).
+///
+/// `author` is the member that stored the blob, the only author data the relay keeps besides
+/// its size. In a team with a log the sending device must be one the log lists, whoever sends
+/// (defense in depth behind `check_restricted`, which also checks the proven key). The author
+/// then deletes it from any of its devices. Anyone else needs owner or admin: in a team with a
+/// log the lower of the log role and `ticket_role` ([`TeamState::effective_role`]; a member the
+/// log does not name has none), without a log the ticket role alone.
+pub fn check_blob_delete(
+    state: Option<&TeamState>,
+    ticket_role: Role,
+    sender: &Holder,
+    author: &MemberId,
+) -> Result<(), BlobDeleteForbidden> {
+    if state.is_some_and(|state| state.device(sender).is_none()) {
+        return Err(BlobDeleteForbidden);
+    }
+    if sender.member == *author {
+        return Ok(());
+    }
+    let role = match state {
+        Some(state) => state.effective_role(&sender.member, ticket_role),
+        None => Some(ticket_role),
+    };
+    match role {
+        Some(Role::Owner | Role::Admin) => Ok(()),
+        _ => Err(BlobDeleteForbidden),
+    }
 }

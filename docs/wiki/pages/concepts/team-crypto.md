@@ -1,10 +1,10 @@
 ---
 title: "Team crypto: device keys, membership log, epochs, sealed records, recovery code"
 type: concept
-tags: [collaboration, teams, e2e, ed25519, x25519, hpke, xchacha20poly1305, hkdf, threat-model]
+tags: [collaboration, teams, e2e, ed25519, x25519, hpke, xchacha20poly1305, hkdf, threat-model, possession]
 sources: []
 created: 2026-11-09
-updated: 2026-11-15
+updated: 2026-11-25
 ---
 
 # Team crypto
@@ -340,9 +340,45 @@ A.2.1 test.
   stop working. A later code version (version byte 2) may add the team as domain separation for
   new codes only.
 
+## Connection proof
+
+Protocol version 3 ([[0020-proof-of-possession-at-hello]], module `possession`). The relay
+sends a random 32-byte challenge in every `welcome` of version 3; the device answers with
+`device.prove {sign, signature}`:
+
+```text
+statement = field("hangar-team/v1/connection-proof") || field(team) || field(member)
+            || field(device) || field(sign public key) || field(challenge, 32 bytes)
+            || field(negotiated protocol version, 2 bytes big endian)
+signature = Ed25519 (strict verification) with the device's sign key over statement
+```
+
+- **Domain separation:** the label is used by no other signature, so a `device.keys` proof of
+  possession, an endorsement, a log entry or a sealed record never verifies as a connection
+  proof (tested with both kinds of proof the same key makes over the same team and holder).
+- **Binding:** team, member, device and version tie the proof to one `hello`; the challenge,
+  new with every `welcome`, makes it worthless on another connection; `sign` is in the
+  statement, so the signature cannot be presented under another key.
+- **What the relay does with it** (`verify_connection_proof`, `Possession`,
+  `counts_as_listed`, `check_restricted`): it keeps the proven key per team and connection and,
+  on every intent of a team with a log, lets the device act as the log's device only while the
+  log's sign key for that holder is the proven key. Any other device may only register, prove
+  itself and read the log and the directory. On versions 1 and 2 (`Possession::Legacy`) a
+  listed device counts without a proof (transition rule); an unlisted one is restricted there
+  too. The relay's state machine and transition steps: [[relay-v3-server-spec]].
+- **It proves possession of the signing key only.** As with the `device.keys` proof, the X25519
+  key cannot sign; a connection that proved the signing key but holds another KEM key gains
+  nothing, since wrapped keys are opened with the KEM key of the log.
+- Test vector: the statement is checked byte for byte against a hand-built layout
+  (`possession::tests::the_statement_has_its_documented_layout`). `test_vectors.py` does not
+  recompute it yet (Python's standard library has no Ed25519; the layout test covers the bytes
+  that are signed).
+
 ## Obligations of the app
 
 - Store a rotation's secret in the OS keychain before sending `key.rotate`.
+- On a `welcome` of protocol version 3, send `device.prove` for its challenge before anything
+  but `device.keys` (the engine sends it right after `device.keys`, before the log fetch).
 - Store `SendCounter::last` before sending a record and `ReplayGuard::marks` after accepting
   one. The app (step F part 2a) also resumes the counter from at least Unix milliseconds times
   1024 on every start, so a lost or restored state file cannot repeat a counter; a failed write

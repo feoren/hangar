@@ -33,7 +33,7 @@ use serde_json::value::RawValue;
 use sha2::{Digest, Sha256};
 use thiserror::Error;
 
-use crate::e2e::{KeyProof, LogHash, PublicKey};
+use crate::e2e::{Challenge, KeyProof, LogHash, PublicKey};
 use crate::hash::{KeyedHash, PathHashes};
 use crate::ids::{
     BlobId, Ciphertext, DeviceId, Epoch, MemberId, OpId, Sealed, Seq, SessionKey, StreamId, TeamId,
@@ -44,7 +44,7 @@ use crate::limits::{
     MAX_INLINE_CIPHERTEXT_LEN, MAX_KEY_PACKAGES, MAX_LOG_ENTRIES, MAX_PREV_HASHES,
     MAX_WRAPPED_KEYS,
 };
-use crate::{ENVELOPE_VERSION, MIN_PROTOCOL_VERSION, PROTOCOL_VERSION};
+use crate::{ENVELOPE_VERSION, MIN_PROTOCOL_VERSION, PROOF_PROTOCOL_VERSION, PROTOCOL_VERSION};
 
 /// Why a frame was not accepted. The server answers each with an `err` code
 /// ([`DecodeError::code`]); the text never contains the frame's content.
@@ -379,6 +379,37 @@ pub struct BlobGet {
     pub blob: BlobId,
 }
 
+/// `blob.delete` (protocol version 3): remove a stored blob of the frame's team for good, which
+/// frees its bytes in the team's and the author's storage quota. Allowed for the blob's author
+/// (the member that stored it, from any of its devices) and for an owner or admin (the lower of
+/// log role and ticket role). Answered with `ack`; `notFound` for a blob the team does not have
+/// (also one already deleted, and one of another team, so nothing is told about other teams),
+/// `forbidden` for anyone else. Deduplicated by op id, so a retry of the first delete gets its
+/// `ack`. No event: nothing lists blobs yet, so nobody else needs to forget an id.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct BlobDelete {
+    pub blob: BlobId,
+}
+
+/// `device.prove` (protocol version 3): the answer to the `welcome`'s [`Welcome::challenge`]. The
+/// device signs, with the Ed25519 key `sign`, the challenge together with the team, its holder
+/// (the member from the ticket and the device from `hello`), `sign` itself and the negotiated
+/// version (domain separated, format and check: `hangar_team_crypto::possession`). The relay
+/// keeps `sign` as the connection's proven key when the signature verifies and answers `ack`;
+/// otherwise `forbidden`, and the connection stays unproven. The device counts as the device
+/// the membership log lists only while the log's signing key for that holder is the proven key,
+/// so the proof carries the key instead of trusting `device.keys`. Not deduplicated: verifying
+/// the same proof again gives the same result.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct DeviceProve {
+    /// The Ed25519 public key that made `signature`.
+    pub sign: PublicKey,
+    /// The signature over the challenge statement (64 bytes, like a [`KeyProof`]).
+    pub signature: KeyProof,
+}
+
 /// `device.keys`: the sending device's public keys and its proof of possession (step E).
 /// Replaces earlier ones; the relay lists them in `devices`. Clients trust a device's keys only
 /// when the membership log vouches for them, so a relay that swaps keys is caught there.
@@ -550,8 +581,14 @@ pub enum ClientMessage {
     BlobPut(BlobPut),
     #[serde(rename = "blob.get")]
     BlobGet(BlobGet),
+    /// Protocol version 3.
+    #[serde(rename = "blob.delete")]
+    BlobDelete(BlobDelete),
     #[serde(rename = "device.keys")]
     DeviceKeys(DeviceKeys),
+    /// Protocol version 3: the answer to the `welcome`'s challenge.
+    #[serde(rename = "device.prove")]
+    DeviceProve(DeviceProve),
     /// The team's devices and their public keys; answered with `devices`. No body.
     #[serde(rename = "devices.get")]
     DevicesGet,
@@ -613,7 +650,9 @@ impl ClientMessage {
             ClientMessage::ClaimClear(_) => "claim.clear",
             ClientMessage::BlobPut(_) => "blob.put",
             ClientMessage::BlobGet(_) => "blob.get",
+            ClientMessage::BlobDelete(_) => "blob.delete",
             ClientMessage::DeviceKeys(_) => "device.keys",
+            ClientMessage::DeviceProve(_) => "device.prove",
             ClientMessage::DevicesGet => "devices.get",
             ClientMessage::DeviceRemove(_) => "device.remove",
             ClientMessage::MemberLogAppend(_) => "memberlog.append",
@@ -633,8 +672,31 @@ impl ClientMessage {
     pub fn since(&self) -> u16 {
         match self {
             ClientMessage::NotesKeysGet | ClientMessage::NotesKeysSet(_) => 2,
+            ClientMessage::BlobDelete(_) | ClientMessage::DeviceProve(_) => PROOF_PROTOCOL_VERSION,
             _ => 1,
         }
+    }
+
+    /// Whether the relay takes this frame from a device that does not count as a device of the
+    /// team's membership log yet: in a team with a log, a device the log does not list, and on
+    /// a connection of protocol version 3 or newer also a listed device that has not proven
+    /// possession of the log's signing key with `device.prove` (rule and helper:
+    /// `hangar_team_crypto::possession`). Such a device may register its keys (`device.keys`),
+    /// prove itself (`device.prove`), read the directory and the log (`devices.get`,
+    /// `memberlog.get`) and keep its connection (`hello`, `ticket.renew`, `ping`); anything
+    /// else is `forbidden`. That is everything a device waiting for its admission needs, and
+    /// exactly what Hangar sends before the log lists it.
+    pub fn allowed_before_proof(&self) -> bool {
+        matches!(
+            self,
+            ClientMessage::Hello(_)
+                | ClientMessage::TicketRenew(_)
+                | ClientMessage::DeviceKeys(_)
+                | ClientMessage::DeviceProve(_)
+                | ClientMessage::DevicesGet
+                | ClientMessage::MemberLogGet(_)
+                | ClientMessage::Ping
+        )
     }
 
     /// Only `ping` belongs to the connection; everything else to one team.
@@ -644,13 +706,14 @@ impl ClientMessage {
 
     /// Whether the relay remembers this intent's answer by op id ([`crate::log::RecentOps`]):
     /// a retry with the same op id gets the first answer and is not applied again. True for the
-    /// intents that change shared state once: every `task.*`, `blob.put`, `device.remove`,
-    /// `memberlog.append`, `key.rotate`, `key.wrap` and `notes.keys.set`.
+    /// intents that change shared state once: every `task.*`, `blob.put`, `blob.delete`,
+    /// `device.remove`, `memberlog.append`, `key.rotate`, `key.wrap` and `notes.keys.set`.
     ///
     /// False for the rest. `presence.set`, `heartbeat`, `claim.set`, `claim.clear` and
     /// `device.keys` replace the sender's own state, so applying a retry again does no harm;
     /// they are applied and answered with `ack` every time, and so is `ticket.renew`, which
-    /// verifies and applies the same ticket to the same result. Reads (`blob.get`, `key.get`,
+    /// verifies and applies the same ticket to the same result, and `device.prove`, which
+    /// verifies the same signature to the same result. Reads (`blob.get`, `key.get`,
     /// `devices.get`, `memberlog.get`), `hello` and `ping` are answered every time.
     pub fn deduplicated(&self) -> bool {
         matches!(
@@ -663,6 +726,7 @@ impl ClientMessage {
                 | ClientMessage::TaskForceRelease(_)
                 | ClientMessage::TaskRekey(_)
                 | ClientMessage::BlobPut(_)
+                | ClientMessage::BlobDelete(_)
                 | ClientMessage::DeviceRemove(_)
                 | ClientMessage::MemberLogAppend(_)
                 | ClientMessage::KeyRotate(_)
@@ -709,7 +773,9 @@ impl ClientMessage {
             | ClientMessage::TaskForceRelease(_)
             | ClientMessage::ClaimClear(_)
             | ClientMessage::BlobGet(_)
+            | ClientMessage::BlobDelete(_)
             | ClientMessage::DeviceKeys(_)
+            | ClientMessage::DeviceProve(_)
             | ClientMessage::DevicesGet
             | ClientMessage::DeviceRemove(_)
             | ClientMessage::MemberLogAppend(_)
@@ -778,7 +844,9 @@ impl ClientMessage {
             | ClientMessage::TaskRekey(_)
             | ClientMessage::ClaimClear(_)
             | ClientMessage::BlobGet(_)
+            | ClientMessage::BlobDelete(_)
             | ClientMessage::DeviceKeys(_)
+            | ClientMessage::DeviceProve(_)
             | ClientMessage::DevicesGet
             | ClientMessage::MemberLogGet(_)
             | ClientMessage::KeyGet(_)
@@ -824,6 +892,11 @@ fn inline(field: &'static str, value: Option<&Sealed>) -> Result<(), (&'static s
 /// After `resync_required` the snapshot ends with a `welcome` whose `head` is the new cursor.
 /// The envelope's `id` is the op id of the `hello` it answers (also for the `welcome` that ends
 /// a snapshot), so a client with several teams on one connection can match it.
+///
+/// `challenge` (protocol version 3): present exactly when `proto` is 3 or newer, and then left
+/// out of the text entirely when absent, so a relay of version 3 writes the same `welcome` as one
+/// of version 2 to a connection that negotiated 2 (an app of version 2 refuses any field it does
+/// not know). The device answers it with [`DeviceProve`].
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Welcome {
@@ -833,6 +906,9 @@ pub struct Welcome {
     pub head: Seq,
     pub member: MemberId,
     pub epoch: Epoch,
+    /// Random per `welcome`: one team on one connection.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub challenge: Option<Challenge>,
 }
 
 /// Why the server asks for a resync instead of replaying.
@@ -1458,6 +1534,13 @@ impl ServerMessage {
             {
                 Err("an offline device has no status")
             }
+            ServerMessage::Welcome(m) => {
+                match (m.proto >= PROOF_PROTOCOL_VERSION, m.challenge.is_some()) {
+                    (true, false) => Err("a welcome of protocol version 3 carries a challenge"),
+                    (false, true) => Err("a welcome before protocol version 3 has no challenge"),
+                    _ => Ok(()),
+                }
+            }
             _ => Ok(()),
         }
     }
@@ -1652,7 +1735,9 @@ pub const CLIENT_KINDS: &[&str] = &[
     "claim.clear",
     "blob.put",
     "blob.get",
+    "blob.delete",
     "device.keys",
+    "device.prove",
     "devices.get",
     "device.remove",
     "memberlog.append",
@@ -1737,7 +1822,9 @@ fn client_message(kind: &str, body: Option<&RawValue>) -> Result<ClientMessage, 
         "claim.clear" => ClientMessage::ClaimClear(parse(kind, body)?),
         "blob.put" => ClientMessage::BlobPut(parse(kind, body)?),
         "blob.get" => ClientMessage::BlobGet(parse(kind, body)?),
+        "blob.delete" => ClientMessage::BlobDelete(parse(kind, body)?),
         "device.keys" => ClientMessage::DeviceKeys(parse(kind, body)?),
+        "device.prove" => ClientMessage::DeviceProve(parse(kind, body)?),
         "devices.get" => no_body(kind, body, ClientMessage::DevicesGet)?,
         "device.remove" => ClientMessage::DeviceRemove(parse(kind, body)?),
         "memberlog.append" => ClientMessage::MemberLogAppend(parse(kind, body)?),
@@ -1980,10 +2067,17 @@ mod tests {
             ClientMessage::BlobGet(BlobGet {
                 blob: BlobId::new("b1").unwrap(),
             }),
+            ClientMessage::BlobDelete(BlobDelete {
+                blob: BlobId::new("b1").unwrap(),
+            }),
             ClientMessage::DeviceKeys(DeviceKeys {
                 sign: PublicKey::from_bytes([1; 32]),
                 kem: PublicKey::from_bytes([2; 32]),
                 proof: KeyProof::from_bytes([3; 64]),
+            }),
+            ClientMessage::DeviceProve(DeviceProve {
+                sign: PublicKey::from_bytes([1; 32]),
+                signature: KeyProof::from_bytes([4; 64]),
             }),
             ClientMessage::DevicesGet,
             ClientMessage::DeviceRemove(DeviceRemove {
@@ -2059,6 +2153,15 @@ mod tests {
                 head: Seq(50),
                 member: MemberId::new("m1").unwrap(),
                 epoch: Epoch(2),
+                challenge: None,
+            }),
+            ServerMessage::Welcome(Welcome {
+                proto: 3,
+                stream: StreamId::new("s1").unwrap(),
+                head: Seq(50),
+                member: MemberId::new("m1").unwrap(),
+                epoch: Epoch(2),
+                challenge: Some(Challenge::from_bytes([7; 32])),
             }),
             ServerMessage::ResyncRequired(ResyncRequired {
                 stream: StreamId::new("s2").unwrap(),
@@ -2299,7 +2402,7 @@ mod tests {
         let hello = encode_client(&client(all_client_messages().remove(0))).unwrap();
         // Fields come out in declaration order.
         assert!(
-            hello.contains(r#""proto":{"min":1,"max":2},"lastSeq":{"stream":"s1","seq":41}"#),
+            hello.contains(r#""proto":{"min":1,"max":3},"lastSeq":{"stream":"s1","seq":41}"#),
             "{hello}"
         );
     }
@@ -2555,14 +2658,17 @@ mod tests {
             head: Seq(0),
             member: MemberId::new("m").unwrap(),
             epoch: Epoch(1),
+            challenge: None,
         };
         assert_eq!(check_welcome(ProtoRange::CURRENT, &welcome), Ok(()));
         welcome.proto = 2;
         assert_eq!(check_welcome(ProtoRange::CURRENT, &welcome), Ok(()));
         welcome.proto = 3;
+        assert_eq!(check_welcome(ProtoRange::CURRENT, &welcome), Ok(()));
+        welcome.proto = 4;
         assert_eq!(
             check_welcome(ProtoRange::CURRENT, &welcome),
-            Err(UnexpectedVersion { chosen: 3 })
+            Err(UnexpectedVersion { chosen: 4 })
         );
     }
 
@@ -2572,10 +2678,15 @@ mod tests {
     fn version_two_meets_version_one_on_version_one() {
         let old = ProtoRange::new(1, 1).unwrap();
         assert_eq!(ProtoRange::CURRENT.min(), 1);
-        assert_eq!(ProtoRange::CURRENT.max(), 2);
+        assert_eq!(ProtoRange::CURRENT.max(), 3);
         assert_eq!(ProtoRange::CURRENT.negotiate(old), Some(1));
         assert_eq!(old.negotiate(ProtoRange::CURRENT), Some(1));
-        assert_eq!(ProtoRange::CURRENT.negotiate(ProtoRange::CURRENT), Some(2));
+        // An app or relay of version 2 (the notes key ring) meets this crate on version 2, so
+        // neither side sends a version 3 kind or field to it.
+        let two = ProtoRange::new(1, 2).unwrap();
+        assert_eq!(ProtoRange::CURRENT.negotiate(two), Some(2));
+        assert_eq!(two.negotiate(ProtoRange::CURRENT), Some(2));
+        assert_eq!(ProtoRange::CURRENT.negotiate(ProtoRange::CURRENT), Some(3));
         for message in all_client_messages() {
             let text = encode_client(&client(message)).unwrap();
             assert!(text.starts_with(r#"{"v":1,"#), "{text}");
@@ -2603,10 +2714,165 @@ mod tests {
             .collect();
         server.dedup();
         assert_eq!(server, ["notes.keys", "notes.keys.updated"]);
-        assert!(all_client_messages().iter().all(|m| m.since() <= 2));
         assert!(all_server_messages()
             .iter()
             .all(|m| m.since() == 1 || !m.loggable()));
+    }
+
+    /// Version 3 adds two client kinds and no server kind: the proof of possession and deleting
+    /// a blob. Its only server change is the `welcome`'s challenge, which a relay writes only on
+    /// a connection that negotiated version 3.
+    #[test]
+    fn version_three_adds_the_proof_and_blob_delete() {
+        let client: Vec<_> = all_client_messages()
+            .into_iter()
+            .filter(|m| m.since() == 3)
+            .map(|m| m.kind())
+            .collect();
+        assert_eq!(client, ["blob.delete", "device.prove"]);
+        assert!(all_client_messages().iter().all(|m| m.since() <= 3));
+        assert!(all_server_messages().iter().all(|m| m.since() <= 2));
+    }
+
+    /// The exact text a version 2 relay sent: an app of version 2 refuses any other field in a
+    /// `welcome` (`deny_unknown_fields`), so a welcome without a challenge must not name it.
+    #[test]
+    fn a_welcome_without_a_challenge_is_the_version_two_text() {
+        let welcome = ServerMessage::Welcome(Welcome {
+            proto: 2,
+            stream: StreamId::new("s").unwrap(),
+            head: Seq(4),
+            member: MemberId::new("m").unwrap(),
+            epoch: Epoch(1),
+            challenge: None,
+        });
+        let text = encode_server(&server(welcome)).unwrap();
+        assert_eq!(
+            text,
+            r#"{"v":1,"id":"op-1","team":"t1","type":"welcome","body":{"proto":2,"stream":"s","head":4,"member":"m","epoch":1}}"#
+        );
+        let three = ServerMessage::Welcome(Welcome {
+            proto: 3,
+            stream: StreamId::new("s").unwrap(),
+            head: Seq(4),
+            member: MemberId::new("m").unwrap(),
+            epoch: Epoch(1),
+            challenge: Some(Challenge::from_bytes([0; 32])),
+        });
+        let text = encode_server(&server(three.clone())).unwrap();
+        assert!(
+            text.ends_with(&format!(
+                r#""epoch":1,"challenge":"{}"}}}}"#,
+                "A".repeat(43)
+            )),
+            "{text}"
+        );
+        assert_eq!(decode_server(&text).unwrap().message, three);
+    }
+
+    /// Version 3 and the challenge come together: a relay cannot build a welcome of version 3
+    /// without one or an older one with one, and the app refuses either when decoding.
+    #[test]
+    fn the_challenge_comes_with_version_three_only() {
+        let welcome = |proto: u16, challenge: Option<Challenge>| {
+            ServerMessage::Welcome(Welcome {
+                proto,
+                stream: StreamId::new("s").unwrap(),
+                head: Seq(0),
+                member: MemberId::new("m").unwrap(),
+                epoch: Epoch(1),
+                challenge,
+            })
+        };
+        let some = Some(Challenge::from_bytes([9; 32]));
+        assert!(matches!(
+            encode_server(&server(welcome(3, None))),
+            Err(EncodeError::Invalid {
+                kind: "welcome",
+                ..
+            })
+        ));
+        assert!(matches!(
+            encode_server(&server(welcome(2, some))),
+            Err(EncodeError::Invalid {
+                kind: "welcome",
+                ..
+            })
+        ));
+        assert!(encode_server(&server(welcome(4, some))).is_ok());
+        let without = r#"{"v":1,"id":"o","team":"t","type":"welcome","body":{"proto":3,"stream":"s","head":0,"member":"m","epoch":1}}"#;
+        assert!(matches!(
+            decode_server(without),
+            Err(DecodeError::Body {
+                kind: "welcome",
+                ..
+            })
+        ));
+        let old_with = format!(
+            r#"{{"v":1,"id":"o","team":"t","type":"welcome","body":{{"proto":2,"stream":"s","head":0,"member":"m","epoch":1,"challenge":"{}"}}}}"#,
+            "A".repeat(43)
+        );
+        assert!(matches!(
+            decode_server(&old_with),
+            Err(DecodeError::Body {
+                kind: "welcome",
+                ..
+            })
+        ));
+        let null = r#"{"v":1,"id":"o","team":"t","type":"welcome","body":{"proto":3,"stream":"s","head":0,"member":"m","epoch":1,"challenge":null}}"#;
+        assert!(decode_server(null).is_err());
+    }
+
+    /// Until a device proved possession of the signing key the log lists for it, the relay
+    /// takes only what a device needs to register, read the log and prove itself.
+    #[test]
+    fn only_registration_reads_and_the_proof_pass_before_the_proof() {
+        let open: Vec<_> = all_client_messages()
+            .into_iter()
+            .filter(ClientMessage::allowed_before_proof)
+            .map(|m| m.kind())
+            .collect();
+        assert_eq!(
+            open,
+            [
+                "hello",
+                "ticket.renew",
+                "device.keys",
+                "device.prove",
+                "devices.get",
+                "memberlog.get",
+                "ping"
+            ]
+        );
+    }
+
+    #[test]
+    fn blob_delete_is_applied_once_and_the_proof_every_time() {
+        let delete = ClientMessage::BlobDelete(BlobDelete {
+            blob: BlobId::new("b1").unwrap(),
+        });
+        assert!(delete.deduplicated());
+        assert!(delete.epochs().is_empty());
+        let prove = ClientMessage::DeviceProve(DeviceProve {
+            sign: PublicKey::from_bytes([1; 32]),
+            signature: KeyProof::from_bytes([2; 64]),
+        });
+        assert!(!prove.deduplicated());
+        assert!(prove.epochs().is_empty());
+        let text = encode_client(&client(prove.clone())).unwrap();
+        assert_eq!(
+            text,
+            format!(
+                r#"{{"v":1,"id":"op-1","team":"t1","type":"device.prove","body":{{"sign":"{}","signature":"{}"}}}}"#,
+                PublicKey::from_bytes([1; 32]).to_base64url(),
+                KeyProof::from_bytes([2; 64]).to_base64url()
+            )
+        );
+        assert_eq!(decode_client(&text).unwrap().message, prove);
+        let ok = r#"{"v":1,"id":"o","team":"t","type":"blob.delete","body":{"blob":"b1"}}"#;
+        assert!(decode_client(ok).is_ok());
+        let extra = r#"{"v":1,"id":"o","team":"t","type":"blob.delete","body":{"blob":"b1","kind":"task"}}"#;
+        assert!(decode_client(extra).is_err());
     }
 
     #[test]
@@ -2993,6 +3259,7 @@ mod tests {
                 "task.force_release",
                 "task.rekey",
                 "blob.put",
+                "blob.delete",
                 "device.remove",
                 "memberlog.append",
                 "key.rotate",

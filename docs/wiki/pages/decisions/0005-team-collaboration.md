@@ -178,6 +178,9 @@ the protocol carries them.
   `blob.deleted`. The relay keeps metadata only.
 - **Protocol version:** `PROTOCOL_VERSION` goes from 1 to 2, `ProtoRange::CURRENT` becomes
   `{min: 1, max: 2}` on both sides, and `welcome.proto` names the version the connection speaks.
+  (Update 2026-11-25: version 2 went to the notes key ring and version 3 to
+  [[0020-proof-of-possession-at-hello]], which already brings `blob.delete` with these rights;
+  `blob.list`, `blob.stored` and `blob.deleted` would come with version 4.)
   Checked in the code: a relay of version 1 answers an unknown kind such as `blob.list` with
   `err badRequest` without an op id and closes the connection after more than 20 bad frames
   (`MAX_BAD_FRAMES` in the server's `src/relay/conn.rs`), and an app of version 1 ends the connection on any unknown server kind
