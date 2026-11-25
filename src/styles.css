@@ -14596,6 +14596,14 @@ button.sub-agent-card:focus-visible {
     color-mix(in srgb, var(--panel) 90%, transparent)
   );
   border-left: 1px solid color-mix(in srgb, var(--border) 70%, transparent);
+  /* Out to the pane's right and bottom edge: the pane's inset (.pane) spaces the terminal, not
+     the column. */
+  margin: 0 -4px -4px 0;
+}
+
+/* Up to the top edge too while nothing (split header, last prompt) stands above the row. */
+.pane > .pane-row:first-child > .crew-column {
+  margin-top: -8px;
 }
 
 .crew-column .crew-list {
