@@ -22,8 +22,11 @@ import {
   newlyBraked,
   nextDeliveries,
   parseLinkState,
+  mergeTargets,
   selectedForLink,
+  selectionVerdict,
   toggleSelection,
+  uniqueMemberName,
   validMemberName,
   type AutoDeliveryDeps,
   type LinkGroup,
@@ -159,7 +162,7 @@ describe("linking", () => {
     ).toBeNull();
     const two = state({ groups: [] });
     expect(linkOffer(two, { id: 3, status: "running" }, sessions)).toBe("link");
-    expect(linkOffer(lone, { id: 1, status: "running" }, sessions)).toBe("member");
+    expect(linkOffer(lone, { id: 1, status: "running" }, sessions)).toBe("grow");
     expect(linkOffer(two, { id: 5, status: "running" }, sessions)).toBeNull();
     expect(groupOf(lone, 2)?.id).toBe(1);
     expect(groupOf(lone, 3)).toBeUndefined();
@@ -201,7 +204,8 @@ describe("linking", () => {
     };
     const both = state({ groups: [group, other], sendable: new Set([1, 2, 3, 5, 7]) });
     const wide = [...sessions, { id: 7, status: "running" }];
-    expect(selectionPlan(both, wide, new Set([1, 3, 7]))).toBeNull();
+    // Two groups among the selection merge (see "merging groups").
+    expect(selectionPlan(both, wide, new Set([1, 3, 7]))?.kind).toBe("merge");
     expect(selectionPlan(both, wide, new Set([3, 7]))).toEqual({
       kind: "add",
       group: other,
@@ -235,6 +239,128 @@ describe("linking", () => {
     expect(nameProblem(["app", "App"])).toBe("invalid");
     expect(nameProblem(["app", "all"])).toBe("reserved");
     expect(nameProblem(["app", "app "])).toBe("twice");
+  });
+});
+
+describe("merging groups", () => {
+  const other: LinkGroup = {
+    id: 2,
+    color: 4,
+    askFirst: false,
+    braked: false,
+    members: [
+      { session: 3, name: "relay", role: "member" },
+      { session: 5, name: "web", role: "lead" },
+    ],
+  };
+  const wide = [
+    { id: 1, status: "running" },
+    { id: 2, status: "running" },
+    { id: 3, status: "running" },
+    { id: 5, status: "running" },
+    { id: 7, status: "running" },
+    { id: 8, status: "running" },
+  ];
+  const both = state({ groups: [group, other], sendable: new Set([1, 2, 3, 5, 7, 8]) });
+
+  it("merges two groups into the one whose row comes first on a tie, names made unique", () => {
+    expect(selectionPlan(both, wide, new Set([2, 3]))).toEqual({
+      kind: "merge",
+      group,
+      absorbed: [other],
+      // "web" is taken in the group that stays, so the newcomer steps aside.
+      members: [
+        { session: 3, name: "relay" },
+        { session: 5, name: "web-2" },
+      ],
+      ids: [],
+      // The group that stays has no lead; the other group's lead keeps leading.
+      lead: 5,
+      askFirst: false,
+    });
+  });
+
+  it("keeps the larger group and its lead", () => {
+    const larger: LinkGroup = {
+      ...other,
+      members: [
+        { session: 3, name: "relay", role: "member" },
+        { session: 5, name: "pi", role: "member" },
+        { session: 7, name: "docs", role: "lead" },
+      ],
+    };
+    const led: LinkGroup = {
+      ...group,
+      members: [
+        { session: 1, name: "app", role: "lead" },
+        { session: 2, name: "web", role: "member" },
+      ],
+    };
+    const current = state({ groups: [led, larger], sendable: new Set([1, 2, 3, 5, 7, 8]) });
+    const plan = selectionPlan(current, wide, new Set([1, 3]));
+    expect(plan?.kind === "merge" ? plan.group.id : null).toBe(2);
+    expect(plan?.kind === "merge" ? plan.lead : null).toBe(7);
+    expect(plan?.kind === "merge" ? plan.members.map((m) => m.name) : []).toEqual(["app", "web"]);
+  });
+
+  it("adds single sessions along with a merge, and keeps asking first when one group asked", () => {
+    const asking = { ...other, askFirst: true };
+    const current = state({ groups: [group, asking], sendable: new Set([1, 2, 3, 5, 7, 8]) });
+    const plan = selectionPlan(current, wide, new Set([8, 5, 1]));
+    expect(plan?.kind).toBe("merge");
+    expect(plan?.kind === "merge" ? plan.ids : null).toEqual([8]);
+    expect(plan?.kind === "merge" ? plan.askFirst : null).toBe(true);
+  });
+
+  it("refuses a merge beyond the limit and says why", () => {
+    const six = Array.from({ length: 6 }, (_, index) => ({
+      session: 10 + index,
+      name: `m${String(index)}`,
+      role: "member" as const,
+    }));
+    const big: LinkGroup = { ...group, members: six };
+    const rows = [...wide, ...six.map((m) => ({ id: m.session, status: "running" }))];
+    const current = state({
+      groups: [big, other],
+      sendable: new Set([1, 2, 3, 5, 7, 8, ...six.map((m) => m.session)]),
+    });
+    // 6 + 2 fits exactly; one more does not.
+    expect(selectionPlan(current, rows, new Set([10, 3]))?.kind).toBe("merge");
+    expect(selectionVerdict(current, rows, new Set([10, 3, 8]))).toEqual({ problem: "tooMany" });
+    expect(selectionPlan(current, rows, new Set([10, 3, 8]))).toBeNull();
+  });
+
+  it("asks for one more session where Link has nothing to do", () => {
+    const free = state({ groups: [] });
+    expect(selectionVerdict(free, wide, new Set([3]))).toEqual({ problem: "more" });
+    expect(selectionVerdict(both, wide, new Set([1, 2]))).toEqual({ problem: "more" });
+    expect(selectionVerdict(both, wide, new Set([1, 7]))).toEqual({
+      plan: { kind: "add", group, ids: [7] },
+    });
+  });
+
+  it("makes a name unique within 32 characters", () => {
+    expect(uniqueMemberName("web", new Set(["app"]))).toBe("web");
+    expect(uniqueMemberName("web", new Set(["web", "web-2"]))).toBe("web-3");
+    const long = "x".repeat(32);
+    const unique = uniqueMemberName(long, new Set([long]));
+    expect(unique).toBe(`${"x".repeat(30)}-2`);
+    expect(validMemberName(unique)).toBe(true);
+  });
+
+  it("offers a member Link with … while its group has room and someone could join", () => {
+    // Session 7 is in no group and could join; the other group could merge.
+    expect(linkOffer(both, { id: 1, status: "running" }, wide)).toBe("grow");
+    expect(mergeTargets(both, group).map((entry) => entry.id)).toEqual([2]);
+    // Nobody else at all: only editing and unlinking.
+    expect(linkOffer(state(), { id: 1, status: "running" }, sessions.slice(0, 2))).toBe("member");
+    const eight = Array.from({ length: MAX_LINK_MEMBERS }, (_, index) => ({
+      session: 10 + index,
+      name: `m${String(index)}`,
+      role: "member" as const,
+    }));
+    const full = state({ groups: [{ ...group, members: eight }], sendable: new Set([3, 10]) });
+    expect(linkOffer(full, { id: 10, status: "running" }, wide)).toBe("member");
   });
 });
 

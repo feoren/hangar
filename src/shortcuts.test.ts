@@ -19,6 +19,8 @@ import {
   formatShortcut,
   ignoresRepeat,
   isReloadKey,
+  isSelectClick,
+  selectClickLabel,
   matchShortcut,
   rowMoveStep,
   SHORTCUT_LABELS,
@@ -522,5 +524,28 @@ describe("dictation with the right Ctrl key", () => {
   it("is never taken from the terminal", () => {
     expect(isDictationKeyEvent("controlRight", key("Control", "ControlRight"))).toBe(false);
     expect(isDictationKeyEvent("controlRight", key("c", "KeyC"))).toBe(false);
+  });
+});
+
+describe("select click", () => {
+  it("takes Ctrl or Cmd with a click, not with Alt or Shift", () => {
+    const click = (mods: Partial<{ ctrl: boolean; meta: boolean; alt: boolean; shift: boolean }>) =>
+      isSelectClick({
+        ctrlKey: mods.ctrl ?? false,
+        metaKey: mods.meta ?? false,
+        altKey: mods.alt ?? false,
+        shiftKey: mods.shift ?? false,
+      });
+    expect(click({ ctrl: true })).toBe(true);
+    expect(click({ meta: true })).toBe(true);
+    expect(click({})).toBe(false);
+    expect(click({ ctrl: true, shift: true })).toBe(false);
+    expect(click({ ctrl: true, alt: true })).toBe(false);
+  });
+
+  it("names the gesture in the UI language and with the macOS key", () => {
+    expect(selectClickLabel(createTranslator("de"), "windows")).toBe("Strg+Klick");
+    expect(selectClickLabel(createTranslator("en"), "linux")).toBe("Ctrl+click");
+    expect(selectClickLabel(createTranslator("en"), "mac")).toBe("⌘+click");
   });
 });

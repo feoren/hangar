@@ -15390,7 +15390,8 @@ button.sub-agent-card:focus-visible {
   outline-offset: -2px;
 }
 
-/* Below the list while rows are selected: the count, "Link" from two on, and the way out. */
+/* Below the list while rows are selected: the count, "Link" (off with a short reason where it
+   cannot work), and the way out. */
 .link-selection {
   display: flex;
   flex: none;
@@ -15404,13 +15405,24 @@ button.sub-agent-card:focus-visible {
   font-size: 12px;
 }
 
-.link-selection-count {
+.link-selection-text {
+  display: flex;
   flex: 1;
+  flex-direction: column;
   min-width: 0;
+}
+
+.link-selection-count {
   overflow: hidden;
-  color: var(--muted);
+  color: var(--text);
   white-space: nowrap;
   text-overflow: ellipsis;
+}
+
+/* Why "Link" is off: may wrap, never cut, it is the only place that says so. */
+.link-selection-hint {
+  color: var(--muted);
+  line-height: 1.35;
 }
 
 .link-selection-link {

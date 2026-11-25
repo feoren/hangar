@@ -7,6 +7,7 @@ import type { Translate } from "./i18n";
 import type { LinkOffer } from "./links";
 import type { SessionView } from "./sessions";
 import { canExportReport } from "./sessionReport";
+import { selectClickLabel } from "./shortcuts";
 
 export type SessionAction =
   | "rename"
@@ -30,7 +31,14 @@ export type SessionAction =
   | "close";
 
 export type SessionMenuEntry =
-  { type: "action"; key: SessionAction; label: string } | { type: "separator"; key: string };
+  | {
+      type: "action";
+      key: SessionAction;
+      label: string;
+      /** Dimmed at the row's end: the quicker way to the same thing ("Ctrl+click"). */
+      shortcut?: string;
+    }
+  | { type: "separator"; key: string };
 
 /** What the queued-message entries offer: queue one, edit or discard it, or nothing. */
 export type QueueOffer = "offer" | "queued" | null;
@@ -76,7 +84,7 @@ export interface SessionMenuExtras {
   partner?: boolean;
   /**
    * Link groups (links.ts `linkOffer`): "Link with …" where another session could join, "Edit
-   * group" and "Unlink" for a member, nothing otherwise.
+   * group" and "Unlink" for a member, both for a member whose group can grow, nothing otherwise.
    */
   link?: LinkOffer;
   /**
@@ -156,10 +164,19 @@ export function sessionMenuEntries(
     ...(extras.partner === true
       ? [{ type: "action", key: "partner", label: t("partner.menu") } as const]
       : []),
-    ...(extras.link === "link"
-      ? [{ type: "action", key: "link", label: t("links.menu") } as const]
+    // Ctrl+click beside "Link with …": the sidebar's quicker way to pick several sessions,
+    // which nothing else on screen shows.
+    ...(extras.link === "link" || extras.link === "grow"
+      ? [
+          {
+            type: "action",
+            key: "link",
+            label: t("links.menu"),
+            shortcut: selectClickLabel(t),
+          } as const,
+        ]
       : []),
-    ...(extras.link === "member"
+    ...(extras.link === "member" || extras.link === "grow"
       ? [
           { type: "action", key: "linkEdit", label: t("links.edit") } as const,
           { type: "action", key: "linkHistory", label: t("links.history") } as const,

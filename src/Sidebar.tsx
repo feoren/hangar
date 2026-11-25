@@ -20,6 +20,7 @@ import {
   linkMarkText,
 } from "./LinkMark";
 import { toggleSelection, type LinkMark } from "./links";
+import { LinkSelectionBar, type SelectionState } from "./LinkSelectionBar";
 import { queuedPreview, type QueuedMessage } from "./messageQueue";
 import type { RecentSession } from "./recentlyOpened";
 import { RecentSessionList } from "./RecentSessionList";
@@ -66,7 +67,13 @@ import { revealInvisible } from "./invisible";
 import type { EdgeHint } from "./waitingHint";
 import { Revealed } from "./Revealed";
 import type { DropLine } from "./sessionDrag";
-import { formatShortcut, rowMoveStep, SHORTCUT_LABELS } from "./shortcuts";
+import {
+  formatShortcut,
+  isSelectClick,
+  rowMoveStep,
+  selectClickLabel,
+  SHORTCUT_LABELS,
+} from "./shortcuts";
 import { LayoutGlyph } from "./LayoutGlyph";
 import { placementText, type PanePlacement } from "./paneGlyph";
 import { Splitter } from "./Splitter";
@@ -133,6 +140,9 @@ import { litRows, TreeFlowElbow, TreeFlowRate, TreeFlowTrunk } from "./TreeFlowV
 import { useTreeFlow } from "./treeFlowStore";
 import { displayVersion } from "./version";
 import { VersionText } from "./VersionText";
+
+/** How long the selection bar says that a Ctrl or Cmd clicked session cannot be linked. */
+const REFUSED_HINT_MS = 5000;
 
 interface Props {
   sessions: SessionView[];
@@ -306,12 +316,15 @@ interface Props {
   onEditLinkGroup: (group: number) => void;
   /**
    * Sessions a Ctrl or Cmd click selects (links.ts `selectableForLink`): those that can be linked,
-   * and members, whose group the others then join.
+   * and members, whose group the others then join or merge with.
    */
   linkable: ReadonlySet<number>;
-  /** Whether "Link" does something with these selected sessions (links.ts `selectionPlan`). */
-  canLinkSelection: (ids: readonly number[]) => boolean;
-  /** Links the sessions selected with Ctrl or Cmd click, or adds them to the group among them. */
+  /** What "Link" would do with these selected sessions, or why not (links.ts `selectionVerdict`). */
+  linkSelectionState: (ids: readonly number[]) => SelectionState;
+  /**
+   * Links the sessions selected with Ctrl or Cmd click, adds them to the group among them, or
+   * merges the groups among them.
+   */
   onLinkSessions: (ids: number[]) => void;
   /** Link messages that wait for a click, per target row ("Ask before pasting", loop brake). */
   linkInbox: ReadonlyMap<number, readonly WaitingMessage[]>;
@@ -380,15 +393,28 @@ export function Sidebar(props: Props) {
   // Only what can still be linked counts: a session that ended or joined a group drops out.
   const linkPick = sessions.filter((s) => selected.has(s.id) && props.linkable.has(s.id));
   const chosenIds = new Set(linkPick.map((s) => s.id));
+  /** A Ctrl or Cmd click went to a session that cannot be linked: the bar says so briefly. */
+  const [refused, setRefused] = useState(false);
+  useEffect(() => {
+    if (!refused) return;
+    const timer = window.setTimeout(() => {
+      setRefused(false);
+    }, REFUSED_HINT_MS);
+    return () => {
+      window.clearTimeout(timer);
+    };
+  }, [refused]);
   const onSelectClick = (event: React.MouseEvent, id: number): boolean => {
-    if (!(event.ctrlKey || event.metaKey)) {
+    if (!isSelectClick(event)) {
       // A plain click opens the session and ends the selection.
       if (selected.size > 0) setSelected(new Set());
+      setRefused(false);
       return false;
     }
     const next = toggleSelection(chosenIds, id, props.linkable.has(id));
-    if (next === null) return false;
-    setSelected(next);
+    // A shell or an ended session: nothing is selected and nothing opens, the bar says why.
+    setRefused(next === null);
+    if (next !== null) setSelected(next);
     return true;
   };
   const cwdButton = useRef<HTMLButtonElement>(null);
@@ -1230,32 +1256,21 @@ export function Sidebar(props: Props) {
         <WaitingEdge edge="below" hint={edgeHints.below} onReveal={revealRow} />
       </div>
       {/* Rows selected with Ctrl or Cmd click: link them, or end the selection. */}
-      {linkPick.length > 0 && (
-        <div className="link-selection" role="group" aria-label={t("links.title")}>
-          <span className="link-selection-count">
-            {t("links.selected", { count: linkPick.length })}
-          </span>
-          {props.canLinkSelection(linkPick.map((s) => s.id)) && (
-            <button
-              type="button"
-              className="primary-button link-selection-link"
-              onClick={() => {
-                props.onLinkSessions(linkPick.map((s) => s.id));
-                setSelected(new Set());
-              }}
-            >
-              {t("links.link")}
-            </button>
-          )}
-          <IconButton
-            label={t("links.clearSelection")}
-            onClick={() => {
-              setSelected(new Set());
-            }}
-          >
-            <CloseIcon />
-          </IconButton>
-        </div>
+      {(linkPick.length > 0 || refused) && (
+        <LinkSelectionBar
+          count={linkPick.length}
+          state={props.linkSelectionState(linkPick.map((s) => s.id))}
+          refused={refused}
+          clickLabel={selectClickLabel(t)}
+          onLink={() => {
+            props.onLinkSessions(linkPick.map((s) => s.id));
+            setSelected(new Set());
+          }}
+          onClear={() => {
+            setSelected(new Set());
+            setRefused(false);
+          }}
+        />
       )}
       {groupingMenu !== null && (
         <PopupMenu

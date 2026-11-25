@@ -49,6 +49,7 @@ const de = {
   "dialog.resizeSize": "Größe ändern",
 
   "key.ctrl": "Strg",
+  "key.click": "Klick",
   "key.shift": "Umschalt",
   "key.space": "Leertaste",
 
@@ -349,6 +350,10 @@ const de = {
   "links.introHide": "Text ausblenden",
   "links.selected": "{count} ausgewählt",
   "links.clearSelection": "Auswahl aufheben",
+  "links.selectMore": "{click} auf eine weitere Session, um sie zu verknüpfen.",
+  "links.linkWithGroup": "Mit Gruppe verknüpfen: {names}",
+  "links.growHelp":
+    "Füge dieser Gruppe Sessions hinzu oder verknüpfe sie mit einer anderen Gruppe zu einer.",
   "links.notReady": "„{session}“ war nicht bereit. Die Nachricht wartet auf deinen Klick.",
   "links.namesHelp": "Mit diesen Namen sprechen sich die Agenten gegenseitig an.",
   "links.unattended": "ohne Rückfragen",
@@ -2459,6 +2464,7 @@ const en: Record<MessageKey, string> = {
   "dialog.resizeSize": "Resize",
 
   "key.ctrl": "Ctrl",
+  "key.click": "click",
   "key.shift": "Shift",
   "key.space": "Space",
 
@@ -2756,6 +2762,9 @@ const en: Record<MessageKey, string> = {
   "links.introHide": "Hide message",
   "links.selected": "{count} selected",
   "links.clearSelection": "Clear selection",
+  "links.selectMore": "{click} one more session to link it.",
+  "links.linkWithGroup": "Link with group: {names}",
+  "links.growHelp": "Add sessions to this group, or link it with another group into one.",
   "links.notReady": "“{session}” was not ready. The message waits for your click.",
   "links.namesHelp": "These are the names the agents use to address each other.",
   "links.unattended": "without prompts",
@@ -4821,6 +4830,7 @@ const el: Record<MessageKey, string> = {
   "dialog.resizeSize": "Αλλαγή μεγέθους",
 
   "key.ctrl": "Ctrl",
+  "key.click": "κλικ",
   "key.shift": "Shift",
   "key.space": "Διάστημα",
 
@@ -5128,6 +5138,9 @@ const el: Record<MessageKey, string> = {
   "links.introHide": "Απόκρυψη μηνύματος",
   "links.selected": "Επιλεγμένα: {count}",
   "links.clearSelection": "Κατάργηση επιλογής",
+  "links.selectMore": "{click} σε ένα ακόμη session για σύνδεση.",
+  "links.linkWithGroup": "Σύνδεση με την ομάδα: {names}",
+  "links.growHelp": "Πρόσθεσε sessions σε αυτή την ομάδα ή σύνδεσέ τη με άλλη ομάδα σε μία.",
   "links.notReady": "Το «{session}» δεν ήταν έτοιμο. Το μήνυμα περιμένει το κλικ σου.",
   "links.namesHelp": "Με αυτά τα ονόματα οι agents απευθύνονται ο ένας στον άλλον.",
   "links.unattended": "χωρίς ερωτήσεις",
@@ -7260,6 +7273,7 @@ const es: Record<MessageKey, string> = {
   "dialog.resizeSize": "Cambiar el tamaño",
 
   "key.ctrl": "Ctrl",
+  "key.click": "clic",
   "key.shift": "Mayús",
   "key.space": "Espacio",
 
@@ -7563,6 +7577,9 @@ const es: Record<MessageKey, string> = {
   "links.introHide": "Ocultar mensaje",
   "links.selected": "{count} seleccionadas",
   "links.clearSelection": "Quitar selección",
+  "links.selectMore": "{click} en otra sesión para vincularla.",
+  "links.linkWithGroup": "Vincular con el grupo: {names}",
+  "links.growHelp": "Añade sesiones a este grupo o vincúlalo con otro grupo en uno solo.",
   "links.notReady": "«{session}» no estaba lista. El mensaje espera tu clic.",
   "links.namesHelp": "Con estos nombres se dirigen los agentes entre sí.",
   "links.unattended": "sin preguntas",
@@ -9673,6 +9690,7 @@ const fr: Record<MessageKey, string> = {
   "dialog.resizeSize": "Redimensionner",
 
   "key.ctrl": "Ctrl",
+  "key.click": "clic",
   "key.shift": "Maj",
   "key.space": "Espace",
 
@@ -9977,6 +9995,10 @@ const fr: Record<MessageKey, string> = {
   "links.introHide": "Masquer le message",
   "links.selected": "Sélectionnées : {count}",
   "links.clearSelection": "Annuler la sélection",
+  "links.selectMore": "{click} sur une autre session pour la relier.",
+  "links.linkWithGroup": "Relier au groupe : {names}",
+  "links.growHelp":
+    "Ajoute des sessions à ce groupe ou relie-le à un autre groupe pour n’en faire qu’un.",
   "links.notReady": "« {session} » n’était pas prête. Le message attend ton clic.",
   "links.namesHelp": "Ce sont les noms avec lesquels les agents s’adressent les uns aux autres.",
   "links.unattended": "sans questions",
@@ -12111,6 +12133,7 @@ const it: Record<MessageKey, string> = {
   "dialog.resizeSize": "Ridimensiona",
 
   "key.ctrl": "Ctrl",
+  "key.click": "clic",
   "key.shift": "Maiusc",
   "key.space": "Spazio",
 
@@ -12411,6 +12434,10 @@ const it: Record<MessageKey, string> = {
   "links.introHide": "Nascondi messaggio",
   "links.selected": "Selezionate: {count}",
   "links.clearSelection": "Annulla selezione",
+  "links.selectMore": "{click} su un’altra sessione per collegarla.",
+  "links.linkWithGroup": "Collega al gruppo: {names}",
+  "links.growHelp":
+    "Aggiungi sessioni a questo gruppo o collegalo a un altro gruppo per farne uno solo.",
   "links.notReady": "«{session}» non era pronta. Il messaggio attende il tuo clic.",
   "links.namesHelp": "Sono i nomi con cui gli agenti si rivolgono l’uno all’altro.",
   "links.unattended": "senza domande",
@@ -14524,6 +14551,7 @@ const ja: Record<MessageKey, string> = {
   "dialog.resizeSize": "サイズを変更",
 
   "key.ctrl": "Ctrl",
+  "key.click": "クリック",
   "key.shift": "Shift",
   "key.space": "スペース",
 
@@ -14833,6 +14861,9 @@ const ja: Record<MessageKey, string> = {
   "links.introHide": "文面を隠す",
   "links.selected": "{count} 件選択中",
   "links.clearSelection": "選択を解除",
+  "links.selectMore": "もう1つのセッションを {click} すると連携できます。",
+  "links.linkWithGroup": "グループと連携: {names}",
+  "links.growHelp": "このグループにセッションを追加するか、別のグループと連携して1つにします。",
   "links.notReady":
     "「{session}」の準備ができていませんでした。メッセージはクリックを待っています。",
   "links.namesHelp": "エージェントはこの名前で互いを呼びます。",
@@ -16934,6 +16965,7 @@ const pl: Record<MessageKey, string> = {
   "dialog.resizeSize": "Zmień rozmiar",
 
   "key.ctrl": "Ctrl",
+  "key.click": "klik",
   "key.shift": "Shift",
   "key.space": "Spacja",
 
@@ -17233,6 +17265,9 @@ const pl: Record<MessageKey, string> = {
   "links.introHide": "Ukryj wiadomość",
   "links.selected": "Zaznaczone: {count}",
   "links.clearSelection": "Wyczyść zaznaczenie",
+  "links.selectMore": "Użyj {click} na kolejnej sesji, aby ją połączyć.",
+  "links.linkWithGroup": "Połącz z grupą: {names}",
+  "links.growHelp": "Dodaj sesje do tej grupy albo połącz ją z inną grupą w jedną.",
   "links.notReady": "„{session}” nie była gotowa. Wiadomość czeka na twoje kliknięcie.",
   "links.namesHelp": "Pod tymi nazwami agenty zwracają się do siebie.",
   "links.unattended": "bez pytań",
@@ -19321,6 +19356,7 @@ const pt: Record<MessageKey, string> = {
   "dialog.resizeSize": "Redimensionar",
 
   "key.ctrl": "Ctrl",
+  "key.click": "clique",
   "key.shift": "Shift",
   "key.space": "Espaço",
 
@@ -19622,6 +19658,9 @@ const pt: Record<MessageKey, string> = {
   "links.introHide": "Ocultar mensagem",
   "links.selected": "{count} selecionadas",
   "links.clearSelection": "Limpar seleção",
+  "links.selectMore": "{click} em mais uma sessão para vinculá-la.",
+  "links.linkWithGroup": "Vincular ao grupo: {names}",
+  "links.growHelp": "Adicione sessões a este grupo ou vincule-o a outro grupo para formar um só.",
   "links.notReady": "“{session}” não estava pronta. A mensagem espera seu clique.",
   "links.namesHelp": "São os nomes com que os agentes se dirigem uns aos outros.",
   "links.unattended": "sem perguntas",
@@ -21722,6 +21761,7 @@ const ru: Record<MessageKey, string> = {
   "dialog.resizeSize": "Изменить размер",
 
   "key.ctrl": "Ctrl",
+  "key.click": "щелчок",
   "key.shift": "Shift",
   "key.space": "Пробел",
 
@@ -22021,6 +22061,9 @@ const ru: Record<MessageKey, string> = {
   "links.introHide": "Скрыть сообщение",
   "links.selected": "Выбрано: {count}",
   "links.clearSelection": "Снять выбор",
+  "links.selectMore": "{click} по ещё одной сессии, чтобы связать её.",
+  "links.linkWithGroup": "Связать с группой: {names}",
+  "links.growHelp": "Добавь сессии в эту группу или свяжи её с другой группой в одну.",
   "links.notReady": "«{session}» не была готова. Сообщение ждёт твоего щелчка.",
   "links.namesHelp": "Под этими именами агенты обращаются друг к другу.",
   "links.unattended": "без вопросов",
@@ -24100,6 +24143,7 @@ const tr: Record<MessageKey, string> = {
   "dialog.resizeSize": "Boyutu değiştir",
 
   "key.ctrl": "Ctrl",
+  "key.click": "tıklama",
   "key.shift": "Shift",
   "key.space": "Boşluk",
 
@@ -24398,6 +24442,10 @@ const tr: Record<MessageKey, string> = {
   "links.introHide": "Mesajı gizle",
   "links.selected": "Seçili: {count}",
   "links.clearSelection": "Seçimi kaldır",
+  "links.selectMore": "Bağlamak için bir oturum daha {click} ile seç.",
+  "links.linkWithGroup": "Grupla bağla: {names}",
+  "links.growHelp":
+    "Bu gruba oturum ekle ya da onu başka bir grupla tek grup olacak şekilde bağla.",
   "links.notReady": "“{session}” hazır değildi. Mesaj tıklamanı bekliyor.",
   "links.namesHelp": "Agent'lar birbirine bu adlarla seslenir.",
   "links.unattended": "sormadan",
@@ -26464,6 +26512,7 @@ const zh: Record<MessageKey, string> = {
   "dialog.resizeSize": "调整大小",
 
   "key.ctrl": "Ctrl",
+  "key.click": "单击",
   "key.shift": "Shift",
   "key.space": "空格",
 
@@ -26753,6 +26802,9 @@ const zh: Record<MessageKey, string> = {
   "links.introHide": "隐藏消息",
   "links.selected": "已选择 {count} 个",
   "links.clearSelection": "清除选择",
+  "links.selectMore": "再 {click} 一个会话即可关联。",
+  "links.linkWithGroup": "与组关联：{names}",
+  "links.growHelp": "向此组添加会话，或将它与另一个组合并为一个组。",
   "links.notReady": "“{session}”尚未就绪。消息等待你点击。",
   "links.namesHelp": "代理之间用这些名称互相称呼。",
   "links.unattended": "无需确认",

@@ -1643,3 +1643,8 @@ limits in [[agent-gate-adapters]], and stated the notice token's residual risk i
 ## [2026-11-25] query | README scenes for 0.16.0
 The 0.16.0 screenshots replace `link-add` and `recently-opened` with `team-notes` and
 `home-glyphs` and show visitor figures in `sub-agents`. Updated: [[release-rollout]].
+
+## [2026-11-25] query | Growing and merging link groups
+Members can link further: "Link with …" on a member adds sessions or merges its group with
+another, and Ctrl+click on members of two groups merges them, using the existing unlink and add
+steps. Ctrl+click is named in the session menu. Updated: [[0014-session-links]].

@@ -217,19 +217,36 @@ export function groupsWithRoom(state: LinkState): LinkGroup[] {
   return state.groups.filter((entry) => entry.members.length < MAX_LINK_MEMBERS);
 }
 
-/** What the session menu offers: "Link with …", or editing and unlinking the own group. */
-export type LinkOffer = "link" | "member" | null;
+/** The other groups `group` can merge with: together at most `MAX_LINK_MEMBERS`. */
+export function mergeTargets(state: LinkState, group: LinkGroup): LinkGroup[] {
+  return state.groups.filter(
+    (entry) =>
+      entry.id !== group.id && entry.members.length + group.members.length <= MAX_LINK_MEMBERS,
+  );
+}
+
+/**
+ * What the session menu offers: "Link with …" (`link` for a session in no group), editing and
+ * unlinking the own group (`member`), or both for a member whose group can still grow (`grow`).
+ */
+export type LinkOffer = "link" | "member" | "grow" | null;
 
 /**
  * "Link with …" only where at least one other session could join or a group has room for this
- * one (only offer what works); a member gets "Edit group" and "Unlink" instead.
+ * one (only offer what works). A member gets "Edit group" and "Unlink", and "Link with …" too
+ * while its group has room for a session in no group or can merge with another group.
  */
 export function linkOffer<T extends LinkableSession>(
   state: LinkState,
   session: T,
   sessions: readonly T[],
 ): LinkOffer {
-  if (groupOf(state, session.id) !== undefined) return "member";
+  const own = groupOf(state, session.id);
+  if (own !== undefined) {
+    const room = own.members.length < MAX_LINK_MEMBERS;
+    const joiner = linkCandidates(state, sessions).length > 0;
+    return room && (joiner || mergeTargets(state, own).length > 0) ? "grow" : "member";
+  }
   if (!canLink(state, session)) return null;
   if (groupsWithRoom(state).length > 0) return "link";
   return linkCandidates(state, sessions).some((other) => other.id !== session.id) ? "link" : null;
@@ -250,34 +267,115 @@ export function selectableForLink(
   );
 }
 
-/** What "Link" does with the sidebar's selection. */
-export type SelectionPlan =
-  { kind: "new"; ids: number[] } | { kind: "add"; group: LinkGroup; ids: number[] };
+/** Longest member name the backend takes. */
+const NAME_MAX = 32;
 
 /**
- * The selection's plan: with no member among it, two or more sessions form a new group; with the
- * members of exactly one group among it, the others join that group while it has room. `null`
- * where "Link" would do nothing (members of two groups, nobody to add, too many).
+ * `name`, or with the first free number ("web-2") where `taken` has it already, cut so it stays
+ * a valid member name. The numbers match how the backend and `memberAliases` step aside.
  */
+export function uniqueMemberName(name: string, taken: ReadonlySet<string>): string {
+  if (!taken.has(name)) return name;
+  for (let n = 2; ; n += 1) {
+    const suffix = `-${String(n)}`;
+    const base = name.slice(0, NAME_MAX - suffix.length).replace(/-+$/, "");
+    const numbered = `${base}${suffix}`;
+    if (!taken.has(numbered)) return numbered;
+  }
+}
+
+/** What "Link" does with the sidebar's selection. */
+export type SelectionPlan =
+  | { kind: "new"; ids: number[] }
+  | { kind: "add"; group: LinkGroup; ids: number[] }
+  | {
+      /**
+       * Groups merge: `absorbed` end, their members join `group` with `members`' names (unique
+       * among all), and the sessions `ids` in no group join too.
+       */
+      kind: "merge";
+      group: LinkGroup;
+      absorbed: LinkGroup[];
+      members: { session: number; name: string }[];
+      ids: number[];
+      /** The merged group's lead: the one `group` had, else the first absorbed group's. */
+      lead: number | null;
+      /** "Ask before pasting" of the merged group: on when any of the groups had it on. */
+      askFirst: boolean;
+    };
+
+/** Why "Link" does nothing with the selection: one more session needed, or too many. */
+export type SelectionProblem = "more" | "tooMany";
+
+export type SelectionVerdict = { plan: SelectionPlan } | { problem: SelectionProblem };
+
+/**
+ * The selection's plan, or why there is none. Without a member among it, two or more sessions
+ * form a new group. With the members of one group, the others join it. With members of several
+ * groups, they merge into the largest (on a tie the one whose row comes first in `sessions`):
+ * a group joins as a whole, since a session belongs to one group only. At most
+ * `MAX_LINK_MEMBERS` in the end.
+ */
+export function selectionVerdict(
+  state: LinkState,
+  sessions: readonly LinkableSession[],
+  selected: ReadonlySet<number>,
+): SelectionVerdict {
+  const picked = sessions.filter((session) => selected.has(session.id));
+  const groups: LinkGroup[] = [];
+  for (const session of picked) {
+    const own = groupOf(state, session.id);
+    if (own !== undefined && !groups.includes(own)) groups.push(own);
+  }
+  const ids = picked.filter((session) => canLink(state, session)).map((session) => session.id);
+  const total = ids.length + groups.reduce((sum, entry) => sum + entry.members.length, 0);
+  if (groups.length === 0 ? ids.length < 2 : groups.length === 1 && ids.length === 0) {
+    return { problem: "more" };
+  }
+  if (total > MAX_LINK_MEMBERS) return { problem: "tooMany" };
+  if (groups.length === 0) return { plan: { kind: "new", ids } };
+  const row = (entry: LinkGroup) =>
+    Math.min(
+      ...entry.members.map((m) => {
+        const index = sessions.findIndex((session) => session.id === m.session);
+        return index < 0 ? Number.MAX_SAFE_INTEGER : index;
+      }),
+    );
+  const [target, ...absorbed] = [...groups].sort(
+    (a, b) => b.members.length - a.members.length || row(a) - row(b),
+  );
+  if (target === undefined) return { problem: "more" };
+  if (absorbed.length === 0) return { plan: { kind: "add", group: target, ids } };
+  const taken = new Set(target.members.map((m) => m.name));
+  const members = absorbed.flatMap((entry) =>
+    entry.members.map((m) => {
+      const name = uniqueMemberName(m.name, taken);
+      taken.add(name);
+      return { session: m.session, name };
+    }),
+  );
+  const lead = [target, ...absorbed].map(leadOf).find((entry) => entry !== null) ?? null;
+  return {
+    plan: {
+      kind: "merge",
+      group: target,
+      absorbed,
+      members,
+      ids,
+      lead,
+      askFirst: [target, ...absorbed].some((entry) => entry.askFirst),
+    },
+  };
+}
+
+/** The selection's plan (`selectionVerdict`), `null` where "Link" would do nothing. */
 export function selectionPlan(
   state: LinkState,
   sessions: readonly LinkableSession[],
   selected: ReadonlySet<number>,
 ): SelectionPlan | null {
-  const picked = sessions.filter((session) => selected.has(session.id));
-  const groups = new Set<number>();
-  for (const session of picked) {
-    const own = groupOf(state, session.id);
-    if (own !== undefined) groups.add(own.id);
-  }
-  const ids = picked.filter((session) => canLink(state, session)).map((session) => session.id);
-  if (groups.size === 0) {
-    return ids.length >= 2 && ids.length <= MAX_LINK_MEMBERS ? { kind: "new", ids } : null;
-  }
-  if (groups.size > 1 || ids.length === 0) return null;
-  const target = state.groups.find((entry) => groups.has(entry.id));
-  if (target === undefined || target.members.length + ids.length > MAX_LINK_MEMBERS) return null;
-  return { kind: "add", group: target, ids };
+  const verdict = selectionVerdict(state, sessions, selected);
+  return "plan" in verdict ? verdict.plan : null;
 }
 
 /** How a member row is marked: the group's color, the member's name, the brake's hint, and

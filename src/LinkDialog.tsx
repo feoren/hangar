@@ -81,14 +81,24 @@ function LeadChoice(props: {
  * "Link with …": the groups the session can join, one click each, and below a check box per
  * session that can be linked, the session the menu was opened on checked first, optionally a
  * lead, one button for a new group. The agents then message each other on their own (ADR 0014).
+ * Opened on a member (`group`), the same dialog grows that group: the other groups it can merge
+ * with, one click each, then the sessions in no group to add; the lead stays as it is.
  */
 export function LinkDialog(props: {
   /** Sessions that can be linked (links.ts `linkCandidates`), in sidebar order. */
   candidates: readonly SessionView[];
-  /** Groups with room for one more (links.ts `groupsWithRoom`); none without. */
+  /**
+   * Groups with room for one more (links.ts `groupsWithRoom`); for a member, the groups its own
+   * can merge with (links.ts `mergeTargets`). None without.
+   */
   groups?: readonly LinkGroup[];
-  /** Adds the session the menu was opened on to `group` and closes, or answers why not. */
+  /**
+   * Adds the session the menu was opened on to `group`, or for a member merges the two groups,
+   * and closes; or answers why not.
+   */
   onJoin?: (group: number) => Promise<string | null>;
+  /** The group of the session the menu was opened on, which the dialog then grows. */
+  group?: LinkGroup;
   /** Checked at the start. */
   initial: readonly number[];
   badgeFor: (profileId: string) => BadgeLook;
@@ -112,10 +122,15 @@ export function LinkDialog(props: {
   const ids = picked.map((s) => s.id);
   // A lead that was unchecked again leads nothing.
   const chosenLead = lead !== null && ids.includes(lead) ? lead : null;
-  const ready = ids.length >= 2 && ids.length <= MAX_LINK_MEMBERS && !linking;
+  const own = props.group;
+  // A member's group takes one more on its own; a new group needs two.
+  const least = own === undefined ? 2 : 1;
+  const total = ids.length + (own?.members.length ?? 0);
+  const tooMany = total > MAX_LINK_MEMBERS;
+  const ready = ids.length >= least && !tooMany && !linking;
 
   const groups = props.onJoin === undefined ? [] : (props.groups ?? []);
-  const fresh = props.candidates.length >= 2;
+  const fresh = props.candidates.length >= least;
 
   const link = () => {
     if (!ready) return;
@@ -140,9 +155,12 @@ export function LinkDialog(props: {
   return (
     <Dialog labelledBy={`${id}-title`} className="link-dialog" onClose={props.onClose}>
       <DialogHead id={`${id}-title`} title={t("links.title")} onClose={props.onClose} />
-      <p className="muted link-help">{t("links.help")}</p>
+      <p className="muted link-help">{t(own === undefined ? "links.help" : "links.growHelp")}</p>
       {groups.length > 0 && (
-        <ul className="link-groups" aria-label={t("links.joinGroup")}>
+        <ul
+          className="link-groups"
+          aria-label={t(own === undefined ? "links.joinGroup" : "links.menu")}
+        >
           {groups.map((group, index) => (
             <li key={group.id}>
               <button
@@ -159,7 +177,7 @@ export function LinkDialog(props: {
                   style={{ background: linkColor(group.color) }}
                   aria-hidden="true"
                 />
-                {t("links.addToGroup", {
+                {t(own === undefined ? "links.addToGroup" : "links.linkWithGroup", {
                   names: group.members.map((member) => member.name).join(", "),
                 })}
               </button>
@@ -167,7 +185,11 @@ export function LinkDialog(props: {
           ))}
         </ul>
       )}
-      {groups.length > 0 && fresh && <h3 className="link-section">{t("links.newGroup")}</h3>}
+      {groups.length > 0 && fresh && (
+        <h3 className="link-section">
+          {t(own === undefined ? "links.newGroup" : "links.addSession")}
+        </h3>
+      )}
       {!fresh ? (
         groups.length === 0 && <p className="muted">{t("links.none")}</p>
       ) : (
@@ -212,7 +234,8 @@ export function LinkDialog(props: {
           ))}
         </ul>
       )}
-      {ids.length >= 2 && (
+      {/* A growing group keeps its lead; "Edit group" changes it. */}
+      {own === undefined && ids.length >= 2 && (
         <LeadChoice
           options={picked.map((session) => ({ session: session.id, label: session.title }))}
           lead={chosenLead}
@@ -222,6 +245,7 @@ export function LinkDialog(props: {
       {ids.some((chosenId) => props.unattended.has(chosenId)) && (
         <p className="link-note">{t("links.unattendedNote")}</p>
       )}
+      {tooMany && <p className="link-note">{t("linkError.tooMany")}</p>}
       {fresh && <p className="muted link-tip">{t("links.tip", { key: props.selectKey })}</p>}
       {problem !== null && (
         <p className="link-problem" role="alert">

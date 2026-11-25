@@ -266,5 +266,26 @@ describe("stall hint entries", () => {
       link: "link",
     })[2];
     expect(link?.type === "action" ? link.label : "").toBe("Verknüpfen mit …");
+    // The quicker way is named beside the entry.
+    expect(link?.type === "action" ? link.shortcut : "").toMatch(/^(Strg|⌘)\+Klick$/);
+  });
+
+  it("offers a member of a group that can grow Link with … besides editing", () => {
+    const keys = sessionMenuEntries({ status: "running" }, t, false, {
+      queue: null,
+      stall: null,
+      link: "grow",
+    }).map((entry) => entry.key);
+    expect(keys).toEqual([
+      "rename",
+      "marker",
+      "link",
+      "linkEdit",
+      "linkHistory",
+      "unlink",
+      "sep",
+      "kill",
+      "close",
+    ]);
   });
 });

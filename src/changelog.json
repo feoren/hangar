@@ -2,7 +2,22 @@
   {
     "version": "0.17.0",
     "date": null,
-    "items": []
+    "items": [
+      {
+        "de": "Verknüpfte Sessions lassen sich weiter verknüpfen: Sessions zu einer Gruppe hinzufügen oder zwei Gruppen vereinen. Strg+Klick in der Seitenleiste wählt aus.",
+        "en": "Linked sessions can link further: add sessions to a group or merge two groups into one. Ctrl+click in the sidebar selects them (Cmd+click on macOS).",
+        "el": "Τα συνδεδεμένα sessions συνδέονται πια και παραπέρα: πρόσθεσε sessions σε μια ομάδα ή ένωσε δύο ομάδες. Το Ctrl+κλικ στην πλαϊνή στήλη τα επιλέγει.",
+        "es": "Las sesiones vinculadas se pueden seguir vinculando: añade sesiones a un grupo o une dos grupos en uno. Ctrl+clic en la barra lateral las selecciona.",
+        "fr": "Les sessions reliées peuvent l'être davantage : ajoute des sessions à un groupe ou fusionne deux groupes. Ctrl+clic dans la barre latérale les sélectionne.",
+        "it": "Le sessioni collegate si possono collegare ancora: aggiungi sessioni a un gruppo o unisci due gruppi in uno. Ctrl+clic nella barra laterale le seleziona.",
+        "ja": "連携済みのセッションをさらに連携できます。グループにセッションを追加したり、2つのグループを1つにまとめたりできます。サイドバーで Ctrl+クリックすると選択できます。",
+        "pl": "Połączone sesje można łączyć dalej: dodaj sesje do grupy albo połącz dwie grupy w jedną. Ctrl+klik na pasku bocznym je zaznacza.",
+        "pt": "Sessões vinculadas podem ser vinculadas a mais: adicione sessões a um grupo ou junte dois grupos em um. Ctrl+clique na barra lateral as seleciona.",
+        "ru": "Связанные сессии можно связывать дальше: добавь сессии в группу или объедини две группы в одну. Ctrl+щелчок на боковой панели выбирает их.",
+        "tr": "Bağlı oturumlar artık daha fazla bağlanabilir: bir gruba oturum ekle ya da iki grubu birleştir. Kenar çubuğunda Ctrl+tıklama onları seçer.",
+        "zh": "已关联的会话可以继续关联：向组中添加会话，或把两个组合并为一个。在侧边栏中 Ctrl+单击即可选择。"
+      }
+    ]
   },
   {
     "version": "0.16.0",

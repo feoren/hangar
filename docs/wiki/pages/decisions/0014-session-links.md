@@ -6,7 +6,7 @@ superseded_by:
 tags: [sessions, agents, hooks, security, pty, sidebar]
 sources: ["[[0012-cross-project-messages]]", "[[cross-project-paste-measurement]]", "[[paste-opencode-gemini-measurement]]", "[[unattended-settings-reading]]"]
 created: 2026-11-19
-updated: 2026-11-24
+updated: 2026-11-25
 ---
 
 # ADR 0014: Linked sessions that work together
@@ -285,6 +285,39 @@ The owner asked to add more sessions to an existing group instead of unlinking a
   (so a newcomer may take a name a member gives up), then adds. Ctrl+click now also selects
   members: with the members of exactly one group among the selection, "Link" adds the others to
   that group; with two groups it is not offered.
+
+## Growing and merging groups (2026-11-25)
+The owner asked that sessions already linked can be linked further, and did not know that
+Ctrl+click selects. A session still belongs to one group only: `hangar-send` names and the lead
+assume that.
+
+- **Merge.** Ctrl+click selecting members of two or more groups now offers "Link": the groups
+  merge (`selectionVerdict` in `src/links.ts`, plan `merge`). A group always joins as a whole. The
+  larger group stays, on a tie the one whose row comes first in the sidebar; its lead stays,
+  without one the first absorbed group's lead leads. Absorbed members keep their names; a name the
+  staying group has gets the first free number (`web-2`, `uniqueMemberName`, at most 32
+  characters). Sessions in no group among the selection join in the same step. "Ask before
+  pasting" ends up on when any of the groups had it on. At most eight members in the end.
+- **No new backend command.** The window merges with the existing steps: `edit_link_group` turns
+  "Ask before pasting" on first where needed, `unlink_group` ends each absorbed group, then one
+  `add_to_link_group` adds all its members with their names and the lead, so each member gets one
+  introduction naming everybody ("New members in the group" for the staying members, the full one
+  for the newcomers). Consequences, accepted: what still waited in an absorbed group and its
+  history go, as with "Unlink"; for a moment the absorbed members are in no group. Should a step
+  fail, the window links the absorbed groups again with their names, lead and toggle (as new
+  groups, so their members get the full introduction again), turns the staying group's toggle
+  back off where the merge turned it on, and shows the reason. A backend `merge` would be atomic, but duplicates `add_members` and needs a new
+  permission; reconsider when a failure is seen in practice.
+- **Menu.** A member whose group has room and something to take (a session in no group, or a
+  group to merge with) gets "Link with …" besides "Edit group" (`linkOffer` answers `grow`). The
+  dialog then lists the groups to merge with, one click each, and the sessions in no group to add;
+  the lead choice is left out, "Edit group" changes it.
+- **Discoverable.** "Link with …" in the session menu shows "Ctrl+click" (Cmd+click on macOS) in
+  the shortcut column (`selectClickLabel` in `src/shortcuts.ts`). The selection bar always shows
+  "Link", turned off with one short line where it cannot work: one more session needed, or more
+  than eight. A Ctrl+click on a session that cannot be linked (a shell, an ended one) selects
+  nothing, opens nothing and says so in the bar for five seconds. A plain click still opens a
+  session and ends the selection.
 
 ## Simpler cards (2026-11-20)
 The owner reported that the card below a member row ("Paste", "Paste and send", "Discard")

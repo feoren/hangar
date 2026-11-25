@@ -401,3 +401,20 @@ export function shortcutKeys(shortcut: Shortcut, t: Translate): string[] {
 export function formatShortcut(shortcut: Shortcut, t: Translate): string {
   return shortcutKeys(shortcut, t).join("+");
 }
+
+/**
+ * Ctrl+click (Cmd+click on macOS) on a session row selects it for linking (ADR 0014). A click,
+ * not a key: nothing reaches the terminal, so it takes nothing from shells or agent CLIs. Alt
+ * and Shift stay free for other gestures.
+ */
+export function isSelectClick(
+  event: Pick<MouseEvent, "ctrlKey" | "metaKey" | "altKey" | "shiftKey">,
+): boolean {
+  return (event.ctrlKey || event.metaKey) && !event.altKey && !event.shiftKey;
+}
+
+/** The select click's name: "Ctrl+click", "Strg+Klick", or "⌘+click" on macOS. */
+export function selectClickLabel(t: Translate, platform: Platform = currentPlatform()): string {
+  const key = platform === "mac" ? "⌘" : t("key.ctrl");
+  return `${key}+${t("key.click")}`;
+}

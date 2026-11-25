@@ -240,6 +240,66 @@ describe("LinkDialog with an agent that runs without prompts", () => {
     expect(html).toContain("Deshalb ist „Vor dem Einfügen fragen“ an");
     expect(html).toContain("Codex CLI · ohne Rückfragen · ");
   });
+
+  it("grows a member's group: groups to merge with, sessions to add, no lead choice", () => {
+    const other: LinkGroup = {
+      ...group,
+      id: 2,
+      members: [
+        { session: 5, name: "docs", role: "member" },
+        { session: 6, name: "shop", role: "lead" },
+      ],
+    };
+    const html = render(
+      <LinkDialog
+        candidates={[session(3, "relay")]}
+        groups={[other]}
+        group={group}
+        onJoin={none}
+        initial={[]}
+        badgeFor={() => LOOK}
+        programOf={() => "Claude Code"}
+        unattended={new Set()}
+        selectKey="Ctrl"
+        onLink={none}
+        onClose={() => undefined}
+      />,
+    );
+    expect(html).toContain("Add sessions to this group, or link it with another group into one.");
+    expect(html).toContain("Link with group: docs, shop");
+    expect(html).toContain("Add session");
+    // One session to add is enough; nothing is checked at the start.
+    expect(html.match(/type="checkbox"/g)?.length).toBe(1);
+    expect(html).not.toContain('checked=""');
+    expect(html).not.toContain("No lead");
+    expect(html).toContain("Ctrl+click");
+  });
+
+  it("says when a growing group would hold too many", () => {
+    const seven: LinkGroup = {
+      ...group,
+      members: Array.from({ length: 7 }, (_, index) => ({
+        session: 10 + index,
+        name: `m${String(index)}`,
+        role: "member" as const,
+      })),
+    };
+    const html = render(
+      <LinkDialog
+        candidates={[session(3, "relay"), session(4, "web")]}
+        group={seven}
+        initial={[3, 4]}
+        badgeFor={() => LOOK}
+        programOf={() => "Claude Code"}
+        unattended={new Set()}
+        selectKey="Ctrl"
+        onLink={none}
+        onClose={() => undefined}
+      />,
+    );
+    expect(html).toContain("A group takes at most 8 sessions.");
+    expect(html).toMatch(/class="primary-button" disabled=""/);
+  });
 });
 
 describe("LinkGroupDialog help", () => {

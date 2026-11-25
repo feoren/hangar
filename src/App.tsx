@@ -149,8 +149,10 @@ import {
   groupsWithRoom,
   INTRO_PATIENCE_MS,
   leadOf,
+  mergeTargets,
   selectableForLink,
   selectionPlan,
+  selectionVerdict,
   MESSAGE_PATIENCE_MS,
   TYPING_PATIENCE_MS,
   heldBySession,
@@ -168,6 +170,7 @@ import {
   type LinkHistoryEntry,
   type LinkMessage,
   type LinkState,
+  type SelectionPlan,
   type StartedMember,
 } from "./links";
 import { memberAliases, type AliasSource } from "./linkAliases";
@@ -6573,14 +6576,96 @@ export function App() {
       return errorText(e);
     }
   };
+  /**
+   * Merges link groups as `plan` says, with the backend's existing steps instead of a command of
+   * its own: "Ask before pasting" goes on first where a merged group asked, then every absorbed
+   * group ends and its members join `plan.group` together with the single sessions, so each
+   * member gets one introduction that names everybody. Should a step fail, the absorbed groups
+   * that already ended form again with their names, lead and toggle, and the staying group's
+   * toggle goes back off where the merge turned it on, so nobody is left unlinked.
+   */
+  const mergeGroups = async (
+    plan: Extract<SelectionPlan, { kind: "merge" }>,
+  ): Promise<string | null> => {
+    const { group } = plan;
+    const singles = joinAliases(plan.ids, [...group.members, ...plan.members]);
+    const names = [
+      ...plan.members,
+      ...plan.ids.map((session, index) => ({ session, name: singles[index] ?? "" })),
+    ];
+    const kept = group.members.map((m) => ({ session: m.session, name: m.name }));
+    let askTurnedOn = false;
+    const ended: LinkGroup[] = [];
+    const restore = async () => {
+      if (askTurnedOn) {
+        await api.editLinkGroup(group.id, kept, false, leadOf(group)).catch(() => undefined);
+      }
+      for (const entry of ended) {
+        await api
+          .linkSessions(
+            entry.members.map((m) => m.session),
+            {
+              names: entry.members.map((m) => ({ session: m.session, name: m.name })),
+              lead: leadOf(entry),
+              askFirst: entry.askFirst,
+            },
+          )
+          .catch(() => undefined);
+      }
+    };
+    try {
+      if (plan.askFirst && !group.askFirst) {
+        await api.editLinkGroup(group.id, kept, true, leadOf(group));
+        askTurnedOn = true;
+      }
+      for (const entry of plan.absorbed) {
+        await api.unlinkGroup(entry.id);
+        ended.push(entry);
+      }
+      await api.addToLinkGroup(
+        group.id,
+        names.map((entry) => entry.session),
+        names,
+        plan.lead,
+      );
+      loadLinksRef.current();
+      return null;
+    } catch (e) {
+      await restore();
+      loadLinksRef.current();
+      return errorText(e);
+    }
+  };
+  /** Carries out what "Link" means for a selection or the dialog (links.ts `selectionVerdict`). */
+  const runLinkPlan = (plan: SelectionPlan): Promise<string | null> => {
+    if (plan.kind === "new") return linkSessions(plan.ids);
+    if (plan.kind === "add") return joinGroup(plan.group, plan.ids);
+    return mergeGroups(plan);
+  };
+  /** The group of the session "Link with …" was opened on; the dialog then grows it. */
+  const growingGroup = linkDialog?.kind === "link" ? groupOf(linkState, linkDialog.id) : undefined;
+  /** Links `ids` into `growingGroup` the way the sidebar's selection would. */
+  const growGroup = async (ids: readonly number[]): Promise<string | null> => {
+    if (growingGroup === undefined) return null;
+    const chosen = new Set([...growingGroup.members.map((m) => m.session), ...ids]);
+    const verdict = selectionVerdict(linkState, state.sessions, chosen);
+    const problem =
+      "plan" in verdict
+        ? await runLinkPlan(verdict.plan)
+        : t(verdict.problem === "tooMany" ? "linkError.tooMany" : "links.none");
+    if (problem === null) closeLinkDialog();
+    return problem;
+  };
   const joinFromDialog = async (groupId: number): Promise<string | null> => {
     const group = linkState.groups.find((entry) => entry.id === groupId);
     if (linkDialog?.kind !== "link" || group === undefined) return null;
+    if (growingGroup !== undefined) return growGroup(group.members.map((m) => m.session));
     const problem = await joinGroup(group, [linkDialog.id]);
     if (problem === null) closeLinkDialog();
     return problem;
   };
   const linkFromDialog = async (ids: number[], lead: number | null): Promise<string | null> => {
+    if (growingGroup !== undefined) return growGroup(ids);
     const problem = await linkSessions(ids, lead);
     if (problem === null) closeLinkDialog();
     return problem;
@@ -7008,16 +7093,15 @@ export function App() {
             setLinkDialog({ kind: "edit", group });
           }}
           linkable={selectableForLink(linkState, state.sessions)}
-          canLinkSelection={(ids) =>
-            selectionPlan(linkState, state.sessions, new Set(ids)) !== null
-          }
+          linkSelectionState={(ids) => {
+            const verdict = selectionVerdict(linkState, state.sessions, new Set(ids));
+            return "plan" in verdict ? "ready" : verdict.problem;
+          }}
           onLinkSessions={(ids) => {
-            // With members of one group among the selection, the others join that group.
+            // Members of one group among the selection: the others join it; of several: they merge.
             const plan = selectionPlan(linkState, state.sessions, new Set(ids));
             if (plan === null) return;
-            const done =
-              plan.kind === "new" ? linkSessions(plan.ids) : joinGroup(plan.group, plan.ids);
-            void done.then((problem) => {
+            void runLinkPlan(plan).then((problem) => {
               if (problem !== null) setError(problem);
             });
           }}
@@ -7992,9 +8076,14 @@ export function App() {
         {linkDialog?.kind === "link" && (
           <LinkDialog
             candidates={linkCandidates(linkState, state.sessions)}
-            groups={groupsWithRoom(linkState)}
+            groups={
+              growingGroup === undefined
+                ? groupsWithRoom(linkState)
+                : mergeTargets(linkState, growingGroup)
+            }
             onJoin={joinFromDialog}
-            initial={[linkDialog.id]}
+            {...(growingGroup === undefined ? {} : { group: growingGroup })}
+            initial={growingGroup === undefined ? [linkDialog.id] : []}
             badgeFor={badgeFor}
             programOf={(profileId) => profileById.get(profileId)?.name ?? profileId}
             unattended={linkState.unattended}
