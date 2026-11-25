@@ -17,6 +17,14 @@ export function isOneLine(layout: RowLayout): boolean {
   return layout.lines.filter((line) => line.left.length + line.right.length > 0).length <= 1;
 }
 
+/**
+ * The switch's label names what a click does: a checked "One line" read as if nothing had
+ * changed once the rows were on one line.
+ */
+export function oneLineLabelKey(layout: RowLayout): "sidebar.oneLineOn" | "sidebar.oneLineOff" {
+  return isOneLine(layout) ? "sidebar.oneLineOff" : "sidebar.oneLineOn";
+}
+
 export interface OneLineState {
   rowLayout: RowLayout;
   /** The layout to bring back when "One line" goes off; `null` while off. */

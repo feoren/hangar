@@ -114,7 +114,7 @@ import type { UpdateState } from "./useUpdater";
 import { useWaitingEdges } from "./useWaitingEdges";
 import { resourceParts } from "./resources";
 import { contextHint } from "./contextUsage";
-import { isOneLine } from "./oneLineRows";
+import { isOneLine, oneLineLabelKey } from "./oneLineRows";
 import {
   isPlaced,
   loadSummary,
@@ -1289,9 +1289,7 @@ export function Sidebar(props: Props) {
             {
               type: "action",
               key: "one-line",
-              label: t("rowLayout.oneLine"),
-              current: isOneLine(props.rowLayout),
-              toggle: true,
+              label: t(oneLineLabelKey(props.rowLayout)),
               run: props.onToggleOneLine,
             },
           ]}

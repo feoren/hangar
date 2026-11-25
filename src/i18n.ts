@@ -144,7 +144,6 @@ const de = {
   "settings.waitTime": "Erinnern nach",
   "settings.waitHelp":
     "Die Zeile der Session sagt dann, wie lange sie schon wartet, und ihr Punkt pulsiert leise. Ist „Taskleiste blinken lassen“ an, blinkt die Taskleiste dabei einmal.",
-  "rowLayout.oneLine": "Einzeilig",
   "sidebar.oneLineOn": "Sessions einzeilig zeigen",
   "sidebar.oneLineOff": "Sessions wieder mehrzeilig zeigen",
   "stall.peek": "Letzte Zeilen zeigen",
@@ -2596,7 +2595,6 @@ const en: Record<MessageKey, string> = {
   "settings.waitTime": "Remind after",
   "settings.waitHelp":
     "The session’s row then says how long it has been waiting, and its dot pulses softly. With “Flash the taskbar” on, the taskbar flashes once as well.",
-  "rowLayout.oneLine": "One line",
   "sidebar.oneLineOn": "Show sessions on one line",
   "sidebar.oneLineOff": "Show sessions on several lines again",
   "stall.peek": "Show last lines",
@@ -4998,7 +4996,6 @@ const el: Record<MessageKey, string> = {
   "settings.waitTime": "Υπενθύμιση μετά από",
   "settings.waitHelp":
     "Η γραμμή της συνεδρίας λέει τότε πόση ώρα περιμένει και η κουκκίδα της πάλλεται απαλά. Αν η αναλαμπή στη γραμμή εργασιών είναι ενεργή, αναβοσβήνει μία φορά.",
-  "rowLayout.oneLine": "Μία γραμμή",
   "sidebar.oneLineOn": "Συνεδρίες σε μία γραμμή",
   "sidebar.oneLineOff": "Συνεδρίες ξανά σε πολλές γραμμές",
   "stall.peek": "Εμφάνιση τελευταίων γραμμών",
@@ -7478,7 +7475,6 @@ const es: Record<MessageKey, string> = {
   "settings.waitTime": "Recordar tras",
   "settings.waitHelp":
     "La fila de la sesión dice entonces cuánto lleva esperando y su punto late suavemente. Si el parpadeo de la barra de tareas está activado, parpadea una vez.",
-  "rowLayout.oneLine": "Una línea",
   "sidebar.oneLineOn": "Mostrar sesiones en una línea",
   "sidebar.oneLineOff": "Mostrar sesiones de nuevo en varias líneas",
   "stall.peek": "Mostrar últimas líneas",
@@ -9931,7 +9927,6 @@ const fr: Record<MessageKey, string> = {
   "settings.waitTime": "Rappeler après",
   "settings.waitHelp":
     "La ligne de la session dit alors depuis quand elle attend, et son point pulse doucement. Si le clignotement de la barre des tâches est activé, elle clignote une fois.",
-  "rowLayout.oneLine": "Une ligne",
   "sidebar.oneLineOn": "Sessions sur une ligne",
   "sidebar.oneLineOff": "Sessions à nouveau sur plusieurs lignes",
   "stall.peek": "Afficher les dernières lignes",
@@ -12410,7 +12405,6 @@ const it: Record<MessageKey, string> = {
   "settings.waitTime": "Ricorda dopo",
   "settings.waitHelp":
     "La riga della sessione dice allora da quanto aspetta e il suo punto pulsa piano. Se il lampeggio della barra delle applicazioni è attivo, lampeggia una volta.",
-  "rowLayout.oneLine": "Una riga",
   "sidebar.oneLineOn": "Mostra le sessioni su una riga",
   "sidebar.oneLineOff": "Mostra di nuovo le sessioni su più righe",
   "stall.peek": "Mostra ultime righe",
@@ -14864,7 +14858,6 @@ const ja: Record<MessageKey, string> = {
   "settings.waitTime": "リマインドまで",
   "settings.waitHelp":
     "セッションの行にどれだけ待っているかが表示され、点が静かに脈打ちます。タスクバーの点滅がオンなら、一度だけ点滅します。",
-  "rowLayout.oneLine": "1 行",
   "sidebar.oneLineOn": "セッションを 1 行で表示",
   "sidebar.oneLineOff": "セッションを複数行で表示",
   "stall.peek": "最後の行を表示",
@@ -17314,7 +17307,6 @@ const pl: Record<MessageKey, string> = {
   "settings.waitTime": "Przypomnij po",
   "settings.waitHelp":
     "Wiersz sesji mówi wtedy, jak długo już czeka, a jej kropka delikatnie pulsuje. Gdy miganie na pasku zadań jest włączone, pasek mignie raz.",
-  "rowLayout.oneLine": "Jeden wiersz",
   "sidebar.oneLineOn": "Sesje w jednym wierszu",
   "sidebar.oneLineOff": "Sesje znowu w kilku wierszach",
   "stall.peek": "Pokaż ostatnie wiersze",
@@ -19742,7 +19734,6 @@ const pt: Record<MessageKey, string> = {
   "settings.waitTime": "Lembrar após",
   "settings.waitHelp":
     "A linha da sessão diz então há quanto tempo ela espera, e o ponto pulsa de leve. Com a barra de tarefas piscando ativada, ela pisca uma vez.",
-  "rowLayout.oneLine": "Uma linha",
   "sidebar.oneLineOn": "Mostrar sessões em uma linha",
   "sidebar.oneLineOff": "Mostrar sessões em várias linhas de novo",
   "stall.peek": "Mostrar últimas linhas",
@@ -22183,7 +22174,6 @@ const ru: Record<MessageKey, string> = {
   "settings.waitTime": "Напомнить через",
   "settings.waitHelp":
     "Строка сеанса тогда показывает, сколько он уже ждёт, а его точка мягко пульсирует. Если мигание на панели задач включено, она мигнёт один раз.",
-  "rowLayout.oneLine": "В одну строку",
   "sidebar.oneLineOn": "Сеансы в одну строку",
   "sidebar.oneLineOff": "Сеансы снова в несколько строк",
   "stall.peek": "Показать последние строки",
@@ -24600,7 +24590,6 @@ const tr: Record<MessageKey, string> = {
   "settings.waitTime": "Hatırlatma süresi",
   "settings.waitHelp":
     "Oturumun satırı ne kadar süredir beklediğini söyler ve noktası hafifçe atar. Görev çubuğunu yanıp söndürme açıksa bir kez yanıp söner.",
-  "rowLayout.oneLine": "Tek satır",
   "sidebar.oneLineOn": "Oturumları tek satırda göster",
   "sidebar.oneLineOff": "Oturumları yine birkaç satırda göster",
   "stall.peek": "Son satırları göster",
@@ -27004,7 +26993,6 @@ const zh: Record<MessageKey, string> = {
   "settings.waitTime": "提醒时长",
   "settings.waitHelp":
     "会话所在行会显示已等待多久，圆点轻轻跳动。若开启了任务栏闪烁，任务栏会闪烁一次。",
-  "rowLayout.oneLine": "单行",
   "sidebar.oneLineOn": "单行显示会话",
   "sidebar.oneLineOff": "恢复多行显示会话",
   "stall.peek": "显示最后几行",

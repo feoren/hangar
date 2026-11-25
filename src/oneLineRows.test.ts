@@ -1,10 +1,23 @@
 import { describe, expect, it } from "vitest";
 
-import { isOneLine, ONE_LINE_LAYOUT, setOneLine, toggleOneLine } from "./oneLineRows";
+import {
+  isOneLine,
+  ONE_LINE_LAYOUT,
+  oneLineLabelKey,
+  setOneLine,
+  toggleOneLine,
+} from "./oneLineRows";
 import { DEFAULT_ROW_LAYOUT, planRow, presetLayout } from "./rowLayout";
 import { defaultSettings, parseSettings } from "./settings";
 
 describe("one-line rows", () => {
+  it("names what a click does instead of staying the same", () => {
+    expect(oneLineLabelKey(DEFAULT_ROW_LAYOUT)).toBe("sidebar.oneLineOn");
+    expect(oneLineLabelKey(ONE_LINE_LAYOUT)).toBe("sidebar.oneLineOff");
+    // The row builder's preset of the same name counts as on as well.
+    expect(oneLineLabelKey(presetLayout("accordion"))).toBe("sidebar.oneLineOff");
+  });
+
   it("is one compact line", () => {
     expect(planRow(ONE_LINE_LAYOUT).lines).toHaveLength(1);
     expect(ONE_LINE_LAYOUT.density).toBe("compact");

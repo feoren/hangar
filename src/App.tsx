@@ -308,7 +308,7 @@ import { QueueDialog } from "./QueueDialog";
 import { StallMonitor, stallThresholdMs, wallClock } from "./stall";
 import { WaitMonitor, waitingIds, waitThresholdMs } from "./waitHint";
 import { loadProjectItems, searchNoteItems } from "./launcherSearch";
-import { isOneLine, toggleOneLine } from "./oneLineRows";
+import { oneLineLabelKey, toggleOneLine } from "./oneLineRows";
 import type { SearchHit } from "./notes";
 import { setSystemUsageEnabled } from "./useSystemUsage";
 import { sessionLabels } from "./sessionLabel";
@@ -5661,7 +5661,7 @@ export function App() {
         },
         {
           type: "action",
-          label: isOneLine(settings.rowLayout) ? t("sidebar.oneLineOff") : t("sidebar.oneLineOn"),
+          label: t(oneLineLabelKey(settings.rowLayout)),
           run: toggleRowsOneLine,
         },
         { type: "separator" },
