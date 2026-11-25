@@ -485,6 +485,7 @@ import {
   teammateNoticeDue,
   teammateOverlapKey,
   teammateOverlapsBySession,
+  readsTeamContext,
   type TeammateOverlap,
 } from "./team";
 import { gateReady, useGate } from "./useGate";
@@ -8364,6 +8365,17 @@ export function App() {
         {teamOpen && (
           <TeamWindow
             sessions={state.sessions.map((session) => ({ id: session.id, title: session.title }))}
+            decisionTarget={
+              activeSession !== undefined &&
+              activeSession.status === "running" &&
+              !readsTeamContext(
+                activeSession,
+                profiles.find((profile) => profile.id === activeSession.profileId),
+              )
+                ? { id: activeSession.id, title: activeSession.title }
+                : null
+            }
+            onSendDecision={sendFromNotes}
             onClose={closeTeam}
           />
         )}

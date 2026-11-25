@@ -102,6 +102,9 @@ pub(super) struct NotesKeys {
     enable: Option<Enable>,
     /// The answer to the last turn-on request, for the worker to hand to the window.
     outcome: Option<Result<(), TeamError>>,
+    /// This computer's keychain keeps notes keys of the team: the team had a ring before, so a
+    /// ring the relay does not show is missing, not new, and none is made for decisions.
+    cached: bool,
 }
 
 impl NotesKeys {
@@ -121,6 +124,11 @@ impl NotesKeys {
     pub(super) fn welcome(&mut self, proto: u16) {
         self.proto = proto;
     }
+
+    /// Every key this run accepted or stored; the team's decisions open with it.
+    pub(super) fn ring(&self) -> Option<&KeyRing> {
+        self.ring.as_ref()
+    }
 }
 
 impl Engine {
@@ -138,13 +146,7 @@ impl Engine {
     /// What the app's shared notes see.
     pub fn notes_view(&self) -> NotesKeysView {
         let connected = self.notes_epoch();
-        let renewing = self.notes.ring.is_some()
-            && self.verifier.state().is_some_and(|state| {
-                state.rotation_urgent()
-                    || state.current_epoch().is_some_and(|current| {
-                        self.notes.fresh.is_none_or(|fresh| fresh < current.epoch)
-                    })
-            });
+        let renewing = self.notes_renewing();
         NotesKeysView {
             ring: self.notes.ring.clone(),
             speaks: connected.map(|_| self.notes_speaks()),
@@ -165,6 +167,23 @@ impl Engine {
                 .state()
                 .is_some_and(|state| state.rotation_urgent()),
         }
+    }
+
+    /// The ring's newest key is not closed to everyone who left yet ([`NotesKeysView::renewing`]).
+    pub(super) fn notes_renewing(&self) -> bool {
+        self.notes.ring.is_some()
+            && self.verifier.state().is_some_and(|state| {
+                state.rotation_urgent()
+                    || state.current_epoch().is_some_and(|current| {
+                        self.notes.fresh.is_none_or(|fresh| fresh < current.epoch)
+                    })
+            })
+    }
+
+    /// Whether this computer's keychain keeps notes keys of the team (the worker reads it before
+    /// every connection).
+    pub fn set_notes_cached(&mut self, cached: bool) {
+        self.notes.cached = cached;
     }
 
     /// The answer to the last [`Engine::notes_enable`], once there is one.
@@ -232,6 +251,8 @@ impl Engine {
             return effects;
         }
         effects.extend(self.notes_write_due());
+        // Decisions that waited for a notes key open now.
+        effects.extend(self.decisions_step());
         effects
     }
 
@@ -343,6 +364,25 @@ impl Engine {
             return self.notes_enable_now(enable, &seen);
         }
         let Some(mut ring) = self.notes.ring.clone() else {
+            // Protocol version 4: the team's decisions are sealed with the notes key ring, so an
+            // owner's or admin's device makes the team's first ring when there is none
+            // (ADR 0021). Only for a team that shows no trace of an earlier ring: no decision on
+            // the relay and no cached key here. Otherwise the relay may be hiding the ring, and
+            // a new one would split the team's keys; the Team view then waits for the keys.
+            // Shared notes still turn on per folder; this only puts the keys in place.
+            if matches!(seen, Seen::Absent)
+                && self.decisions_spoken()
+                && self.decisions_found_none()
+                && !self.notes.cached
+            {
+                return match KeyRing::generate(&mut Lend(self.entropy.as_mut())) {
+                    Ok(ring) => self.notes_send(ring, 0),
+                    Err(error) => {
+                        eprintln!("hangar: no team notes key: {error}");
+                        Vec::new()
+                    }
+                };
+            }
             return Vec::new();
         };
         // Whatever the relay shows (no record, an old one, one that no longer counts): a newest
@@ -511,6 +551,7 @@ impl Engine {
         let mut effects = vec![Effect::Changed];
         self.notes.seen = None;
         effects.extend(self.notes_fetch());
+        effects.extend(self.decisions_step());
         effects
     }
 

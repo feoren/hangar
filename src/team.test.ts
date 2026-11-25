@@ -157,6 +157,8 @@ const ACTIVITY = {
   log: { index: 4, safetyNumber: ["12345", "67890", "13579", "24680", "11223", "44556"] },
   logFull: false,
   historyWithheld: false,
+  decisions: [],
+  decisionsState: "ready",
 };
 
 const SAFETY = ["12345", "67890", "13579", "24680", "11223", "44556"];

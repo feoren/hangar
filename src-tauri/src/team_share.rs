@@ -614,6 +614,10 @@ pub struct TeamActivity {
     /// A teammate's signed record named a newer membership log than the relay hands this device,
     /// also after fetching it again: the relay holds back log entries.
     pub history_withheld: bool,
+    /// The team's decisions that count (`team_decisions.rs`), newest first.
+    pub decisions: Vec<crate::team_decisions::DecisionView>,
+    /// Whether the team server keeps decisions (protocol version 4).
+    pub decisions_state: crate::team_decisions::DecisionsState,
 }
 
 /// One of the signed-in person's devices in the verified log.

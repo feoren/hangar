@@ -214,8 +214,25 @@ function taskCommand(
   });
 }
 
+/** The busy key of a command on the decisions of a project (`id`: a blob, or "new"). */
+export function decisionKey(projectId: string, id: string): string {
+  return [projectId, "decision", id].join("\u0000");
+}
+
 export const team = {
   setSharing: toggle,
+  /** Records a decision; `null` once the team server stored it, else the problem (text stays). */
+  recordDecision: (projectId: string, decision: string, reason: string) =>
+    command(decisionKey(projectId, "new"), async () => {
+      await api.teamRecordDecision(projectId, decision, reason);
+      return true;
+    }),
+  /** Withdraws the decision stored as `blob` for the whole team. */
+  withdrawDecision: (projectId: string, blob: string) =>
+    command(decisionKey(projectId, blob), async () => {
+      await api.teamWithdrawDecision(projectId, blob);
+      return true;
+    }),
   linkRepo,
   /** Reserves a task; the backend's next `team-changed` shows whether it went through. */
   reserveTask: (

@@ -1,7 +1,7 @@
 ---
 title: "Team crypto: device keys, membership log, epochs, sealed records, recovery code"
 type: concept
-tags: [collaboration, teams, e2e, ed25519, x25519, hpke, xchacha20poly1305, hkdf, threat-model, possession]
+tags: [collaboration, teams, e2e, ed25519, x25519, hpke, xchacha20poly1305, hkdf, threat-model, possession, decisions]
 sources: []
 created: 2026-11-09
 updated: 2026-11-25
@@ -374,6 +374,49 @@ signature = Ed25519 (strict verification) with the device's sign key over statem
   recompute it yet (Python's standard library has no Ed25519; the layout test covers the bytes
   that are signed).
 
+## Decision seal
+
+Protocol version 4 ([[0021-team-decisions]], module `decision`). A team decision is a blob of the
+kind `decision`, sealed with the **newest key of the team's notes key ring** (ADR 0006 phase 2)
+instead of an epoch key:
+
+```text
+data = 0x01 || notes key id (8) || decision id (16, the UUID's bytes)
+       || head index (8) || head hash (32) || counter (8) || nonce (24)
+       || XChaCha20-Poly1305(key, nonce, padded, aad) || Ed25519 signature (64)
+key  = HKDF-SHA256(ikm = notes key, info = field("hangar-decision/v1/key") || field(team))
+aad  = field("hangar-team/v1/record") || field(0x01) || field(team) || field(epoch, u32)
+       || field("decision/v1") || field(notes key id) || field(decision id as text)
+       || field(member) || field(device) || field(head index, u64) || field(head hash)
+       || field(counter, u64)
+signed = field("hangar-team/v1/record-sig") || field(aad) || field(nonce) || field(ciphertext)
+padded = length (u32) || document || zeros, to a multiple of 256
+```
+
+- **Why the notes key:** not bound to an epoch, so members admitted later read every decision
+  and a rotation re-seals nothing; the key added after a removal closes what follows.
+- **Domain separation:** the kind label `decision/v1` is used by no epoch record, and the key is
+  derived under its own label; an epoch record never opens as a decision or the other way round.
+  The old label `blob/decision` is gone (`RecordKind::for_blob(Decision)` is `None`).
+- **Binding:** team, epoch (the envelope's, kept for the relay's stale check, choosing no key),
+  notes key id, decision id, sender, log head and counter. The decision id is in the clear and
+  the document must name it, so a relay's copy opens only as the same decision.
+- **Checks when opening** (`open_decision`), in the order of `EpochCipher::open_verified`: the
+  notes key (`UnknownKey`: wait for the ring), a verified head (`AheadOfLog`), a key period of
+  the sender covering it, the signature, the epoch and its start (`HeadBeforeEpoch`),
+  decryption, then the head's hash (`Fork`).
+- **A removed sender's decisions open**, for heads at which the log vouched for its keys, but
+  the app shows a decision of a writer the log no longer lists as a former member's and never
+  hands it to an agent: the counterpart of ADR 0006's old-key rule, since a removed device may
+  hold an older notes key and seal a backdated decision. Residual risk in [[0021-team-decisions]].
+- **Ids are the writer's**: the app names a decision by its writer and id together, so a member
+  sealing a document with another member's id hides nothing.
+- Nothing larger than `MAX_DECISION_CIPHERTEXT_LEN` is decoded (`DecisionError::TooLarge`).
+- A fork from a decision counts only for the sender's current key period and the current epoch.
+- No replay guard: decisions are state fetched again after every listing, like a resync.
+- Test vector `VECTOR_DECISION` (Rust and `test_vectors.py`), opened against the verified vector
+  log in `test_vectors_open_and_verify`.
+
 ## Obligations of the app
 
 - Store a rotation's secret in the OS keychain before sending `key.rotate`.
@@ -472,7 +515,10 @@ draft-irtf-cfrg-xchacha-03 A.3.1. `test_vectors.py` reimplements every primitive
 standard library, checks each against the same published vectors (and RFC 7748, RFC 5869, and the
 five low-order X25519 points giving an all-zero shared secret), and recomputes the crate's 16
 vectors (keys, safety number, three log entries with their hashes, commitment, wrapped key,
-history link, record with log head and counter, recovery code and its keys) independently.
+history link, record with log head and counter, notes key ring record, team hint, decision,
+recovery code and its keys) independently. Decisions (protocol version 4) add tests for
+rotations and later members, removed members and strangers, a copy under another id, another
+team or epoch, heads ahead of the log or before the epoch, and padding.
 
 > [!question] Unverified
 > The RFC test vectors were read from the RFC Editor and IETF archive texts on 2026-11-09 and are
@@ -533,6 +579,13 @@ Further questions from the hardening round:
 10. Which properties of MLS (RFC 9420) does this design lack that matter for teams of up to 512
     devices (post-compromise security beyond rotation, forward secrecy within an epoch,
     authenticated group state), and is moving to MLS advisable before release?
+
+Further question for the decision seal (protocol version 4):
+
+1. Is sealing decisions with the newest notes key, signed by the device and checked against the
+   log, sound when removed members keep older notes keys, and is the decision id in the clear
+   (bound in the associated data, repeated inside the document) enough against a relay that
+   copies or reorders blobs?
 
 ## Open
 

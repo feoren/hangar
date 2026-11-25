@@ -12293,14 +12293,76 @@ body.session-dragging .session-actions {
   flex-grow: 2;
 }
 
+/* Tasks with the team's decisions below them, in one column. */
+.team-now > .team-stack {
+  display: flex;
+  flex: 2 1 0;
+  flex-direction: column;
+  gap: 16px;
+  min-width: 0;
+  min-height: 0;
+}
+
+.team-stack > .team-card {
+  flex: 1 1 0;
+}
+
+.team-decisions-server {
+  margin: 0;
+}
+
+/* A long title and "Record decision" in a narrow window: the button moves below the title
+   instead of cutting it short. */
+.team-decisions .team-card-head {
+  flex-wrap: wrap;
+}
+
+.team-decisions .team-card-label {
+  flex: 1 0 auto;
+}
+
+.team-decision-text {
+  flex: 1;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+/* The reason reads below the decision, quieter than it and louder than who and when. */
+.team-decision-reason-text {
+  margin-top: 2px;
+  font-size: 12px;
+  color: var(--muted);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.team-decision-reason {
+  resize: vertical;
+  max-height: 160px;
+}
+
 @media (max-width: 680px) {
   .team-columns {
     flex-direction: column;
     gap: 12px;
   }
 
-  .team-columns > .team-card {
+  .team-columns > .team-card,
+  .team-stack > .team-card {
     min-height: 180px;
+  }
+
+  /* Stacked under the people, Tasks and Decisions never get less than their own height (they
+     would spill out of a smaller share) and grow with a tall window. */
+  .team-now > .team-stack {
+    flex: 2 0 auto;
+    gap: 12px;
+  }
+
+  /* Three cards of at least 180 px can be taller than a short window: then its body scrolls. */
+  .team-columns.team-now {
+    height: auto;
+    min-height: 100%;
   }
 }
 

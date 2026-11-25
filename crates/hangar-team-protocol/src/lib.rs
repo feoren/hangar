@@ -31,14 +31,20 @@ pub const ENVELOPE_VERSION: u16 = 1;
 /// rules. A change to any message's shape, to a limit or to a hash rule needs a new version.
 /// Version 2 adds the notes key ring (`notes.keys.get`, `notes.keys.set`, `notes.keys`,
 /// `notes.keys.updated`). Version 3 adds the proof of possession (the `welcome`'s `challenge`,
-/// answered with `device.prove`) and `blob.delete`. A kind is sent only on a team whose
-/// negotiated version has it ([`wire::ClientMessage::since`], [`wire::ServerMessage::since`]),
-/// and the `welcome` carries its challenge exactly when the negotiated version is 3 or newer.
-pub const PROTOCOL_VERSION: u16 = 3;
+/// answered with `device.prove`) and `blob.delete`. Version 4 adds the listing of blobs
+/// (`blob.list`, answered with `blobs`) and its live hints `blob.stored` and `blob.deleted`, which
+/// carry the team's decisions. A kind is sent only on a team whose negotiated version has it
+/// ([`wire::ClientMessage::since`], [`wire::ServerMessage::since`]), and the `welcome` carries its
+/// challenge exactly when the negotiated version is 3 or newer.
+pub const PROTOCOL_VERSION: u16 = 4;
 
 /// The first protocol version with the proof of possession at `hello` (`welcome.challenge`,
 /// `device.prove`) and `blob.delete`.
 pub const PROOF_PROTOCOL_VERSION: u16 = 3;
+
+/// The first protocol version with `blob.list`, `blobs`, `blob.stored` and `blob.deleted`: the
+/// team's decisions.
+pub const DECISIONS_PROTOCOL_VERSION: u16 = 4;
 
 /// The oldest protocol version this crate still speaks.
 pub const MIN_PROTOCOL_VERSION: u16 = 1;

@@ -1428,7 +1428,7 @@ fn records_are_bound_to_their_context() {
     assert_eq!(opened.head, head);
 
     let other_kind = RecordContext {
-        kind: RecordKind::Blob(BlobKind::Decision),
+        kind: RecordKind::TaskBlob,
         ..context
     };
     assert_eq!(
@@ -1544,7 +1544,17 @@ fn record_size_follows_the_protocol_limits() {
             .err(),
         Some(SealError::TooLarge)
     );
-    assert!(RecordKind::Blob(BlobKind::Transcript).max_plaintext() > 100_000);
+    assert!(RecordKind::TranscriptBlob.max_plaintext() > 100_000);
+    // Decisions are sealed with the notes key ring, never under an epoch.
+    assert_eq!(RecordKind::for_blob(BlobKind::Decision), None);
+    assert_eq!(
+        RecordKind::for_blob(BlobKind::Task),
+        Some(RecordKind::TaskBlob)
+    );
+    assert_eq!(
+        RecordKind::for_blob(BlobKind::Transcript),
+        Some(RecordKind::TranscriptBlob)
+    );
 }
 
 #[test]
@@ -2346,6 +2356,10 @@ const VECTOR_RECORD: &str =
 const VECTOR_NOTES_KEYS: &str =
     "AQAAAAAAAAADiAVxejreJipHbzqp4ZCfBXaMYfqx_oDX_X-hSkiz0A0AAAAAAAAAB_Dx8vP09fb3-Pn6-_z9_v8AAQIDBAUGB4LdY0p06vjQbDtFLVIy2xI5P4w1iqvB9qPGL63QX7HhfMLCDCt_WLEFKn5104AQ7hzdCjacKgCG9hdyWzqqROhy-DdubUl1XWF_bSZIRzH5BhdCRuhI7xkA11bea3Ov-W5vRei3IJo6s9TApXTITC4qUj00iXkQpdWezgbuvpWTVXZL3zhcWgdVG2mLQqC-GD2c_ff6Tbc9ddduxOc3vKIXAA";
 const VECTOR_TEAM_HINT: &str = "6025a8260ca5c3d3";
+const VECTOR_DECISION_ID: &str = "00112233-4455-4677-8899-aabbccddeeff";
+const VECTOR_DECISION_PLAINTEXT: &str = "{\"v\":1,\"id\":\"00112233-4455-4677-8899-aabbccddeeff\",\"decision\":\"Use marker A\",\"reason\":\"Marker B\",\"by\":\"Owner\",\"at\":1700000000000,\"repo\":null,\"supersedes\":null}";
+const VECTOR_DECISION: &str =
+    "AVhZWltcXV5fABEiM0RVRneImaq7zN3u_wAAAAAAAAADiAVxejreJipHbzqp4ZCfBXaMYfqx_oDX_X-hSkiz0A0AAAAAAAAAB9DR0tPU1dbX2Nna29zd3t_g4eLj5OXm5-cJmEqsVOJwM6S9otqf67a3-J-SKkdKIqd3rQTVsFynR5srUGRMaLIg6Fco5F86Sxmw9EmuOtXKdptH62boau17qUZyH2CmmSLdliAOP-m-mKCf1thz5lYyzW_GLOTG38-R9Q-hdIX61ABMiXUAQx2IE3TnH3xarM8ns-MrbKinPyRcra925KrpxoV_h4GBDGaLl1EO1a968F8ZODi8uySo4j0aolJjxOg1jCzBWg5e36wr-s9qghrSgAQuHpqasKf8wqWn_lxdFrOUnlGmDREhB-be2nAxe4yN2uiD92uJkQX6SzVHoO59dzlutTOOa8wqmwehWPF7HQZEN7lu81VLsdt74ux1eMYBdz0otEFp-o9ZXlOi5gZJUwESG0Co6gyHk3OXQaXROT70uZEasuu6Quhvu3sA6O4J_b3TihaAhTI9T3dv8PYFQtjo58MmCg";
 const VECTOR_RECOVERY_CODE: &str = "0481-24GK-2GAH-C5RR-34D1-P70X-3RFW-2KAP";
 const VECTOR_RECOVERY_SIGN: &str =
     "6cbe236cc50eef0b3c6cfd4bdd01608f2e2be38e76f257d39cb609a135616a97";
@@ -2367,6 +2381,7 @@ struct Vectors {
     history: String,
     record: String,
     notes_keys: String,
+    decision: String,
     team_hint: String,
     recovery_code: String,
     recovery_sign: String,
@@ -2505,6 +2520,25 @@ fn compute_vectors() -> Vectors {
     )
     .expect("seal");
 
+    // A team decision (protocol version 4): sealed with the ring's newest key by the owner's
+    // laptop, under epoch 1.
+    let decision = crate::decision::seal_decision(
+        &vector_notes_ring(),
+        &team,
+        Epoch(1),
+        VECTOR_DECISION_ID,
+        &owner_holder,
+        &owner,
+        &ChainHead {
+            index: 3,
+            hash: add_hash,
+        },
+        VECTOR_COUNTER,
+        VECTOR_DECISION_PLAINTEXT.as_bytes(),
+        &mut FixedEntropy::counting(0xd0, 24),
+    )
+    .expect("seal");
+
     let code = RecoveryCode::generate(&mut FixedEntropy::counting(0x10, 16)).expect("rng");
     let recovery = code.identity().expect("id").public_keys();
 
@@ -2523,6 +2557,7 @@ fn compute_vectors() -> Vectors {
         history: hex(history.as_bytes()),
         record: record.data.as_str().to_owned(),
         notes_keys: notes_keys.data.as_str().to_owned(),
+        decision: decision.data.as_str().to_owned(),
         team_hint: crate::notes::team_hint(&team),
         recovery_code: code.reveal().to_string(),
         recovery_sign: hex(recovery.sign.as_bytes()),
@@ -2556,6 +2591,7 @@ fn test_vectors() {
         ("VECTOR_HISTORY", VECTOR_HISTORY, &v.history),
         ("VECTOR_RECORD", VECTOR_RECORD, &v.record),
         ("VECTOR_NOTES_KEYS", VECTOR_NOTES_KEYS, &v.notes_keys),
+        ("VECTOR_DECISION", VECTOR_DECISION, &v.decision),
         ("VECTOR_TEAM_HINT", VECTOR_TEAM_HINT, &v.team_hint),
         (
             "VECTOR_RECOVERY_CODE",
@@ -2655,6 +2691,21 @@ fn test_vectors_open_and_verify() {
         .expect("open");
     assert_eq!(opened.plaintext.as_slice(), b"hello team");
     assert_eq!(opened.counter, VECTOR_COUNTER);
+    let decision = crate::decision::open_decision(
+        &vector_notes_ring(),
+        state,
+        &owner_holder,
+        &Sealed {
+            epoch: Epoch(1),
+            data: Ciphertext::new(VECTOR_DECISION).expect("ct"),
+        },
+    )
+    .expect("decision");
+    assert_eq!(decision.id, VECTOR_DECISION_ID);
+    assert_eq!(
+        decision.plaintext.as_slice(),
+        VECTOR_DECISION_PLAINTEXT.as_bytes()
+    );
     let next = TeamSecret::from_bytes(Zeroizing::new(std::array::from_fn(|i| {
         0xa0u8.wrapping_add(i as u8)
     })));
@@ -3366,4 +3417,302 @@ fn a_changed_or_relabelled_notes_keys_record_does_not_open() {
         open_ring(&team, &second.secret, Epoch(2), &owner, &relabelled),
         Err(NotesKeysError::Open(_))
     ));
+}
+
+// ---------------------------------------------------------------------------------------------
+// Decisions (protocol version 4): sealed with the notes key ring, signed by the device
+// ---------------------------------------------------------------------------------------------
+
+const DECISION_ID: &str = "0f8e2c1a-5b6d-4e7f-8a9b-0c1d2e3f4a5b";
+
+fn seal_decision_as(
+    team: &Team,
+    who: Who,
+    ring: &crate::notes::KeyRing,
+    epoch: Epoch,
+    id: &str,
+    plaintext: &[u8],
+) -> Sealed {
+    let device = team.device(who);
+    crate::decision::seal_decision(
+        ring,
+        &team_id(),
+        epoch,
+        id,
+        &device.holder,
+        &device.identity,
+        team.state().head(),
+        1,
+        plaintext,
+        &mut OsEntropy,
+    )
+    .expect("seal")
+}
+
+#[test]
+fn a_decision_opens_for_every_member_also_after_rotations_and_for_later_members() {
+    use crate::decision::{open_decision, DecisionError};
+    let mut team = Team::new();
+    team.next_epoch(Who::Owner, None);
+    let ring = notes_ring(1);
+    let member = team.member.holder.clone();
+    let sealed = seal_decision_as(&team, Who::Member, &ring, Epoch(1), DECISION_ID, b"marker");
+    let opened = open_decision(&ring, team.state(), &member, &sealed).expect("open");
+    assert_eq!(opened.id, DECISION_ID);
+    assert_eq!(opened.plaintext.as_slice(), b"marker");
+    assert_eq!(opened.key, ring.newest().id());
+    assert!(!format!("{opened:?}").contains("marker"));
+    let header = crate::decision::decision_header(&sealed).expect("header");
+    assert_eq!(header.id, DECISION_ID);
+    assert_eq!(header.key, ring.newest().id());
+
+    // Rotations re-seal nothing: the notes key is not bound to an epoch.
+    team.next_epoch(Who::Admin, None);
+    team.next_epoch(Who::Owner, None);
+    assert!(open_decision(&ring, team.state(), &member, &sealed).is_ok());
+    // A member admitted afterwards, with only the newest epoch, reads it with the ring.
+    let carol = Device::new("carol", "laptop");
+    team.submit(
+        Who::Admin,
+        EntryKind::AddMember {
+            member: carol.holder.member.clone(),
+            role: Role::Member,
+            devices: vec![carol.entry()],
+        },
+    )
+    .expect("add");
+    assert_eq!(
+        open_decision(&ring, team.state(), &member, &sealed)
+            .expect("later member")
+            .plaintext
+            .as_slice(),
+        b"marker"
+    );
+    // A ring without the key that sealed it says which key it waits for.
+    let other = notes_ring(1);
+    assert_eq!(
+        open_decision(&other, team.state(), &member, &sealed).err(),
+        Some(DecisionError::UnknownKey(ring.newest().id()))
+    );
+    // A ring that grew keeps opening it, and new decisions use its newest key.
+    let mut grown = ring.clone();
+    let newest = grown.add_generated(&mut OsEntropy).expect("room");
+    assert!(open_decision(&grown, team.state(), &member, &sealed).is_ok());
+    let next = seal_decision_as(&team, Who::Owner, &grown, Epoch(3), DECISION_ID, b"next");
+    assert_eq!(
+        crate::decision::decision_header(&next).expect("h").key,
+        newest
+    );
+}
+
+#[test]
+fn a_decision_is_bound_to_its_sender_id_team_and_bytes() {
+    use crate::decision::{open_decision, seal_decision, DecisionError};
+    let mut team = Team::new();
+    team.next_epoch(Who::Owner, None);
+    let ring = notes_ring(1);
+    let member = team.member.holder.clone();
+    let admin = team.admin.holder.clone();
+    let sealed = seal_decision_as(&team, Who::Member, &ring, Epoch(1), DECISION_ID, b"marker");
+    // The relay naming another writer fails the signature.
+    assert_eq!(
+        open_decision(&ring, team.state(), &admin, &sealed).err(),
+        Some(DecisionError::Record(OpenError::Signature))
+    );
+    // Another decision id in the clear header (a copy under another id) fails the signature.
+    let mut data = from_ciphertext(&sealed.data).expect("b64");
+    data[9] ^= 1;
+    let renamed = Sealed {
+        epoch: sealed.epoch,
+        data: to_ciphertext(&data).expect("b64"),
+    };
+    assert_eq!(
+        open_decision(&ring, team.state(), &member, &renamed).err(),
+        Some(DecisionError::Record(OpenError::Signature))
+    );
+    // A flipped ciphertext byte, and another epoch in the envelope.
+    let mut data = from_ciphertext(&sealed.data).expect("b64");
+    let at = data.len() - 70;
+    data[at] ^= 1;
+    let flipped = Sealed {
+        epoch: sealed.epoch,
+        data: to_ciphertext(&data).expect("b64"),
+    };
+    assert_eq!(
+        open_decision(&ring, team.state(), &member, &flipped).err(),
+        Some(DecisionError::Record(OpenError::Signature))
+    );
+    let moved = Sealed {
+        epoch: Epoch(2),
+        data: sealed.data.clone(),
+    };
+    assert_eq!(
+        open_decision(&ring, team.state(), &member, &moved).err(),
+        Some(DecisionError::Record(OpenError::Signature))
+    );
+    // Sealed for another team, it does not open in this one.
+    let device = team.device(Who::Member);
+    let elsewhere = seal_decision(
+        &ring,
+        &TeamId::new("team-2").expect("id"),
+        Epoch(1),
+        DECISION_ID,
+        &device.holder,
+        &device.identity,
+        team.state().head(),
+        1,
+        b"marker",
+        &mut OsEntropy,
+    )
+    .expect("seal");
+    assert_eq!(
+        open_decision(&ring, team.state(), &member, &elsewhere).err(),
+        Some(DecisionError::Record(OpenError::Signature))
+    );
+    // Ids must be lower case UUIDs; documents stay small.
+    assert_eq!(
+        seal_decision(
+            &ring,
+            &team_id(),
+            Epoch(1),
+            "0F8E2C1A-5B6D-4E7F-8A9B-0C1D2E3F4A5B",
+            &device.holder,
+            &device.identity,
+            team.state().head(),
+            1,
+            b"x",
+            &mut OsEntropy,
+        )
+        .err(),
+        Some(DecisionError::Id)
+    );
+    assert_eq!(
+        seal_decision(
+            &ring,
+            &team_id(),
+            Epoch(1),
+            DECISION_ID,
+            &device.holder,
+            &device.identity,
+            team.state().head(),
+            1,
+            &vec![b'x'; crate::decision::MAX_DECISION_PLAINTEXT + 1],
+            &mut OsEntropy,
+        )
+        .err(),
+        Some(DecisionError::TooLarge)
+    );
+    // A blob larger than any decision is not even decoded.
+    let huge = Sealed {
+        epoch: Epoch(1),
+        data: Ciphertext::new(
+            "A".repeat(hangar_team_protocol::limits::MAX_DECISION_CIPHERTEXT_LEN + 4),
+        )
+        .expect("ct"),
+    };
+    assert_eq!(
+        open_decision(&ring, team.state(), &member, &huge).err(),
+        Some(DecisionError::TooLarge)
+    );
+    // Padded: two short documents of different length have the same size.
+    let a = seal_decision_as(&team, Who::Member, &ring, Epoch(1), DECISION_ID, b"a");
+    let b = seal_decision_as(
+        &team,
+        Who::Member,
+        &ring,
+        Epoch(1),
+        DECISION_ID,
+        &[b'b'; 200],
+    );
+    assert_eq!(a.data.as_str().len(), b.data.as_str().len());
+}
+
+#[test]
+fn a_removed_members_decision_stays_and_one_after_its_removal_does_not_count() {
+    use crate::decision::{open_decision, DecisionError};
+    let mut team = Team::new();
+    team.next_epoch(Who::Owner, None);
+    let ring = notes_ring(1);
+    let member = team.member.holder.clone();
+    let before = seal_decision_as(&team, Who::Member, &ring, Epoch(1), DECISION_ID, b"before");
+    team.submit(
+        Who::Owner,
+        EntryKind::RemoveMember {
+            member: member.member.clone(),
+        },
+    )
+    .expect("remove");
+    team.next_epoch(Who::Owner, None);
+    // Written while the member was in the team: still the team's decision.
+    assert!(open_decision(&ring, team.state(), &member, &before).is_ok());
+    // Naming a head after its removal: refused.
+    let after = seal_decision_as(&team, Who::Member, &ring, Epoch(2), DECISION_ID, b"after");
+    assert_eq!(
+        open_decision(&ring, team.state(), &member, &after).err(),
+        Some(DecisionError::Record(OpenError::SenderNotValid))
+    );
+    // A stranger the log never listed.
+    let stranger = Device::new("stranger", "d");
+    let sealed = crate::decision::seal_decision(
+        &ring,
+        &team_id(),
+        Epoch(2),
+        DECISION_ID,
+        &stranger.holder,
+        &stranger.identity,
+        team.state().head(),
+        1,
+        b"x",
+        &mut OsEntropy,
+    )
+    .expect("seal");
+    assert_eq!(
+        open_decision(&ring, team.state(), &stranger.holder, &sealed).err(),
+        Some(DecisionError::Record(OpenError::UnknownSender))
+    );
+}
+
+#[test]
+fn a_decision_ahead_of_the_log_or_from_before_its_epoch_is_reported() {
+    use crate::decision::{open_decision, DecisionError};
+    let mut team = Team::new();
+    team.next_epoch(Who::Owner, None);
+    let ring = notes_ring(1);
+    let owner = team.owner.holder.clone();
+    let old_state = team.state().clone();
+    team.next_epoch(Who::Admin, None);
+    // Sealed with the newer head; a device whose log ends before it fetches the log first.
+    let ahead = seal_decision_as(&team, Who::Owner, &ring, Epoch(2), DECISION_ID, b"x");
+    assert_eq!(
+        open_decision(&ring, &old_state, &owner, &ahead).err(),
+        Some(DecisionError::Record(OpenError::AheadOfLog {
+            index: team.state().head().index,
+            signed: true,
+        }))
+    );
+    // A head from before the epoch the envelope names.
+    let device = team.device(Who::Owner);
+    let early = crate::decision::seal_decision(
+        &ring,
+        &team_id(),
+        Epoch(2),
+        DECISION_ID,
+        &device.holder,
+        &device.identity,
+        old_state.head(),
+        1,
+        b"x",
+        &mut OsEntropy,
+    )
+    .expect("seal");
+    assert_eq!(
+        open_decision(&ring, team.state(), &owner, &early).err(),
+        Some(DecisionError::Record(OpenError::HeadBeforeEpoch))
+    );
+    // An epoch the log does not have.
+    let unknown = seal_decision_as(&team, Who::Owner, &ring, Epoch(9), DECISION_ID, b"x");
+    assert_eq!(
+        open_decision(&ring, team.state(), &owner, &unknown).err(),
+        Some(DecisionError::Record(OpenError::UnknownEpoch))
+    );
 }

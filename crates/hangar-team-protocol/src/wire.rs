@@ -40,11 +40,14 @@ use crate::ids::{
     Ticket, UnixMillis,
 };
 use crate::limits::{
-    MAX_CIPHERTEXT_LEN, MAX_CLAIM_FILES, MAX_FRAME_BYTES, MAX_HEARTBEAT_TASKS,
+    MAX_BLOB_LIST, MAX_CIPHERTEXT_LEN, MAX_CLAIM_FILES, MAX_FRAME_BYTES, MAX_HEARTBEAT_TASKS,
     MAX_INLINE_CIPHERTEXT_LEN, MAX_KEY_PACKAGES, MAX_LOG_ENTRIES, MAX_PREV_HASHES,
     MAX_WRAPPED_KEYS,
 };
-use crate::{ENVELOPE_VERSION, MIN_PROTOCOL_VERSION, PROOF_PROTOCOL_VERSION, PROTOCOL_VERSION};
+use crate::{
+    DECISIONS_PROTOCOL_VERSION, ENVELOPE_VERSION, MIN_PROTOCOL_VERSION, PROOF_PROTOCOL_VERSION,
+    PROTOCOL_VERSION,
+};
 
 /// Why a frame was not accepted. The server answers each with an `err` code
 /// ([`DecodeError::code`]); the text never contains the frame's content.
@@ -385,11 +388,27 @@ pub struct BlobGet {
 /// log role and ticket role). Answered with `ack`; `notFound` for a blob the team does not have
 /// (also one already deleted, and one of another team, so nothing is told about other teams),
 /// `forbidden` for anyone else. Deduplicated by op id, so a retry of the first delete gets its
-/// `ack`. No event: nothing lists blobs yet, so nobody else needs to forget an id.
+/// `ack`. From protocol version 4 the relay then sends [`BlobDeleted`] to the team's connections
+/// of version 4, so they forget the id; on version 3 nothing lists blobs, so no event follows.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct BlobDelete {
     pub blob: BlobId,
+}
+
+/// `blob.list` (protocol version 4): the team's stored blobs of `kind`, in the order the relay
+/// stored them (newest last), after the blob `after` (`None`: from the first). Answered with
+/// [`BlobListing`] (`blobs`, at most [`MAX_BLOB_LIST`] entries, `more` when others follow; the
+/// next page asks with the page's last blob as `after`). An `after` the team does not have (any
+/// more) is `notFound`: the client lists from the first again. Metadata only, never content
+/// (`blob.get` fetches that). A connection starts at most one listing per
+/// [`crate::limits::BLOB_LIST_EVERY_MS`] (`rateLimited` with `retryAfterMs`); the pages of one
+/// listing follow at once. A read: answered every time, not deduplicated.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct BlobList {
+    pub kind: BlobKind,
+    pub after: Option<BlobId>,
 }
 
 /// `device.prove` (protocol version 3): the answer to the `welcome`'s [`Welcome::challenge`]. The
@@ -584,6 +603,9 @@ pub enum ClientMessage {
     /// Protocol version 3.
     #[serde(rename = "blob.delete")]
     BlobDelete(BlobDelete),
+    /// Protocol version 4: the team's blobs of one kind, answered with [`BlobListing`].
+    #[serde(rename = "blob.list")]
+    BlobList(BlobList),
     #[serde(rename = "device.keys")]
     DeviceKeys(DeviceKeys),
     /// Protocol version 3: the answer to the `welcome`'s challenge.
@@ -651,6 +673,7 @@ impl ClientMessage {
             ClientMessage::BlobPut(_) => "blob.put",
             ClientMessage::BlobGet(_) => "blob.get",
             ClientMessage::BlobDelete(_) => "blob.delete",
+            ClientMessage::BlobList(_) => "blob.list",
             ClientMessage::DeviceKeys(_) => "device.keys",
             ClientMessage::DeviceProve(_) => "device.prove",
             ClientMessage::DevicesGet => "devices.get",
@@ -673,6 +696,7 @@ impl ClientMessage {
         match self {
             ClientMessage::NotesKeysGet | ClientMessage::NotesKeysSet(_) => 2,
             ClientMessage::BlobDelete(_) | ClientMessage::DeviceProve(_) => PROOF_PROTOCOL_VERSION,
+            ClientMessage::BlobList(_) => DECISIONS_PROTOCOL_VERSION,
             _ => 1,
         }
     }
@@ -713,7 +737,7 @@ impl ClientMessage {
     /// `device.keys` replace the sender's own state, so applying a retry again does no harm;
     /// they are applied and answered with `ack` every time, and so is `ticket.renew`, which
     /// verifies and applies the same ticket to the same result, and `device.prove`, which
-    /// verifies the same signature to the same result. Reads (`blob.get`, `key.get`,
+    /// verifies the same signature to the same result. Reads (`blob.get`, `blob.list`, `key.get`,
     /// `devices.get`, `memberlog.get`), `hello` and `ping` are answered every time.
     pub fn deduplicated(&self) -> bool {
         matches!(
@@ -774,6 +798,7 @@ impl ClientMessage {
             | ClientMessage::ClaimClear(_)
             | ClientMessage::BlobGet(_)
             | ClientMessage::BlobDelete(_)
+            | ClientMessage::BlobList(_)
             | ClientMessage::DeviceKeys(_)
             | ClientMessage::DeviceProve(_)
             | ClientMessage::DevicesGet
@@ -845,6 +870,7 @@ impl ClientMessage {
             | ClientMessage::ClaimClear(_)
             | ClientMessage::BlobGet(_)
             | ClientMessage::BlobDelete(_)
+            | ClientMessage::BlobList(_)
             | ClientMessage::DeviceKeys(_)
             | ClientMessage::DeviceProve(_)
             | ClientMessage::DevicesGet
@@ -1390,6 +1416,47 @@ pub struct NotesKeysUpdated {
     pub by: Holder,
 }
 
+/// One stored blob in a [`BlobListing`]: metadata only. `by` is the device that stored it (the
+/// relay's word: the content's signature must verify for it), `created_at` the relay's clock.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields, rename_all = "camelCase")]
+pub struct BlobEntry {
+    pub blob: BlobId,
+    pub by: Holder,
+    pub created_at: UnixMillis,
+}
+
+/// `blobs` (protocol version 4): the answer to `blob.list`, carrying its op id, at most
+/// [`MAX_BLOB_LIST`] entries of `kind` in storage order (newest last); `more`: others follow,
+/// asked for with the last entry's blob as `after`. Never logged.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct BlobListing {
+    pub kind: BlobKind,
+    pub blobs: Vec<BlobEntry>,
+    pub more: bool,
+}
+
+/// `blob.stored` (protocol version 4): a blob of `kind` was stored by `by`. A live hint only
+/// (never logged, no `seq`, no replay), sent only to the team's connections of version 4 that
+/// count as devices of the log; clients list (`blob.list`) on it and after every `welcome`.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct BlobStored {
+    pub kind: BlobKind,
+    pub blob: BlobId,
+    pub by: Holder,
+}
+
+/// `blob.deleted` (protocol version 4): a blob of `kind` was deleted (`blob.delete`). A live
+/// hint like [`BlobStored`]; a device that missed it learns it from its next full listing.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct BlobDeleted {
+    pub kind: BlobKind,
+    pub blob: BlobId,
+}
+
 /// Everything the server sends. `type` on the wire is the serde name; [`SERVER_KINDS`] lists
 /// them.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
@@ -1447,6 +1514,15 @@ pub enum ServerMessage {
     /// Protocol version 2.
     #[serde(rename = "notes.keys.updated")]
     NotesKeysUpdated(NotesKeysUpdated),
+    /// Protocol version 4: the answer to `blob.list`.
+    #[serde(rename = "blobs")]
+    Blobs(BlobListing),
+    /// Protocol version 4.
+    #[serde(rename = "blob.stored")]
+    BlobStored(BlobStored),
+    /// Protocol version 4.
+    #[serde(rename = "blob.deleted")]
+    BlobDeleted(BlobDeleted),
 }
 
 impl ServerMessage {
@@ -1478,6 +1554,9 @@ impl ServerMessage {
             ServerMessage::MemberLogAppended(_) => "memberlog.appended",
             ServerMessage::NotesKeys(_) => "notes.keys",
             ServerMessage::NotesKeysUpdated(_) => "notes.keys.updated",
+            ServerMessage::Blobs(_) => "blobs",
+            ServerMessage::BlobStored(_) => "blob.stored",
+            ServerMessage::BlobDeleted(_) => "blob.deleted",
         }
     }
 
@@ -1487,6 +1566,9 @@ impl ServerMessage {
     pub fn since(&self) -> u16 {
         match self {
             ServerMessage::NotesKeys(_) | ServerMessage::NotesKeysUpdated(_) => 2,
+            ServerMessage::Blobs(_)
+            | ServerMessage::BlobStored(_)
+            | ServerMessage::BlobDeleted(_) => DECISIONS_PROTOCOL_VERSION,
             _ => 1,
         }
     }
@@ -1567,6 +1649,7 @@ impl ServerMessage {
             ServerMessage::Notify(m) => inline("content", m.content.as_ref()),
             ServerMessage::NotesKeys(m) => inline("content", m.record.as_ref().map(|r| &r.content)),
             ServerMessage::Devices(m) => count("devices", m.devices.len(), MAX_WRAPPED_KEYS),
+            ServerMessage::Blobs(m) => count("blobs", m.blobs.len(), MAX_BLOB_LIST),
             ServerMessage::MemberLogEntries(m) => {
                 count("entries", m.entries.len(), MAX_LOG_ENTRIES)?;
                 m.entries
@@ -1736,6 +1819,7 @@ pub const CLIENT_KINDS: &[&str] = &[
     "blob.put",
     "blob.get",
     "blob.delete",
+    "blob.list",
     "device.keys",
     "device.prove",
     "devices.get",
@@ -1777,6 +1861,9 @@ pub const SERVER_KINDS: &[&str] = &[
     "memberlog.appended",
     "notes.keys",
     "notes.keys.updated",
+    "blobs",
+    "blob.stored",
+    "blob.deleted",
 ];
 
 /// Parses a body straight into its type, so duplicate and unknown fields are refused by the
@@ -1823,6 +1910,7 @@ fn client_message(kind: &str, body: Option<&RawValue>) -> Result<ClientMessage, 
         "blob.put" => ClientMessage::BlobPut(parse(kind, body)?),
         "blob.get" => ClientMessage::BlobGet(parse(kind, body)?),
         "blob.delete" => ClientMessage::BlobDelete(parse(kind, body)?),
+        "blob.list" => ClientMessage::BlobList(parse(kind, body)?),
         "device.keys" => ClientMessage::DeviceKeys(parse(kind, body)?),
         "device.prove" => ClientMessage::DeviceProve(parse(kind, body)?),
         "devices.get" => no_body(kind, body, ClientMessage::DevicesGet)?,
@@ -1882,6 +1970,9 @@ fn server_message(kind: &str, body: Option<&RawValue>) -> Result<ServerMessage, 
         "memberlog.appended" => ServerMessage::MemberLogAppended(parse(kind, body)?),
         "notes.keys" => ServerMessage::NotesKeys(parse(kind, body)?),
         "notes.keys.updated" => ServerMessage::NotesKeysUpdated(parse(kind, body)?),
+        "blobs" => ServerMessage::Blobs(parse(kind, body)?),
+        "blob.stored" => ServerMessage::BlobStored(parse(kind, body)?),
+        "blob.deleted" => ServerMessage::BlobDeleted(parse(kind, body)?),
         _ => return Err(unlisted()),
     })
 }
@@ -2069,6 +2160,10 @@ mod tests {
             }),
             ClientMessage::BlobDelete(BlobDelete {
                 blob: BlobId::new("b1").unwrap(),
+            }),
+            ClientMessage::BlobList(BlobList {
+                kind: BlobKind::Decision,
+                after: Some(BlobId::new("b1").unwrap()),
             }),
             ClientMessage::DeviceKeys(DeviceKeys {
                 sign: PublicKey::from_bytes([1; 32]),
@@ -2288,6 +2383,24 @@ mod tests {
                 version: 4,
                 by: holder(),
             }),
+            ServerMessage::Blobs(BlobListing {
+                kind: BlobKind::Decision,
+                blobs: vec![BlobEntry {
+                    blob: BlobId::new("b1").unwrap(),
+                    by: holder(),
+                    created_at: UnixMillis(7),
+                }],
+                more: true,
+            }),
+            ServerMessage::BlobStored(BlobStored {
+                kind: BlobKind::Decision,
+                blob: BlobId::new("b1").unwrap(),
+                by: holder(),
+            }),
+            ServerMessage::BlobDeleted(BlobDeleted {
+                kind: BlobKind::Decision,
+                blob: BlobId::new("b1").unwrap(),
+            }),
         ]
     }
 
@@ -2402,7 +2515,7 @@ mod tests {
         let hello = encode_client(&client(all_client_messages().remove(0))).unwrap();
         // Fields come out in declaration order.
         assert!(
-            hello.contains(r#""proto":{"min":1,"max":3},"lastSeq":{"stream":"s1","seq":41}"#),
+            hello.contains(r#""proto":{"min":1,"max":4},"lastSeq":{"stream":"s1","seq":41}"#),
             "{hello}"
         );
     }
@@ -2666,9 +2779,11 @@ mod tests {
         welcome.proto = 3;
         assert_eq!(check_welcome(ProtoRange::CURRENT, &welcome), Ok(()));
         welcome.proto = 4;
+        assert_eq!(check_welcome(ProtoRange::CURRENT, &welcome), Ok(()));
+        welcome.proto = 5;
         assert_eq!(
             check_welcome(ProtoRange::CURRENT, &welcome),
-            Err(UnexpectedVersion { chosen: 4 })
+            Err(UnexpectedVersion { chosen: 5 })
         );
     }
 
@@ -2678,7 +2793,7 @@ mod tests {
     fn version_two_meets_version_one_on_version_one() {
         let old = ProtoRange::new(1, 1).unwrap();
         assert_eq!(ProtoRange::CURRENT.min(), 1);
-        assert_eq!(ProtoRange::CURRENT.max(), 3);
+        assert_eq!(ProtoRange::CURRENT.max(), 4);
         assert_eq!(ProtoRange::CURRENT.negotiate(old), Some(1));
         assert_eq!(old.negotiate(ProtoRange::CURRENT), Some(1));
         // An app or relay of version 2 (the notes key ring) meets this crate on version 2, so
@@ -2686,7 +2801,11 @@ mod tests {
         let two = ProtoRange::new(1, 2).unwrap();
         assert_eq!(ProtoRange::CURRENT.negotiate(two), Some(2));
         assert_eq!(two.negotiate(ProtoRange::CURRENT), Some(2));
-        assert_eq!(ProtoRange::CURRENT.negotiate(ProtoRange::CURRENT), Some(3));
+        // A relay of version 3 (proof of possession, no listing) meets this crate on 3.
+        let three = ProtoRange::new(1, 3).unwrap();
+        assert_eq!(ProtoRange::CURRENT.negotiate(three), Some(3));
+        assert_eq!(three.negotiate(ProtoRange::CURRENT), Some(3));
+        assert_eq!(ProtoRange::CURRENT.negotiate(ProtoRange::CURRENT), Some(4));
         for message in all_client_messages() {
             let text = encode_client(&client(message)).unwrap();
             assert!(text.starts_with(r#"{"v":1,"#), "{text}");
@@ -2730,8 +2849,91 @@ mod tests {
             .map(|m| m.kind())
             .collect();
         assert_eq!(client, ["blob.delete", "device.prove"]);
-        assert!(all_client_messages().iter().all(|m| m.since() <= 3));
-        assert!(all_server_messages().iter().all(|m| m.since() <= 2));
+        assert!(all_server_messages().iter().all(|m| m.since() != 3));
+    }
+
+    /// Version 4 adds the listing of blobs and its two live hints, nothing else; none of them is
+    /// logged, targeted, deduplicated or allowed before the proof, so a peer of version 3 sees
+    /// exactly the traffic of before.
+    #[test]
+    fn version_four_adds_the_blob_listing_and_its_hints() {
+        let client: Vec<_> = all_client_messages()
+            .into_iter()
+            .filter(|m| m.since() == 4)
+            .map(|m| m.kind())
+            .collect();
+        assert_eq!(client, ["blob.list"]);
+        let server: Vec<_> = all_server_messages()
+            .into_iter()
+            .filter(|m| m.since() == 4)
+            .map(|m| m.kind())
+            .collect();
+        assert_eq!(server, ["blobs", "blob.stored", "blob.deleted"]);
+        assert!(all_client_messages().iter().all(|m| m.since() <= 4));
+        for message in all_server_messages().iter().filter(|m| m.since() == 4) {
+            assert!(!message.loggable(), "{}", message.kind());
+            assert!(message.recipient().is_none(), "{}", message.kind());
+        }
+        let list = ClientMessage::BlobList(BlobList {
+            kind: BlobKind::Decision,
+            after: None,
+        });
+        assert!(!list.deduplicated());
+        assert!(!list.allowed_before_proof());
+        assert_eq!(list.check_epoch(Epoch(9)), Ok(()));
+        assert_eq!(DECISIONS_PROTOCOL_VERSION, 4);
+        assert_eq!(PROTOCOL_VERSION, 4);
+    }
+
+    #[test]
+    fn blob_lists_are_strict_and_bounded() {
+        let ok = r#"{"v":1,"id":"o","team":"t","type":"blob.list","body":{"kind":"decision","after":null}}"#;
+        assert!(matches!(
+            decode_client(ok).unwrap().message,
+            ClientMessage::BlobList(BlobList { after: None, .. })
+        ));
+        let extra = r#"{"v":1,"id":"o","team":"t","type":"blob.list","body":{"kind":"decision","after":null,"limit":5}}"#;
+        assert!(decode_client(extra).is_err());
+        let unknown =
+            r#"{"v":1,"id":"o","team":"t","type":"blob.list","body":{"kind":"note","after":null}}"#;
+        assert!(decode_client(unknown).is_err());
+        let listing = |n: usize| {
+            ServerMessage::Blobs(BlobListing {
+                kind: BlobKind::Decision,
+                blobs: (0..n)
+                    .map(|i| BlobEntry {
+                        blob: BlobId::new(format!("b{i}")).unwrap(),
+                        by: holder(),
+                        created_at: UnixMillis(i as u64),
+                    })
+                    .collect(),
+                more: false,
+            })
+        };
+        let text = encode_server(&server(listing(MAX_BLOB_LIST))).unwrap();
+        assert!(text.len() < MAX_FRAME_BYTES / 4, "{}", text.len());
+        assert!(text.contains(r#""createdAt":0"#), "{text}");
+        assert_eq!(
+            encode_server(&server(listing(MAX_BLOB_LIST + 1))),
+            Err(EncodeError::Limit {
+                field: "blobs",
+                max: MAX_BLOB_LIST
+            })
+        );
+        let stored = r#"{"v":1,"team":"t","type":"blob.stored","body":{"kind":"decision","blob":"b1","by":{"member":"m","device":"d"}}}"#;
+        assert!(matches!(
+            decode_server(stored).unwrap().message,
+            ServerMessage::BlobStored(_)
+        ));
+        let deleted =
+            r#"{"v":1,"team":"t","type":"blob.deleted","body":{"kind":"decision","blob":"b1"}}"#;
+        assert!(matches!(
+            decode_server(deleted).unwrap().message,
+            ServerMessage::BlobDeleted(_)
+        ));
+        // A hint with a sequence number is refused: it is never logged.
+        let logged = r#"{"v":1,"seq":3,"team":"t","type":"blob.deleted","body":{"kind":"decision","blob":"b1"}}"#;
+        assert!(decode_server(logged).is_err());
     }
 
     /// The exact text a version 2 relay sent: an app of version 2 refuses any other field in a

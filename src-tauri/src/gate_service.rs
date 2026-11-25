@@ -82,6 +82,7 @@ use crate::partners::{read_send_request, SendRequest, MAX_SEND_BODY_BYTES, ROUTE
 use crate::permission_wait::PermissionWaits;
 use crate::repo_hooks;
 use crate::session::{GateStatus, SessionId};
+use crate::team_decisions::TeamDecision;
 use crate::team_share::TeammateFile;
 use crate::team_tasks::TeamTask;
 
@@ -163,6 +164,7 @@ type Emit = Box<dyn Fn(&GateSnapshot) + Send + Sync>;
 type Teammates = Box<dyn Fn(&str, &str) -> Vec<TeammateFile> + Send + Sync>;
 /// The team's reservations for the same clone (`TeamService::team_tasks`).
 type TeamTasks = Box<dyn Fn(&str, &str) -> Vec<TeamTask> + Send + Sync>;
+type TeamDecisions = Box<dyn Fn(&str, &str) -> Vec<TeamDecision> + Send + Sync>;
 /// Hands a message an agent sent with `hangar-send` to the partner service: the sending session
 /// and the request; the answer is the HTTP status and the JSON body for the client.
 type Messages = Arc<dyn Fn(SessionId, SendRequest) -> (Status, String) + Send + Sync>;
@@ -184,6 +186,7 @@ struct Inner {
     teammates: Mutex<Option<Teammates>>,
     /// The team's reservations, once a team service exists.
     team_tasks: Mutex<Option<TeamTasks>>,
+    team_decisions: Mutex<Option<TeamDecisions>>,
     /// The Hangar executable that hook commands start as `gate-hook` helper.
     helper: Mutex<Option<PathBuf>>,
     /// Hook file folders per session, removed when its process ends.
@@ -316,6 +319,7 @@ impl GateService {
                 emit: Box::new(emit),
                 teammates: Mutex::new(None),
                 team_tasks: Mutex::new(None),
+                team_decisions: Mutex::new(None),
                 helper: Mutex::new(std::env::current_exe().ok()),
                 session_dirs: Mutex::new(HashMap::new()),
                 hooks_off: Mutex::new(HashSet::new()),
@@ -357,6 +361,15 @@ impl GateService {
         tasks: impl Fn(&str, &str) -> Vec<TeamTask> + Send + Sync + 'static,
     ) {
         *lock(&self.inner.team_tasks) = Some(Box::new(tasks));
+    }
+
+    /// Where the team's decisions come from (ADR 0021): the agent's context lists them before
+    /// the reservations.
+    pub fn set_team_decisions(
+        &self,
+        decisions: impl Fn(&str, &str) -> Vec<TeamDecision> + Send + Sync + 'static,
+    ) {
+        *lock(&self.inner.team_decisions) = Some(Box::new(decisions));
     }
 
     /// Where the send route ([`ROUTE_SEND`]) hands the messages agents send with `hangar-send`.
@@ -2168,6 +2181,21 @@ impl Inner {
             .unwrap_or_default()
     }
 
+    /// The team's decisions for the clone of `session`'s worktree.
+    fn decisions_of(&self, session: SessionId, worktrees: &[WorktreeClaims]) -> Vec<TeamDecision> {
+        let Some((repo, folder)) = worktrees
+            .iter()
+            .find(|w| w.sessions.contains(&session))
+            .and_then(|w| Some((w.root_commit.as_deref()?, w.repo.as_str())))
+        else {
+            return Vec::new();
+        };
+        lock(&self.team_decisions)
+            .as_ref()
+            .map(|decisions| decisions(repo, folder))
+            .unwrap_or_default()
+    }
+
     fn context(&self, session: SessionId, conversation: Option<&str>) -> String {
         if !lock(&self.gate).enabled() {
             return String::new();
@@ -2176,9 +2204,11 @@ impl Inner {
         let titles = (self.titles)();
         let teammates = self.teammates_of(session, &worktrees);
         let tasks = self.tasks_of(session, &worktrees);
+        let decisions = self.decisions_of(session, &worktrees);
         // Built before the gate's lock: it may look into the worktree for up to 50 ms, and
         // other sessions' edits wait on that lock.
-        let Some(text) = gate::context_facts_full(session, &worktrees, &titles, &teammates, &tasks)
+        let Some(text) =
+            gate::context_facts_team(session, &worktrees, &titles, &teammates, &tasks, &decisions)
         else {
             return String::new();
         };

@@ -59,6 +59,11 @@ export interface Profile {
    */
   teamCapable?: boolean;
   /**
+   * A team session of the program gets the team's facts (decisions, reservations, files) as
+   * context through its prompt hook, unasked. Older backends send none.
+   */
+  contextInject?: boolean;
+  /**
    * Why it cannot be a team session on this machine, `null` when it can (`fixedFolder`: only in
    * its own folder). Older backends send none.
    */
@@ -958,6 +963,12 @@ export const api = {
   /** The holder's answer to the release request of `requester` (the member the card showed). */
   teamAnswerRelease: (projectId: string, task: string, requester: string, accept: boolean) =>
     invoke<unknown>("team_answer_release", { projectId, task, requester, accept }),
+  /** Records a team decision; resolves once the team server stored it. */
+  teamRecordDecision: (projectId: string, decision: string, reason: string) =>
+    invoke<unknown>("team_record_decision", { projectId, decision, reason }),
+  /** Withdraws a team decision by its blob id (its writer, the owner or an admin). */
+  teamWithdrawDecision: (projectId: string, blob: string) =>
+    invoke<unknown>("team_withdraw_decision", { projectId, blob }),
 
   /** Adds, updates (texts) or removes the notification area icon. */
   configureTray: (enabled: boolean, labels: TrayLabels) =>

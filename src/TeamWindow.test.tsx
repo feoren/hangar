@@ -97,7 +97,12 @@ function mount() {
   act(() => {
     root?.render(
       <I18nContext.Provider value={t}>
-        <TeamWindow sessions={[]} onClose={() => undefined} />
+        <TeamWindow
+          sessions={[]}
+          decisionTarget={null}
+          onSendDecision={() => undefined}
+          onClose={() => undefined}
+        />
       </I18nContext.Provider>,
     );
   });

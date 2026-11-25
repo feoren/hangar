@@ -56,3 +56,21 @@ pub const MAX_HEARTBEAT_TASKS: usize = 64;
 pub const MAX_PREV_HASHES: usize = 4;
 /// Reservations one member may hold in a team at once.
 pub const MAX_RESERVATIONS_PER_MEMBER: usize = 32;
+/// Blobs in one `blobs` answer to `blob.list` (protocol version 4); `more` says when others
+/// follow.
+pub const MAX_BLOB_LIST: usize = 100;
+/// Decision blobs a team keeps at once (protocol version 4): every `blob.put` of the kind
+/// `decision` beyond it is `limit`. A withdrawn or superseded decision is deleted (`blob.delete`),
+/// so it leaves the count; the withdrawal's own record counts until it is cleaned up.
+pub const MAX_DECISIONS: usize = 200;
+/// Decision blobs one member keeps in a team at once (protocol version 4), so one member cannot
+/// take the whole team's room; beyond it `blob.put` is `limit`.
+pub const MAX_DECISIONS_PER_MEMBER: usize = 50;
+/// Longest decision blob, in characters of its base64url text (protocol version 4): a sealed
+/// decision document of at most 16 KiB fits with room to spare. A larger `blob.put` of the kind
+/// `decision` is `limit`, and clients treat a larger one as unreadable.
+pub const MAX_DECISION_CIPHERTEXT_LEN: usize = 24 * 1024;
+/// A connection starts at most one `blob.list` per this many milliseconds; more are `rateLimited`
+/// with `retryAfterMs`. The pages of one listing (an `after` equal to the last blob of the page
+/// before, which said `more`) follow at once and do not count.
+pub const BLOB_LIST_EVERY_MS: u64 = 5_000;

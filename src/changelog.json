@@ -16,6 +16,20 @@
         "ru": "Связанные сессии можно связывать дальше: добавь сессии в группу или объедини две группы в одну. Ctrl+щелчок на боковой панели выбирает их.",
         "tr": "Bağlı oturumlar artık daha fazla bağlanabilir: bir gruba oturum ekle ya da iki grubu birleştir. Kenar çubuğunda Ctrl+tıklama onları seçer.",
         "zh": "已关联的会话可以继续关联：向组中添加会话，或把两个组合并为一个。在侧边栏中 Ctrl+单击即可选择。"
+      },
+      {
+        "de": "Entscheidungen fürs Team: Halte fest, was entschieden wurde und warum. Claude Code liest sie mit, anderen Sessions schickst du sie.",
+        "en": "Team decisions: record what was decided and why. Claude Code reads them, and you can send them to any other session.",
+        "el": "Αποφάσεις ομάδας: κατέγραψε τι αποφασίστηκε και γιατί. Τις διαβάζει το Claude Code, και τις στέλνεις σε άλλες συνεδρίες.",
+        "es": "Decisiones del equipo: registra qué se decidió y por qué. Claude Code las lee, y puedes enviarlas a otras sesiones.",
+        "fr": "Décisions d'équipe : consigne ce qui a été décidé et pourquoi. Claude Code les lit, tu peux les envoyer à d'autres sessions.",
+        "it": "Decisioni del team: registra cosa è stato deciso e perché. Claude Code le legge, e puoi inviarle ad altre sessioni.",
+        "ja": "チームの決定事項：何をなぜ決めたかを記録できます。Claude Code が読み、他のセッションには送信できます。",
+        "pl": "Decyzje zespołu: zapisz, co postanowiono i dlaczego. Claude Code je czyta, a do innych sesji możesz je wysłać.",
+        "pt": "Decisões da equipe: registre o que foi decidido e por quê. Claude Code as lê, e você pode enviá-las a outras sessões.",
+        "ru": "Решения команды: записывай, что решили и почему. Claude Code их читает, а в другие сессии их можно отправить.",
+        "tr": "Ekip kararları: neyin neden kararlaştırıldığını kaydet. Claude Code bunları okur, diğer oturumlara gönderebilirsin.",
+        "zh": "团队决定：记录决定了什么以及原因。Claude Code 会读取，也可以发送到其他会话。"
       }
     ]
   },

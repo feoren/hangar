@@ -57,6 +57,7 @@
 //! The device identity is bound to the account it was first welcomed for: a `welcome` naming
 //! another member stops with [`AttentionReason::OtherAccount`] and touches no key.
 
+mod decisions;
 mod notes;
 
 use std::collections::{BTreeMap, BTreeSet, HashMap, VecDeque};
@@ -82,11 +83,11 @@ use hangar_team_protocol::limits::{
 };
 use hangar_team_protocol::log::{ClientCursor, Observed};
 use hangar_team_protocol::wire::{
-    check_welcome, decode_server, ClaimClear, ClaimOverlap, ClaimSet, ClientFrame, ClientMessage,
-    DeviceInfo, DeviceRemove, ErrorBody, ErrorCode, Heartbeat, Hello, Holder, KeyGet, MatchLevel,
-    MemberLogEntries, MemberLogGet, PresenceSet, PresenceState, PresenceUpdate, ProtoRange,
-    ReleaseReason, RequestEndReason, ReservationExpiring, Role, ServerFrame, ServerMessage,
-    SessionRef, TaskRef, TaskReleaseAnswer, TaskReleaseAnswered, TaskReleaseRequest,
+    check_welcome, decode_server, Ack, ClaimClear, ClaimOverlap, ClaimSet, ClientFrame,
+    ClientMessage, DeviceInfo, DeviceRemove, ErrorBody, ErrorCode, Heartbeat, Hello, Holder,
+    KeyGet, MatchLevel, MemberLogEntries, MemberLogGet, PresenceSet, PresenceState, PresenceUpdate,
+    ProtoRange, ReleaseReason, RequestEndReason, ReservationExpiring, Role, ServerFrame,
+    ServerMessage, SessionRef, TaskRef, TaskReleaseAnswer, TaskReleaseAnswered, TaskReleaseRequest,
     TaskReleaseRequestEnded, TaskReleaseRequested, TaskReleased, TaskReserve, TaskReserved,
     TicketRenew,
 };
@@ -169,6 +170,14 @@ enum Op {
     NotesGet,
     /// `notes.keys.set`.
     NotesSet,
+    /// `blob.list` of decisions (protocol version 4).
+    DecisionList,
+    /// `blob.get` of this decision blob.
+    DecisionGet(String),
+    /// `blob.put` of this device's decision.
+    DecisionPut,
+    /// `blob.delete` of this decision blob (withdrawn or superseded).
+    DecisionDelete(String),
     Quiet,
 }
 
@@ -866,6 +875,8 @@ pub struct Engine {
     history_withheld: bool,
     /// The team's notes key ring (ADR 0006, phase 2).
     notes: notes::NotesKeys,
+    /// The team's decisions (ADR 0021, protocol version 4).
+    decisions: decisions::Decisions,
 }
 
 impl std::fmt::Debug for Engine {
@@ -1001,6 +1012,7 @@ impl Engine {
             log_fetches: 0,
             history_withheld: false,
             notes: notes::NotesKeys::default(),
+            decisions: decisions::Decisions::default(),
         }
     }
 
@@ -1184,6 +1196,7 @@ impl Engine {
         self.devices_get = false;
         self.inline.clear();
         self.notes.new_connection();
+        self.decisions.new_connection();
         self.verifier = LogVerifier::with_max_entries(self.team.clone(), self.max_log_entries);
         self.status = TeamStatus::Connecting { retrying: false };
         // The relay keeps no claims or presence of a closed connection: everything goes again,
@@ -1301,6 +1314,8 @@ impl Engine {
         if due && self.synced && !self.syncing && !self.rotating && self.manages() {
             effects.extend(self.reconcile());
         }
+        // A decision listing a hint asked for within the connection's listing rate.
+        effects.extend(self.decisions_due());
         effects
     }
 
@@ -1394,6 +1409,7 @@ impl Engine {
                     }
                 }
                 self.notes.welcome(welcome.proto);
+                self.decisions.welcome(welcome.proto);
                 self.cursor
                     .welcome(&welcome.stream, welcome.head, self.resyncing);
                 self.resyncing = false;
@@ -1429,7 +1445,7 @@ impl Engine {
                 effects.push(Effect::Changed);
             }
             ServerMessage::Err(err) => effects.extend(self.on_err(op, err)),
-            ServerMessage::Ack(ack) => effects.extend(self.on_ack(op, ack.keys)),
+            ServerMessage::Ack(ack) => effects.extend(self.on_ack(op, ack)),
             ServerMessage::MemberLogEntries(page) => effects.extend(self.on_entries(page)),
             ServerMessage::Devices(list) => {
                 self.devices_get = false;
@@ -1482,6 +1498,11 @@ impl Engine {
             ServerMessage::ClaimOverlap(overlap) => effects.extend(self.on_overlap(overlap, true)),
             ServerMessage::NotesKeys(answer) => effects.extend(self.on_notes_keys(answer)),
             ServerMessage::NotesKeysUpdated(_) => effects.extend(self.on_notes_updated()),
+            ServerMessage::Blobs(page) => effects.extend(self.on_blob_listing(page)),
+            ServerMessage::BlobStored(stored) => effects.extend(self.on_blob_stored(stored.kind)),
+            ServerMessage::BlobDeleted(deleted) => {
+                effects.extend(self.on_blob_deleted(deleted.kind, &deleted.blob))
+            }
             message @ (ServerMessage::TaskReserved(_)
             | ServerMessage::TaskReleased(_)
             | ServerMessage::ReservationExpiring(_)
@@ -1563,6 +1584,12 @@ impl Engine {
             }
             Some(Op::NotesGet) => self.on_notes_refused(false, code),
             Some(Op::NotesSet) => self.on_notes_refused(true, code),
+            Some(
+                op @ (Op::DecisionList
+                | Op::DecisionGet(_)
+                | Op::DecisionPut
+                | Op::DecisionDelete(_)),
+            ) => self.on_decision_refused(&op, &err),
             Some(Op::Reserve(key)) => self.reserve_refused(&key, err),
             Some(Op::AskRelease(task)) => self.ask_refused(&task, code),
             Some(Op::Answer(task)) => {
@@ -1588,15 +1615,12 @@ impl Engine {
         }
     }
 
-    fn on_ack(
-        &mut self,
-        op: Option<Op>,
-        keys: Option<Vec<hangar_team_protocol::ids::Sealed>>,
-    ) -> Vec<Effect> {
+    fn on_ack(&mut self, op: Option<Op>, ack: Ack) -> Vec<Effect> {
         match op {
             Some(Op::KeyGet(epoch)) => {
                 self.key_get = None;
-                let packages: Vec<Ciphertext> = keys
+                let packages: Vec<Ciphertext> = ack
+                    .keys
                     .unwrap_or_default()
                     .into_iter()
                     .filter(|sealed| sealed.epoch == epoch)
@@ -1618,6 +1642,9 @@ impl Engine {
                 self.sync_log()
             }
             Some(Op::NotesSet) => self.on_notes_stored(),
+            Some(Op::DecisionGet(blob)) => self.on_decision_fetched(&blob, ack.content),
+            Some(Op::DecisionPut) => self.on_decision_stored(ack.blob),
+            Some(Op::DecisionDelete(blob)) => self.on_decision_deleted(&blob),
             _ => Vec::new(),
         }
     }
@@ -1896,6 +1923,7 @@ impl Engine {
         }
         effects.extend(self.reconcile_members());
         effects.extend(self.notes_step());
+        effects.extend(self.decisions_step());
         effects
     }
 
@@ -3324,6 +3352,8 @@ impl Engine {
             }),
             log_full: self.verifier.state().is_some_and(TeamState::log_full),
             history_withheld: self.history_withheld,
+            decisions: self.decision_views(),
+            decisions_state: self.decisions_state(),
         }
     }
 
@@ -4928,7 +4958,7 @@ impl Engine {
 mod tests {
     use super::*;
     use hangar_team_crypto::OsEntropy;
-    use hangar_team_protocol::ids::{Seq, StreamId};
+    use hangar_team_protocol::ids::{BlobId, Seq, StreamId};
     use std::sync::{Arc, Mutex};
 
     /// The operating system's randomness, except that the draw the test arms fails once.
@@ -5020,6 +5050,18 @@ mod tests {
         restricted: Vec<&'static str>,
         /// Kinds of a newer protocol version than the relay negotiated.
         too_new: Vec<&'static str>,
+        /// Stored blobs in storage order: id, kind, the device that stored it, content.
+        blobs: Vec<(BlobId, hangar_team_protocol::wire::BlobKind, Holder, Sealed)>,
+        /// Blob ids handed out so far.
+        blob_ids: u64,
+        /// Every `blob.put` is refused as over the team's quota (`limit`).
+        blob_full: bool,
+        /// Every `blob.put` is refused with `forbidden` (a connection that does not count).
+        blob_forbidden: bool,
+        /// `blob.list` frames received.
+        blob_lists: usize,
+        /// Entries per `blobs` page.
+        blob_page: usize,
     }
 
     fn team() -> TeamId {
@@ -5068,6 +5110,12 @@ mod tests {
                 refuse_proof: false,
                 restricted: Vec::new(),
                 too_new: Vec::new(),
+                blobs: Vec::new(),
+                blob_ids: 0,
+                blob_full: false,
+                blob_forbidden: false,
+                blob_lists: 0,
+                blob_page: hangar_team_protocol::limits::MAX_BLOB_LIST,
             }
         }
 
@@ -5691,6 +5739,147 @@ mod tests {
                     );
                     own.extend(mine);
                     all.extend(events);
+                }
+                ClientMessage::BlobPut(put) => {
+                    let current = self
+                        .verifier
+                        .state()
+                        .and_then(|s| s.current_epoch().map(|e| e.epoch));
+                    let decision = put.kind == hangar_team_protocol::wire::BlobKind::Decision;
+                    let decisions = self
+                        .blobs
+                        .iter()
+                        .filter(|b| b.1 == hangar_team_protocol::wire::BlobKind::Decision)
+                        .count();
+                    let own_decisions = self
+                        .blobs
+                        .iter()
+                        .filter(|b| b.1 == hangar_team_protocol::wire::BlobKind::Decision)
+                        .filter(|b| b.2.member == sender.member)
+                        .count();
+                    if decision && self.proto < 4 {
+                        // As the relay of version 4 specifies: decisions only from version 4 on.
+                        own.push(self.err(id, ErrorCode::BadRequest));
+                    } else if self.blob_forbidden {
+                        own.push(self.err(id, ErrorCode::Forbidden));
+                    } else if Some(put.content.epoch) != current {
+                        own.push(self.err(id, ErrorCode::StaleEpoch));
+                    } else if self.blob_full
+                        || (decision
+                            && (decisions >= hangar_team_protocol::limits::MAX_DECISIONS
+                                || own_decisions
+                                    >= hangar_team_protocol::limits::MAX_DECISIONS_PER_MEMBER
+                                || put.content.data.as_str().len()
+                                    > hangar_team_protocol::limits::MAX_DECISION_CIPHERTEXT_LEN))
+                    {
+                        own.push(self.err(id, ErrorCode::Limit));
+                    } else {
+                        self.blob_ids += 1;
+                        let blob = BlobId::new(format!("blob-{}", self.blob_ids)).unwrap();
+                        self.blobs
+                            .push((blob.clone(), put.kind, sender.clone(), put.content));
+                        own.push(self.text(
+                            Some(id),
+                            None,
+                            ServerMessage::Ack(Ack {
+                                blob: Some(blob.clone()),
+                                content: None,
+                                keys: None,
+                            }),
+                        ));
+                        if self.proto >= 4 {
+                            all.push(self.text(
+                                None,
+                                None,
+                                ServerMessage::BlobStored(hangar_team_protocol::wire::BlobStored {
+                                    kind: put.kind,
+                                    blob,
+                                    by: sender.clone(),
+                                }),
+                            ));
+                        }
+                    }
+                }
+                ClientMessage::BlobGet(get) => {
+                    match self.blobs.iter().find(|b| b.0 == get.blob).cloned() {
+                        Some((blob, _, _, content)) => own.push(self.text(
+                            Some(id),
+                            None,
+                            ServerMessage::Ack(Ack {
+                                blob: Some(blob),
+                                content: Some(content),
+                                keys: None,
+                            }),
+                        )),
+                        None => own.push(self.err(id, ErrorCode::NotFound)),
+                    }
+                }
+                ClientMessage::BlobDelete(delete) => {
+                    match self.blobs.iter().position(|b| b.0 == delete.blob) {
+                        None => own.push(self.err(id, ErrorCode::NotFound)),
+                        Some(at) => {
+                            let author = self.blobs[at].2.member.clone();
+                            let allowed = hangar_team_crypto::relay::check_blob_delete(
+                                self.verifier.state(),
+                                role,
+                                sender,
+                                &author,
+                            );
+                            if allowed.is_err() {
+                                own.push(self.err(id, ErrorCode::Forbidden));
+                            } else {
+                                let (blob, kind, _, _) = self.blobs.remove(at);
+                                own.push(self.ack(id, None));
+                                if self.proto >= 4 {
+                                    all.push(self.text(
+                                        None,
+                                        None,
+                                        ServerMessage::BlobDeleted(
+                                            hangar_team_protocol::wire::BlobDeleted { kind, blob },
+                                        ),
+                                    ));
+                                }
+                            }
+                        }
+                    }
+                }
+                ClientMessage::BlobList(list)
+                    if list.kind != hangar_team_protocol::wire::BlobKind::Decision =>
+                {
+                    own.push(self.err(id, ErrorCode::BadRequest));
+                }
+                ClientMessage::BlobList(list) => {
+                    self.blob_lists += 1;
+                    let of_kind: Vec<_> = self.blobs.iter().filter(|b| b.1 == list.kind).collect();
+                    let start = match &list.after {
+                        None => Some(0),
+                        Some(after) => of_kind.iter().position(|b| b.0 == *after).map(|i| i + 1),
+                    };
+                    match start {
+                        None => own.push(self.err(id, ErrorCode::NotFound)),
+                        Some(start) => {
+                            let rest = &of_kind[start.min(of_kind.len())..];
+                            let page: Vec<_> = rest
+                                .iter()
+                                .take(self.blob_page)
+                                .map(|b| hangar_team_protocol::wire::BlobEntry {
+                                    blob: b.0.clone(),
+                                    by: b.2.clone(),
+                                    created_at: UnixMillis(self.clock),
+                                })
+                                .collect();
+                            let more = rest.len() > page.len();
+                            own.push(self.text(
+                                Some(id),
+                                None,
+                                ServerMessage::Blobs(hangar_team_protocol::wire::BlobListing {
+                                    kind: list.kind,
+                                    blobs: page,
+                                    more,
+                                }),
+                            ));
+                        }
+                    }
                 }
                 _ => own.push(self.ack(id, None)),
             }
@@ -6427,8 +6616,17 @@ mod tests {
     fn team_of_two_on(proto: u16) -> (Relay, Client, Client) {
         let mut relay = Relay::new();
         relay.proto = proto;
+        team_of_two_in(relay, |_, _| {})
+    }
+
+    /// [`team_of_two`] on `relay`, with `prepare` run on both clients before they connect.
+    fn team_of_two_in(
+        mut relay: Relay,
+        prepare: impl FnOnce(&mut Client, &mut Client),
+    ) -> (Relay, Client, Client) {
         let mut a1 = client("alice", "a1", Role::Owner);
         let mut b1 = client("bob", "b1", Role::Member);
+        prepare(&mut a1, &mut b1);
         let hello = a1.engine.hello(ticket());
         run(&mut relay, &mut [&mut a1, &mut b1], vec![(0, hello)]);
         let hello = b1.engine.hello(ticket());
@@ -6508,7 +6706,7 @@ mod tests {
         assert!(matches!(
             &hello[..],
             [.., Effect::Send(ClientFrame { message: ClientMessage::Hello(h), .. }), _]
-                if h.proto == ProtoRange::CURRENT && h.proto.max() == 3
+                if h.proto == ProtoRange::CURRENT && h.proto.max() == 4
         ));
         let challenge = hangar_team_protocol::e2e::Challenge::from_bytes([7; 32]);
         let effects = a1
@@ -10651,5 +10849,703 @@ mod tests {
         let effects = a1.engine.on_notes_updated();
         run(&mut relay, &mut [&mut a1, &mut b1], vec![(0, effects)]);
         assert!(a1.engine.divergent.contains_key(&b1.holder));
+    }
+
+    // -----------------------------------------------------------------------------------------
+    // Decisions (protocol version 4, ADR 0021)
+    // -----------------------------------------------------------------------------------------
+
+    /// Alice (owner) and Bob (member) on a relay of version 4: the owner's device puts the team's
+    /// notes key ring in place by itself, so both can record and read decisions.
+    fn decisions_team() -> (Relay, Client, Client) {
+        let (mut relay, mut a1, mut b1) = team_of_two_on(4);
+        settle(&mut relay, &mut [&mut a1, &mut b1]);
+        assert!(
+            relay.notes_record.is_some(),
+            "the owner's device made the ring"
+        );
+        assert_eq!(ring_ids(&a1), ring_ids(&b1));
+        (relay, a1, b1)
+    }
+
+    /// Moves every engine's clock past the listing rate and pings, until nothing moves.
+    fn settle(relay: &mut Relay, clients: &mut [&mut Client]) {
+        for _ in 0..3 {
+            let mut start = Vec::new();
+            for (at, client) in clients.iter_mut().enumerate() {
+                advance(client, hangar_team_protocol::limits::BLOB_LIST_EVERY_MS);
+                start.push((at, client.engine.ping()));
+            }
+            run(relay, clients, start);
+        }
+    }
+
+    fn answered(
+        relay: &mut Relay,
+        clients: &mut [&mut Client],
+        at: usize,
+        effects: Vec<Effect>,
+    ) -> Result<(), TeamError> {
+        run(relay, clients, vec![(at, effects)]);
+        let outcome = clients[at]
+            .engine
+            .take_decision_outcome()
+            .expect("answered");
+        settle(relay, clients);
+        outcome
+    }
+
+    fn record(
+        relay: &mut Relay,
+        clients: &mut [&mut Client],
+        at: usize,
+        decision: &str,
+        reason: &str,
+        replaces: Option<&str>,
+    ) -> Result<(), TeamError> {
+        let effects = clients[at]
+            .engine
+            .record_decision(decision, reason, None, replaces)?;
+        answered(relay, clients, at, effects)
+    }
+
+    fn withdraw(
+        relay: &mut Relay,
+        clients: &mut [&mut Client],
+        at: usize,
+        blob: &str,
+    ) -> Result<(), TeamError> {
+        let effects = clients[at].engine.withdraw_decision(blob)?;
+        answered(relay, clients, at, effects)
+    }
+
+    /// What the agents' context gets, newest first.
+    fn decision_texts(client: &Client) -> Vec<String> {
+        client
+            .engine
+            .team_decisions()
+            .into_iter()
+            .map(|d| d.decision)
+            .collect()
+    }
+
+    /// What the Team view lists, newest first.
+    fn shown(client: &Client) -> Vec<String> {
+        client
+            .engine
+            .decision_views()
+            .into_iter()
+            .map(|d| d.decision)
+            .collect()
+    }
+
+    fn blob_of(client: &Client, decision: &str) -> String {
+        client
+            .engine
+            .decision_views()
+            .into_iter()
+            .find(|d| d.decision == decision)
+            .unwrap()
+            .blob
+    }
+
+    #[test]
+    fn a_decision_reaches_the_teammate_and_never_the_relay_in_the_clear() {
+        let (mut relay, mut a1, mut b1) = decisions_team();
+        assert_eq!(
+            a1.engine.decisions_state(),
+            crate::team_decisions::DecisionsState::Ready
+        );
+        record(
+            &mut relay,
+            &mut [&mut a1, &mut b1],
+            1,
+            "Use marker A",
+            "Marker B\nsecond line",
+            None,
+        )
+        .unwrap();
+        assert_eq!(relay.blobs.len(), 1);
+        assert!(!relay.blobs[0].3.data.as_str().contains("marker"));
+        // Both see it; Bob wrote it, so he may withdraw it, and so may the owner.
+        assert_eq!(decision_texts(&a1), ["Use marker A"]);
+        assert_eq!(decision_texts(&b1), ["Use marker A"]);
+        let seen = a1.engine.team_decisions();
+        assert_eq!(seen[0].reason, "Marker B\nsecond line");
+        // The full member id, and the relay's time rather than the writer's clock.
+        assert_eq!(seen[0].who, "#bob");
+        assert_eq!(seen[0].at, relay.clock);
+        let views = b1.engine.decision_views();
+        assert!(views[0].mine && views[0].can_withdraw && !views[0].former);
+        assert_eq!(views[0].blob, relay.blobs[0].0.as_str());
+        let views = a1.engine.decision_views();
+        assert!(!views[0].mine && views[0].can_withdraw);
+        assert!(a1.engine.activity().decisions.len() == 1);
+    }
+
+    #[test]
+    fn a_withdrawal_reaches_everyone_and_a_relay_cannot_bring_the_decision_back() {
+        let (mut relay, mut a1, mut b1) = decisions_team();
+        record(&mut relay, &mut [&mut a1, &mut b1], 0, "Marker A", "", None).unwrap();
+        let blob = blob_of(&b1, "Marker A");
+        assert!(!b1.engine.decision_views()[0].can_withdraw);
+        assert_eq!(
+            b1.engine.withdraw_decision(&blob).err(),
+            Some(TeamError::NotOwnerOrAdmin)
+        );
+        assert_eq!(
+            b1.engine.withdraw_decision("no-such-blob").err(),
+            Some(TeamError::UnknownDecision)
+        );
+        let original = relay.blobs[0].clone();
+        withdraw(&mut relay, &mut [&mut a1, &mut b1], 0, &blob).unwrap();
+        // The decision is deleted; its signed withdrawal stays.
+        assert_eq!(relay.blobs.len(), 1);
+        assert_ne!(relay.blobs[0].0, original.0);
+        assert!(shown(&a1).is_empty());
+        assert!(shown(&b1).is_empty(), "blob.deleted reached bob");
+        // A relay restored from a backup serves the decision again, without the withdrawal: the
+        // devices that saw the withdrawal keep it hidden.
+        relay.blobs = vec![original];
+        let hello = b1.engine.hello(ticket());
+        run(&mut relay, &mut [&mut a1, &mut b1], vec![(1, hello)]);
+        settle(&mut relay, &mut [&mut a1, &mut b1]);
+        assert!(shown(&b1).is_empty());
+        assert!(decision_texts(&b1).is_empty());
+    }
+
+    #[test]
+    fn a_withdrawal_without_room_for_its_record_still_deletes() {
+        let (mut relay, mut a1, mut b1) = decisions_team();
+        record(&mut relay, &mut [&mut a1, &mut b1], 1, "Marker A", "", None).unwrap();
+        let blob = blob_of(&b1, "Marker A");
+        relay.blob_full = true;
+        withdraw(&mut relay, &mut [&mut a1, &mut b1], 1, &blob).unwrap();
+        assert!(relay.blobs.is_empty(), "the room is free again");
+        assert!(shown(&a1).is_empty() && shown(&b1).is_empty());
+    }
+
+    #[test]
+    fn two_members_with_the_same_id_both_show_and_withdraw_hits_the_blob_shown() {
+        let (mut relay, mut a1, mut b1) = decisions_team();
+        const ID: &str = "0f8e2c1a-5b6d-4e7f-8a9b-0c1d2e3f4a5b";
+        let effects = a1.engine.record_decision_with_id(ID, "Marker A").unwrap();
+        answered(&mut relay, &mut [&mut a1, &mut b1], 0, effects).unwrap();
+        // Bob seals a decision under Alice's id.
+        let effects = b1.engine.record_decision_with_id(ID, "Marker B").unwrap();
+        answered(&mut relay, &mut [&mut a1, &mut b1], 1, effects).unwrap();
+        assert_eq!(shown(&a1), ["Marker B", "Marker A"]);
+        assert_eq!(decision_texts(&b1), ["Marker B", "Marker A"]);
+        // The owner withdraws Bob's: exactly that blob goes, Alice's stays.
+        let bobs = blob_of(&a1, "Marker B");
+        let alices = blob_of(&a1, "Marker A");
+        withdraw(&mut relay, &mut [&mut a1, &mut b1], 0, &bobs).unwrap();
+        assert!(relay.blobs.iter().any(|b| b.0.as_str() == alices));
+        assert!(!relay.blobs.iter().any(|b| b.0.as_str() == bobs));
+        assert_eq!(shown(&a1), ["Marker A"]);
+        assert_eq!(shown(&b1), ["Marker A"]);
+    }
+
+    #[test]
+    fn a_superseding_decision_replaces_the_old_one_which_is_deleted() {
+        let (mut relay, mut a1, mut b1) = decisions_team();
+        record(&mut relay, &mut [&mut a1, &mut b1], 1, "Marker A", "", None).unwrap();
+        let old = blob_of(&b1, "Marker A");
+        record(
+            &mut relay,
+            &mut [&mut a1, &mut b1],
+            1,
+            "Marker B",
+            "",
+            Some(&old),
+        )
+        .unwrap();
+        assert_eq!(relay.blobs.len(), 1, "the old blob was deleted");
+        assert_eq!(decision_texts(&a1), ["Marker B"]);
+        assert_eq!(decision_texts(&b1), ["Marker B"]);
+        // A member cannot supersede the owner's decision.
+        record(&mut relay, &mut [&mut a1, &mut b1], 0, "Marker C", "", None).unwrap();
+        let owners = blob_of(&b1, "Marker C");
+        assert_eq!(
+            b1.engine
+                .record_decision("Marker D", "", None, Some(&owners))
+                .err(),
+            Some(TeamError::NotOwnerOrAdmin)
+        );
+    }
+
+    #[test]
+    fn the_limits_keep_the_text_and_are_said_as_such() {
+        let (mut relay, mut a1, mut b1) = decisions_team();
+        relay.blob_full = true;
+        let outcome = record(&mut relay, &mut [&mut a1, &mut b1], 1, "Marker A", "", None);
+        assert_eq!(outcome, Err(TeamError::DecisionLimit));
+        assert!(decision_texts(&b1).is_empty());
+        // One member keeps at most 50; the engine refuses before sealing.
+        relay.blob_full = false;
+        relay.blob_page = 7;
+        for n in 0..crate::team_decisions::MAX_DECISIONS_PER_MEMBER {
+            record(
+                &mut relay,
+                &mut [&mut a1, &mut b1],
+                0,
+                &format!("Marker {n}"),
+                "",
+                None,
+            )
+            .unwrap();
+        }
+        // Fifty real decisions of her own: the answer names her limit, not the team's.
+        assert_eq!(
+            a1.engine.record_decision("Marker X", "", None, None).err(),
+            Some(TeamError::DecisionLimitOwn)
+        );
+        // Over several pages, every one reached bob, who may still record his own.
+        assert_eq!(
+            b1.engine.team_decisions().len(),
+            crate::team_decisions::MAX_DECISIONS_PER_MEMBER
+        );
+        assert!(record(&mut relay, &mut [&mut a1, &mut b1], 1, "Marker Y", "", None).is_ok());
+        // Texts the team cannot take never leave.
+        assert_eq!(
+            b1.engine.record_decision(" ", "x", None, None).err(),
+            Some(TeamError::InvalidDecision)
+        );
+        assert_eq!(
+            b1.engine
+                .record_decision(&"a".repeat(301), "", None, None)
+                .err(),
+            Some(TeamError::InvalidDecision)
+        );
+    }
+
+    #[test]
+    fn an_admin_whose_room_is_full_of_withdrawals_still_records() {
+        let (mut relay, mut a1, mut b1) = decisions_team();
+        relay.blob_page = 25;
+        let cap = crate::team_decisions::MAX_DECISIONS_PER_MEMBER;
+        // Bob records fifty decisions, the owner withdraws every one: fifty withdrawals of hers.
+        for n in 0..cap {
+            record(
+                &mut relay,
+                &mut [&mut a1, &mut b1],
+                1,
+                &format!("Marker {n}"),
+                "",
+                None,
+            )
+            .unwrap();
+            let blob = blob_of(&a1, &format!("Marker {n}"));
+            withdraw(&mut relay, &mut [&mut a1, &mut b1], 0, &blob).unwrap();
+        }
+        let alice = a1.holder.clone();
+        let hers = |relay: &Relay| relay.blobs.iter().filter(|b| b.2 == alice).count();
+        assert_eq!(hers(&relay), cap);
+        assert!(shown(&b1).is_empty());
+        // Her next decision makes room with one old withdrawal and goes through.
+        record(&mut relay, &mut [&mut a1, &mut b1], 0, "Marker A", "", None).unwrap();
+        assert_eq!(hers(&relay), cap);
+        assert_eq!(shown(&b1), ["Marker A"]);
+        // The withdrawn decisions stay hidden here although one withdrawal went.
+        assert_eq!(shown(&a1), ["Marker A"]);
+    }
+
+    #[test]
+    fn a_limit_only_the_relay_knows_makes_room_once_and_sends_the_same_record_again() {
+        let (mut relay, mut a1, mut b1) = decisions_team();
+        let cap = crate::team_decisions::MAX_DECISIONS_PER_MEMBER;
+        // Two withdrawals of Alice's own decisions: room she can make.
+        for n in 0..2 {
+            record(
+                &mut relay,
+                &mut [&mut a1, &mut b1],
+                0,
+                &format!("Marker {n}"),
+                "",
+                None,
+            )
+            .unwrap();
+            let blob = blob_of(&a1, &format!("Marker {n}"));
+            withdraw(&mut relay, &mut [&mut a1, &mut b1], 0, &blob).unwrap();
+        }
+        let alice = a1.holder.clone();
+        let hers = |relay: &Relay| relay.blobs.iter().filter(|b| b.2 == alice).count();
+        // The relay holds more of hers than her device has listed (another device of hers
+        // stored them, no hint reached this one): it counts her at the limit.
+        while hers(&relay) < cap {
+            relay.blob_ids += 1;
+            relay.blobs.push((
+                BlobId::new(format!("blob-unseen-{}", relay.blob_ids)).unwrap(),
+                hangar_team_protocol::wire::BlobKind::Decision,
+                alice.clone(),
+                Sealed {
+                    epoch: Epoch(1),
+                    data: Ciphertext::new("AAAA").unwrap(),
+                },
+            ));
+        }
+        // Locally she is far below it: the put goes, the relay says limit, one withdrawal goes
+        // and the same record is sent once more.
+        let puts_before = relay.blobs.len();
+        let effects = a1
+            .engine
+            .record_decision("Marker A", "", None, None)
+            .unwrap();
+        let outcome = answered(&mut relay, &mut [&mut a1, &mut b1], 0, effects);
+        assert_eq!(outcome, Ok(()));
+        assert_eq!(hers(&relay), cap);
+        assert_eq!(relay.blobs.len(), puts_before);
+        assert_eq!(shown(&b1), ["Marker A"]);
+        // A relay that still says limit after the room was made is the answer: one withdrawal
+        // goes, the record is sent once more and then refused, no loop.
+        relay.blob_full = true;
+        let before = hers(&relay);
+        let effects = a1
+            .engine
+            .record_decision("Marker B", "", None, None)
+            .unwrap();
+        let outcome = answered(&mut relay, &mut [&mut a1, &mut b1], 0, effects);
+        assert!(
+            matches!(
+                outcome,
+                Err(TeamError::DecisionLimit | TeamError::DecisionLimitOwn)
+            ),
+            "{outcome:?}"
+        );
+        assert_eq!(hers(&relay), before - 1, "exactly one withdrawal made room");
+        assert_eq!(shown(&b1), ["Marker A"]);
+    }
+
+    #[test]
+    fn a_refused_put_is_a_connection_problem_not_a_role() {
+        let (mut relay, mut a1, mut b1) = decisions_team();
+        relay.blob_forbidden = true;
+        let outcome = record(&mut relay, &mut [&mut a1, &mut b1], 1, "Marker A", "", None);
+        assert_eq!(outcome, Err(TeamError::Busy));
+    }
+
+    #[test]
+    fn a_relay_before_version_four_is_never_asked_and_shows_no_decisions() {
+        let (mut relay, mut a1, mut b1) = team_of_two_on(3);
+        settle(&mut relay, &mut [&mut a1, &mut b1]);
+        assert_eq!(relay.blob_lists, 0);
+        assert!(
+            relay.notes_record.is_none(),
+            "no ring is made for decisions"
+        );
+        assert_eq!(
+            a1.engine.decisions_state(),
+            crate::team_decisions::DecisionsState::Unsupported
+        );
+        assert_eq!(
+            a1.engine.record_decision("Marker A", "", None, None).err(),
+            Some(TeamError::DecisionsUnsupported)
+        );
+        assert!(relay.too_new.is_empty());
+        assert!(a1.engine.activity().decisions.is_empty());
+    }
+
+    #[test]
+    fn without_the_teams_notes_keys_a_member_waits_and_records_nothing() {
+        let mut relay = Relay::new();
+        relay.proto = 4;
+        relay.refuse_notes = true;
+        let (mut relay, mut a1, mut b1) = team_of_two_in(relay, |_, _| {});
+        settle(&mut relay, &mut [&mut a1, &mut b1]);
+        assert!(relay.notes_record.is_none());
+        assert_eq!(
+            b1.engine.decisions_state(),
+            crate::team_decisions::DecisionsState::WaitingForKeys
+        );
+        assert_eq!(
+            b1.engine.record_decision("Marker A", "", None, None).err(),
+            Some(TeamError::DecisionsNotReady)
+        );
+    }
+
+    #[test]
+    fn no_ring_is_made_where_the_team_shows_a_trace_of_an_earlier_one() {
+        // The relay lists a decision but shows no notes key ring: it may be hiding the ring.
+        let mut relay = Relay::new();
+        relay.proto = 4;
+        relay.blob_ids = 1;
+        relay.blobs.push((
+            BlobId::new("blob-0").unwrap(),
+            hangar_team_protocol::wire::BlobKind::Decision,
+            holder("alice", "a1"),
+            Sealed {
+                epoch: Epoch(1),
+                data: Ciphertext::new("AAAA").unwrap(),
+            },
+        ));
+        let (mut relay, mut a1, mut b1) = team_of_two_in(relay, |_, _| {});
+        settle(&mut relay, &mut [&mut a1, &mut b1]);
+        assert!(relay.notes_record.is_none());
+        assert_eq!(
+            a1.engine.decisions_state(),
+            crate::team_decisions::DecisionsState::WaitingForKeys
+        );
+        // This computer kept notes keys of the team: the same.
+        let mut relay = Relay::new();
+        relay.proto = 4;
+        let (mut relay, mut a1, mut b1) =
+            team_of_two_in(relay, |a1, _| a1.engine.set_notes_cached(true));
+        settle(&mut relay, &mut [&mut a1, &mut b1]);
+        assert!(relay.notes_record.is_none());
+    }
+
+    #[test]
+    fn while_the_notes_key_waits_for_renewal_nothing_is_recorded() {
+        let (mut relay, mut a1, mut b1) = decisions_team();
+        relay.refuse_notes = true;
+        let _ = a1.engine.ping();
+        let effects = a1.engine.set_website(website(
+            Role::Owner,
+            Some(listing(&[("alice", Role::Owner)])),
+        ));
+        run(&mut relay, &mut [&mut a1, &mut b1], vec![(0, effects)]);
+        assert_eq!(connected(&a1).0, 2);
+        assert!(a1.engine.notes_view().renewing);
+        assert_eq!(
+            a1.engine.record_decision("Marker A", "", None, None).err(),
+            Some(TeamError::DecisionsNotReady)
+        );
+    }
+
+    /// A decision `sender` seals under its current epoch, naming another hash at the log entry
+    /// it verified last: the relay showed it another log than the others.
+    fn forked_decision(sender: &Client) -> Sealed {
+        let (_, head, epoch) = sender.engine.current_cipher().unwrap();
+        let forked = ChainHead {
+            index: head.index,
+            hash: hangar_team_protocol::e2e::LogHash::from_bytes([7; 32]),
+        };
+        let decision = crate::team_decisions::Decision {
+            id: crate::team_decisions::new_id(),
+            decision: "Marker F".to_owned(),
+            reason: String::new(),
+            name: String::new(),
+            at: 0,
+            repo: None,
+            supersedes: None,
+            supersedes_member: None,
+            withdrawn: false,
+        };
+        hangar_team_crypto::decision::seal_decision(
+            sender.engine.notes.ring().unwrap(),
+            &sender.engine.team,
+            epoch,
+            &decision.id,
+            &sender.holder,
+            &sender.engine.identity,
+            &forked,
+            u64::MAX / 2,
+            &crate::team_decisions::plaintext(&decision),
+            &mut OsEntropy,
+        )
+        .unwrap()
+    }
+
+    /// The relay lists `sealed` as stored by `by`.
+    fn store_blob(relay: &mut Relay, by: &Holder, sealed: Sealed) {
+        relay.blob_ids += 1;
+        relay.blobs.push((
+            BlobId::new(format!("blob-forked-{}", relay.blob_ids)).unwrap(),
+            hangar_team_protocol::wire::BlobKind::Decision,
+            by.clone(),
+            sealed,
+        ));
+    }
+
+    #[test]
+    fn a_decision_with_another_log_history_marks_its_sender_under_the_current_epoch() {
+        let (mut relay, mut a1, mut b1) = decisions_team();
+        let sealed = forked_decision(&b1);
+        store_blob(&mut relay, &b1.holder, sealed);
+        let hello = a1.engine.hello(ticket());
+        run(&mut relay, &mut [&mut a1, &mut b1], vec![(0, hello)]);
+        settle(&mut relay, &mut [&mut a1, &mut b1]);
+        assert!(a1.engine.divergent.contains_key(&b1.holder));
+        assert!(!shown(&a1).contains(&"Marker F".to_owned()));
+    }
+
+    /// N5: a decision sealed under an epoch that is no longer the current one says nothing about
+    /// its sender's history now. Signed and sealed with a head whose hash differs from Alice's
+    /// log, it is unreadable, but Bob is not set aside.
+    #[test]
+    fn a_decision_with_another_log_history_under_an_older_epoch_marks_nobody() {
+        let (mut relay, mut a1, mut b1) = decisions_team();
+        let mut c1 = carol_joins(&mut relay, &mut a1, &mut b1);
+        settle(&mut relay, &mut [&mut a1, &mut b1, &mut c1]);
+        let before = a1.engine.current_cipher().unwrap().2;
+        // The harness hands Alice's first logged events to Bob before his own hello, which his
+        // engine answers with Gap; those ends are from the setup, not from what follows.
+        let bob_ends = b1.ends.len();
+        // Sealed by Bob now, under the current epoch, and kept back by the relay.
+        let sealed = forked_decision(&b1);
+        assert_eq!(sealed.epoch, before);
+        // Carol leaves: the owner's device asks for the member list after her admission (a list
+        // asked for before it cannot remove her), removes her and rotates.
+        advance(&a1, MEMBERS_CHECK_EVERY_MS);
+        let ping = a1.engine.ping();
+        assert_eq!(website_checks(&ping), vec![(false, true)]);
+        let effects = a1.engine.set_website(website(
+            Role::Owner,
+            Some(listing(&[("alice", Role::Owner), ("bob", Role::Member)])),
+        ));
+        run(
+            &mut relay,
+            &mut [&mut a1, &mut b1, &mut c1],
+            vec![(0, effects)],
+        );
+        let after = a1.engine.current_cipher().unwrap().2;
+        assert!(after > before, "the epoch rotated: {before:?} -> {after:?}");
+        assert_eq!(b1.ends.len(), bob_ends, "{:?}", b1.ends);
+        assert_eq!(b1.engine.current_cipher().unwrap().2, after);
+        // Now the relay shows Bob's old record; Alice lists again.
+        store_blob(&mut relay, &b1.holder, sealed);
+        let hello = a1.engine.hello(ticket());
+        run(
+            &mut relay,
+            &mut [&mut a1, &mut b1, &mut c1],
+            vec![(0, hello)],
+        );
+        settle(&mut relay, &mut [&mut a1, &mut b1, &mut c1]);
+        assert!(!a1.engine.divergent.contains_key(&b1.holder));
+        assert!(!shown(&a1).contains(&"Marker F".to_owned()));
+    }
+
+    #[test]
+    fn a_blob_larger_than_a_decision_is_unreadable_and_breaks_nothing() {
+        let (mut relay, mut a1, mut b1) = decisions_team();
+        record(&mut relay, &mut [&mut a1, &mut b1], 0, "Marker A", "", None).unwrap();
+        relay.blob_ids += 1;
+        relay.blobs.push((
+            BlobId::new("blob-huge").unwrap(),
+            hangar_team_protocol::wire::BlobKind::Decision,
+            holder("alice", "a1"),
+            Sealed {
+                epoch: Epoch(1),
+                data: Ciphertext::new(
+                    "A".repeat(hangar_team_protocol::limits::MAX_DECISION_CIPHERTEXT_LEN + 4),
+                )
+                .unwrap(),
+            },
+        ));
+        let hello = b1.engine.hello(ticket());
+        run(&mut relay, &mut [&mut a1, &mut b1], vec![(1, hello)]);
+        settle(&mut relay, &mut [&mut a1, &mut b1]);
+        assert_eq!(shown(&b1), ["Marker A"]);
+    }
+
+    #[test]
+    fn a_reconnect_lists_from_the_first_and_drops_what_went_while_away() {
+        let (mut relay, mut a1, mut b1) = decisions_team();
+        relay.blob_page = 2;
+        for n in 0..3 {
+            record(
+                &mut relay,
+                &mut [&mut a1, &mut b1],
+                0,
+                &format!("Marker {n}"),
+                "",
+                None,
+            )
+            .unwrap();
+        }
+        assert_eq!(decision_texts(&b1), ["Marker 2", "Marker 1", "Marker 0"]);
+        // Deleted while bob was offline: he missed the hint.
+        relay.blobs.remove(0);
+        let hello = b1.engine.hello(ticket());
+        run(&mut relay, &mut [&mut a1, &mut b1], vec![(1, hello)]);
+        assert_eq!(decision_texts(&b1), ["Marker 2", "Marker 1"]);
+        // A hint right after the listing waits for the connection's rate, then lists once.
+        let lists = relay.blob_lists;
+        let hint = b1
+            .engine
+            .on_blob_stored(hangar_team_protocol::wire::BlobKind::Decision);
+        assert!(sends(&hint).is_empty());
+        advance(&b1, hangar_team_protocol::limits::BLOB_LIST_EVERY_MS);
+        let ping = b1.engine.ping();
+        assert!(sends(&ping).contains(&"blob.list"));
+        run(&mut relay, &mut [&mut a1, &mut b1], vec![(1, ping)]);
+        assert_eq!(relay.blob_lists, lists + 1);
+    }
+
+    #[test]
+    fn a_former_members_decisions_stay_visible_but_never_reach_an_agent() {
+        let (mut relay, mut a1, mut b1) = decisions_team();
+        record(
+            &mut relay,
+            &mut [&mut a1, &mut b1],
+            1,
+            "Marker A",
+            "Marker B",
+            None,
+        )
+        .unwrap();
+        // Bob leaves: rotation, and a new notes key for what follows.
+        let _ = a1.engine.ping();
+        let effects = a1.engine.set_website(website(
+            Role::Owner,
+            Some(listing(&[("alice", Role::Owner)])),
+        ));
+        run(&mut relay, &mut [&mut a1, &mut b1], vec![(0, effects)]);
+        assert_eq!(connected(&a1).0, 2);
+        assert_eq!(b1.ended, Some(SessionEnd::Stop(StopReason::Removed)));
+        // The Team view keeps Bob's decision, marked; no agent gets it unasked.
+        let views = a1.engine.decision_views();
+        assert_eq!(views.len(), 1);
+        assert!(views[0].former && views[0].can_withdraw);
+        assert!(decision_texts(&a1).is_empty());
+        record(&mut relay, &mut [&mut a1, &mut b1], 0, "Marker C", "", None).unwrap();
+        // Carol, admitted after the rotation, reads both, and her agents only Alice's.
+        let _ = a1.engine.ping();
+        let listed = a1.engine.set_website(website(
+            Role::Owner,
+            Some(listing(&[("alice", Role::Owner), ("carol", Role::Member)])),
+        ));
+        run(&mut relay, &mut [&mut a1, &mut b1], vec![(0, listed)]);
+        let mut c1 = carol_joins(&mut relay, &mut a1, &mut b1);
+        settle(&mut relay, &mut [&mut a1, &mut b1, &mut c1]);
+        assert_eq!(shown(&c1), ["Marker C", "Marker A"]);
+        assert_eq!(decision_texts(&c1), ["Marker C"]);
+        let former = c1
+            .engine
+            .decision_views()
+            .into_iter()
+            .find(|d| d.decision == "Marker A")
+            .unwrap();
+        assert!(former.former && !former.can_withdraw);
+        // The owner withdraws it.
+        let blob = blob_of(&a1, "Marker A");
+        withdraw(&mut relay, &mut [&mut a1, &mut b1, &mut c1], 0, &blob).unwrap();
+        assert_eq!(shown(&c1), ["Marker C"]);
+        // The newest decision is sealed with the key added after bob left.
+        let newest = relay
+            .blobs
+            .iter()
+            .find(|b| b.0.as_str() == blob_of(&a1, "Marker C"))
+            .unwrap()
+            .3
+            .clone();
+        let header = hangar_team_crypto::decision::decision_header(&newest).unwrap();
+        let bobs = ring_ids(&b1);
+        assert!(!bobs.contains(&header.key.to_hex()));
+    }
+
+    #[test]
+    fn old_withdrawals_of_decisions_that_are_gone_are_cleaned_up() {
+        let (mut relay, mut a1, mut b1) = decisions_team();
+        record(&mut relay, &mut [&mut a1, &mut b1], 0, "Marker A", "", None).unwrap();
+        let blob = blob_of(&a1, "Marker A");
+        withdraw(&mut relay, &mut [&mut a1, &mut b1], 0, &blob).unwrap();
+        assert_eq!(relay.blobs.len(), 1, "the withdrawal stays");
+        // A month later, its decision still gone: the next full listing deletes it.
+        advance(&a1, super::decisions::WITHDRAWAL_KEPT_MS + relay.clock);
+        let hello = a1.engine.hello(ticket());
+        run(&mut relay, &mut [&mut a1, &mut b1], vec![(0, hello)]);
+        settle(&mut relay, &mut [&mut a1, &mut b1]);
+        assert!(relay.blobs.is_empty());
     }
 }

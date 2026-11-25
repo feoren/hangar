@@ -274,6 +274,25 @@ pub enum TeamError {
     /// Only an owner or admin may do this.
     #[error("Only owners and admins can do this")]
     NotOwnerOrAdmin,
+    /// A decision or reason the team cannot take (empty, too long, control characters).
+    #[error("The decision or its reason is not valid")]
+    InvalidDecision,
+    /// The team keeps as many decisions as it can (count or storage quota).
+    #[error("The team keeps as many decisions as it can")]
+    DecisionLimit,
+    /// This person keeps as many decisions as one person can (the per member limit).
+    #[error("You keep as many decisions as one person can")]
+    DecisionLimitOwn,
+    /// The team server speaks a protocol older than version 4, which has no decisions.
+    #[error("Decisions need a newer team server")]
+    DecisionsUnsupported,
+    /// Decisions need a connected device that holds the team's notes key ring, with no key
+    /// change pending.
+    #[error("Decisions are not ready on this computer yet")]
+    DecisionsNotReady,
+    /// No such decision (any more).
+    #[error("Unknown decision")]
+    UnknownDecision,
 }
 
 impl TeamError {
@@ -294,6 +313,12 @@ impl TeamError {
             Self::NotesNotReady => "notesNotReady",
             Self::NotesUnsupported => "notesUnsupported",
             Self::NotOwnerOrAdmin => "notOwnerOrAdmin",
+            Self::InvalidDecision => "invalidDecision",
+            Self::DecisionLimit => "decisionLimit",
+            Self::DecisionLimitOwn => "decisionLimitOwn",
+            Self::DecisionsUnsupported => "decisionsUnsupported",
+            Self::DecisionsNotReady => "decisionsNotReady",
+            Self::UnknownDecision => "unknownDecision",
         }
     }
 

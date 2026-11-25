@@ -6,7 +6,7 @@ superseded_by:
 tags: [collaboration, teams, agents, server, e2e, git, worktree]
 sources: []
 created: 2026-11-08
-updated: 2026-11-23
+updated: 2026-11-25
 ---
 
 # ADR 0005: Team collaboration of people and agents
@@ -119,7 +119,12 @@ Answered by desk research on 2026-11-09 in [[team-service-v1]], which also holds
   control of sessions), but Hangar gains a network service; the project rules must say so.
 
 ## Amendment draft (2026-11-22): team decisions as shared memory
-Status: proposed, not built. The version 1 scope promises that every agent gets the team's
+Status: **accepted and built on 2026-11-25** as team protocol version 4, recorded in
+[[0021-team-decisions]] with its version numbers, the compatibility matrix and where the build
+differs (the decision id travels in the clear and is repeated in the document; listings carry the
+full holder; an owner's or admin's device makes the team's notes key ring when there is none; the
+window records team-wide decisions; only Claude Code gets them as context today). The draft below
+stays as written. The version 1 scope promises that every agent gets the team's
 decisions with their reasons before it starts; today it gets only reservations and files.
 
 ### Context: what the context carries today

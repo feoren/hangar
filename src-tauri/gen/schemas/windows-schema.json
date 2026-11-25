@@ -1329,6 +1329,12 @@
           "markdownDescription": "Enables the team_pending_confirmations command without any pre-configured scope."
         },
         {
+          "description": "Enables the team_record_decision command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-team-record-decision",
+          "markdownDescription": "Enables the team_record_decision command without any pre-configured scope."
+        },
+        {
           "description": "Enables the team_reject command without any pre-configured scope.",
           "type": "string",
           "const": "allow-team-reject",
@@ -1369,6 +1375,12 @@
           "type": "string",
           "const": "allow-team-status",
           "markdownDescription": "Enables the team_status command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the team_withdraw_decision command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-team-withdraw-decision",
+          "markdownDescription": "Enables the team_withdraw_decision command without any pre-configured scope."
         },
         {
           "description": "Enables the telemetry_count command without any pre-configured scope.",
@@ -2601,6 +2613,12 @@
           "markdownDescription": "Denies the team_pending_confirmations command without any pre-configured scope."
         },
         {
+          "description": "Denies the team_record_decision command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-team-record-decision",
+          "markdownDescription": "Denies the team_record_decision command without any pre-configured scope."
+        },
+        {
           "description": "Denies the team_reject command without any pre-configured scope.",
           "type": "string",
           "const": "deny-team-reject",
@@ -2641,6 +2659,12 @@
           "type": "string",
           "const": "deny-team-status",
           "markdownDescription": "Denies the team_status command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the team_withdraw_decision command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-team-withdraw-decision",
+          "markdownDescription": "Denies the team_withdraw_decision command without any pre-configured scope."
         },
         {
           "description": "Denies the telemetry_count command without any pre-configured scope.",

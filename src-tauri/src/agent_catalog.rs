@@ -664,6 +664,7 @@ impl Agent {
             env: self.profile.env.keys().cloned().collect(),
             secret_env: self.profile.secret_env.clone(),
             team_capable: self.capabilities.gate(),
+            context_inject: self.capabilities.gate() && self.capabilities.context_inject,
             team_block: None,
             instructions: crate::instructions::reach(
                 self.prompting.instruction_args.as_deref(),
@@ -711,6 +712,9 @@ pub struct ProfileView {
     /// Can run as a team session: the agent gate can be installed for it
     /// ([`Capabilities::gate`]).
     pub team_capable: bool,
+    /// A team session of the program gets the team's facts as context through its prompt hook
+    /// ([`Capabilities::context_inject`]): reservations, files and decisions reach it unasked.
+    pub context_inject: bool,
     /// Why it cannot run as a team session on this machine (or, for `FixedFolder`, only in its
     /// own folder); `None` when it can. Set by the manager, which knows version and settings.
     pub team_block: Option<TeamBlock>,

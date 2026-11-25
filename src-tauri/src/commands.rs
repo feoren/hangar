@@ -3716,6 +3716,31 @@ pub async fn team_release_task(
     team.release_task(&project_id, &task).await
 }
 
+/// Records a decision for the team of a shared project (ADR 0021): what was decided and why,
+/// read by the team's agents. Resolves once the team server stored it, so the window keeps the
+/// text when it refuses (`decisionLimit`, `invalidDecision`, `decisionsUnsupported`).
+#[tauri::command]
+pub async fn team_record_decision(
+    team: State<'_, TeamService>,
+    project_id: String,
+    decision: String,
+    reason: String,
+) -> Result<(), TeamError> {
+    let input = crate::team_service::DecisionInput { decision, reason };
+    team.record_decision(&project_id, input).await
+}
+
+/// Withdraws a decision by its blob id from `team_snapshot` (unique in the team, unlike the
+/// decision's own id): its writer, an owner or an admin.
+#[tauri::command]
+pub async fn team_withdraw_decision(
+    team: State<'_, TeamService>,
+    project_id: String,
+    blob: String,
+) -> Result<(), TeamError> {
+    team.withdraw_decision(&project_id, &blob).await
+}
+
 /// Asks the holder of a task to hand it over.
 #[tauri::command]
 pub async fn team_ask_release(
