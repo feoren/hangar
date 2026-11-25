@@ -80,7 +80,10 @@ jobs:
 
       - run: pnpm install --frozen-lockfile
 
+      # bash on every runner: in pwsh only the last line's exit code counts, so a red
+      # format:check, lint or test would pass as long as pnpm build succeeds.
       - name: Frontend
+        shell: bash
         run: |
           pnpm format:check
           pnpm lint
