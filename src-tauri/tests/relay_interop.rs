@@ -4,6 +4,8 @@
 //! ```text
 //! HANGAR_INTEROP_BASE=http://127.0.0.1:8080          the relay's PUBLIC_URL (origin)
 //! HANGAR_INTEROP_LINK_A=<login link for the owner>   `hangar-server login-link a@example.org`
+//! HANGAR_INTEROP_EMAIL_A=owner@example.org           optional: the address of LINK_A when it is
+//!     not a@example.org (a relay whose test license names another owner)
 //! HANGAR_INTEROP_LINK_B=<login link for the member>  `hangar-server login-link b@example.org`
 //! HANGAR_INTEROP_LINK_C=<login link, second member>   only `team_notes_against_a_self_hosted_relay`
 //! HANGAR_INTEROP_OLD_BASE / HANGAR_INTEROP_OLD_LINK  optional: a relay of protocol version 1
@@ -732,9 +734,10 @@ fn hangar_against_a_self_hosted_relay() {
             ),
             format!("POST /oauth/token with an unknown refresh token -> {refreshed:?}"),
         );
+        let owner_email = env("HANGAR_INTEROP_EMAIL_A").unwrap_or_else(|| "a@example.org".into());
         let me = api.me(&alice_tokens.access).await;
         findings.check(
-            me.as_ref().is_ok_and(|me| me.email == "a@example.org"),
+            me.as_ref().is_ok_and(|me| me.email == owner_email),
             format!("GET /me -> {me:?}"),
         );
         let unauthorized = api.me("hgat_unknown").await;
@@ -2053,9 +2056,16 @@ fn team_notes_against_a_self_hosted_relay() {
         })
         .await;
         let after = write(&notes_a, &repo, "Later", "after the removal").await;
+        // ADR 0006, "Re-encryption after a removal": the owner's device knew this note, so its
+        // status moved it to the newest key. The removed member keeps the old version only in
+        // what it already had (Git history), not in the folder's current file.
         findings.check(
-            read(&notes_b, &repo, &before).await.as_deref() == Some("before the removal"),
-            "the removed member keeps what was written before",
+            read(&notes_a, &repo, &before).await.as_deref() == Some("before the removal"),
+            "the owner still reads the note written before the removal",
+        );
+        findings.check(
+            read(&notes_b, &repo, &before).await.is_none(),
+            "a note the owner's device knew is re-encrypted after the removal",
         );
         findings.check(
             read(&notes_b, &repo, &after).await.is_none(),
