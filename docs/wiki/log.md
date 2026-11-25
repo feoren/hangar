@@ -1688,3 +1688,7 @@ key (cache merged the wrong way round). Residual risk until signed authorship st
 After review: restoring an unknown old-key note under a new id is refused, a `vault.json` move
 learns notes only like a scan, and moving a marked note to this computer asks first.
 Updated: [[0006-encrypted-project-notes]], [[team-crypto]], [[notes]], index.
+
+## [2026-11-25] query | Relay version 3 spec: answers to the server implementation
+A second `hello` on one connection stays refused, the proof outcome is logged without ids, and
+`REQUIRE_DEVICE_PROOF` is read at the start. Updated: [[relay-v3-server-spec]].

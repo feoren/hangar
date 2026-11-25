@@ -38,8 +38,9 @@ Two of the relay's open protocol wishes are answered:
   system's secure random number generator (`getrandom`, or `OsRng`; never a seeded or
   per-process generator) and send them as `Welcome::challenge`
   (`hangar_team_protocol::e2e::Challenge::from_bytes`).
-- One challenge per (connection, team). A second `hello` for the same team on the same
-  connection gets a new challenge and resets the possession state (section 4) to `Unproven`.
+- One challenge per (connection, team). The relay refuses a second `hello` for the same team on
+  the same connection with `badRequest`, as it always has, so a challenge never changes within
+  a subscription.
 - The `welcome` that ends a resync snapshot is the one that carries it (there is one `welcome`
   per `hello`).
 - **The departing `welcome` too.** The relay builds its own `welcome` for a removed device in
@@ -73,7 +74,7 @@ Two of the relay's open protocol wishes are answered:
 4. `Err(e)`: answer `err` with `e.code()` (`forbidden`). The state stays as it was; a failed
    proof never removes a key proven before on this connection. Count it as a bad frame
    (`MAX_BAD_FRAMES`), so a connection cannot try signatures without bound.
-5. Log only the outcome (proved or refused, holder, team), never the signature or the
+5. Log only the outcome (proved or refused), never the holder, the team, the signature or the
    challenge.
 
 The relay does not compare `sign` with anything here. It compares the proven key with the log
@@ -236,8 +237,8 @@ steps:
    reconnects). Their next `hello` below version 3 then gets `outdatedClient`. Without the close,
    a version 2 twin opened before the row would keep acting until the connection's maximum age.
 2. **For everyone, by the operator.** `REQUIRE_DEVICE_PROOF=true` makes the relay range `{3, 3}`:
-   every `hello` without version 3 is `outdatedClient`. When the setting takes effect on a
-   running relay (otherwise at the start, where no connection survives), close every `Legacy`
+   every `hello` without version 3 is `outdatedClient`. The setting is read at the start, where
+   no connection survives; a relay that offers switching it at run time closes every `Legacy`
    connection with `close_where(CLOSE_ROLE_CHANGED, ..)` the same way. Turn it on once the app
    release with protocol version 3 has been out long enough (the official service decides;
    self-hosters choose). Document the setting in `.env.example`, `docs/operations.md` and the
