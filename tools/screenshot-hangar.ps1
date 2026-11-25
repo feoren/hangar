@@ -34,6 +34,7 @@ public static class HangarWin {
   [DllImport("user32.dll")] public static extern bool GetWindowRect(IntPtr h, out RECT r);
   [DllImport("user32.dll")] public static extern bool SetForegroundWindow(IntPtr h);
   [DllImport("user32.dll")] public static extern bool ShowWindow(IntPtr h, int cmd);
+  [DllImport("user32.dll")] public static extern bool IsIconic(IntPtr h);
   [DllImport("user32.dll")] public static extern bool PrintWindow(IntPtr h, IntPtr hdc, uint flags);
 }
 "@
@@ -51,7 +52,8 @@ if ($Wslg) {
 if (-not $process) { throw "Hangar is not running (no window found)." }
 
 $handle = $process.MainWindowHandle
-[HangarWin]::ShowWindow($handle, 9) | Out-Null   # SW_RESTORE, in case it is minimized
+# SW_RESTORE only for a minimized window: on a maximized one it would shrink the window.
+if ([HangarWin]::IsIconic($handle)) { [HangarWin]::ShowWindow($handle, 9) | Out-Null }
 [HangarWin]::SetForegroundWindow($handle) | Out-Null
 Start-Sleep -Milliseconds 400
 
