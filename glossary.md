@@ -289,7 +289,7 @@ UI texts in `src/i18n.ts` are translated per language and are not bound by this 
 | Reservierungsversuch                            | attempt                           | `AttemptView`; this device's reservation the relay has not granted (yet)             |
 | Reservierter Bereich                            | reserved area                     | a folder a reservation covers; teammates' agents pause there (gate)                  |
 | Eigene Reservierung (gemerkt)                   | own hold                          | `OwnHold`; this device's reservation in the state file, checked after a snapshot     |
-| Team-Entscheidung                               | team decision                     | a decision and its reason the team shares with every agent; ADR 0005 draft           |
+| Team-Entscheidung                               | team decision                     | a decision and its reason the team shares with every agent; ADR 0021                 |
 | Dateibaum (rechter Bereich)                     | file tree                         | tab `files`; `FilesPanel.tsx`, `fileTree.ts`; folders listed lazily                  |
 | Dateiansicht (Fenster)                          | file viewer                       | read-only window for one file; `FileViewerWindow.tsx`, `file_viewer.rs`              |
 | Dateiansicht-Thema                              | viewer theme                      | colors of the file viewer, dark and light; `viewerThemes.ts`                         |

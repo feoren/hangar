@@ -1,6 +1,7 @@
 //! Sealed records: everything the protocol carries as `Sealed` (presence status, reservation and
-//! release request notes, claim details, blobs), encrypted with the epoch's sealing key and signed
-//! by the sending device.
+//! release request notes, claim details, task and transcript blobs), encrypted with the epoch's
+//! sealing key and signed by the sending device. Decisions are sealed with the team's notes key
+//! instead ([`crate::decision`]).
 //!
 //! # Format (version 1)
 //!
@@ -67,8 +68,8 @@ use crate::epoch::TeamSecret;
 use crate::identity::{array24, array32, verify, DeviceIdentity};
 use crate::memberlog::TeamState;
 
-const LABEL_RECORD: &[u8] = b"hangar-team/v1/record";
-const LABEL_RECORD_SIG: &[u8] = b"hangar-team/v1/record-sig";
+pub(crate) const LABEL_RECORD: &[u8] = b"hangar-team/v1/record";
+pub(crate) const LABEL_RECORD_SIG: &[u8] = b"hangar-team/v1/record-sig";
 const RECORD_VERSION: u8 = 1;
 const HEADER_LEN: usize = 1 + 8 + 32 + 8;
 const NONCE_LEN: usize = 24;
@@ -87,14 +88,26 @@ pub enum RecordKind {
     ReleaseRequestNote,
     /// `claim.set` detail (record id: the session key).
     ClaimDetail,
-    /// `blob.put` content.
-    Blob(BlobKind),
+    /// `blob.put` content of a task (`BlobKind::Task`).
+    TaskBlob,
+    /// `blob.put` content of a shared transcript (`BlobKind::Transcript`).
+    TranscriptBlob,
     /// `notes.keys.set` content: the team's notes key ring (record id: empty; ADR 0006, phase
     /// 2, [`crate::notes::seal_notes_keys`]).
     NotesKeys,
 }
 
 impl RecordKind {
+    /// The kind that seals blobs of `kind` under the epoch. `None` for decisions: they are sealed
+    /// with the team's notes key, not with an epoch's key ([`crate::decision`]).
+    pub fn for_blob(kind: BlobKind) -> Option<Self> {
+        match kind {
+            BlobKind::Decision => None,
+            BlobKind::Task => Some(RecordKind::TaskBlob),
+            BlobKind::Transcript => Some(RecordKind::TranscriptBlob),
+        }
+    }
+
     /// The label in the associated data.
     pub fn label(self) -> &'static str {
         match self {
@@ -102,9 +115,8 @@ impl RecordKind {
             RecordKind::ReservationNote => "reservation-note",
             RecordKind::ReleaseRequestNote => "release-request-note",
             RecordKind::ClaimDetail => "claim-detail",
-            RecordKind::Blob(BlobKind::Decision) => "blob/decision",
-            RecordKind::Blob(BlobKind::Task) => "blob/task",
-            RecordKind::Blob(BlobKind::Transcript) => "blob/transcript",
+            RecordKind::TaskBlob => "blob/task",
+            RecordKind::TranscriptBlob => "blob/transcript",
             RecordKind::NotesKeys => "notes-keys",
         }
     }
@@ -112,7 +124,9 @@ impl RecordKind {
     /// The largest ciphertext the protocol accepts for this kind (characters).
     pub fn max_chars(self) -> usize {
         match self {
-            RecordKind::ClaimDetail | RecordKind::Blob(_) => MAX_CIPHERTEXT_LEN,
+            RecordKind::ClaimDetail | RecordKind::TaskBlob | RecordKind::TranscriptBlob => {
+                MAX_CIPHERTEXT_LEN
+            }
             _ => MAX_INLINE_CIPHERTEXT_LEN,
         }
     }

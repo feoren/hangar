@@ -160,6 +160,8 @@ const COMMANDS: &[&str] = &[
     "team_release_task",
     "team_ask_release",
     "team_answer_release",
+    "team_record_decision",
+    "team_withdraw_decision",
     "security_switches",
     "save_security_switches",
     "load_message_queue",

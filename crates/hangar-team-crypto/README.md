@@ -23,6 +23,7 @@ compared in constant time (`subtle`), and never shown by `Debug`.
 | `rotation`  | `plan_rotation` (`key.rotate` with the signed rotate epoch entry), `wrap_to_all` (reports failures per device), `wrap_for_device` (`key.wrap`)                                                                                                                                                                         |
 | `record`    | `EpochCipher` (`for_epoch`, `seal`, `open_verified`), `RecordKind`, `SendCounter`, `ReplayGuard` (persistable high-water mark per sender and signing key)                                                                                                                                                              |
 | `recovery`  | `RecoveryCode`: 128 bits, Crockford base32 with checksum, derives an offline device that may only restore its member                                                                                                                                                                                                   |
+| `decision`  | Team decisions (protocol version 4, ADR 0021): `seal_decision` with the newest key of the team's notes key ring, `open_decision` against the verified log, `decision_header`                                                                                                                                           |
 | `notes`     | Encrypted project notes (ADR 0006): `KeyRing`, `seal_note` and `open_note` (one file per note, padded, bound to vault, note id and key id), `NotesRecoveryCode`, `seal_code_slot` and `open_code_slot`; team mode: `seal_notes_keys` and `open_notes_keys` (the `notes-keys` record, owner or admin only), `team_hint` |
 
 Byte formats are documented at the top of each module.
@@ -106,6 +107,18 @@ fn new_device() -> Result<(), Box<dyn std::error::Error>> {
 ```
 
 ## Changelog
+
+- **Unreleased (protocol version 4):** module `decision`: `seal_decision` seals a team decision
+  with the newest key of the team's notes key ring (`HKDF-SHA256(notes key,
+"hangar-decision/v1/key" || team)`), bound to team, epoch, notes key id, decision id, sender,
+  log head and counter (kind label `decision/v1`) and signed like a record; `open_decision`
+  checks it against the verified log like `EpochCipher::open_verified` (`DecisionError`,
+  `UnknownKey` while the ring lacks the key); `decision_header` reads the clear header; a blob longer than
+  `MAX_DECISION_CIPHERTEXT_LEN` is `TooLarge` and not decoded.
+  **Breaking:** `RecordKind::Blob(BlobKind)` is replaced by `RecordKind::TaskBlob` and
+  `RecordKind::TranscriptBlob`, and the label `blob/decision` is gone
+  (`RecordKind::for_blob(BlobKind::Decision)` is `None`); no released app ever sealed a blob.
+  New vector `VECTOR_DECISION`, recomputed by `test_vectors.py`.
 
 - **Unreleased (protocol version 3):** module `possession`: `DeviceIdentity::prove_connection`
   signs the `welcome`'s challenge with team, holder, signing key and negotiated version under

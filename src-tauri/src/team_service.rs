@@ -49,6 +49,7 @@ use crate::team::{
     LinkedRepo, LocalState, Next, PendingConfirmation, ReconnectPolicy, SessionEnd, StopReason,
     StoredDevice, StoredKeys, TeamConfig, TeamEntry, TeamError, TeamSnapshot, TeamStatus, Timing,
 };
+use crate::team_decisions::TeamDecision;
 use crate::team_engine::{self, Effect, Engine, EngineSetup, NotesKeysView, WebsiteMember};
 use crate::team_share::{
     self, LocalSession, LocalShare, SessionLabel, SessionState, TeamActivity, TeammateFile,
@@ -60,6 +61,9 @@ use hangar_team_crypto::notes::KeyRing;
 pub type LocalSource = Box<dyn Fn() -> (Arc<Vec<WorktreeClaims>>, Vec<SessionLabel>) + Send + Sync>;
 
 pub type Emit = Arc<dyn Fn(&TeamSnapshot) + Send + Sync>;
+
+/// Tells whether the keychain keeps notes keys of the team with this `team::team_key`.
+pub type NotesCacheProbe = Box<dyn Fn(&str) -> bool + Send + Sync>;
 
 /// A team's turn: the running worker holds it (`team_service::Inner::turns`).
 type Turn = Arc<tokio::sync::Mutex<()>>;
@@ -113,7 +117,21 @@ enum Command {
     /// Turns shared notes on for the team, or brings a solo vault's key ring in (ADR 0006,
     /// phase 2); answered once the relay stored the ring (`Engine::take_notes_outcome`).
     NotesEnable(Option<KeyRing>, oneshot::Sender<Result<(), TeamError>>),
+    /// Records a decision (ADR 0021); answered once the relay stored it.
+    RecordDecision(DecisionInput, oneshot::Sender<Result<(), TeamError>>),
+    /// Withdraws a decision by its blob id; answered once the relay deleted it.
+    WithdrawDecision(String, oneshot::Sender<Result<(), TeamError>>),
     Stop,
+}
+
+/// How long the window waits for the relay to store or delete a decision.
+const DECISION_TIMEOUT: Duration = Duration::from_secs(20);
+
+/// A decision to record, as the window names it.
+#[derive(Debug, Clone)]
+pub struct DecisionInput {
+    pub decision: String,
+    pub reason: String,
 }
 
 /// How long the window waits for the relay to store a notes key ring.
@@ -152,6 +170,8 @@ struct Team {
     files: Vec<TeammateFile>,
     /// The team's reservations, for the agent gate and the agent's context.
     tasks: Vec<TeamTask>,
+    /// The team's decisions that count, newest first, for the agent's context.
+    decisions: Vec<TeamDecision>,
     /// The share last handed to the worker.
     shared: Option<LocalShare>,
     /// The notes key ring as the running worker sees it.
@@ -184,6 +204,9 @@ struct Inner {
     /// What the window says each session is doing.
     states: Mutex<BTreeMap<SessionId, SessionState>>,
     source: Mutex<Option<LocalSource>>,
+    /// Whether this computer's keychain keeps notes keys of a team (by `team::team_key`), from
+    /// the shared notes; `None` in tests and before it is set.
+    notes_cache: Mutex<Option<NotesCacheProbe>>,
     /// One turn per team: held by its worker for its whole run, so a new worker of the same team
     /// waits for the old one to let go instead of meeting its lock file.
     turns: Mutex<BTreeMap<(String, String), Turn>>,
@@ -251,6 +274,7 @@ impl TeamService {
                 local: Mutex::new(Vec::new()),
                 states: Mutex::new(BTreeMap::new()),
                 source: Mutex::new(None),
+                notes_cache: Mutex::new(None),
                 turns: Mutex::new(BTreeMap::new()),
             }),
         };
@@ -536,6 +560,64 @@ impl TeamService {
             .collect()
     }
 
+    /// The decisions of the running teams of the current server whose project this device
+    /// linked the clone at `folder` of the repository `repo` to: those for the whole team and
+    /// those of this repository, newest first.
+    pub fn team_decisions(&self, repo: &str, folder: &str) -> Vec<TeamDecision> {
+        let base = self.base();
+        let config = self.config().unwrap_or_default();
+        let service = self.service_name();
+        lock(&self.inner.teams)
+            .iter()
+            .filter(|((b, project), _)| {
+                *b == base
+                    && config
+                        .linked(service, &base, project)
+                        .iter()
+                        .any(|r| r.shares(repo, folder))
+            })
+            .flat_map(|(_, team)| team.decisions.iter())
+            .filter(|decision| decision.repo.as_deref().is_none_or(|r| r == repo))
+            .cloned()
+            .collect()
+    }
+
+    /// Records a decision for the team of `project`; resolves once the relay stored it, so the
+    /// window keeps the text on a refusal (`decisionLimit` and the others).
+    pub async fn record_decision(
+        &self,
+        project: &str,
+        input: DecisionInput,
+    ) -> Result<(), TeamError> {
+        let tx = self.team_tx(project)?;
+        let reply = Self::send_command(tx, move |reply| Command::RecordDecision(input, reply));
+        tokio::time::timeout(DECISION_TIMEOUT, reply)
+            .await
+            .unwrap_or(Err(TeamError::Busy))
+    }
+
+    /// Where the worker learns whether the keychain keeps notes keys of a team: an owner's or
+    /// admin's device makes a team's first notes key ring for decisions only when it does not.
+    pub fn set_notes_cache_probe(&self, probe: impl Fn(&str) -> bool + Send + Sync + 'static) {
+        *lock(&self.inner.notes_cache) = Some(Box::new(probe));
+    }
+
+    fn notes_cached(&self, key: &str) -> bool {
+        lock(&self.inner.notes_cache)
+            .as_ref()
+            .is_some_and(|probe| probe(key))
+    }
+
+    /// Withdraws one of the team's decisions by its blob id (its writer, an owner or an admin).
+    pub async fn withdraw_decision(&self, project: &str, blob: &str) -> Result<(), TeamError> {
+        let tx = self.team_tx(project)?;
+        let id = blob.to_owned();
+        let reply = Self::send_command(tx, move |reply| Command::WithdrawDecision(id, reply));
+        tokio::time::timeout(DECISION_TIMEOUT, reply)
+            .await
+            .unwrap_or(Err(TeamError::Busy))
+    }
+
     /// The running team's view of its notes key ring; `None` while no worker runs for it.
     pub fn notes_keys(&self, project: &str) -> Option<NotesKeysView> {
         let key = (self.base(), project.to_owned());
@@ -722,6 +804,7 @@ impl TeamService {
                     team.activity = TeamActivity::default();
                     team.files.clear();
                     team.tasks.clear();
+                    team.decisions.clear();
                     changed = true;
                 }
             }
@@ -908,6 +991,7 @@ impl TeamService {
                     activity: TeamActivity::default(),
                     files: Vec::new(),
                     tasks: Vec::new(),
+                    decisions: Vec::new(),
                     shared: None,
                     notes: None,
                     tx: None,
@@ -939,6 +1023,7 @@ impl TeamService {
             _lock: None,
             writer_closed: false,
             notes_reply: None,
+            decision_reply: None,
         };
         let handle = tauri::async_runtime::spawn(worker.run());
         if let Some(team) = lock(&self.inner.teams).get_mut(&(base.to_owned(), project.to_owned()))
@@ -1036,6 +1121,7 @@ impl TeamService {
                     team.activity = view.activity;
                     team.files = view.files;
                     team.tasks = view.tasks;
+                    team.decisions = view.decisions;
                     // A ring that arrives or a renewal that ends changes what the notes show.
                     let notes_changed = notes_signature(team.notes.as_ref())
                         != notes_signature(view.notes.as_ref());
@@ -1098,6 +1184,7 @@ struct View {
     activity: TeamActivity,
     files: Vec<TeammateFile>,
     tasks: Vec<TeamTask>,
+    decisions: Vec<TeamDecision>,
 }
 
 struct Worker {
@@ -1118,6 +1205,8 @@ struct Worker {
     _lock: Option<std::fs::File>,
     /// The window waits for a notes turn-on request.
     notes_reply: Option<oneshot::Sender<Result<(), TeamError>>>,
+    /// The window waits for a decision to be recorded or withdrawn.
+    decision_reply: Option<oneshot::Sender<Result<(), TeamError>>>,
 }
 
 type Writer = futures_util::stream::SplitSink<crate::team_relay::Socket, Message>;
@@ -1150,6 +1239,7 @@ impl Worker {
                 activity: engine.activity(),
                 files: engine.teammate_files(),
                 tasks: engine.team_tasks(),
+                decisions: engine.team_decisions(),
             },
             None => View {
                 notes: None,
@@ -1160,6 +1250,7 @@ impl Worker {
                 activity: TeamActivity::default(),
                 files: Vec::new(),
                 tasks: Vec::new(),
+                decisions: Vec::new(),
             },
         };
         self.service
@@ -1178,6 +1269,7 @@ impl Worker {
                 activity: TeamActivity::default(),
                 files: Vec::new(),
                 tasks: Vec::new(),
+                decisions: Vec::new(),
             },
         );
     }
@@ -1331,6 +1423,10 @@ impl Worker {
             }
             Command::NotesEnable(_, reply) => {
                 let _ = reply.send(Err(TeamError::NotesNotReady));
+                false
+            }
+            Command::RecordDecision(_, reply) | Command::WithdrawDecision(_, reply) => {
+                let _ = reply.send(Err(TeamError::DecisionsNotReady));
                 false
             }
         }
@@ -1587,6 +1683,10 @@ impl Worker {
             let _ = self.service.inner.account.status().await;
             return Ok(SessionEnd::Lost);
         }
+        let cached = self.service.notes_cached(&self.key);
+        if let Some(engine) = &mut self.engine {
+            engine.set_notes_cached(cached);
+        }
         let ticket = match self.ticket().await {
             Ok(ticket) => ticket,
             Err(end) => return Ok(end),
@@ -1745,12 +1845,41 @@ impl Worker {
                     return None;
                 }
             },
+            Command::RecordDecision(input, reply) => {
+                let result = engine.record_decision(&input.decision, &input.reason, None, None);
+                return self.await_decision(writer, result, reply).await;
+            }
+            Command::WithdrawDecision(id, reply) => {
+                let result = engine.withdraw_decision(&id);
+                return self.await_decision(writer, result, reply).await;
+            }
         };
         match effects {
             Ok(effects) => {
                 let result = self.apply(writer, effects).await;
                 let _ = reply.send(Ok(()));
                 result
+            }
+            Err(error) => {
+                let _ = reply.send(Err(error));
+                None
+            }
+        }
+    }
+
+    /// Sends a decision request; the reply waits for the relay's answer (`apply`).
+    async fn await_decision(
+        &mut self,
+        writer: &mut Writer,
+        result: Result<Vec<Effect>, TeamError>,
+        reply: oneshot::Sender<Result<(), TeamError>>,
+    ) -> Option<Result<SessionEnd, Exit>> {
+        match result {
+            Ok(effects) => {
+                if let Some(old) = self.decision_reply.replace(reply) {
+                    let _ = old.send(Err(TeamError::Busy));
+                }
+                self.apply(writer, effects).await
             }
             Err(error) => {
                 let _ = reply.send(Err(error));
@@ -1924,14 +2053,20 @@ impl Worker {
             }
         }
         let outcome = self.engine.as_mut().and_then(Engine::take_notes_outcome);
+        let decided = self.engine.as_mut().and_then(Engine::take_decision_outcome);
         // The view goes out before the answer: the waiting caller reads the stored ring from the
         // service's view as soon as it wakes.
-        if changed || outcome.is_some() {
+        if changed || outcome.is_some() || decided.is_some() {
             self.view();
         }
         if let Some(outcome) = outcome {
             if let Some(reply) = self.notes_reply.take() {
                 let _ = reply.send(outcome);
+            }
+        }
+        if let Some(decided) = decided {
+            if let Some(reply) = self.decision_reply.take() {
+                let _ = reply.send(decided);
             }
         }
         result

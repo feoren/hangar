@@ -235,5 +235,21 @@ Protocol version 1 is not deployed yet, so additions before the first release ke
     `hangar_team_crypto::possession::check_restricted`, on every version for devices the log
     does not list, and on version 3 also for listed devices without a passing proof.
 
+- **Version 4 (2026-11-25): team decisions, the listing of blobs.** Mixed versions keep working:
+  a peer of version 1 to 3 negotiates its own version and sees no new kind. Server
+  specification: `docs/wiki/pages/syntheses/relay-v4-server-spec.md`.
+  - `PROTOCOL_VERSION` becomes 4, `ProtoRange::CURRENT` `{1, 4}`; new constant
+    `DECISIONS_PROTOCOL_VERSION` (4).
+  - New client kind **`blob.list {kind, after}`** (version 4, a read, not deduplicated, not
+    allowed before the proof): the team's blobs of one kind after `after` (a blob id or null).
+  - New server kinds **`blobs {kind, blobs, more}`** (the answer, at most `MAX_BLOB_LIST` = 100
+    entries `{blob, by, createdAt}` in storage order) and the live hints
+    **`blob.stored {kind, blob, by}`** and **`blob.deleted {kind, blob}`**; none is logged or
+    targeted.
+  - New limits `MAX_BLOB_LIST` (100), `MAX_DECISIONS` (200 decision blobs per team, `limit`
+    beyond), `MAX_DECISIONS_PER_MEMBER` (50 per member), `MAX_DECISION_CIPHERTEXT_LEN` (24 KiB
+    per decision blob) and `BLOB_LIST_EVERY_MS` (one new listing per connection per 5 s,
+    `rateLimited`).
+
 The crate is standalone (its own `Cargo.toml` and `Cargo.lock`, no workspace), so it builds
 without Tauri and without touching the app's build folder.

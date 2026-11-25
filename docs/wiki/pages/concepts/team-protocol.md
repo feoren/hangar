@@ -1,7 +1,7 @@
 ---
 title: "Team protocol: messages, keyed hashes, reservations and the event log"
 type: concept
-tags: [collaboration, teams, protocol, websocket, hmac, hkdf, reservation, claims, threat-model, possession, blobs]
+tags: [collaboration, teams, protocol, websocket, hmac, hkdf, reservation, claims, threat-model, possession, blobs, decisions]
 sources: []
 created: 2026-11-09
 updated: 2026-11-25
@@ -21,7 +21,7 @@ WebSocket reader refuses a larger message before decoding (the connection ends, 
 
 | Field | Client frame | Server frame |
 | --- | --- | --- |
-| `v` | envelope version (`ENVELOPE_VERSION`), always 1; the message set is negotiated per team in `hello.proto` and `welcome.proto` (protocol version 2 since 2026-11-22, see [[0006-encrypted-project-notes]], "Phase 2 design"; version 3 since 2026-11-25, see [[0020-proof-of-possession-at-hello]]) | the same |
+| `v` | envelope version (`ENVELOPE_VERSION`), always 1; the message set is negotiated per team in `hello.proto` and `welcome.proto` (protocol version 2 since 2026-11-22, see [[0006-encrypted-project-notes]], "Phase 2 design"; version 3 since 2026-11-25, see [[0020-proof-of-possession-at-hello]]; version 4 since 2026-11-25, see [[0021-team-decisions]]) | the same |
 | `id` | op id, required; chosen per intent, a retry repeats it | the op this answers, if any |
 | `seq` | never | position in the team's event log, only on loggable events |
 | `team` | required except on `ping` (also refused when encoding): the website's project id, opaque | the team the event belongs to |
@@ -35,15 +35,17 @@ raw JSON into the message's type (`serde_json::value::RawValue`, no `Value` buff
 and duplicate fields are rejected at every level instead of the last duplicate silently winning;
 then the limits of lists and ciphertexts.
 
-**Protocol versions 2 and 3.** `PROTOCOL_VERSION` is 3 and `ProtoRange::CURRENT` `{1, 3}`; the
-relay picks the highest common version per `hello`. Each kind names its version (`since()`): the
+**Protocol versions 2, 3 and 4.** `PROTOCOL_VERSION` is 4 and `ProtoRange::CURRENT` `{1, 4}`;
+the relay picks the highest common version per `hello`. Each kind names its version (`since()`): the
 relay answers a client kind newer than the team's negotiated version with `badRequest` and never
-sends a newer server kind to that connection; the app sends a kind of version 2 or 3 only after a
-`welcome` with at least that `proto`. Version 2 adds `notes.keys.get`, `notes.keys.set {base,
+sends a newer server kind to that connection; the app sends a kind of version 2, 3 or 4 only
+after a `welcome` with at least that `proto`. Version 2 adds `notes.keys.get`, `notes.keys.set {base,
 content}` (compare and set, owner or admin device of the log, current epoch, deduplicated),
 `notes.keys {record}` and the live hint `notes.keys.updated {version, by}`; none is logged.
 Version 3 adds the proof of possession (`welcome.challenge`, `device.prove`) and `blob.delete`;
-see [Protocol version 3](#protocol-version-3-proof-of-possession-and-blobdelete).
+see [Protocol version 3](#protocol-version-3-proof-of-possession-and-blobdelete). Version 4 adds
+the listing of blobs (`blob.list`, `blobs`) and the live hints `blob.stored` and `blob.deleted`,
+which carry the team's decisions; see [Protocol version 4](#protocol-version-4-team-decisions).
 
 Version errors: on the relay, a client older than the relay gets `outdatedClient`, a newer one
 `badRequest`; on the client, a newer relay means Hangar needs an update
@@ -80,7 +82,8 @@ number.
 | `claim.clear` | `session` | `ack`; ended overlaps as `claim.overlap` with level `none` |
 | `blob.put` | `kind` (decision, task, transcript), `content` sealed | `ack` with `blob` |
 | `blob.get` | `blob` | `ack` with `blob` and `content` |
-| `blob.delete` | `blob` (version 3) | `ack`; the author (any of its devices) or an owner or admin; `notFound` for a blob the team does not have, `forbidden` for anyone else; frees the quota |
+| `blob.delete` | `blob` (version 3) | `ack`; the author (any of its devices) or an owner or admin; `notFound` for a blob the team does not have, `forbidden` for anyone else; frees the quota; on version 4 the team gets `blob.deleted` |
+| `blob.list` | `kind`, `after` (a blob id or null) (version 4) | `blobs`: at most 100 entries of the kind after `after`, in storage order (newest last), `more`; `notFound` for an unknown `after`; one listing per 5 s per connection (`rateLimited`), pages of one listing at once |
 | `device.prove` | `sign` (Ed25519, 43 characters), `signature` (64 bytes, 86 characters) (version 3) | `ack` when the signature over the `welcome`'s challenge verifies; `forbidden` otherwise (the connection stays unproven) |
 | `device.keys` | `sign` (Ed25519), `kem` (X25519), each 32 bytes as 43 characters of canonical base64url; `proof` (the device's proof of possession, 64 bytes as 86 characters) | `ack`; replaces the device's keys |
 | `devices.get` | none | `devices` |
@@ -103,8 +106,8 @@ The relay remembers the answer by op id only for intents that change shared stat
 is not applied again. `presence.set`, `heartbeat`,
 `claim.set`, `claim.clear` and `device.keys` replace the sender's own state and are applied and
 acknowledged every time, and so are `ticket.renew` (the same ticket verifies to the same result)
-and `device.prove` (the same signature verifies to the same result); reads, `hello` and `ping`
-are answered every time.
+and `device.prove` (the same signature verifies to the same result); reads (also `blob.list`),
+`hello` and `ping` are answered every time.
 
 The ticket is the website's short-lived Ed25519 ticket in compact form
 (`base64url(payload).base64url(signature)`, payload with `v`, `kid`, `sub`, `prj`, `role`,
@@ -153,6 +156,9 @@ relay delivers per device by holder, never by the device id alone.
 | `key.rotated` | `epoch`, `wrapped` (only the receiving device's own wrapped key) | yes |
 | `key.wrapped` | `epoch`, `holder`; only to that holder's connections | no |
 | `notify` | `topic` (attention), `member` (the recipient), `content` sealed; only to that member's connections | no |
+| `blobs` | `kind`, `blobs` (at most 100 `{blob, by, createdAt}`), `more`; the answer to `blob.list` (version 4) | no |
+| `blob.stored` | `kind`, `blob`, `by`; a live hint to the team's counting connections of version 4 | no |
+| `blob.deleted` | `kind`, `blob`; a live hint like `blob.stored` | no |
 | `device.removed` | `holder` | yes |
 | `devices` | `devices` (at most 512 `{holder, sign, kem, proof, at}`) | no |
 | `memberlog.entries` | `entries` (at most 256 `{index, hash, entry, by, at}`), `more` | no |
@@ -248,6 +254,7 @@ shared log.
 | `device.remove` | the signed remove device entry in `log`: another device of one's own (any role), the owner for any other device, an admin for a member's device; never the sending device itself | the error's `code()` (`forbidden`, `badRequest`, `conflict`) | `LogVerifier::admit_device_remove` |
 | every intent of a team with a log, first | a device that counts as the log's device: listed, and on version 3 proven with the log's sign key; any other device only `hello`, `ticket.renew`, `device.keys`, `device.prove`, `devices.get`, `memberlog.get`, `ping` | `forbidden` | `hangar_team_crypto::possession::check_restricted` |
 | `blob.delete` (version 3) | the blob's author (the member that stored it), an owner or admin (the lower of log role and ticket role; without a log the ticket role) | `notFound` before the check, then `forbidden` | `hangar_team_crypto::relay::check_blob_delete` |
+| `blob.put` of a decision (version 4) | any device that counts as the log's device, while the team keeps fewer than 200 decisions and the quotas allow | `limit` | the relay's count in the same transaction as the quota |
 
 `check_wrap` takes the verified `TeamState`, the ticket role, the `key.wrap` message itself, whose
 `wrapped.holder` names the target with its member, and the senders of the wrapped keys the relay
@@ -318,7 +325,7 @@ backs off since the connection never settled.
 | The relay checks one connection's frames in arrival order; the departing `welcome` of a removed device carries a challenge too, and `device.keys` and `device.prove` there get `ack` without effect | The app sends `device.keys`, `device.prove` and its log fetch back to back. A removed device must still read the log up to its removal; the app also reads that answer when its proof was refused. |
 | Downgrade protection per holder, then for everyone | A holder that proved itself once on version 3 gets `outdatedClient` for a `hello` of an older version; `REQUIRE_DEVICE_PROOF` ends versions 1 and 2 when the operator chooses. Refusing them at once would cut off every released app on the day the relay updates. |
 | `blob.delete` by the author (member) or an owner or admin, deduplicated, no event | The author is a person, not a device, so any of its devices can tidy up; owners and admins clean up after people who left. Nothing lists blobs yet, so no event is needed; the relay keeps no tombstone, only size and author mattered for the quota. |
-| The app sends no `blob.delete` today | Hangar stores no blob yet: reservation notes, statuses and claim details travel inline, decisions are a draft (ADR 0005 amendment). The feature that first writes blobs deletes them when they become obsolete (a superseded or withdrawn decision). |
+| The app sends no `blob.delete` on version 3 | Hangar stored no blob before version 4: reservation notes, statuses and claim details travel inline. Decisions (version 4) are the first blobs; withdrawn and superseded ones are deleted. |
 
 **Compatibility matrix.**
 
@@ -331,6 +338,52 @@ Checked in the app: the engine's unit tests run against an in-memory relay that 
 `check_restricted` on versions 1, 2 and 3, and `src-tauri/tests/team.rs` runs `TeamService` over
 real WebSockets against a relay that negotiates `{1, 3}` (and one of version 2); no frame of an
 honest device is refused.
+
+## Protocol version 4: team decisions
+
+Decided in [[0021-team-decisions]] (the ADR 0005 amendment, accepted); the relay's duties in
+[[relay-v4-server-spec]]; the seal in [[team-crypto]] ("Decision seal").
+
+**Why.** A decision blob could be stored, fetched and deleted, but not found: no listing, no
+event. Passing ids through the presence would miss everyone offline and every member admitted
+later.
+
+**Messages.**
+
+```text
+app                                          relay
+welcome {proto 4, ..}                <---
+blob.list {kind: decision, after: null} -->  storage order, at most 100
+                                     <---    blobs {kind, blobs: [{blob, by, createdAt}], more}
+blob.list {.., after: <last>}        --->    (continuation: free of the 5 s rate)
+blob.get {blob}                      --->    per new blob, a few at a time
+blob.put {decision, content}         --->    count below 200 and quota: ack {blob}
+                                     <---    blob.stored {kind, blob, by} to the team (version 4)
+blob.delete {blob}                   --->    author, owner or admin: ack
+                                     <---    blob.deleted {kind, blob} to the team (version 4)
+```
+
+**Decisions and reasons.**
+
+| Decision | Reason |
+| --- | --- |
+| The hints are not logged; after every `welcome` the app lists from the first | A second kind of state in the event log would need snapshot rules; a full listing is at most two pages for 200 decisions and also shows what was deleted while a device was away. |
+| `after` is a blob id, `notFound` when it is gone | Storage order is stable; an id the team no longer has is the client's cue to list from the first. |
+| One listing per 5 s per connection, continuation pages free | Bounds what a hint flood can make every device do; the app waits for the next ping when a hint comes sooner. |
+| `blobs` and the hints carry `by` as the full holder | The opener checks the seal's signature for that device; the member alone would not name a key. |
+| Hints only to version 4 connections that count as the log's device | A version 3 app ends the connection on an unknown kind; an unproven connection may not list either, so it learns no ids. |
+| 200 decisions at most, 50 per member, 24 KiB each, counted by the relay; decision puts and listings only on version 4 and only of the kind `decision` | The app checks too, but only the relay sees every writer; one member cannot take the team's room; withdrawing deletes, so the bytes leave the quota. |
+| Decisions are named by writer and id, commands by blob id; a withdrawal is a signed record stored before the delete | Ids are the writer's word: one member's id must not hide or redirect another's. A relay that serves a deleted decision again does not bring it back on devices that saw the withdrawal. |
+
+**Compatibility matrix.**
+
+| | Relay of version 3 | Relay of version 4 |
+| --- | --- | --- |
+| App of version 3 | as before | negotiates 3, sees no listing and no hint |
+| App of version 4 | negotiates 3: no `blob.list`, no decisions, owners and admins see "Decisions need a newer team server" | negotiates 4, lists, records, withdraws |
+
+Checked in the app: the engine's unit tests run against an in-memory relay of versions 3 and 4
+with these messages and the count limit.
 
 ## Keys and keyed hashes
 
@@ -578,6 +631,11 @@ What the relay can and cannot do, and what the protocol relies on:
 | `MAX_HEARTBEAT_TASKS` | 64 |
 | `MAX_PREV_HASHES` | 4 |
 | `MAX_RESERVATIONS_PER_MEMBER` | 32 |
+| `MAX_BLOB_LIST` (entries per `blobs`, version 4) | 100 |
+| `MAX_DECISIONS` (decision blobs a team keeps, version 4) | 200 |
+| `MAX_DECISIONS_PER_MEMBER` (decision blobs one member keeps in a team, version 4) | 50 |
+| `MAX_DECISION_CIPHERTEXT_LEN` (one decision blob, version 4) | 24 KiB of base64url |
+| `BLOB_LIST_EVERY_MS` (new listings per connection, version 4) | 5000 ms |
 
 The largest `claim.set` (1000 files with area and the largest detail) and the largest
 `claim.overlap` fit in a frame; a test checks both. Changing a limit or a hash rule needs a new

@@ -561,6 +561,47 @@ def compute():
     out["VECTOR_NOTES_KEYS"] = b64(
         b"\x01" + head[0] + head[1] + counter + nonce + ciphertext + signature
     )
+    # Protocol version 4: a team decision, sealed with the newest key of that ring (key id
+    # 0x58.., key 0x60..), bound to the notes key id and the decision id, signed like a record.
+    key_id, notes_key = counting(0x58, 8), counting(0x60, 32)
+    decision_id = b"00112233-4455-4677-8899-aabbccddeeff"
+    document = (
+        b'{"v":1,"id":"00112233-4455-4677-8899-aabbccddeeff","decision":"Use marker A",'
+        b'"reason":"Marker B","by":"Owner","at":1700000000000,"repo":null,"supersedes":null}'
+    )
+    decision_key = hkdf(notes_key, framed(b"hangar-decision/v1/key", TEAM), 32)
+    aad = framed(
+        b"hangar-team/v1/record",
+        b"\x01",
+        TEAM,
+        struct.pack(">I", 1),
+        b"decision/v1",
+        key_id,
+        decision_id,
+        OWNER[0],
+        OWNER[1],
+        head[0],
+        head[1],
+        counter,
+    )
+    padded_len = -(-(4 + len(document)) // 256) * 256
+    padded = (struct.pack(">I", len(document)) + document).ljust(padded_len, b"\x00")
+    nonce = counting(0xD0, 24)
+    ciphertext = xchacha20poly1305_seal(decision_key, nonce, padded, aad)
+    signature = ed25519_sign(
+        sign_seed, framed(b"hangar-team/v1/record-sig", aad, nonce, ciphertext)
+    )
+    out["VECTOR_DECISION"] = b64(
+        b"\x01"
+        + key_id
+        + bytes.fromhex(decision_id.decode().replace("-", ""))
+        + head[0]
+        + head[1]
+        + counter
+        + nonce
+        + ciphertext
+        + signature
+    )
     out["VECTOR_TEAM_HINT"] = hashlib.sha256(framed(b"hangar-notes/v1/team", TEAM)).digest()[
         :8
     ].hex()

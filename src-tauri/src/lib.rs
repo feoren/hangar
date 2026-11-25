@@ -94,6 +94,7 @@ pub mod single_instance;
 pub mod subagents;
 pub mod system_usage;
 pub mod team;
+pub mod team_decisions;
 pub mod team_engine;
 pub mod team_relay;
 pub mod team_service;
@@ -405,6 +406,15 @@ pub fn run() -> tauri::Result<()> {
                 app.state::<team_service::TeamService>().inner().clone(),
             ));
             app.manage(shared_notes);
+            // Decisions (ADR 0021): a team's first notes key ring is made only where this
+            // computer kept no keys of it.
+            let probe = app.handle().clone();
+            app.state::<team_service::TeamService>()
+                .set_notes_cache_probe(move |key| {
+                    probe
+                        .state::<project_notes::ProjectNotes>()
+                        .has_team_cache(key)
+                });
             // Hook settings for cmd.exe launchers of gated agents; they hold no secret.
             let gate_dir = local_dir.join("gate");
             // The person's gate rules: local, they name this machine's
@@ -540,6 +550,13 @@ pub fn run() -> tauri::Result<()> {
                 reserved
                     .state::<team_service::TeamService>()
                     .team_tasks(repo, folder)
+            });
+            // Decisions of the team (ADR 0021): the agent's context lists them first.
+            let decided = app.handle().clone();
+            gate.set_team_decisions(move |repo, folder| {
+                decided
+                    .state::<team_service::TeamService>()
+                    .team_decisions(repo, folder)
             });
             // Cross-project messages (ADR 0012): agents of projects with partners send with
             // `hangar-send` through the same endpoint, private sessions included; each message
@@ -816,6 +833,8 @@ pub fn run() -> tauri::Result<()> {
             commands::team_release_task,
             commands::team_ask_release,
             commands::team_answer_release,
+            commands::team_record_decision,
+            commands::team_withdraw_decision,
             commands::security_switches,
             commands::save_security_switches,
             commands::load_message_queue,

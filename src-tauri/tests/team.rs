@@ -720,7 +720,10 @@ impl Relay {
             book: ReservationBook::new(Policy::default(), Epoch(0)),
             notes: HashMap::new(),
             request_notes: HashMap::new(),
-            proto: ProtoRange::CURRENT,
+            // A relay of version 3 (proof of possession): it keeps no blob listing, so the app of
+            // version 4 meets it on 3. Decisions (version 4) run against the engine's in-memory
+            // relay in `team_engine.rs`.
+            proto: ProtoRange::new(1, 3).unwrap(),
             negotiated: Vec::new(),
             proofs: 0,
             refused: Vec::new(),

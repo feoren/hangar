@@ -1692,3 +1692,33 @@ Updated: [[0006-encrypted-project-notes]], [[team-crypto]], [[notes]], index.
 ## [2026-11-25] query | Relay version 3 spec: answers to the server implementation
 A second `hello` on one connection stays refused, the proof outcome is logged without ids, and
 `REQUIRE_DEVICE_PROOF` is read at the start. Updated: [[relay-v3-server-spec]].
+
+## [2026-11-25] query | Team decisions as shared memory (protocol version 4)
+Built the ADR 0005 amendment as protocol version 4 and recorded it in a new ADR: decisions sealed
+with the newest notes key and signed by the device (`hangar-team-crypto::decision`, vector
+`VECTOR_DECISION` recomputed in Python; the label `blob/decision` is gone), `blob.list`, `blobs`,
+`blob.stored`, `blob.deleted` and the limits in the protocol crate, the engine's listing, fetch,
+record, withdraw and supersede, the owner's or admin's device making the team's notes key ring on
+version 4, the agent context with decisions before reservations (10 lines, 1200 characters), and
+the Team view's Decisions card with "Send to session". New: [[0021-team-decisions]],
+[[relay-v4-server-spec]]. Updated: [[0005-team-collaboration]] (amendment accepted),
+[[team-protocol]], [[team-crypto]], index.
+
+## [2026-11-25] query | Team decisions after the security review and acceptance
+Decisions are named by writer and id, commands by blob id (M1); a former member's decisions are
+marked and never reach an agent's context (M2); the context cuts texts by their length as
+written and counts lines that do not fit instead of stopping (M3). Also: decision blobs over 24
+KiB are not decoded, waiting decisions keep only what they wait for, listings stop above the
+limit (N1); no record while a key change is pending (N2); the context names the full member id
+and the relay's date (N3); every invisible character is refused (N4); forks only from current
+keys and epoch (N5); the notes key ring is made only without any trace of an earlier one (N6);
+Withdraw stores a signed withdrawal before it deletes and asks first (N7). New limits: 50
+decisions per member, 24 KiB per decision; decision puts and listings only on version 4.
+Updated: [[0021-team-decisions]], [[relay-v4-server-spec]], [[team-protocol]], [[team-crypto]].
+
+## [2026-11-25] query | Team decisions: room at one person's limit, and N5 under an older epoch
+Withdrawal records counted toward one member's 50 for 30 days and could block an owner or admin
+who withdrew many: the engine now deletes the person's own spare withdrawals first, then records
+(also after a relay `limit`), and names one person's limit honestly (`decisionLimitOwn`). A new
+test shows a forked decision under an older epoch marks nobody (the check fails under the
+mutation that drops the epoch rule). Updated: [[0021-team-decisions]], [[relay-v4-server-spec]].

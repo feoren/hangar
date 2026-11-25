@@ -260,6 +260,44 @@ export interface TeamActivity {
    * after asking again: the relay holds entries back.
    */
   historyWithheld: boolean;
+  /** The team's decisions that count, newest first (Rust: `DecisionView`). */
+  decisions: DecisionView[];
+  /** Whether the team server keeps decisions (Rust: `DecisionsState`). */
+  decisionsState: DecisionsState;
+}
+
+/**
+ * Rust `DecisionsState`: "unknown" while not connected, "unsupported" on a team server older
+ * than protocol version 4 (no decisions), "waitingForKeys" while this device holds no notes key
+ * of the team (an owner or admin with this version has to be online), "ready" otherwise.
+ */
+export type DecisionsState = "unknown" | "unsupported" | "waitingForKeys" | "ready";
+
+const DECISIONS_STATES: readonly DecisionsState[] = [
+  "unknown",
+  "unsupported",
+  "waitingForKeys",
+  "ready",
+];
+
+/** A team decision as the Team view lists it (Rust: `DecisionView`). */
+export interface DecisionView {
+  /** The relay's blob id: what Withdraw names, unique in the team (the decision id is not). */
+  blob: string;
+  id: string;
+  decision: string;
+  reason: string;
+  member: string;
+  /** The writer's display name; empty without one. */
+  name: string;
+  /** When it was written, Unix milliseconds. */
+  at: number;
+  /** Written by this person. */
+  mine: boolean;
+  /** The writer is no longer in the team: no agent gets it as context. */
+  former: boolean;
+  /** This person may withdraw it: its writer, the owner or an admin. */
+  canWithdraw: boolean;
 }
 
 /** One of the signed-in person's devices in the team (Rust: `OwnDevice`). */
@@ -298,6 +336,8 @@ export const EMPTY_ACTIVITY: TeamActivity = {
   log: null,
   logFull: false,
   historyWithheld: false,
+  decisions: [],
+  decisionsState: "unknown",
 };
 
 export interface TeamEntry {
@@ -329,6 +369,15 @@ export type TeamErrorKind =
   | "invalidTask"
   | "unknownTask"
   | "taskLimit"
+  | "invalidDecision"
+  /** The team keeps as many decisions as it can; the form keeps its text. */
+  | "decisionLimit"
+  /** This person keeps as many decisions as one person can; withdrawing others' would not help. */
+  | "decisionLimitOwn"
+  | "decisionsUnsupported"
+  | "decisionsNotReady"
+  | "unknownDecision"
+  | "notOwnerOrAdmin"
   | "keychain"
   | "config"
   | "busy"
@@ -364,6 +413,13 @@ const ERROR_KINDS: readonly TeamErrorKind[] = [
   "invalidTask",
   "unknownTask",
   "taskLimit",
+  "invalidDecision",
+  "decisionLimit",
+  "decisionLimitOwn",
+  "decisionsUnsupported",
+  "decisionsNotReady",
+  "unknownDecision",
+  "notOwnerOrAdmin",
   "keychain",
   "config",
   "busy",
@@ -722,6 +778,30 @@ function parseLogSafety(value: unknown): LogSafety | null | undefined {
   return { index, safetyNumber };
 }
 
+function parseDecision(value: unknown): DecisionView | null {
+  const blob = text(field(value, "blob"));
+  const id = text(field(value, "id"));
+  const decision = text(field(value, "decision"));
+  const reason = field(value, "reason");
+  const member = text(field(value, "member"));
+  const name = field(value, "name");
+  const at = field(value, "at");
+  const mine = field(value, "mine");
+  const canWithdraw = field(value, "canWithdraw");
+  const former = field(value, "former");
+  if (blob === null || id === null || decision === null || member === null) return null;
+  if (!isText(reason) || !isText(name) || !isTime(at)) return null;
+  if (typeof mine !== "boolean" || typeof canWithdraw !== "boolean") return null;
+  if (typeof former !== "boolean") return null;
+  return { blob, id, decision, reason, member, name, at, mine, former, canWithdraw };
+}
+
+/** Absent (an older backend) is "unknown"; another word is malformed (`undefined`). */
+function parseDecisionsState(value: unknown): DecisionsState | undefined {
+  if (value === undefined) return "unknown";
+  return DECISIONS_STATES.find((state) => state === value);
+}
+
 function parseSessionRepo(value: unknown): SessionRepo | null {
   const sessionId = field(value, "sessionId");
   const repo = text(field(value, "repo"));
@@ -750,6 +830,9 @@ export function parseTeamActivity(value: unknown): TeamActivity | null {
   const withheldValue = field(value, "historyWithheld");
   if (withheldValue !== undefined && typeof withheldValue !== "boolean") return null;
   const historyWithheld = withheldValue === true;
+  const decisions = optionalList(field(value, "decisions"), (v) => list(v, parseDecision));
+  const decisionsState = parseDecisionsState(field(value, "decisionsState"));
+  if (decisions === null || decisionsState === undefined) return null;
   if (linked === null || peers === null || overlaps === null || divergent === null) return null;
   if (tasks === null || attempts === null || notices === null || sessions === null) return null;
   if (sessionRepos === null || devices === null || log === undefined) return null;
@@ -767,6 +850,8 @@ export function parseTeamActivity(value: unknown): TeamActivity | null {
     log,
     logFull,
     historyWithheld,
+    decisions,
+    decisionsState,
   };
 }
 
@@ -934,6 +1019,13 @@ const ERROR_TEXTS: Record<TeamErrorKind, MessageKey> = {
   invalidTask: "team.error.invalidTask",
   unknownTask: "team.error.unknownTask",
   taskLimit: "team.error.taskLimit",
+  invalidDecision: "team.error.invalidDecision",
+  decisionLimit: "team.error.decisionLimit",
+  decisionLimitOwn: "team.error.decisionLimitOwn",
+  decisionsUnsupported: "team.error.decisionsUnsupported",
+  decisionsNotReady: "team.error.decisionsNotReady",
+  unknownDecision: "team.error.unknownDecision",
+  notOwnerOrAdmin: "team.error.notOwnerOrAdmin",
   keychain: "team.status.keychain",
   config: "account.error.config",
   busy: "team.error.busy",
@@ -949,6 +1041,38 @@ const SHORT_ID = 8;
 /** An opaque id cut to its first characters when long; the full id goes into the tooltip. */
 export function shortId(id: string): string {
   return id.length > SHORT_ID + 2 ? `${id.slice(0, SHORT_ID)}…` : id;
+}
+
+/**
+ * Whether a session's agent reads the team's decisions by itself: a team session whose gate is
+ * active and whose program takes the team's context through its prompt hook (Rust
+ * `ProfileView.contextInject`). Every other running session is offered "Send to session".
+ */
+export function readsTeamContext(
+  session: { mode?: string; gate?: string },
+  profile: { contextInject?: boolean } | undefined,
+): boolean {
+  return session.mode === "team" && session.gate === "active" && profile?.contextInject === true;
+}
+
+/** What "Send to session" pastes: the decision, and its reason on the next line. */
+export function decisionText(decision: Pick<DecisionView, "decision" | "reason">): string {
+  const reason = decision.reason.trim();
+  return reason === "" ? decision.decision : `${decision.decision}\n${reason}`;
+}
+
+/**
+ * The day a decision was written, in `language` or, without one, the system's locale as the
+ * Team view's other times (`YYYY-MM-DD` when the locale is unknown).
+ */
+export function decisionDate(at: number, language?: string): string {
+  const date = new Date(at);
+  if (Number.isNaN(date.getTime())) return "";
+  try {
+    return new Intl.DateTimeFormat(language, { dateStyle: "medium" }).format(date);
+  } catch {
+    return date.toISOString().slice(0, 10);
+  }
 }
 
 /** A pending list without the answered request, so it disappears at once. */

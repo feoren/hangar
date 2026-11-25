@@ -167,6 +167,14 @@ impl KeyId {
     pub fn to_hex(&self) -> String {
         hex(&self.0)
     }
+
+    pub(crate) fn from_bytes(bytes: [u8; KEY_ID_LEN]) -> Self {
+        Self(bytes)
+    }
+
+    pub(crate) fn as_bytes(&self) -> &[u8; KEY_ID_LEN] {
+        &self.0
+    }
 }
 
 impl fmt::Debug for KeyId {
@@ -197,6 +205,11 @@ impl NotesKey {
         self.id
     }
 
+    /// The key's bytes, for keys derived from it elsewhere in the crate ([`crate::decision`]).
+    pub(crate) fn secret(&self) -> &[u8; KEY_LEN] {
+        &self.key
+    }
+
     fn same_key(&self, other: &Self) -> bool {
         constant_time_eq(self.key.as_ref(), other.key.as_ref())
     }
@@ -225,7 +238,7 @@ impl fmt::Debug for NotesKey {
 }
 
 /// Every notes key a project ever had, oldest first. Writes use the newest; reads use the key a
-/// file names. Keys are only ever added, so an old note stays readable.
+/// file names. A team's ring also seals the team's decisions ([`crate::decision`]). Keys are only ever added, so an old note stays readable.
 #[derive(Clone)]
 pub struct KeyRing {
     keys: Vec<NotesKey>,
@@ -489,7 +502,7 @@ fn note_aad(vault: &VaultId, note_id: &str, key: KeyId) -> Vec<u8> {
 }
 
 /// Length prefix, plaintext and zero bytes up to the next multiple of [`PAD_BLOCK`].
-fn pad(plaintext: &[u8]) -> Result<Zeroizing<Vec<u8>>, NotesCryptoError> {
+pub(crate) fn pad(plaintext: &[u8]) -> Result<Zeroizing<Vec<u8>>, NotesCryptoError> {
     if plaintext.len() > MAX_PLAINTEXT {
         return Err(NotesCryptoError::TooLarge);
     }
@@ -505,7 +518,7 @@ fn pad(plaintext: &[u8]) -> Result<Zeroizing<Vec<u8>>, NotesCryptoError> {
 
 /// The plaintext inside [`pad`]'s output; padding that is not all zeros, or a length that does
 /// not fit, is refused.
-fn unpad(padded: &[u8]) -> Result<Zeroizing<Vec<u8>>, NotesCryptoError> {
+pub(crate) fn unpad(padded: &[u8]) -> Result<Zeroizing<Vec<u8>>, NotesCryptoError> {
     if padded.is_empty() || !padded.len().is_multiple_of(PAD_BLOCK) {
         return Err(NotesCryptoError::Malformed);
     }

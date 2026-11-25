@@ -29,6 +29,7 @@ import {
   ReleaseRequests,
   WaitingHelp,
 } from "./TeamProjects";
+import { TeamDecisionsView, type DecisionTarget } from "./TeamDecisionsView";
 import { TeamTasksView, type TaskSession } from "./TeamTasksView";
 import { refusedForSeat, teamAccess } from "./teamPlan";
 import { TeamPlanNote } from "./TeamPlanNote";
@@ -74,6 +75,12 @@ const SIZE_BOUNDS: DialogSizeBounds = {
 export function TeamWindow(props: {
   /** This device's running sessions, for linking a reservation to one. */
   sessions: readonly TaskSession[];
+  /**
+   * The session "Send to session" pastes a decision into: the active one, when its agent does
+   * not get the team's decisions as context by itself; `null` hides the action.
+   */
+  decisionTarget: DecisionTarget | null;
+  onSendDecision: (text: string, sessionId: number) => void;
   onClose: () => void;
 }) {
   const t = useT();
@@ -210,12 +217,22 @@ export function TeamWindow(props: {
             content={
               <>
                 <TeamPeople activity={activity} />
-                <TeamTasksView
-                  projectId={project.id}
-                  activity={activity}
-                  sessions={props.sessions}
-                  busy={teamStore.busy}
-                />
+                <div className="team-stack">
+                  <TeamTasksView
+                    projectId={project.id}
+                    activity={activity}
+                    sessions={props.sessions}
+                    busy={teamStore.busy}
+                  />
+                  <TeamDecisionsView
+                    projectId={project.id}
+                    activity={activity}
+                    busy={teamStore.busy}
+                    manages={project.role === "owner" || project.role === "admin"}
+                    target={props.decisionTarget}
+                    onSend={props.onSendDecision}
+                  />
+                </div>
               </>
             }
             busy={teamStore.busy.has(project.id)}

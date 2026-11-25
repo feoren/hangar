@@ -196,6 +196,12 @@ impl ProjectNotes {
             .find(|team| self.links(team, project, root.as_deref()))
     }
 
+    /// Whether this computer's keychain keeps anything for the team `key` (`team::team_key`):
+    /// a usable cache, or one it cannot read. Either means the team had a notes key ring before.
+    pub fn has_team_cache(&self, key: &str) -> bool {
+        !matches!(self.read_cache(key), CacheEntry::Nothing)
+    }
+
     fn read_cache(&self, key: &str) -> CacheEntry {
         match self.keychain.get(&team_account(key)) {
             Ok(None) => CacheEntry::Nothing,

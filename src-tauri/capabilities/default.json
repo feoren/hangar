@@ -168,6 +168,8 @@
     "allow-team-release-task",
     "allow-team-ask-release",
     "allow-team-answer-release",
+    "allow-team-record-decision",
+    "allow-team-withdraw-decision",
     "allow-security-switches",
     "allow-save-security-switches",
     "allow-load-message-queue",
