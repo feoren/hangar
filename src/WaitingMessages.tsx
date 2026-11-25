@@ -2,7 +2,7 @@ import { useId, useLayoutEffect, useRef, useState } from "react";
 
 import { Badge } from "./Badge";
 import { useT } from "./i18n";
-import { CloseIcon } from "./icons";
+import { ChevronIcon, CloseIcon } from "./icons";
 import type { IntroSummary } from "./linkIntro";
 import { cardPreview, cardTime, type CardSend } from "./messageCard";
 import type { WaitingMessage } from "./partnerInbox";
@@ -28,6 +28,10 @@ import { useArmDelay } from "./useArmDelay";
  * whom the session now works with instead, and the agent's text only on request. While a send
  * waits, the status names no session in its sentence: the card sits below its target, and where
  * it does not (a partner message shown on several rows), the target follows as a label.
+ *
+ * The head folds a card to its one line (chevron and sender). A card folds by itself once its
+ * send waits, since nothing is left to decide but "Cancel"; a click on the head opens it again.
+ * A secret hint stays visible on a folded card.
  */
 export function WaitingMessages(props: {
   messages: readonly WaitingMessage[];
@@ -104,9 +108,26 @@ function WaitingMessageCard({
   const card = useRef<HTMLElement>(null);
   const sendButton = useRef<HTMLButtonElement>(null);
   const cancelButton = useRef<HTMLButtonElement>(null);
+  const headButton = useRef<HTMLButtonElement>(null);
   /** The keyboard focus was in this card last; a button that goes takes it to the page. */
   const focusInside = useRef(false);
   const mode = send === undefined ? "idle" : send.phase;
+  const [folded, setFolded] = useState(mode === "waiting");
+  const status =
+    send === undefined
+      ? ""
+      : send.phase === "waiting"
+        ? t(send.submit ? "inbox.waitSend" : "inbox.waitPaste")
+        : t(send.submit ? "inbox.sending" : "inbox.pasting");
+  const bodyId = useId();
+  // A send that starts waiting folds the card, one that ends opens it; the person may toggle it
+  // in between. Adjusted during render, not in an effect, so the card never shows a wrong frame.
+  const [foldedFor, setFoldedFor] = useState(mode);
+  if (foldedFor !== mode) {
+    setFoldedFor(mode);
+    if (mode === "waiting") setFolded(true);
+    else if (mode === "idle") setFolded(false);
+  }
   // The buttons swap when a send starts or ends. Focus that was in the card follows: to "Cancel"
   // while the send waits, back to "Send" when it ended and the card stays (cancelled, failed).
   // Focus the person moved elsewhere stays there.
@@ -114,7 +135,7 @@ function WaitingMessageCard({
     const active = document.activeElement;
     const lost = active === null || active === document.body;
     if (!focusInside.current || !(lost || card.current?.contains(active) === true)) return;
-    if (mode === "waiting") cancelButton.current?.focus();
+    if (mode === "waiting") headButton.current?.focus();
     else if (mode === "idle") sendButton.current?.focus();
   }, [mode]);
   return (
@@ -124,6 +145,7 @@ function WaitingMessageCard({
       className="waiting-message"
       aria-label={title}
       data-sending={send !== undefined}
+      data-folded={folded}
       onFocus={() => {
         focusInside.current = true;
       }}
@@ -134,7 +156,20 @@ function WaitingMessageCard({
       }}
     >
       <div className="waiting-message-head">
-        <span className="waiting-message-from">{title}</span>
+        <button
+          ref={headButton}
+          type="button"
+          className="waiting-message-fold"
+          aria-expanded={!folded}
+          aria-controls={folded ? undefined : bodyId}
+          title={status === "" ? undefined : status}
+          onClick={() => {
+            setFolded((current) => !current);
+          }}
+        >
+          <ChevronIcon size={12} />
+          <span className="waiting-message-from">{title}</span>
+        </button>
         <time className="waiting-message-time" dateTime={new Date(message.at).toISOString()}>
           {cardTime(message.at, shownAt, language)}
         </time>
@@ -158,93 +193,94 @@ function WaitingMessageCard({
           {t("message.secretHint", { kinds: secretLabels(message.secrets, t) })}
         </div>
       )}
-      {intro !== undefined && <IntroMembers intro={intro} badgeFor={badgeFor} />}
-      {(intro === undefined || open) && (
-        <div className="waiting-message-text" id={textId}>
-          {lines.map((line, index) => (
-            // Lines never move; the index is stable for this text.
-            <div key={index}>{line === "" ? " " : <Revealed text={line} />}</div>
-          ))}
-        </div>
-      )}
-      {intro !== undefined && (
-        <button
-          type="button"
-          className="link-button waiting-message-more"
-          aria-expanded={open}
-          aria-controls={open ? textId : undefined}
-          onClick={() => {
-            setOpen((current) => !current);
-          }}
-        >
-          {t(open ? "links.introHide" : "links.introShow")}
-        </button>
-      )}
-      {intro === undefined && preview.cut && (
-        <button
-          type="button"
-          className="link-button waiting-message-more"
-          aria-expanded={open}
-          aria-controls={textId}
-          onClick={() => {
-            setOpen((current) => !current);
-          }}
-        >
-          {t(open ? "inbox.less" : "inbox.more")}
-        </button>
-      )}
-      <div className="waiting-message-actions">
-        {send === undefined && (
-          <button
-            ref={sendButton}
-            type="button"
-            className="primary-button waiting-message-send"
-            aria-disabled={waitArm}
-            onClick={guard(() => {
-              onSend(message.id, true);
-            })}
-          >
-            {t("inbox.send")}
-          </button>
+      {/* Always there, empty while nothing runs: a live region only announces changes to a
+          region that already existed. Outside the body, so a folded card still announces. */}
+      <span className="sr-only" role="status">
+        {status}
+      </span>
+      <div className="waiting-message-body" id={bodyId} hidden={folded}>
+        {intro !== undefined && <IntroMembers intro={intro} badgeFor={badgeFor} />}
+        {(intro === undefined || open) && (
+          <div className="waiting-message-text" id={textId}>
+            {lines.map((line, index) => (
+              // Lines never move; the index is stable for this text.
+              <div key={index}>{line === "" ? " " : <Revealed text={line} />}</div>
+            ))}
+          </div>
         )}
-        {send === undefined && (
+        {intro !== undefined && (
           <button
             type="button"
-            className="link-button"
-            aria-disabled={waitArm}
-            onClick={guard(() => {
-              onSend(message.id, false);
-            })}
-          >
-            {t("inbox.pasteOnly")}
-          </button>
-        )}
-        {/* Always there, empty while nothing runs: a live region only announces changes to a
-            region that already existed. */}
-        <span className="waiting-message-status" role="status">
-          {send === undefined
-            ? ""
-            : send.phase === "waiting"
-              ? t(send.submit ? "inbox.waitSend" : "inbox.waitPaste")
-              : t(send.submit ? "inbox.sending" : "inbox.pasting")}
-        </span>
-        {elsewhere !== null && (
-          <span className="waiting-message-target" title={elsewhere}>
-            {t("inbox.toSession", { session: elsewhere })}
-          </span>
-        )}
-        {send?.phase === "waiting" && (
-          <button
-            ref={cancelButton}
-            type="button"
-            className="link-button"
+            className="link-button waiting-message-more"
+            aria-expanded={open}
+            aria-controls={open ? textId : undefined}
             onClick={() => {
-              onCancel(message.id);
+              setOpen((current) => !current);
             }}
           >
-            {t("common.cancel")}
+            {t(open ? "links.introHide" : "links.introShow")}
           </button>
         )}
+        {intro === undefined && preview.cut && (
+          <button
+            type="button"
+            className="link-button waiting-message-more"
+            aria-expanded={open}
+            aria-controls={textId}
+            onClick={() => {
+              setOpen((current) => !current);
+            }}
+          >
+            {t(open ? "inbox.less" : "inbox.more")}
+          </button>
+        )}
+        <div className="waiting-message-actions">
+          {send === undefined && (
+            <button
+              ref={sendButton}
+              type="button"
+              className="primary-button waiting-message-send"
+              aria-disabled={waitArm}
+              onClick={guard(() => {
+                onSend(message.id, true);
+              })}
+            >
+              {t("inbox.send")}
+            </button>
+          )}
+          {send === undefined && (
+            <button
+              type="button"
+              className="link-button"
+              aria-disabled={waitArm}
+              onClick={guard(() => {
+                onSend(message.id, false);
+              })}
+            >
+              {t("inbox.pasteOnly")}
+            </button>
+          )}
+          <span className="waiting-message-status" aria-hidden="true">
+            {status}
+          </span>
+          {elsewhere !== null && (
+            <span className="waiting-message-target" title={elsewhere}>
+              {t("inbox.toSession", { session: elsewhere })}
+            </span>
+          )}
+          {send?.phase === "waiting" && (
+            <button
+              ref={cancelButton}
+              type="button"
+              className="link-button"
+              onClick={() => {
+                onCancel(message.id);
+              }}
+            >
+              {t("common.cancel")}
+            </button>
+          )}
+        </div>
       </div>
     </section>
   );

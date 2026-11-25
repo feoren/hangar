@@ -15874,3 +15874,56 @@ button.sub-agent-card:focus-visible {
 .panes > .glyph-background ~ .empty.home {
   position: absolute;
 }
+
+/* The head folds a waiting message to its one line (WaitingMessages.tsx). */
+.waiting-message-fold {
+  display: flex;
+  flex: 1;
+  align-items: center;
+  gap: 4px;
+  min-width: 0;
+  margin: -2px 0 -2px -4px;
+  padding: 2px 4px;
+  font: inherit;
+  color: inherit;
+  text-align: left;
+  background: none;
+  border: 0;
+  border-radius: 4px;
+  cursor: pointer;
+}
+
+.waiting-message-fold:hover {
+  background: color-mix(in srgb, var(--text) 6%, transparent);
+}
+
+.waiting-message-fold:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
+}
+
+.waiting-message-fold svg {
+  flex: none;
+  color: var(--muted);
+  transition: transform 120ms ease;
+}
+
+.waiting-message-fold[aria-expanded="true"] svg {
+  transform: rotate(90deg);
+}
+
+.waiting-message-body {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.waiting-message-body[hidden] {
+  display: none;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .waiting-message-fold svg {
+    transition: none;
+  }
+}

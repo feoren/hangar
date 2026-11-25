@@ -80,7 +80,7 @@ describe("WaitingMessages", () => {
   it("names sender and time in one line and offers one clear Send", () => {
     const html = render();
     expect(html).toMatch(
-      /class="waiting-message-head"><span class="waiting-message-from">Message from “app”<\/span><time/,
+      /class="waiting-message-head"><button[^>]*class="waiting-message-fold" aria-expanded="true"[^>]*><svg.*?<\/svg><span class="waiting-message-from">Message from “app”<\/span><\/button><time/,
     );
     expect(html).toContain('class="primary-button waiting-message-send"');
     expect(html).toContain(">Send<");
@@ -129,6 +129,26 @@ describe("WaitingMessages", () => {
     const sending = render(new Map([[4, { phase: "sending", submit: true, target: "web 1" }]]));
     expect(sending).toContain("Sending …");
     expect(sending).not.toContain(">Cancel<");
+  });
+
+  it("folds a card whose send waits to its head line, and keeps announcing", () => {
+    const idle = render();
+    expect(idle).toContain('data-folded="false"');
+    expect(idle).not.toMatch(/class="waiting-message-body"[^>]*hidden/);
+    const folded = render(waiting(true));
+    expect(folded).toContain('data-folded="true"');
+    expect(folded).toMatch(/class="waiting-message-fold" aria-expanded="false"/);
+    expect(folded).toMatch(/class="waiting-message-body"[^>]*hidden=""/);
+    // The live region sits outside the folded body, the tooltip says the same.
+    expect(folded).toContain(
+      '<span class="sr-only" role="status">Sends when the session is ready</span>',
+    );
+    expect(folded).toContain('title="Sends when the session is ready"');
+    // A secret hint stays visible on a folded card.
+    const secret = render(waiting(true), "en", { ...message, secrets: ["githubToken"] });
+    expect(secret.indexOf("waiting-message-secret")).toBeLessThan(
+      secret.indexOf("waiting-message-body"),
+    );
   });
 
   it("never puts the session's name into the status sentence", () => {

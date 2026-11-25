@@ -1,6 +1,7 @@
 // @vitest-environment happy-dom
 
-// Where the keyboard focus goes when a card's buttons swap: to "Cancel" once a send starts, back
+// Where the keyboard focus goes when a card's buttons swap: to the head that folded the card once
+// a send starts (Enter opens it, "Cancel" is inside), back
 // to "Send" when it ended and the card stays. Without it, the focused button vanished and the
 // focus fell to the page.
 
@@ -65,7 +66,7 @@ function button(text: string): HTMLButtonElement | undefined {
 }
 
 describe("WaitingMessages focus", () => {
-  it("moves to Cancel when a send starts and back to Send when it ends", () => {
+  it("moves to the folded head when a send starts and back to Send when it ends", () => {
     show();
     act(() => {
       vi.advanceTimersByTime(ARM_DELAY_MS);
@@ -76,7 +77,9 @@ describe("WaitingMessages focus", () => {
       send?.click();
     });
     show();
-    expect(document.activeElement).toBe(button("Cancel"));
+    const head = host.querySelector<HTMLButtonElement>(".waiting-message-fold");
+    expect(document.activeElement).toBe(head);
+    expect(head?.getAttribute("aria-expanded")).toBe("false");
     // The status line was there before and now speaks.
     expect(host.querySelector('[role="status"]')?.textContent).toBe(
       "Sends when the session is ready",
