@@ -14,6 +14,7 @@ import { folderName } from "./folders";
 import { formatShortTime, relativeTime } from "./format";
 import { DICTIONARIES, LANGUAGES, useT, type MessageKey } from "./i18n";
 import {
+  AlertIcon,
   ChevronIcon,
   CloseIcon,
   EyeIcon,
@@ -40,7 +41,10 @@ import {
   sameNote,
   titleFromText,
   untitledTitle,
+  oldKeyQuestion,
+  withOldKeys,
   type NoteFolderInfo,
+  type OldKeyAction,
   type NoteRef,
   type SearchHit,
   type TrashItem,
@@ -167,6 +171,11 @@ const UNTITLED_BASES = LANGUAGES.map((language) => DICTIONARIES[language]["notes
 // Remembered while Hangar runs, so closing and reopening the panel finds things as they were.
 let lastScope: NotesScope = DEFAULT_SCOPE;
 let lastOpen: { folder: NoteFolder; id: string } | null = null;
+
+/** A deleted note is not opened again next time. Event handlers only, never during render. */
+function forgetLastOpen() {
+  lastOpen = null;
+}
 /**
  * Newest request handled. Module-wide: the panel mounts again each time it opens, while the
  * window keeps its last request; tokens only grow, so an old one is never handled twice.
@@ -257,6 +266,15 @@ export function NotesPanel(props: Props) {
   const [toast, setToast] = useState<Toast | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [announcement, setAnnouncement] = useState("");
+  /** Shared notes sealed with an old team key, by `noteKey`: shown as of uncertain origin. */
+  const [oldKeys, setOldKeys] = useState<ReadonlySet<string>>(() => new Set());
+  /** An action on a note with an old key that waits for "anyway" (send, move to this computer). */
+  const [sendCheck, setSendCheck] = useState<{ note: string; action: OldKeyAction } | null>(null);
+  const sendCheckCancel = useRef<HTMLButtonElement>(null);
+  const oldKeysRef = useRef(oldKeys);
+  useEffect(() => {
+    oldKeysRef.current = oldKeys;
+  });
   /** Shared group of the shown project; `null` while unknown or without a project. */
   /** `team`: the team the shared notes belong to or would be shared with, `null` for none. */
   const [shared, setShared] = useState<{
@@ -459,6 +477,16 @@ export function NotesPanel(props: Props) {
     try {
       await api.writeNote(job.folder, job.id, job.text);
       details.delete(noteKey(job));
+      // A real write uses the newest key and ends the mark; the backend may also have found the
+      // text unchanged and written nothing, so its answer decides.
+      if (oldKeysRef.current.has(noteKey(job))) {
+        // The save went through; a failing list keeps the mark until the next one.
+        const listed = await api.listNotes(job.folder).catch(() => null);
+        if (listed !== null) {
+          const info = parseNotes(listed).find((n) => n.id === job.id);
+          setOldKeys((known) => withOldKeys(known, [[noteKey(job), info?.oldKey === true]]));
+        }
+      }
     } catch (e) {
       setError(t("notes.saveFailed", { error: errorText(e) }));
     }
@@ -571,6 +599,8 @@ export function NotesPanel(props: Props) {
       setCurrent(note);
       setText(content);
       setRenaming(false);
+      // A send question belongs to the note it was asked for; coming back must not show it again.
+      setSendCheck(null);
       setSelected(false);
       setPreviewHtml(null);
       computeStats(content, note);
@@ -602,6 +632,7 @@ export function NotesPanel(props: Props) {
         ]);
         if (mine !== generation.current) return;
         const info = parseNotes(notes).find((note) => note.id === ref.id);
+        setOldKeys((known) => withOldKeys(known, [[noteKey(ref), info?.oldKey === true]]));
         show(
           { folder: ref.folder, id: ref.id, title: info?.title ?? "" },
           typeof content === "string" ? content : "",
@@ -635,15 +666,25 @@ export function NotesPanel(props: Props) {
     try {
       const lists = await Promise.all(
         shown.map(async (folder) =>
-          parseNotes(await api.listNotes(folder)).map((note): NoteRef => ({
-            folder,
-            id: note.id,
-            title: note.title,
-            updatedAt: note.updatedAt,
-          })),
+          parseNotes(await api.listNotes(folder)).map((note) => {
+            const ref: NoteRef = {
+              folder,
+              id: note.id,
+              title: note.title,
+              updatedAt: note.updatedAt,
+            };
+            return { ref, oldKey: note.oldKey };
+          }),
         ),
       );
-      setList(byLastChange(lists.flat()));
+      const listed = lists.flat();
+      setList(byLastChange(listed.map((entry) => entry.ref)));
+      setOldKeys((known) =>
+        withOldKeys(
+          known,
+          listed.map((entry) => [noteKey(entry.ref), entry.oldKey] as const),
+        ),
+      );
       setListedKey(key);
     } catch (e) {
       setError(errorText(e));
@@ -948,6 +989,7 @@ export function NotesPanel(props: Props) {
     try {
       await api.renameNote(note.folder, id, title);
       autoTitled.delete(noteKey({ folder: note.folder, id }));
+      setOldKeys((known) => withOldKeys(known, [[noteKey({ folder: note.folder, id }), false]]));
       const renamed = { ...note, title };
       currentRef.current = renamed;
       setCurrent(renamed);
@@ -988,7 +1030,7 @@ export function NotesPanel(props: Props) {
       await api.deleteNote(note.folder, id);
       autoTitled.delete(noteKey({ folder: note.folder, id }));
       details.delete(noteKey({ folder: note.folder, id }));
-      lastOpen = null;
+      forgetLastOpen();
       show(null, "", false);
       setView("list");
       props.onChanged(note.folder);
@@ -1030,7 +1072,19 @@ export function NotesPanel(props: Props) {
     requestAnimationFrame(() => backButton.current?.focus());
   };
 
-  const send = (sessionId: number | null) => {
+  const currentKey =
+    current?.id != null ? noteKey({ folder: current.folder, id: current.id }) : null;
+  /** The open note has an old team key: its text may come from someone who left the team. */
+  const currentOld = currentKey !== null && oldKeys.has(currentKey);
+  /** The send question, while it is about the open note (another note drops it). */
+  const askingSend = sendCheck !== null && sendCheck.note === currentKey ? sendCheck : null;
+
+  // The question takes the keyboard, as the paste question does: Enter cannot send unseen.
+  useEffect(() => {
+    if (askingSend !== null) sendCheckCancel.current?.focus();
+  }, [askingSend]);
+
+  const sendNow = (sessionId: number | null) => {
     const selection = editor.current?.selection() ?? "";
     const raw = selection !== "" && !preview ? selection : textRef.current;
     const clean = sendableText(raw).replace(/\s+$/, "");
@@ -1136,6 +1190,32 @@ export function NotesPanel(props: Props) {
     }
   };
 
+  /** Whether `action` on the open note must wait for "anyway" (`oldKeyQuestion`); then it is asked. */
+  const asked = (action: OldKeyAction): boolean => {
+    if (currentKey === null || oldKeyQuestion(currentOld, action) === null) return false;
+    setSendCheck({ note: currentKey, action });
+    return true;
+  };
+
+  /** "Send to": for a note with an old key only after "Send anyway". */
+  const send = (sessionId: number | null) => {
+    if (!asked({ kind: "send", sessionId })) sendNow(sessionId);
+  };
+
+  /** "Move to this computer": for a note with an old key only after "Move anyway". */
+  const moveChecked = (to: NoteFolder) => {
+    if (!asked({ kind: "move", to })) void moveCurrent(to);
+  };
+
+  const answerSendCheck = (yes: boolean) => {
+    const question = askingSend;
+    setSendCheck(null);
+    if (!yes || question === null) return;
+    if (question.action.kind === "send") sendNow(question.action.sessionId);
+    else void moveCurrent(question.action.to);
+  };
+  const askedQuestion = askingSend === null ? null : oldKeyQuestion(true, askingSend.action);
+
   const moveItems: PopupItem[] =
     current?.id == null || current.folder.path === null
       ? []
@@ -1145,7 +1225,9 @@ export function NotesPanel(props: Props) {
               type: "action",
               key: "move-local",
               label: t("sharedNotes.moveToLocal"),
-              run: () => void moveCurrent({ path: current.folder.path }),
+              run: () => {
+                moveChecked({ path: current.folder.path });
+              },
             },
           ]
         : writable &&
@@ -1425,6 +1507,12 @@ export function NotesPanel(props: Props) {
               </span>
             )}
             <span className="note-row-title">{note.title}</span>
+            {oldKeys.has(key) && (
+              <span className="note-row-old" title={t("sharedNotes.oldKeyLabel")}>
+                <AlertIcon size={12} />
+                <span className="sr-only">{t("sharedNotes.oldKeyLabel")}</span>
+              </span>
+            )}
             {progress !== null && (
               <span
                 className={
@@ -1835,6 +1923,12 @@ export function NotesPanel(props: Props) {
         </p>
       )}
 
+      {view === "note" && currentOld && (
+        <p className="notes-message muted" role="status">
+          {t("sharedNotes.oldKey")}
+        </p>
+      )}
+
       <div className="note-body" hidden={view !== "note" || current === null}>
         {preview && (
           <div
@@ -1867,6 +1961,41 @@ export function NotesPanel(props: Props) {
             readOnly={paused}
           />
         </div>
+        {askedQuestion !== null && (
+          <div
+            className="link-notice note-send-check"
+            role="alert"
+            onKeyDown={(event) => {
+              if (event.key !== "Escape") return;
+              event.preventDefault();
+              event.stopPropagation();
+              answerSendCheck(false);
+            }}
+          >
+            <span>{t(askedQuestion.text)}</span>
+            <div className="link-actions">
+              <button
+                type="button"
+                className="secondary-button"
+                ref={sendCheckCancel}
+                onClick={() => {
+                  answerSendCheck(false);
+                }}
+              >
+                {t("common.cancel")}
+              </button>
+              <button
+                type="button"
+                className="primary-button"
+                onClick={() => {
+                  answerSendCheck(true);
+                }}
+              >
+                {t(askedQuestion.confirm)}
+              </button>
+            </div>
+          </div>
+        )}
         <div className="note-footer">
           <span className="note-words">{t("notes.words", { count: stats.words })}</span>
           <button

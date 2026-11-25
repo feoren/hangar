@@ -1574,6 +1574,9 @@ fn a_solo_vault_becomes_the_teams_only_after_the_relay_stored_its_keys() {
     assert_eq!(notes.read_note(&folder, &id).unwrap().as_str(), "solo text");
     let ring = lock(&team.team).view.clone().unwrap().ring.unwrap();
     assert_eq!(ring.len(), 2);
+    // The solo key was the owner's alone: its notes move to the team's newest key, unmarked.
+    assert_eq!(header_key(&repo, &id), ring.newest().id());
+    assert!(!old_key_of(&notes, &folder, &id));
 }
 
 #[test]
@@ -1595,4 +1598,380 @@ fn the_keychain_keeps_only_the_newest_team_keys() {
     assert!(cache.stale);
     assert!(team::parse_cache("t2 1 0 v1").is_none());
     assert!(team::parse_cache("v1 0123456789abcdef:00").is_none());
+}
+
+fn header_key(repo: &Path, id: &str) -> crypto::KeyId {
+    let bytes = fs::read(repo.join(".hangar/notes").join(format!("{id}.note"))).unwrap();
+    crypto::note_header(&bytes).unwrap().key
+}
+
+fn team_ring_of(team: &FakeTeam) -> KeyRing {
+    lock(&team.team).view.clone().unwrap().ring.unwrap()
+}
+
+/// What a holder of `ring` can write without Hangar: any key of the ring, any `by`, any time.
+fn plant(repo: &Path, ring: &KeyRing, id: &str, plain: &Plain) {
+    let VaultFile::Known(vault) =
+        parse_vault(&fs::read(repo.join(".hangar/notes/vault.json")).unwrap())
+    else {
+        panic!("vault");
+    };
+    let file = crypto::seal_note(
+        ring,
+        &vault.vault,
+        id,
+        &encode_plain(plain).unwrap(),
+        &mut OsEntropy,
+    )
+    .unwrap();
+    fs::write(repo.join(".hangar/notes").join(format!("{id}.note")), file).unwrap();
+}
+
+fn old_key_of(notes: &ProjectNotes, folder: &NoteFolder, id: &str) -> bool {
+    notes
+        .list_notes(folder)
+        .unwrap()
+        .into_iter()
+        .find(|n| n.id == id)
+        .unwrap()
+        .old_key
+}
+
+/// The keychain caches only the newest keys; merging the team's whole ring into that cache must
+/// not make an old key the one new notes are sealed with.
+#[test]
+fn writes_use_the_newest_key_when_the_ring_is_longer_than_the_keychain_cache() {
+    let Some(g) = git() else { return };
+    let dir = TempDir::new("team-notes-cache-order");
+    let (repo, notes, _, team) = team_vault(&g, dir.path());
+    let folder = shared(&repo);
+    let mut ring = team_ring_of(&team);
+    for _ in 0..CACHED_TEAM_KEYS {
+        ring.add_generated(&mut OsEntropy).unwrap();
+    }
+    team.view(|v| v.ring = Some(ring.clone()));
+    // The first call caches the newest keys, the next ones merge the team's ring into them.
+    notes.status(&shared(&repo), LABEL, UNTITLED).unwrap();
+    let id = notes.create_note(&folder, "Plan").unwrap();
+    assert_eq!(header_key(&repo, &id), ring.newest().id());
+    notes.write_note(&folder, &id, "text").unwrap();
+    assert_eq!(header_key(&repo, &id), ring.newest().id());
+}
+
+/// A removed member keeps the old keys and may still be able to push to the repository: notes
+/// this computer knew move to the new key, anything else under an old key stays marked.
+#[test]
+fn after_a_removal_known_notes_move_to_the_new_key_and_other_old_key_notes_are_marked() {
+    let Some(g) = git() else { return };
+    let dir = TempDir::new("team-notes-reseal");
+    let (repo, notes, keychain, team) = team_vault(&g, dir.path());
+    let folder = shared(&repo);
+    let kept = notes.create_note(&folder, "Kept").unwrap();
+    notes.write_note(&folder, &kept, "known text").unwrap();
+    let seen = notes.create_note(&folder, "Seen").unwrap();
+    notes.write_note(&folder, &seen, "seen text").unwrap();
+    let before = notes.list_notes(&folder).unwrap();
+    assert!(before.iter().all(|n| !n.old_key));
+    let kept_updated = before.iter().find(|n| n.id == kept).unwrap().updated_at;
+    let old = team_ring_of(&team);
+
+    // A member was removed: the log rotated to epoch 2 and an owner added a key.
+    let mut renewed = old.clone();
+    renewed.add_generated(&mut OsEntropy).unwrap();
+    team.view(|v| {
+        v.log_epoch = Some(Epoch(2));
+        v.fresh = Some(Epoch(2));
+        v.ring = Some(renewed.clone());
+    });
+    // Before any member's Hangar re-encrypts, the removed member writes with the old key.
+    let planted = "00000000-0000-4000-8000-0000000000d1";
+    let late = u64::MAX / 2;
+    plant(
+        &repo,
+        &old,
+        planted,
+        &plain("Planted", late, "Alice", "marker one"),
+    );
+    plant(
+        &repo,
+        &old,
+        &seen,
+        &plain("Seen", late, "Alice", "marker two"),
+    );
+
+    // After a restart: what this computer had seen is remembered outside the repository.
+    let restarted = ProjectNotes::new(&dir.path().join("app"), keychain.clone());
+    restarted.set_team(team.clone());
+    assert!(matches!(
+        restarted.status(&folder, LABEL, UNTITLED).unwrap(),
+        SharedStatus::Unlocked {
+            renewing: false,
+            unreadable: 0,
+            ..
+        }
+    ));
+    assert_eq!(header_key(&repo, &kept), renewed.newest().id());
+    assert_eq!(
+        restarted.read_note(&folder, &kept).unwrap().as_str(),
+        "known text"
+    );
+    let after = restarted.list_notes(&folder).unwrap();
+    let kept_info = after.iter().find(|n| n.id == kept).unwrap();
+    assert!(!kept_info.old_key);
+    assert_eq!(kept_info.updated_at, kept_updated);
+    // Never re-encrypted, so their old key keeps showing.
+    assert_eq!(header_key(&repo, planted), old.newest().id());
+    assert_eq!(header_key(&repo, &seen), old.newest().id());
+    assert!(old_key_of(&restarted, &folder, planted));
+    assert!(old_key_of(&restarted, &folder, &seen));
+    // A second status changes nothing more.
+    let planted_path = repo.join(".hangar/notes").join(format!("{planted}.note"));
+    let planted_file = fs::read(&planted_path).unwrap();
+    restarted.status(&folder, LABEL, UNTITLED).unwrap();
+    assert_eq!(fs::read(&planted_path).unwrap(), planted_file);
+
+    // The person's own edit is written with the new key; the mark goes.
+    restarted.write_note(&folder, planted, "checked").unwrap();
+    assert_eq!(header_key(&repo, planted), renewed.newest().id());
+    assert!(!old_key_of(&restarted, &folder, planted));
+}
+
+/// While the newest key may still be known to whoever left, nothing is re-encrypted with it, and
+/// a run without a verified log trusts nothing it sees.
+#[test]
+fn nothing_is_resealed_while_renewing_and_unverified_runs_trust_nothing() {
+    let Some(g) = git() else { return };
+    let dir = TempDir::new("team-notes-reseal-wait");
+    let (repo, notes, _, team) = team_vault(&g, dir.path());
+    let folder = shared(&repo);
+    let old = team_ring_of(&team);
+    // Written by someone else, seen first in a run that has not verified the log.
+    let foreign = "00000000-0000-4000-8000-0000000000d2";
+    plant(
+        &repo,
+        &old,
+        foreign,
+        &plain("Foreign", 5, "Bob", "marker three"),
+    );
+    team.view(|v| v.log_epoch = None);
+    notes.status(&folder, LABEL, UNTITLED).unwrap();
+    assert!(!old_key_of(&notes, &folder, foreign));
+
+    // A removal whose new key is not there yet: saving waits, nothing moves.
+    team.view(|v| v.log_epoch = Some(Epoch(2)));
+    assert!(matches!(
+        notes.status(&folder, LABEL, UNTITLED).unwrap(),
+        SharedStatus::Unlocked { renewing: true, .. }
+    ));
+    assert_eq!(header_key(&repo, foreign), old.newest().id());
+
+    // The key arrives: the note was never seen in a verified run, so it stays as it is.
+    let mut renewed = old.clone();
+    renewed.add_generated(&mut OsEntropy).unwrap();
+    team.view(|v| {
+        v.fresh = Some(Epoch(2));
+        v.ring = Some(renewed.clone());
+    });
+    notes.status(&folder, LABEL, UNTITLED).unwrap();
+    assert_eq!(header_key(&repo, foreign), old.newest().id());
+    assert!(old_key_of(&notes, &folder, foreign));
+}
+
+#[test]
+fn a_conflict_side_under_an_old_key_is_never_re_encrypted() {
+    let ours = plain("Plan", 10, "Ada", "ours");
+    let theirs = plain("Plan", 20, "Bob", "theirs");
+    // Theirs has the old key and the later time: kept as it is, ours becomes the copy.
+    assert_eq!(
+        resolve_marked(Some(&ours), Some(&theirs), LABEL, (false, true)),
+        Some(Resolution::KeepBoth {
+            keep_ours: false,
+            copy_title: "Plan (other version, Ada)".to_owned()
+        })
+    );
+    // Ours would be the copy, but it has the old key: it stays under the id instead.
+    assert_eq!(
+        resolve_marked(Some(&ours), Some(&theirs), LABEL, (true, false)),
+        Some(Resolution::KeepBoth {
+            keep_ours: true,
+            copy_title: "Plan (other version, Bob)".to_owned()
+        })
+    );
+    // Both old and different: no copy without a new encryption; left to Git.
+    assert_eq!(
+        resolve_marked(Some(&ours), Some(&theirs), LABEL, (true, true)),
+        None
+    );
+    // Equal content keeps the side with the newest key.
+    let same = plain("Plan", 30, "Bob", "theirs");
+    assert_eq!(
+        resolve_marked(Some(&same), Some(&theirs), LABEL, (true, false)),
+        Some(Resolution::KeepTheirs)
+    );
+    assert_eq!(
+        resolve_marked(Some(&same), Some(&theirs), LABEL, (false, true)),
+        Some(Resolution::KeepOurs)
+    );
+}
+
+/// A conflict copy holds the other side's text: merged in while the log is not verified, it may
+/// be a removed member's version under the key they still hold, so it is not counted as known
+/// and stays marked after the next removal instead of being re-encrypted.
+#[test]
+fn a_conflict_copy_from_an_unverified_run_is_not_re_encrypted_later() {
+    let Some(g) = git() else { return };
+    let dir = TempDir::new("team-notes-copy-unverified");
+    let (repo, notes, _, team) = team_vault(&g, dir.path());
+    let folder = shared(&repo);
+    let id = notes.create_note(&folder, "Plan").unwrap();
+    notes.write_note(&folder, &id, "base").unwrap();
+    git_ok(&g, &repo, &["add", "-A"]);
+    git_ok(&g, &repo, &["commit", "-qm", "notes"]);
+    let old = team_ring_of(&team);
+    git_ok(&g, &repo, &["checkout", "-qb", "other"]);
+    plant(&repo, &old, &id, &plain("Plan", 5, "Bob", "marker four"));
+    git_ok(&g, &repo, &["commit", "-qam", "theirs"]);
+    git_ok(&g, &repo, &["checkout", "-q", "main"]);
+    notes.write_note(&folder, &id, "ours, newer").unwrap();
+    git_ok(&g, &repo, &["commit", "-qam", "ours"]);
+    assert!(!git_try(&g, &repo, &["merge", "other"]));
+
+    // This run has not verified the log: the copy is written, but not learned.
+    team.view(|v| v.log_epoch = None);
+    let status = notes.status(&folder, LABEL, UNTITLED).unwrap();
+    let SharedStatus::Unlocked { resolved, .. } = status else {
+        panic!("{status:?}");
+    };
+    assert_eq!(resolved.len(), 1);
+    let copy = notes
+        .list_notes(&folder)
+        .unwrap()
+        .into_iter()
+        .find(|n| n.id != id)
+        .unwrap()
+        .id;
+
+    let mut renewed = old.clone();
+    renewed.add_generated(&mut OsEntropy).unwrap();
+    team.view(|v| {
+        v.log_epoch = Some(Epoch(2));
+        v.fresh = Some(Epoch(2));
+        v.ring = Some(renewed.clone());
+    });
+    notes.status(&folder, LABEL, UNTITLED).unwrap();
+    // Our own version was known and moves; the copy keeps its old key and its mark.
+    assert_eq!(header_key(&repo, &id), renewed.newest().id());
+    assert_eq!(header_key(&repo, &copy), old.newest().id());
+    assert!(old_key_of(&notes, &folder, &copy));
+}
+
+/// Restoring under a new id is a new encryption: for a planted note under an old key that would
+/// hide its key, so it is refused and the note that came back stays as it is.
+#[test]
+fn a_planted_old_key_note_is_not_restored_under_a_new_id() {
+    let Some(g) = git() else { return };
+    let dir = TempDir::new("team-notes-restore-old");
+    let (repo, notes, _, team) = team_vault(&g, dir.path());
+    let folder = shared(&repo);
+    let old = team_ring_of(&team);
+    let mut renewed = old.clone();
+    renewed.add_generated(&mut OsEntropy).unwrap();
+    team.view(|v| {
+        v.log_epoch = Some(Epoch(2));
+        v.fresh = Some(Epoch(2));
+        v.ring = Some(renewed.clone());
+    });
+    let planted = "00000000-0000-4000-8000-0000000000d3";
+    plant(
+        &repo,
+        &old,
+        planted,
+        &plain("Planted", 5, "Alice", "marker five"),
+    );
+    notes.status(&folder, LABEL, UNTITLED).unwrap();
+    assert!(old_key_of(&notes, &folder, planted));
+    notes.delete_note(&folder, planted).unwrap();
+    // A pull brings the same id back.
+    plant(
+        &repo,
+        &old,
+        planted,
+        &plain("Planted", 6, "Alice", "marker six"),
+    );
+    let path = repo.join(".hangar/notes").join(format!("{planted}.note"));
+    let back = fs::read(&path).unwrap();
+    assert!(matches!(
+        notes.restore_note(&folder, planted),
+        Err(ProjectNotesError::RestoreOldKey)
+    ));
+    assert_eq!(fs::read(&path).unwrap(), back);
+    assert_eq!(notes.list_notes(&folder).unwrap().len(), 1);
+    // Still in the trash: once the other note is gone, it comes back under its own id, marked.
+    fs::remove_file(&path).unwrap();
+    assert_eq!(notes.restore_note(&folder, planted).unwrap(), planted);
+    assert!(old_key_of(&notes, &folder, planted));
+}
+
+#[test]
+fn moving_between_vaults_learns_only_what_could_be_known() {
+    use MoveRule::{Known, Skip, Unknown};
+    // Solo source: its owner's notes, known.
+    assert_eq!(move_rule(false, false, false, false), Known);
+    // Team source under its newest key: known only in a verified run without a pending renewal.
+    assert_eq!(move_rule(true, true, true, false), Known);
+    assert_eq!(move_rule(true, true, false, false), Unknown);
+    // Team source under an old key: moved only if known before, else left behind.
+    assert_eq!(move_rule(true, false, true, true), Known);
+    assert_eq!(move_rule(true, false, true, false), Skip);
+    assert_eq!(move_rule(true, false, false, false), Skip);
+    // Known before stays known whatever the run knows.
+    assert_eq!(move_rule(true, true, false, true), Known);
+}
+
+/// A team vault that was solo still has its solo ring in the keychain, and that ring's newest
+/// key is an old one in the team's ring. A `vault.json` conflict that moves such a vault's notes
+/// into the winner must judge them by the team's ring, so a note planted under the solo key stays
+/// where it is instead of coming out as a new encryption in the other vault.
+#[test]
+fn a_vault_conflict_judges_a_former_solo_vault_by_the_teams_newest_key() {
+    let Some(g) = git() else { return };
+    let dir = TempDir::new("team-notes-vault-move");
+    let (repo, notes, _) = enabled(&g, dir.path());
+    let folder = shared(&repo);
+    notes.enable(&folder, LABEL, UNTITLED).unwrap();
+    let team = FakeTeam::new(Some(manager_view(1)));
+    notes.set_team(team.clone());
+    team.link_repo(&repo);
+    notes.to_team(&folder, LABEL, UNTITLED).unwrap();
+    let VaultFile::Known(ours) =
+        parse_vault(&fs::read(repo.join(".hangar/notes/vault.json")).unwrap())
+    else {
+        panic!("vault");
+    };
+    let solo = notes.ring(&ours.vault).unwrap();
+    assert_ne!(solo.newest().id(), team_ring_of(&team).newest().id());
+    let planted = "00000000-0000-4000-8000-0000000000d3";
+    plant(
+        &repo,
+        &solo,
+        planted,
+        &plain("Planted", 5, "Bob", "marker five"),
+    );
+    let planted_path = repo.join(".hangar/notes").join(format!("{planted}.note"));
+    let planted_file = fs::read(&planted_path).unwrap();
+
+    // A solo vault with the smallest id wins the conflict; this computer holds its ring.
+    let foreign_id = VaultId::from_hex("00000000000000000000000000000001").unwrap();
+    let foreign_ring = KeyRing::generate(&mut OsEntropy).unwrap();
+    notes
+        .keychain
+        .set(&keychain_account(&foreign_id), &foreign_ring.to_keychain())
+        .unwrap();
+    let foreign = "{\n  \"format\": 1,\n  \"vault\": \"00000000000000000000000000000001\",\n  \"mode\": \"solo\",\n  \"codeSlot\": \"AQID\"\n}\n";
+    vault_conflict(&g, &repo, foreign);
+    notes.status(&folder, LABEL, UNTITLED).unwrap();
+    assert!(fs::read_to_string(repo.join(".hangar/notes/vault.json"))
+        .unwrap()
+        .contains("00000000000000000000000000000001"));
+    assert_eq!(fs::read(&planted_path).unwrap(), planted_file);
 }

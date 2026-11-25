@@ -15,13 +15,17 @@
 //! which setup shows once and which unlocks the notes on another clone. Team vaults
 //! (`"mode": "team"`, phase 2) take their key ring from the team (module [`team`]).
 //!
-//! Hangar writes a note only when its decrypted content changed, never re-encrypts untouched
-//! notes, never commits and stages nothing except the files of a conflict it resolved. Deleting
+//! Hangar writes a note only when its decrypted content changed, never commits and stages
+//! nothing except the files of a conflict it resolved. The one exception to "content changed":
+//! once a team's ring has a newer key than a note, the note is re-encrypted under the newest key
+//! if this computer knew its exact file before (module [`seen`]); a team note under an older key
+//! that it did not know stays as it is and is listed with `oldKey` (ADR 0006, "Old keys after a
+//! removal"). Hangar's own writes always use the ring's newest key. Deleting
 //! moves the encrypted file into the app data folder (`notes/shared/<vault id>/.trash/`), so
 //! Undo works as for private notes. Decrypted text is never written to disk. Contents, titles and
 //! keys are never logged.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::fs;
 use std::io;
 use std::path::{Path, PathBuf};
@@ -29,7 +33,7 @@ use std::sync::{Arc, Mutex};
 use std::time::{Instant, SystemTime, UNIX_EPOCH};
 
 use hangar_team_crypto::notes::{
-    self as crypto, KeyRing, NotesCryptoError, NotesRecoveryCode, VaultId, MAX_FILE_LEN,
+    self as crypto, KeyId, KeyRing, NotesCryptoError, NotesRecoveryCode, VaultId, MAX_FILE_LEN,
 };
 use hangar_team_crypto::recovery::RecoveryError;
 use hangar_team_crypto::OsEntropy;
@@ -102,6 +106,13 @@ pub enum ProjectNotesError {
     Renewing,
     #[error("This folder is not linked to a team project")]
     NotLinked,
+    /// Restoring under a new id would re-encrypt a team note under an old key that this
+    /// computer did not know, and so hide its key (ADR 0006, "Old keys after a removal").
+    #[error(
+        "[notes_restore_old_key] Not restored: this note was written with an old key and the \
+         same note is back in the folder; delete that one first"
+    )]
+    RestoreOldKey,
     #[error(transparent)]
     Team(#[from] crate::team::TeamError),
     #[error("Note not found")]
@@ -428,21 +439,85 @@ pub fn copy_title(title: &str, label: &str, by: &str) -> String {
 /// (ours on a tie), the other becomes a new note named after its last editor; a side that
 /// deleted the note loses to the side that kept it. Equal versions need no copy.
 pub fn resolve(ours: Option<&Plain>, theirs: Option<&Plain>, label: &str) -> Option<Resolution> {
+    resolve_marked(ours, theirs, label, (false, false))
+}
+
+/// [`resolve`] for sides of which some are sealed with an old team key (`old`: ours, theirs).
+/// The kept side keeps its exact bytes, the copy is a new encryption under the newest key; a
+/// side under an old key must never be that copy, or a note planted with an old key would come
+/// out looking like any other. So such a side is the one kept under the id (it stays marked),
+/// and when both sides are old and differ the conflict is left to Git. Equal versions keep the
+/// side under the newest key.
+pub fn resolve_marked(
+    ours: Option<&Plain>,
+    theirs: Option<&Plain>,
+    label: &str,
+    old: (bool, bool),
+) -> Option<Resolution> {
+    let (ours_old, theirs_old) = old;
     match (ours, theirs) {
         (Some(_), None) => Some(Resolution::KeepOurs),
         (None, Some(_)) => Some(Resolution::KeepTheirs),
         (None, None) => None,
         (Some(ours), Some(theirs)) => {
             if ours.meta.title == theirs.meta.title && *ours.body == *theirs.body {
-                return Some(Resolution::KeepOurs);
+                return Some(if ours_old && !theirs_old {
+                    Resolution::KeepTheirs
+                } else {
+                    Resolution::KeepOurs
+                });
             }
-            let keep_ours = ours.meta.updated >= theirs.meta.updated;
+            let mut keep_ours = ours.meta.updated >= theirs.meta.updated;
+            let (kept_old, copy_old) = if keep_ours {
+                (ours_old, theirs_old)
+            } else {
+                (theirs_old, ours_old)
+            };
+            if copy_old {
+                if kept_old {
+                    return None;
+                }
+                keep_ours = !keep_ours;
+            }
             let other = if keep_ours { theirs } else { ours };
             Some(Resolution::KeepBoth {
                 keep_ours,
                 copy_title: copy_title(&other.meta.title, label, &other.meta.by),
             })
         }
+    }
+}
+
+/// The source vault of a `vault.json` conflict, as [`move_rule`] needs it.
+#[derive(Debug, Clone, Copy)]
+struct Source {
+    /// The newest key of the source vault's ring (for a team vault the team's ring), if known.
+    newest: Option<KeyId>,
+    /// Scans of the source vault count as known (`Open::scans_are_known`).
+    trusted_run: bool,
+}
+
+/// What moving a note from one vault into another does with it (`vault.json` conflict).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum MoveRule {
+    /// Left in the other vault: a new encryption would hide an old key nobody here knew.
+    Skip,
+    /// Moved, but not learned as known (module `seen`).
+    Unknown,
+    /// Moved and learned as known.
+    Known,
+}
+
+/// The rule for one note of the source vault: `team` source or solo, sealed with the source
+/// ring's `newest` key, the source vault's state lets scans count as known (`trusted_run`, the
+/// rule of `Open::scans_are_known`), and this computer `seen` the exact file before.
+pub fn move_rule(team: bool, newest: bool, trusted_run: bool, seen: bool) -> MoveRule {
+    if !team || seen || (newest && trusted_run) {
+        MoveRule::Known
+    } else if newest {
+        MoveRule::Unknown
+    } else {
+        MoveRule::Skip
     }
 }
 
@@ -566,8 +641,40 @@ struct Open {
     untitled: String,
     /// Saving is refused (a team key being renewed).
     stale: bool,
+    /// This run verified the team's log (always true in solo mode, which has no log).
+    verified: bool,
     /// The last editor's name a team note carries; empty in solo mode.
     by: String,
+}
+
+impl Open {
+    fn team(&self) -> bool {
+        matches!(self.vault.mode, VaultMode::Team { .. })
+    }
+
+    /// A team note sealed with another key than the ring's newest: the definition of an old key
+    /// (ADR 0006, "Old keys after a removal"). Every key a team ring gets after its first comes
+    /// from a re-seal after a removal (or the solo-to-team switch, whose notes move at once), so
+    /// "not the newest" covers every key created before the latest removal-driven one. A solo
+    /// vault has one key and no removals: nothing in it is old.
+    fn is_old(&self, key: KeyId) -> bool {
+        self.team() && key != self.ring.newest().id()
+    }
+
+    /// Whether files met by a scan count as known (module [`seen`]): every file of a solo vault;
+    /// in a team vault only while this run's verified log knows no removal past the newest key.
+    fn scans_are_known(&self) -> bool {
+        !self.team() || (self.verified && !self.stale)
+    }
+}
+
+/// A note a scan opened: its metadata, the key that sealed it and the digest of its file.
+#[derive(Debug, Clone)]
+struct Scanned {
+    id: String,
+    meta: NoteMeta,
+    key: KeyId,
+    digest: seen::Digest,
 }
 
 #[derive(Default)]
@@ -596,7 +703,8 @@ struct CachedMeta {
     modified: Option<SystemTime>,
     len: u64,
     context: String,
-    meta: Option<NoteMeta>,
+    /// Metadata, the sealing key and the file's digest, for a file that opened.
+    meta: Option<(NoteMeta, KeyId, seen::Digest)>,
 }
 
 /// The vault id and the ring's key ids, as one comparable text.
@@ -630,6 +738,9 @@ pub struct ProjectNotes {
     resolving: Arc<Mutex<()>>,
     /// The team side (phase 2), set once the app has it.
     team: Arc<Mutex<Option<Arc<dyn TeamSide>>>>,
+    /// Note files known before their key went old. Taken after `state` when both are needed,
+    /// never the other way round.
+    seen: Arc<Mutex<seen::Seen>>,
 }
 
 impl std::fmt::Debug for ProjectNotes {
@@ -744,9 +855,11 @@ fn stamp(path: &Path) -> Option<(Option<SystemTime>, u64)> {
 impl ProjectNotes {
     /// `app_dir` is the local app data folder; the trash goes to `notes/shared/` below it.
     pub fn new(app_dir: &Path, keychain: Arc<dyn SecretStore>) -> Self {
+        let trash_root = app_dir.join(notes::NOTES_DIR).join(SHARED_TRASH_DIR);
         Self {
             keychain,
-            trash_root: app_dir.join(notes::NOTES_DIR).join(SHARED_TRASH_DIR),
+            seen: Arc::new(Mutex::new(seen::Seen::new(&trash_root))),
+            trash_root,
             state: Arc::default(),
             resolving: Arc::default(),
             team: Arc::default(),
@@ -912,11 +1025,12 @@ impl ProjectNotes {
             Some(VaultFile::Damaged) => return Err(ProjectNotesError::Damaged),
             Some(VaultFile::Known(vault)) => vault,
         };
-        let (ring, stale, by) = match &vault.mode {
+        let (ring, stale, verified, by) = match &vault.mode {
             VaultMode::Team { team } => match self.open_team(&project, team) {
                 Ok((access, _)) => (
                     access.ring.ok_or(ProjectNotesError::Locked)?,
                     access.stale,
+                    access.verified,
                     self.person(),
                 ),
                 Err(_) => return Err(ProjectNotesError::Locked),
@@ -924,6 +1038,7 @@ impl ProjectNotes {
             VaultMode::Solo { .. } => (
                 self.ring(&vault.vault).ok_or(ProjectNotesError::Locked)?,
                 false,
+                true,
                 String::new(),
             ),
         };
@@ -934,6 +1049,7 @@ impl ProjectNotes {
             project,
             untitled: self.untitled(),
             stale,
+            verified,
             by,
         })
     }
@@ -985,10 +1101,10 @@ impl ProjectNotes {
             }
             Some(VaultFile::Known(vault)) => vault,
         };
-        let (ring, stale, by) = match &vault.mode {
+        let (ring, stale, verified, by) = match &vault.mode {
             VaultMode::Team { team } => match self.open_team(&project, team) {
                 Ok((access, _)) => match access.ring {
-                    Some(ring) => (ring, access.stale, self.person()),
+                    Some(ring) => (ring, access.stale, access.verified, self.person()),
                     None => {
                         return Ok(SharedStatus::Locked {
                             reason: LockReason::Waiting,
@@ -1011,7 +1127,7 @@ impl ProjectNotes {
                         reason: LockReason::NeedsCode,
                     });
                 };
-                (ring, false, String::new())
+                (ring, false, true, String::new())
             }
         };
         lock(&self.state).known.insert(vault.vault, project.clone());
@@ -1021,6 +1137,7 @@ impl ProjectNotes {
             project,
             untitled: self.untitled(),
             stale,
+            verified,
             by,
         };
         let conflicted: Vec<StatusEntry> = entries
@@ -1041,6 +1158,17 @@ impl ProjectNotes {
         if !conflicted.is_empty() {
             entries = self.git_status(&git, &open.project, &neutral, deadline)?;
         }
+        // Conflicts left to Git keep their file as it is; every other known note moves to the
+        // newest key.
+        let left: HashSet<String> = entries
+            .iter()
+            .filter(|e| e.unmerged())
+            .filter_map(|e| note_path_id(&e.path).map(str::to_owned))
+            .collect();
+        let scanned = self.scan_known(&open)?.0;
+        if self.reseal_known(&open, &scanned, &left)? > 0 {
+            entries = self.git_status(&git, &open.project, &neutral, deadline)?;
+        }
         let ignored = git
             .run(
                 &open.project.root,
@@ -1054,7 +1182,7 @@ impl ProjectNotes {
                 4096,
             )?
             .success;
-        let unreadable = Self::scan(&open, &mut lock(&self.state).meta)?.1;
+        let unreadable = self.scan_known(&open)?.1;
         Ok(SharedStatus::Unlocked {
             uncommitted: entries.len(),
             ignored,
@@ -1202,24 +1330,31 @@ impl ProjectNotes {
         else {
             return Ok(None);
         };
-        let decrypt = |bytes: &Option<Vec<u8>>| -> Result<Option<Plain>, ()> {
+        let decrypt = |bytes: &Option<Vec<u8>>| -> Result<(Option<Plain>, bool), ()> {
             match bytes {
-                None => Ok(None),
+                None => Ok((None, false)),
                 Some(bytes) => {
+                    let key = crypto::note_header(bytes).map_err(|_| ())?.key;
                     let plain = crypto::open_note(&open.ring, &open.vault.vault, id, bytes)
                         .map_err(|_| ())?;
-                    decode_plain(&plain, &open.untitled)
-                        .map(Some)
-                        .map_err(|_| ())
+                    let plain = decode_plain(&plain, &open.untitled).map_err(|_| ())?;
+                    Ok((Some(plain), open.is_old(key)))
                 }
             }
         };
         // A side that does not open here cannot be copied without loss; the conflict stays for
         // Git to show, and the working tree keeps ours.
-        let (Ok(ours), Ok(theirs)) = (decrypt(&ours_bytes), decrypt(&theirs_bytes)) else {
+        let (Ok((ours, ours_old)), Ok((theirs, theirs_old))) =
+            (decrypt(&ours_bytes), decrypt(&theirs_bytes))
+        else {
             return Ok(None);
         };
-        let Some(resolution) = resolve(ours.as_ref(), theirs.as_ref(), label) else {
+        let Some(resolution) = resolve_marked(
+            ours.as_ref(),
+            theirs.as_ref(),
+            label,
+            (ours_old, theirs_old),
+        ) else {
             return Ok(None);
         };
         let _guard = lock(&self.state);
@@ -1261,7 +1396,13 @@ impl ProjectNotes {
                 },
                 body: other.body.clone(),
             };
-            self.write_plain(open, &copy_id, &plain)?;
+            // The copy holds the other side's text, not the person's: known only where a scan
+            // of that side would count (module `seen`), or a removed member's version, merged
+            // in before this computer learned of the removal, would be re-encrypted later.
+            let written = Self::seal_plain(open, &copy_id, &plain)?;
+            if open.scans_are_known() {
+                lock(&self.seen).add(&open.vault.vault, [written]);
+            }
             staged.push(format!("{NOTES_PATH}/{copy_id}{NOTE_EXTENSION}"));
             copy_title = Some(title);
         }
@@ -1326,7 +1467,32 @@ impl ProjectNotes {
         let mut staged = vec![path.clone()];
         if let Some((_, loser)) = loser {
             if let (Some(from), Some(to)) = (self.ring(&loser.vault), self.ring(&winner.1.vault)) {
-                staged.extend(self.move_vault_notes(project, &loser, &from, &winner.1, &to)?);
+                // Asked before `move_vault_notes` takes the state lock, which `open_team` needs.
+                // `self.ring` holds a team vault's keys only from its solo days (solo to team
+                // keeps the solo ring in the keychain), so a team source's newest key comes from
+                // the team's ring: the solo ring's newest is an old key there.
+                let source = match &loser.mode {
+                    VaultMode::Solo { .. } => Source {
+                        newest: Some(from.newest().id()),
+                        trusted_run: true,
+                    },
+                    VaultMode::Team { team } => match self.open_team(project, team) {
+                        Ok((access, _)) => Source {
+                            newest: access.ring.as_ref().map(|ring| ring.newest().id()),
+                            trusted_run: access.verified && !access.stale,
+                        },
+                        Err(_) => Source {
+                            newest: None,
+                            trusted_run: false,
+                        },
+                    },
+                };
+                staged.extend(self.move_vault_notes(
+                    project,
+                    (&loser, &from, source),
+                    &winner.1,
+                    &to,
+                )?);
             }
         }
         let paths: Vec<&str> = staged.iter().map(String::as_str).collect();
@@ -1338,24 +1504,40 @@ impl ProjectNotes {
     fn move_vault_notes(
         &self,
         project: &Project,
-        from_vault: &Vault,
-        from: &KeyRing,
+        (from_vault, from, source): (&Vault, &KeyRing, Source),
         to_vault: &Vault,
         to: &KeyRing,
     ) -> Result<Vec<String>, ProjectNotesError> {
         let _guard = lock(&self.state);
         let mut written = Vec::new();
+        let mut known = Vec::new();
         for (id, path) in Self::note_files(&project.dir)? {
             let Ok(Some(bytes)) = read_file(&path) else {
                 continue;
             };
+            let Ok(header) = crypto::note_header(&bytes) else {
+                continue;
+            };
+            let rule = move_rule(
+                matches!(from_vault.mode, VaultMode::Team { .. }),
+                source.newest == Some(header.key),
+                source.trusted_run,
+                lock(&self.seen).contains(&from_vault.vault, &seen::digest(&bytes)),
+            );
+            if rule == MoveRule::Skip {
+                continue;
+            }
             let Ok(plain) = crypto::open_note(from, &from_vault.vault, &id, &bytes) else {
                 continue;
             };
             let sealed = crypto::seal_note(to, &to_vault.vault, &id, &plain, &mut OsEntropy)?;
             write_atomic(&path, sealed.as_bytes()).map_err(io_error(&path))?;
+            if rule == MoveRule::Known {
+                known.push(seen::digest(sealed.as_bytes()));
+            }
             written.push(format!("{NOTES_PATH}/{id}{NOTE_EXTENSION}"));
         }
+        lock(&self.seen).add(&to_vault.vault, known);
         Ok(written)
     }
 
@@ -1571,7 +1753,7 @@ impl ProjectNotes {
     fn scan(
         open: &Open,
         cache: &mut MetaCache,
-    ) -> Result<(Vec<(String, NoteMeta)>, usize), ProjectNotesError> {
+    ) -> Result<(Vec<Scanned>, usize), ProjectNotesError> {
         let mut notes = Vec::new();
         let mut unreadable = 0;
         let mut budget = MAX_SCAN_BYTES;
@@ -1595,8 +1777,11 @@ impl ProjectNotes {
                     let meta = Self::header_usable(open, &path)
                         .then(|| read_file(&path).ok().flatten())
                         .flatten()
-                        .and_then(|bytes| Self::decrypt(open, &id, &bytes).ok())
-                        .map(|plain| plain.meta);
+                        .and_then(|bytes| {
+                            let key = crypto::note_header(&bytes).ok()?.key;
+                            let plain = Self::decrypt(open, &id, &bytes).ok()?;
+                            Some((plain.meta, key, seen::digest(&bytes)))
+                        });
                     cache.insert(
                         path.clone(),
                         CachedMeta {
@@ -1610,7 +1795,12 @@ impl ProjectNotes {
                 }
             };
             match meta {
-                Some(meta) => notes.push((id, meta)),
+                Some((meta, key, digest)) => notes.push(Scanned {
+                    id,
+                    meta,
+                    key,
+                    digest,
+                }),
                 None => unreadable += 1,
             }
         }
@@ -1643,6 +1833,15 @@ impl ProjectNotes {
     }
 
     fn write_plain(&self, open: &Open, id: &str, plain: &Plain) -> Result<(), ProjectNotesError> {
+        let written = Self::seal_plain(open, id, plain)?;
+        // This computer wrote it: known, should a later key make this one old.
+        lock(&self.seen).add(&open.vault.vault, [written]);
+        Ok(())
+    }
+
+    /// Seals and writes `plain` under the ring's newest key; the digest of the file written.
+    /// Records nothing: [`Self::write_plain`] does for the person's own writes.
+    fn seal_plain(open: &Open, id: &str, plain: &Plain) -> Result<seen::Digest, ProjectNotesError> {
         open.check_writable()?;
         let encoded = if matches!(open.vault.mode, VaultMode::Team { .. }) {
             encode_plain(&Plain {
@@ -1655,10 +1854,90 @@ impl ProjectNotes {
         } else {
             encode_plain(plain)?
         };
+        // Always the ring's newest key (`seal_note`): Hangar never writes with an old one.
         let sealed =
             crypto::seal_note(&open.ring, &open.vault.vault, id, &encoded, &mut OsEntropy)?;
         let path = note_file(&open.project.dir, id);
-        write_atomic(&path, sealed.as_bytes()).map_err(io_error(&path))
+        write_atomic(&path, sealed.as_bytes()).map_err(io_error(&path))?;
+        Ok(seen::digest(sealed.as_bytes()))
+    }
+
+    /// [`Self::scan`], then the files it opened count as known where [`Open::scans_are_known`]
+    /// allows it (only those under the newest key: an old key is never learned from a scan).
+    fn scan_known(&self, open: &Open) -> Result<(Vec<Scanned>, usize), ProjectNotesError> {
+        let scanned = Self::scan(open, &mut lock(&self.state).meta)?;
+        if open.scans_are_known() {
+            let digests = scanned
+                .0
+                .iter()
+                .filter(|note| !open.is_old(note.key))
+                .map(|note| note.digest);
+            lock(&self.seen).add(&open.vault.vault, digests);
+        }
+        Ok(scanned)
+    }
+
+    /// Re-encrypts, under the ring's newest key, every team note of `scanned` whose key is old
+    /// and whose exact file this computer knew. One file at a time and atomically, so a run cut
+    /// short leaves every file whole and the next status carries on; the plaintext moves
+    /// unchanged (title, times, last editor). Nothing happens while the newest key may itself be
+    /// known to whoever left (`stale`), nor to the notes of a conflict left to Git (`left`). A
+    /// file that changed since the scan, for instance through a pull meanwhile, is left for the
+    /// next status. Returns how many files were re-encrypted.
+    fn reseal_known(
+        &self,
+        open: &Open,
+        scanned: &[Scanned],
+        left: &HashSet<String>,
+    ) -> Result<usize, ProjectNotesError> {
+        if !open.team() || open.stale {
+            return Ok(0);
+        }
+        let _guard = lock(&self.state);
+        let mut done = 0;
+        let mut budget = MAX_SCAN_BYTES;
+        for note in scanned {
+            if !open.is_old(note.key)
+                || left.contains(&note.id)
+                || !lock(&self.seen).contains(&open.vault.vault, &note.digest)
+            {
+                continue;
+            }
+            let path = note_file(&open.project.dir, &note.id);
+            let Ok(Some(bytes)) = read_file(&path) else {
+                continue;
+            };
+            let Some(rest) = u64::try_from(bytes.len())
+                .ok()
+                .and_then(|len| budget.checked_sub(len))
+            else {
+                break;
+            };
+            budget = rest;
+            // The bytes the digest was taken of, not a version that arrived since.
+            if seen::digest(&bytes) != note.digest {
+                continue;
+            }
+            let Ok(plain) = crypto::open_note(&open.ring, &open.vault.vault, &note.id, &bytes)
+            else {
+                continue;
+            };
+            let sealed = crypto::seal_note(
+                &open.ring,
+                &open.vault.vault,
+                &note.id,
+                &plain,
+                &mut OsEntropy,
+            )?;
+            // A last look right before the write: a checkout in between keeps its version.
+            if !matches!(read_file(&path), Ok(Some(now)) if now == bytes) {
+                continue;
+            }
+            write_atomic(&path, sealed.as_bytes()).map_err(io_error(&path))?;
+            lock(&self.seen).add(&open.vault.vault, [seen::digest(sealed.as_bytes())]);
+            done += 1;
+        }
+        Ok(done)
     }
 
     fn check_id(id: &str) -> Result<String, ProjectNotesError> {
@@ -1672,18 +1951,20 @@ impl ProjectNotes {
 
     pub fn list_notes(&self, folder: &NoteFolder) -> Result<Vec<NoteInfo>, ProjectNotesError> {
         let open = self.open(folder)?;
-        let (mut notes, _) = Self::scan(&open, &mut lock(&self.state).meta)?;
+        let (mut notes, _) = self.scan_known(&open)?;
         notes.sort_by(|a, b| {
-            b.1.updated
-                .cmp(&a.1.updated)
-                .then_with(|| a.1.title.cmp(&b.1.title))
+            b.meta
+                .updated
+                .cmp(&a.meta.updated)
+                .then_with(|| a.meta.title.cmp(&b.meta.title))
         });
         Ok(notes
             .into_iter()
-            .map(|(id, meta)| NoteInfo {
-                id,
-                title: meta.title,
-                updated_at: Some(meta.updated),
+            .map(|note| NoteInfo {
+                old_key: open.is_old(note.key),
+                id: note.id,
+                title: note.meta.title,
+                updated_at: Some(note.meta.updated),
                 order: 0,
             })
             .collect())
@@ -1846,10 +2127,27 @@ impl ProjectNotes {
         check_notes_dir(&open.project.root)?;
         let target = note_file(&open.project.dir, &id);
         let restored = if target.exists() {
-            // The id is bound into the ciphertext: a new id means a new encryption.
+            // The id is bound into the ciphertext: a new id means a new encryption, which must
+            // never turn a note under an old key that this computer did not know into one that
+            // looks like any other. Restored under its own id it keeps its bytes and its mark.
+            let key = crypto::note_header(&bytes)
+                .map_err(|_| ProjectNotesError::Unreadable)?
+                .key;
+            if open.is_old(key)
+                && !lock(&self.seen).contains(&open.vault.vault, &seen::digest(&bytes))
+            {
+                return Err(ProjectNotesError::RestoreOldKey);
+            }
+            let known = lock(&self.seen).contains(&open.vault.vault, &seen::digest(&bytes))
+                || open.scans_are_known();
             let plain = Self::decrypt(&open, &id, &bytes)?;
             let fresh = uuid::Uuid::new_v4().to_string();
-            self.write_plain(&open, &fresh, &plain)?;
+            // Like a conflict copy, the text may not be the person's own: learned only where the
+            // trashed file was known or a scan would count it.
+            let written = Self::seal_plain(&open, &fresh, &plain)?;
+            if known {
+                lock(&self.seen).add(&open.vault.vault, [written]);
+            }
             fresh
         } else {
             write_atomic(&target, &bytes).map_err(io_error(&target))?;
@@ -1906,6 +2204,7 @@ impl ProjectNotes {
                 project,
                 untitled: String::new(),
                 stale: true,
+                verified: false,
                 by: String::new(),
             };
             let open = Open {
@@ -1980,6 +2279,7 @@ pub fn move_note(
     Ok(new_id)
 }
 
+mod seen;
 mod team;
 
 use team::TeamLock;

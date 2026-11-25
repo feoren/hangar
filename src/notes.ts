@@ -2,6 +2,7 @@
 // new notes, sort and search. Pure logic without the backend.
 
 import type { NoteFolder } from "./api";
+import type { MessageKey } from "./i18n";
 
 export interface NoteFolderInfo {
   folderKey: string;
@@ -16,6 +17,11 @@ export interface NoteInfo {
   title: string;
   updatedAt: number | null;
   order: number;
+  /**
+   * A shared team note sealed with an older key than the team's newest: whoever wrote it held
+   * that key, possibly after leaving the team (ADR 0006, "Old keys after a removal").
+   */
+  oldKey: boolean;
 }
 
 export const GENERAL_FOLDER: NoteFolder = { path: null };
@@ -74,6 +80,7 @@ export function parseNotes(value: unknown): NoteInfo[] {
       title,
       updatedAt: optionalTime(field(entry, "updatedAt")),
       order: typeof order === "number" && Number.isFinite(order) ? order : result.length,
+      oldKey: field(entry, "oldKey") === true,
     });
   }
   return result.sort((a, b) => a.order - b.order);
@@ -156,7 +163,50 @@ export function isUntitled(title: string, untitledBases: readonly string[]): boo
   });
 }
 
+/**
+ * `known` with the answers in `updates` (note key, old key or not): keys listed there follow
+ * the answer, every other key stays as it was, so a list of one scope does not forget the mark
+ * of a note opened from another. The same set comes back when nothing changed.
+ */
+export function withOldKeys(
+  known: ReadonlySet<string>,
+  updates: readonly (readonly [string, boolean])[],
+): ReadonlySet<string> {
+  const changed = updates.some(([key, old]) => known.has(key) !== old);
+  if (!changed) return known;
+  const next = new Set(known);
+  for (const [key, old] of updates) {
+    if (old) next.add(key);
+    else next.delete(key);
+  }
+  return next;
+}
+
 /** A note together with its scope: the list "All" and the search mix scopes. */
+/** What the window is about to do with the open note's text. */
+export type OldKeyAction =
+  | { kind: "send"; sessionId: number | null }
+  /** Out of the shared notes into this computer's, where the old-key mark cannot follow. */
+  | { kind: "move"; to: NoteFolder };
+
+/**
+ * The question to ask before `action` for a note with an old team key (`old`), `null` to go
+ * ahead at once. Sending puts the text in front of an agent; moving it to this computer drops the
+ * mark, so the next "Send to" and an agent hand-over would no longer ask (ADR 0006, "Old keys
+ * after a removal"). Moving into the shared notes has nothing to protect: they get the newest
+ * key and the person's own write.
+ */
+export function oldKeyQuestion(
+  old: boolean,
+  action: OldKeyAction,
+): { text: MessageKey; confirm: MessageKey } | null {
+  if (!old) return null;
+  if (action.kind === "send")
+    return { text: "sharedNotes.oldKeySend", confirm: "paste.sendAnyway" };
+  if (action.to.shared === true) return null;
+  return { text: "sharedNotes.oldKeyMove", confirm: "sharedNotes.moveAnyway" };
+}
+
 export interface NoteRef {
   folder: NoteFolder;
   id: string;

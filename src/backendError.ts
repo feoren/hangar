@@ -49,6 +49,7 @@ const MESSAGES: ReadonlyMap<string, MessageKey> = new Map<string, MessageKey>([
   ["link_message_gone", "partnerError.messageGone"],
   ["link_wrong_target", "linkError.wrongTarget"],
   ["link_claimed", "linkError.claimed"],
+  ["notes_restore_old_key", "sharedNotes.restoreOldKey"],
 ]);
 
 export interface BackendError {

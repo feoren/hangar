@@ -6,7 +6,7 @@ superseded_by:
 tags: [notes, e2e, git, teams, keychain, xchacha20poly1305, hkdf]
 sources: ["[[note-gitattributes-measurement]]"]
 created: 2026-11-10
-updated: 2026-11-22
+updated: 2026-11-25
 ---
 
 # ADR 0006: Encrypted project notes in the repository
@@ -145,7 +145,9 @@ at another key.
 **Churn:** encryption makes every write change the whole file, so Hangar writes a note only when
 its decrypted content actually changed (not on open, not on a no-op save, debounced as today), and
 never re-encrypts untouched notes, also not after a key change (section 3). A Git diff therefore
-shows exactly the notes someone edited.
+shows exactly the notes someone edited. *Amended 2026-11-25:* after a removal Hangar does
+re-encrypt the notes it knew under the new key ("Old keys after a removal" below); that is the
+one write without a content change.
 
 ### 3. Key model
 A **notes key** is a random 256-bit key with a random 64-bit **key id**. A **key ring** is the set
@@ -166,7 +168,9 @@ file names. Keys are only ever added, never removed, so an old note stays readab
   under the new epoch in the same step, from its keychain cache. If the epoch changed because a
   member or device was **removed**, it adds a new notes key first, so notes written afterwards are
   unreadable for the removed person. Untouched notes keep their old key: the removed person had
-  that key and the Git history anyway, re-encrypting would protect nothing. If the rotating device
+  that key and the Git history anyway, re-encrypting would protect nothing. *Amended
+  2026-11-25:* re-encrypting does protect something, the authenticity of what members read;
+  see "Old keys after a removal" below. If the rotating device
   has no cached key ring, the next owner or admin device that is online re-seals it.
 - **Monotonic:** a device keeps the union of all keys it has accepted; an older record replayed by
   the relay cannot take keys away, and a record with fewer keys is ignored.
@@ -251,7 +255,8 @@ crate, with test vectors in `test_vectors.py` like the other formats; the app pa
   it by a device that holds both key rings, otherwise they stay locked with "made in another
   vault".
 - **Agents** see only ciphertext in `.hangar/notes`; "Send to terminal" works for shared notes as
-  for private ones.
+  for private ones. *Amended 2026-11-25:* a note under an old team key asks first ("Old keys
+  after a removal").
 
 ### 7. Threat model
 - **Protected:** title, content, times and author against everyone with read access to the
@@ -572,6 +577,97 @@ test pins the same strings.
   against a real relay of version 2 (turn on, member reads, removal with a new key, the removed
   member cannot read what followed, a member admitted later reads everything) and a relay
   limited to version 1 (settles on 1, `NotesUnsupported`).
+
+## Old keys after a removal (2026-11-25)
+Security finding (medium): `notes::open_note` accepts every key of the ring, and a note is only
+authenticated by the shared key (AEAD), not signed. Keys are only ever added and untouched notes
+kept their key, so a removed member who can still push to the repository (Git access is a
+separate system and is often revoked later) could write a new note, or overwrite one still
+under an old key, with a key it held, set `by` and `updated` as it liked, and every member would
+open it like any other note. "Send to terminal" makes that a way to put text in front of an
+agent.
+
+### Decision
+- **Which keys are old.** In a team vault, every key of the ring but the newest. Keys reach a
+  team ring in three ways only: the first key when shared notes are turned on, the key on top of
+  a solo ring when a solo vault joins the team, and the key a re-seal adds after a rotation
+  (phase 2 design, section 4). Epochs rotate only after a member or device was removed
+  (`MemberLog::rotation_due`), so every key after the first is either removal-driven or the
+  solo-to-team key, and the newest key is never older than the latest removal-driven one. "Not
+  the newest" therefore covers every key created before the latest removal-driven rotation, as
+  required; it also covers the solo key and keys merged after a lost race, which is stricter,
+  never weaker, and those notes move to the newest key at once (below). The ring records no reason
+  per key and needs none, so the record format, the relay and older apps stay unchanged. A solo
+  vault has one key and no removals: nothing in it is old.
+- **Hangar never writes with an old key.** Every write seals with the ring's newest key. A bug
+  broke that for rings longer than the keychain cache: the app merged the team's whole ring into
+  the cache of its newest 12 keys, which put the team's oldest keys behind the newest one, so
+  from the 13th key on new notes were sealed with the team's oldest key. The team's ring now comes
+  first and the cache is merged into it.
+- **Re-encryption after a removal.** When the ring has a newer key than a note, `shared_notes_status`
+  re-encrypts the note under the newest key, plaintext unchanged (title, times, last editor), but
+  only if this computer **knew the exact file before**: it wrote it itself, it is a file of a solo
+  vault, or a scan met it under the then newest key while this run's verified log knew of no
+  removal past that key (`renewing` false). The digests (SHA-256 of the whole file, no plaintext,
+  no key) live in the app data folder beside the vault's local trash
+  (`notes/shared/<vault id>/seen`, at most 20 000). Re-encrypting whatever lies in the folder
+  would turn a note planted with an old key into one that looks like any other; the record is what
+  keeps the re-encryption from laundering it.
+- **Robust.** One file at a time with `write_atomic`; the digest is checked against the bytes
+  read, and the file is read once more right before the write, so a checkout or pull in between
+  keeps its version and the note is left for the next status. A run cut short leaves every file
+  whole and the next status carries on (resumable, at most 256 MiB per status). Nothing is
+  re-encrypted while saving waits for the key renewal, nor a note whose conflict is left to Git.
+  Two members who re-encrypt the same note at once produce a Git conflict between equal
+  plaintexts, which the existing resolution settles without a copy.
+- **Conflicts.** The side Hangar keeps under the note's id keeps its exact bytes; the copy is a
+  new encryption. A side under an old key is never that copy: it becomes the side kept under the
+  id (and stays marked) and the other side becomes the copy; if both sides are old and differ, the
+  conflict is left to Git. The copy holds the other side's text, so it counts as known only where
+  a scan would (verified log, not `renewing`), not as the person's own write.
+  Equal versions keep the side under the newest key. A `vault.json`
+  conflict moves a team note under an old key into the winning vault only if it was known; a
+  team note under the source vault's newest key moves too, but counts as known only where a scan
+  of that vault would (`project_notes::move_rule`). For a team source, "newest" is the team
+  ring's newest key: a vault that was solo keeps its solo ring in the keychain, and that ring's
+  newest key is an old one in the team's ring.
+- **Restore.** Restoring from the local trash under the note's own id puts the exact bytes back
+  (the mark stays). When the id is taken again (a pull brought the same note back), restoring
+  means a new id and so a new encryption; for a team note under an old key that this computer
+  did not know, that is refused (`[notes_restore_old_key]`, "Not restored: this note was
+  written with an old key and the same note is back in the folder. Delete that one first.").
+  An allowed restore under a new id counts as known only if the trashed file was known or a scan
+  would count it, as for a conflict copy.
+- **Marked in the notes.** `list_notes` reports `oldKey: true` for every team note under an old
+  key. The list shows a small warning sign ("Old key, origin uncertain") and the open note one
+  quiet line ("Written with an old key. Its origin is uncertain."). Saving the note (an edit or a
+  rename) is the person's own write under the newest key and clears the mark.
+- **Send to terminal** asks first for such a note, as the paste check does: "This note was
+  written with an old key, so its origin is uncertain. Check it before you send it." with Cancel
+  and "Send anyway". The paste check for lines, hidden characters and keys follows as before.
+- **Move to this computer** asks the same way ("... On this computer it loses the mark. Check
+  it before you move it.", Cancel and "Move anyway"): a private note carries no mark, so the
+  next "Send to" and an agent hand-over with note excerpts would no longer ask. Moving into the
+  shared notes asks nothing (newest key, the person's own write).
+
+### Residual risk
+- **No signed authorship.** Any current member can still write any note and any `by`; the
+  ring's key is shared. Signed authorship (each note signed with the writer's device key and
+  checked against the verified log) stays a later phase (phase 3); until then the mark says only
+  that the key was old, not who wrote the note.
+- **Window before the new key.** Between a removal and the re-seal that adds the new key, the
+  newest key is still the one the removed member holds; saving pauses on connected devices
+  ("Waiting for an owner or admin to renew the notes key"), but a note planted in that window
+  under that key looks normal until the new key lands, and is then marked unless a device had
+  seen it before.
+- **Window before the log.** A device that has not fetched the log since the removal treats
+  files under the newest key as known. A note the removed member pushes in that time and this
+  device pulls before its log fetch would be re-encrypted later. The window is the time between
+  the removal on the relay and the device's next log fetch while connected.
+- **Notes nobody knew.** A note no member's Hangar saw before the removal (a new device, a fresh
+  clone, notes from before this version) stays marked until someone edits it. That is honest:
+  its origin is not known.
+- **Rollback and deletion** by anyone with write access stay possible, as section 7 says.
 
 ## Evidence
 - [[note-gitattributes-measurement]]: `.gitattributes` behaviour and conflict stages on Windows.
