@@ -10,6 +10,8 @@
 //!   [`memberlog::LogVerifier::admit_device_remove`]).
 //! - [`relay`]: the relay's other checks that need the verified log (`key.wrap`, device keys
 //!   registered over the holder's own connection).
+//! - [`possession`]: the proof of possession at `hello` (protocol version 3, `device.prove`)
+//!   and the relay's rule for devices that do not count as devices of the log yet.
 //! - [`epoch`]: the random secret per epoch, its commitment in the log, HPKE wrapping to devices
 //!   and the history link to the previous epoch.
 //! - [`rotation`]: the message of a new epoch (`key.rotate` with its signed log entry) and of
@@ -35,6 +37,7 @@ pub mod epoch;
 pub mod identity;
 pub mod memberlog;
 pub mod notes;
+pub mod possession;
 pub mod record;
 pub mod recovery;
 pub mod relay;

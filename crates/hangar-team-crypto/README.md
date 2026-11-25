@@ -107,6 +107,14 @@ fn new_device() -> Result<(), Box<dyn std::error::Error>> {
 
 ## Changelog
 
+- **Unreleased (protocol version 3):** module `possession`: `DeviceIdentity::prove_connection`
+  signs the `welcome`'s challenge with team, holder, signing key and negotiated version under
+  the label `hangar-team/v1/connection-proof`; `verify_connection_proof` checks it on the relay
+  (`ProveError`, `forbidden`); `Possession` (`Legacy` for versions 1 and 2, `Unproven`,
+  `Proven(key)`), `counts_as_listed` and `check_restricted` (`Restricted`, `forbidden`) are the
+  relay's rule for devices that do not count as devices of the log. `relay::check_blob_delete`
+  (`BlobDeleteForbidden`, `forbidden`) for `blob.delete`.
+
 - **Unreleased:** the team's notes key ring (ADR 0006, phase 2): `RecordKind::NotesKeys`
   (label `notes-keys`), `notes::seal_notes_keys` and `notes::open_notes_keys` (accepted only
   from a device the verified log lists now, with the keys that signed, whose member is owner or

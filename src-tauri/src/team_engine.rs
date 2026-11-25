@@ -4,7 +4,10 @@
 //! [`Effect::Send`] is the app's duty "store a rotation's secret before `key.rotate`"
 //! (team-crypto, obligations of the app), and a failed store drops the rest.
 //!
-//! On every accepted `hello` the engine registers the device's keys (`device.keys`), fetches the
+//! On every accepted `hello` the engine registers the device's keys (`device.keys`), on protocol
+//! version 3 answers the `welcome`'s challenge with its proof of possession (`device.prove`,
+//! `hangar_team_crypto::possession`; a refused proof ends the connection once the log fetch
+//! already sent is read, so a removed device still learns of its removal), fetches the
 //! whole membership log (`memberlog.get`, paged) into a fresh `LogVerifier` and checks it
 //! against the head this device verified before (fork or rewind: [`AttentionReason::HistoryMismatch`]).
 //! Then it reconciles:
@@ -145,6 +148,8 @@ pub enum Effect {
 enum Op {
     Hello,
     DeviceKeys,
+    /// `device.prove` (protocol version 3).
+    Prove,
     LogGet,
     DevicesGet,
     KeyGet(Epoch),
@@ -782,6 +787,9 @@ pub struct Engine {
     sync_again: bool,
     /// The log was fetched and checked at least once on this connection.
     synced: bool,
+    /// The relay refused this connection's `device.prove` while a log fetch was running; the
+    /// connection ends once the fetch is read.
+    prove_refused: bool,
     creating: bool,
     rotating: bool,
     /// Refused `key.rotate` on this connection ([`MAX_ROTATE_FAILURES`]).
@@ -954,6 +962,7 @@ impl Engine {
             syncing: false,
             sync_again: false,
             synced: false,
+            prove_refused: false,
             creating: false,
             rotating: false,
             rotate_failures: 0,
@@ -1164,6 +1173,7 @@ impl Engine {
         self.syncing = false;
         self.sync_again = false;
         self.synced = false;
+        self.prove_refused = false;
         self.creating = false;
         self.rotating = false;
         self.rotate_failures = 0;
@@ -1394,9 +1404,19 @@ impl Engine {
                     device: self.device.clone(),
                 };
                 let keys = self.identity.device_keys(&self.team, &me);
+                // Protocol version 3: the relay counts this connection as the device the log
+                // lists only after it proved possession of the device's signing key, so the proof
+                // goes before the log fetch and everything that follows it.
+                let prove = welcome.challenge.map(|challenge| {
+                    self.identity
+                        .prove_connection(&self.team, &me, welcome.proto, &challenge)
+                });
                 self.me = Some(me);
                 effects.push(Effect::StoreLocal);
                 effects.push(self.frame(Op::DeviceKeys, ClientMessage::DeviceKeys(keys)));
+                if let Some(prove) = prove {
+                    effects.push(self.frame(Op::Prove, ClientMessage::DeviceProve(prove)));
+                }
                 effects.extend(self.sync_log());
             }
             ServerMessage::ResyncRequired(_) => {
@@ -1485,6 +1505,20 @@ impl Engine {
                 _ => vec![Effect::End(SessionEnd::Lost)],
             },
             Some(Op::LogGet) => vec![Effect::End(SessionEnd::Lost)],
+            // The relay refused the proof of possession: it would refuse every intent of this
+            // connection after it. A new connection brings a new challenge; the reconnect
+            // policy backs off, since such a connection never settles. A log fetch still running
+            // is read first: a removed device is served only the log up to its removal, and must
+            // learn from it that it was removed (`after_sync`).
+            Some(Op::Prove) => {
+                eprintln!("hangar: team relay refused the proof of possession ({code:?})");
+                if self.syncing {
+                    self.prove_refused = true;
+                    Vec::new()
+                } else {
+                    vec![Effect::End(SessionEnd::Lost)]
+                }
+            }
             Some(Op::DevicesGet) => {
                 self.devices_get = false;
                 Vec::new()
@@ -1673,6 +1707,17 @@ impl Engine {
                 }
             }
         }
+        // The relay refused this connection's proof: only a removal the log shows still counts,
+        // nothing acts on the connection and it never settles (the reconnect backs off).
+        if self.prove_refused {
+            if self.removed_from_log() {
+                return vec![
+                    Effect::WipeDevice,
+                    Effect::End(SessionEnd::Stop(StopReason::Removed)),
+                ];
+            }
+            return vec![Effect::End(SessionEnd::Lost)];
+        }
         let mut effects = Vec::new();
         if self.check_withheld(head.map_or(0, |h| h.index)) {
             effects.push(Effect::Changed);
@@ -1699,17 +1744,11 @@ impl Engine {
         if self.divergent.len() != before {
             effects.push(Effect::Changed);
         }
-        if let (Some(state), Some(me)) = (self.verifier.state(), &self.me) {
-            let removed = state
-                .key_periods(me)
-                .last()
-                .is_some_and(|p| p.removed_at.is_some());
-            if removed && state.device(me).is_none() {
-                return vec![
-                    Effect::WipeDevice,
-                    Effect::End(SessionEnd::Stop(StopReason::Removed)),
-                ];
-            }
+        if self.removed_from_log() {
+            return vec![
+                Effect::WipeDevice,
+                Effect::End(SessionEnd::Stop(StopReason::Removed)),
+            ];
         }
         effects.extend(self.reconcile());
         effects.extend(self.poll_devices());
@@ -1720,6 +1759,18 @@ impl Engine {
             effects.extend(self.want_members());
         }
         effects
+    }
+
+    /// The verified log removed this device (its last key period ended and it is not listed).
+    fn removed_from_log(&self) -> bool {
+        let (Some(state), Some(me)) = (self.verifier.state(), &self.me) else {
+            return false;
+        };
+        let removed = state
+            .key_periods(me)
+            .last()
+            .is_some_and(|p| p.removed_at.is_some());
+        removed && state.device(me).is_none()
     }
 
     /// Decides the next step from the verified log and the secrets this device holds.
@@ -4948,6 +4999,27 @@ mod tests {
         refuse_notes: bool,
         /// Every `key.rotate` is refused (no owner's or admin's rotation gets through).
         refuse_rotate: bool,
+        /// The challenge of each connection's newest `welcome` (protocol version 3), by holder
+        /// and connection number.
+        challenges: HashMap<(Holder, u64), hangar_team_protocol::e2e::Challenge>,
+        /// The signing key each connection proved (protocol version 3).
+        proven: HashMap<(Holder, u64), PublicKey>,
+        /// A removed device in its grace period, with the index of the entry that removed it.
+        departing: Option<(Holder, u64)>,
+        /// The departing connection's `device.prove` is answered with `forbidden` (a relay that
+        /// does not follow the specification).
+        departing_prove_err: bool,
+        /// Kinds the departing connection sent.
+        departing_frames: Vec<&'static str>,
+        /// `device.prove` frames that passed.
+        proofs: usize,
+        /// Every `device.prove` is refused.
+        refuse_proof: bool,
+        /// Kinds refused because the sender did not count as a device of the log
+        /// (`possession::check_restricted`), in arrival order.
+        restricted: Vec<&'static str>,
+        /// Kinds of a newer protocol version than the relay negotiated.
+        too_new: Vec<&'static str>,
     }
 
     fn team() -> TeamId {
@@ -4987,6 +5059,15 @@ mod tests {
                 notes_race: false,
                 refuse_notes: false,
                 refuse_rotate: false,
+                challenges: HashMap::new(),
+                proven: HashMap::new(),
+                departing: None,
+                departing_prove_err: false,
+                departing_frames: Vec::new(),
+                proofs: 0,
+                refuse_proof: false,
+                restricted: Vec::new(),
+                too_new: Vec::new(),
             }
         }
 
@@ -5154,12 +5235,111 @@ mod tests {
             role: Role,
             frame: ClientFrame,
         ) -> (Vec<String>, Vec<String>, Vec<(Holder, String)>) {
+            self.handle_on(sender, role, 0, frame)
+        }
+
+        /// The connection of a removed device in its grace period, as the relay serves it: a
+        /// `welcome` (with a challenge from version 3 on), the log up to the removing entry,
+        /// `device.keys` and `device.prove` acknowledged without effect, everything else
+        /// `forbidden`.
+        fn handle_departing(&mut self, until: u64, frame: ClientFrame) -> Vec<String> {
+            let id = frame.id;
+            self.departing_frames.push(frame.message.kind());
+            match frame.message {
+                ClientMessage::Hello(_) => {
+                    let challenge = (self.proto >= 3)
+                        .then(|| hangar_team_protocol::e2e::Challenge::from_bytes([3; 32]));
+                    let member = self.departing.as_ref().unwrap().0.member.clone();
+                    vec![self.text(
+                        Some(id),
+                        None,
+                        ServerMessage::Welcome(Welcome {
+                            proto: self.proto,
+                            stream: StreamId::new("s").unwrap(),
+                            head: Seq(self.seq),
+                            member,
+                            epoch: Epoch(0),
+                            challenge,
+                        }),
+                    )]
+                }
+                ClientMessage::DeviceProve(_) if self.departing_prove_err => {
+                    vec![self.err(id, ErrorCode::Forbidden)]
+                }
+                ClientMessage::DeviceKeys(_) | ClientMessage::DeviceProve(_) => {
+                    vec![self.ack(id, None)]
+                }
+                ClientMessage::MemberLogGet(get) => {
+                    let entries = self
+                        .entries
+                        .iter()
+                        .filter(|e| e.index > get.after && e.index <= until)
+                        .cloned()
+                        .collect::<Vec<_>>();
+                    vec![self.text(
+                        Some(id),
+                        None,
+                        ServerMessage::MemberLogEntries(MemberLogEntries::page(entries)),
+                    )]
+                }
+                _ => vec![self.err(id, ErrorCode::Forbidden)],
+            }
+        }
+
+        /// [`Relay::handle`] for connection `conn` of `sender`: challenges and proofs belong
+        /// to one connection, never to the holder.
+        fn handle_on(
+            &mut self,
+            sender: &Holder,
+            role: Role,
+            conn: u64,
+            frame: ClientFrame,
+        ) -> (Vec<String>, Vec<String>, Vec<(Holder, String)>) {
+            if let Some((_, until)) = self.departing.as_ref().filter(|(h, _)| h == sender) {
+                let until = *until;
+                return (self.handle_departing(until, frame), Vec::new(), Vec::new());
+            }
             let id = frame.id;
             let mut own = Vec::new();
             let mut all = Vec::new();
             let mut targeted = Vec::new();
+            let connection = (sender.clone(), conn);
+            // A kind of a newer version than the connection's is refused, as the relay does.
+            if frame.message.since() > self.proto && frame.message.since() >= 3 {
+                self.too_new.push(frame.message.kind());
+                own.push(self.err(id, ErrorCode::BadRequest));
+                return (own, all, targeted);
+            }
+            // The relay's rule before every intent (also for versions 1 and 2, where a device
+            // the log lists counts without a proof).
+            if !matches!(frame.message, ClientMessage::Hello(_)) {
+                let possession = hangar_team_crypto::possession::Possession::of_connection(
+                    self.proto,
+                    self.proven.get(&connection),
+                );
+                let restricted = hangar_team_crypto::possession::check_restricted(
+                    self.verifier.state(),
+                    sender,
+                    possession,
+                    &frame.message,
+                );
+                if restricted.is_err() {
+                    self.restricted.push(frame.message.kind());
+                    own.push(self.err(id, ErrorCode::Forbidden));
+                    return (own, all, targeted);
+                }
+            }
             match frame.message {
                 ClientMessage::Hello(_) => {
+                    // A new challenge per welcome; the connection starts unproven.
+                    self.proven.remove(&connection);
+                    let challenge = (self.proto >= 3).then(|| {
+                        let mut bytes = [0u8; 32];
+                        OsEntropy.fill(&mut bytes).unwrap();
+                        let challenge = hangar_team_protocol::e2e::Challenge::from_bytes(bytes);
+                        self.challenges.insert(connection.clone(), challenge);
+                        challenge
+                    });
                     own.push(self.text(
                         Some(id),
                         None,
@@ -5169,9 +5349,26 @@ mod tests {
                             head: Seq(self.seq),
                             member: sender.member.clone(),
                             epoch: Epoch(0),
+                            challenge,
                         }),
                     ));
                     all.extend(self.presence_of(sender, true));
+                }
+                ClientMessage::DeviceProve(prove) => {
+                    let checked = self.challenges.get(&connection).and_then(|challenge| {
+                        hangar_team_crypto::possession::verify_connection_proof(
+                            &self.team, sender, self.proto, challenge, &prove,
+                        )
+                        .ok()
+                    });
+                    match checked {
+                        Some(key) if !self.refuse_proof => {
+                            self.proofs += 1;
+                            self.proven.insert(connection.clone(), key);
+                            own.push(self.ack(id, None));
+                        }
+                        _ => own.push(self.err(id, ErrorCode::Forbidden)),
+                    }
                 }
                 ClientMessage::NotesKeysGet | ClientMessage::NotesKeysSet(_) if self.proto < 2 => {
                     self.notes_frames += 1;
@@ -5536,6 +5733,8 @@ mod tests {
         inbox: Vec<String>,
         stored_keys: usize,
         ended: Option<SessionEnd>,
+        /// Every end in order (`ended` keeps only the last).
+        ends: Vec<SessionEnd>,
         /// Fails the engine's draw after this many more, once.
         fail_draw: Arc<Mutex<Option<usize>>>,
         /// Confirms its admission once the log lists it, as the person would after comparing
@@ -5593,6 +5792,7 @@ mod tests {
             inbox: Vec::new(),
             stored_keys: 0,
             ended: None,
+            ends: Vec::new(),
             fail_draw,
             admit: true,
             checks: Vec::new(),
@@ -5609,7 +5809,10 @@ mod tests {
                     match effect {
                         Effect::Send(frame) => sends.push((at, frame)),
                         Effect::StoreKeys => clients[at].stored_keys += 1,
-                        Effect::End(end) => clients[at].ended = Some(end),
+                        Effect::End(end) => {
+                            clients[at].ended = Some(end);
+                            clients[at].ends.push(end);
+                        }
                         Effect::CheckWebsite { removal, members } => {
                             clients[at].checks.push((removal, members));
                         }
@@ -6217,7 +6420,13 @@ mod tests {
 
     /// Alice (owner, a1) and Bob (member, b1), both connected with epoch 1.
     fn team_of_two() -> (Relay, Client, Client) {
+        team_of_two_on(1)
+    }
+
+    /// [`team_of_two`] on a relay that negotiates `proto`.
+    fn team_of_two_on(proto: u16) -> (Relay, Client, Client) {
         let mut relay = Relay::new();
+        relay.proto = proto;
         let mut a1 = client("alice", "a1", Role::Owner);
         let mut b1 = client("bob", "b1", Role::Member);
         let hello = a1.engine.hello(ticket());
@@ -6251,6 +6460,232 @@ mod tests {
                 _ => None,
             })
             .collect()
+    }
+
+    /// The relay's `welcome` of `proto` for `client`, with a challenge from version 3 on.
+    fn welcome_text(
+        client: &Client,
+        proto: u16,
+        challenge: Option<hangar_team_protocol::e2e::Challenge>,
+        op: &OpId,
+    ) -> String {
+        encode_server(&ServerFrame {
+            id: Some(op.clone()),
+            seq: None,
+            team: Some(team()),
+            message: ServerMessage::Welcome(Welcome {
+                proto,
+                stream: StreamId::new("s").unwrap(),
+                head: Seq(0),
+                member: client.holder.member.clone(),
+                epoch: Epoch(0),
+                challenge,
+            }),
+        })
+        .unwrap()
+    }
+
+    fn hello_op(effects: &[Effect]) -> OpId {
+        effects
+            .iter()
+            .find_map(|e| match e {
+                Effect::Send(frame) if matches!(frame.message, ClientMessage::Hello(_)) => {
+                    Some(frame.id.clone())
+                }
+                _ => None,
+            })
+            .unwrap()
+    }
+
+    /// Protocol version 3: the device answers the `welcome`'s challenge right after
+    /// registering its keys and before it reads the log, so nothing it sends later meets a
+    /// relay that still counts it as unproven. The proof answers exactly this `hello`.
+    #[test]
+    fn a_welcome_of_version_three_is_answered_with_the_proof_before_the_log_fetch() {
+        let mut a1 = client("alice", "a1", Role::Owner);
+        let hello = a1.engine.hello(ticket());
+        let op = hello_op(&hello);
+        assert!(matches!(
+            &hello[..],
+            [.., Effect::Send(ClientFrame { message: ClientMessage::Hello(h), .. }), _]
+                if h.proto == ProtoRange::CURRENT && h.proto.max() == 3
+        ));
+        let challenge = hangar_team_protocol::e2e::Challenge::from_bytes([7; 32]);
+        let effects = a1
+            .engine
+            .on_text(&welcome_text(&a1, 3, Some(challenge), &op));
+        assert_eq!(
+            sends(&effects),
+            ["device.keys", "device.prove", "memberlog.get"]
+        );
+        let prove = effects
+            .iter()
+            .find_map(|e| match e {
+                Effect::Send(ClientFrame {
+                    message: ClientMessage::DeviceProve(prove),
+                    ..
+                }) => Some(prove.clone()),
+                _ => None,
+            })
+            .unwrap();
+        let key = hangar_team_crypto::possession::verify_connection_proof(
+            &team(),
+            &a1.holder,
+            3,
+            &challenge,
+            &prove,
+        );
+        assert_eq!(key, Ok(a1.engine.identity.public_keys().sign));
+        // Another challenge (a replay on the next connection) or version does not verify.
+        let other = hangar_team_protocol::e2e::Challenge::from_bytes([8; 32]);
+        assert!(hangar_team_crypto::possession::verify_connection_proof(
+            &team(),
+            &a1.holder,
+            3,
+            &other,
+            &prove
+        )
+        .is_err());
+    }
+
+    /// A relay of version 2 (or 1) sends no challenge and gets no proof: the device falls back
+    /// to what it sent before version 3.
+    #[test]
+    fn a_welcome_before_version_three_gets_no_proof() {
+        for proto in [1, 2] {
+            let mut a1 = client("alice", "a1", Role::Owner);
+            let hello = a1.engine.hello(ticket());
+            let op = hello_op(&hello);
+            let effects = a1.engine.on_text(&welcome_text(&a1, proto, None, &op));
+            assert_eq!(sends(&effects), ["device.keys", "memberlog.get"], "{proto}");
+        }
+    }
+
+    /// End to end on a relay of version 3 that applies the restriction: both devices prove
+    /// themselves after every `welcome`, the team forms and shares as on version 1, and the
+    /// relay refuses nothing. On versions 1 and 2 the relay restricts only devices the log does
+    /// not list, and the newcomer waiting for its admission never sends anything else.
+    #[test]
+    fn devices_prove_themselves_after_every_welcome_and_the_relay_refuses_nothing() {
+        for proto in [1, 2, 3] {
+            let (mut relay, mut a1, mut b1) = team_of_two_on(proto);
+            assert!(
+                relay.restricted.is_empty(),
+                "{proto}: {:?}",
+                relay.restricted
+            );
+            assert!(relay.too_new.is_empty(), "{proto}: {:?}", relay.too_new);
+            let proofs = if proto >= 3 { 2 } else { 0 };
+            assert_eq!(relay.proofs, proofs, "{proto}");
+            // A new connection proves again against its new challenge.
+            let hello = b1.engine.hello(ticket());
+            run(&mut relay, &mut [&mut a1, &mut b1], vec![(1, hello)]);
+            assert_eq!(connected(&b1), (1, 2, 2));
+            assert_eq!(relay.proofs, if proto >= 3 { 3 } else { 0 }, "{proto}");
+            assert!(
+                relay.restricted.is_empty(),
+                "{proto}: {:?}",
+                relay.restricted
+            );
+        }
+    }
+
+    /// The relay refusing the proof leaves the connection unable to act; the device ends it
+    /// (and reconnects with backoff) instead of sending intents the relay refuses one by one.
+    #[test]
+    fn a_refused_proof_ends_the_connection() {
+        let mut relay = Relay::new();
+        relay.proto = 3;
+        relay.refuse_proof = true;
+        let mut a1 = client("alice", "a1", Role::Owner);
+        let hello = a1.engine.hello(ticket());
+        run(&mut relay, &mut [&mut a1], vec![(0, hello)]);
+        assert_eq!(a1.ends, [SessionEnd::Lost]);
+        assert_eq!(relay.proofs, 0);
+        // The connection ends once the log fetch answered, before anything acts on it: no
+        // team is created on a connection the relay does not count.
+        assert!(relay.entries.is_empty());
+    }
+
+    /// Bob's device is removed while it is offline, then reconnects to a relay of version 3,
+    /// which serves it as a departing device: a `welcome` with a challenge, then only the log
+    /// up to the removal. The device learns from the log that it was removed, also when the
+    /// relay answers its proof with `forbidden` instead of the acknowledgement the
+    /// specification asks for.
+    fn removed_device_reconnects(prove_err: bool) -> (Relay, Client) {
+        let (mut relay, mut a1, mut b1) = team_of_two_on(3);
+        let before = relay.entries.len() as u64;
+        let effects = a1.engine.remove_member(&b1.holder.member).unwrap();
+        run(&mut relay, &mut [&mut a1], vec![(0, effects)]);
+        assert!(relay.entries.len() as u64 > before);
+        relay.departing = Some((b1.holder.clone(), before + 1));
+        relay.departing_prove_err = prove_err;
+        // The setup delivered the team's events to Bob before his first welcome too.
+        b1.ends.clear();
+        let hello = b1.engine.hello(ticket());
+        run(&mut relay, &mut [&mut b1], vec![(0, hello)]);
+        (relay, b1)
+    }
+
+    #[test]
+    fn a_removed_device_on_version_three_reads_its_removal_from_the_departing_log() {
+        for prove_err in [false, true] {
+            let (relay, b1) = removed_device_reconnects(prove_err);
+            assert_eq!(
+                b1.ends.first(),
+                Some(&SessionEnd::Stop(StopReason::Removed)),
+                "{prove_err}: {:?}",
+                b1.ends
+            );
+            assert_eq!(
+                relay.departing_frames,
+                ["hello", "device.keys", "device.prove", "memberlog.get"],
+                "{prove_err}"
+            );
+        }
+    }
+
+    /// A stolen ticket with Bob's device id opens a second connection: it proves with a key of
+    /// its own, which the log does not list, and gets nothing; Bob's proven connection keeps
+    /// its proof. Challenges and proofs belong to a connection, not to the holder.
+    #[test]
+    fn a_second_connection_of_the_same_holder_does_not_inherit_a_proof() {
+        let (mut relay, _a1, b1) = team_of_two_on(3);
+        let frame = |message| ClientFrame {
+            id: op_id(),
+            team: Some(team()),
+            message,
+        };
+        let presence = || {
+            ClientMessage::PresenceSet(PresenceSet {
+                state: PresenceState::Active,
+                status: None,
+            })
+        };
+        let hello = ClientMessage::Hello(Hello {
+            ticket: ticket(),
+            device: b1.holder.device.clone(),
+            proto: ProtoRange::CURRENT,
+            last_seq: None,
+        });
+        let (own, _, _) = relay.handle_on(&b1.holder, Role::Member, 1, frame(hello));
+        assert!(own[0].contains("\"challenge\""), "{}", own[0]);
+        let (own, _, _) = relay.handle_on(&b1.holder, Role::Member, 1, frame(presence()));
+        assert!(own[0].contains("\"forbidden\""), "{}", own[0]);
+        let impostor = DeviceIdentity::generate(&mut OsEntropy).unwrap();
+        let challenge = relay.challenges[&(b1.holder.clone(), 1)];
+        let prove = impostor.prove_connection(&team(), &b1.holder, 3, &challenge);
+        let (own, _, _) = relay.handle_on(
+            &b1.holder,
+            Role::Member,
+            1,
+            frame(ClientMessage::DeviceProve(prove)),
+        );
+        assert!(own[0].contains("\"ack\""), "a valid signature: {}", own[0]);
+        let (own, _, _) = relay.handle_on(&b1.holder, Role::Member, 1, frame(presence()));
+        assert!(own[0].contains("\"forbidden\""), "{}", own[0]);
+        let (own, _, _) = relay.handle_on(&b1.holder, Role::Member, 0, frame(presence()));
+        assert!(own[0].contains("\"ack\""), "{}", own[0]);
     }
 
     #[test]
@@ -9085,6 +9520,7 @@ mod tests {
                 head: Seq(relay.seq),
                 member: b1.holder.member.clone(),
                 epoch: Epoch(0),
+                challenge: None,
             }),
         );
         b1.inbox.extend([resync, snapshot, welcome]);
@@ -9451,6 +9887,7 @@ mod tests {
                 head: Seq(relay.seq),
                 member: clients[at].holder.member.clone(),
                 epoch: Epoch(0),
+                challenge: None,
             }),
         );
         let mut texts = vec![resync];

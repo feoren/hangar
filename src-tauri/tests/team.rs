@@ -26,7 +26,9 @@ use hangar_lib::team_service::{Options, TeamService};
 use hangar_lib::team_share::{LocalSession, SessionState};
 use hangar_team_crypto::identity::DevicePublicKeys;
 use hangar_team_crypto::memberlog::LogVerifier;
-use hangar_team_protocol::e2e::ChainHead;
+use hangar_team_crypto::possession::{check_restricted, verify_connection_proof, Possession};
+use hangar_team_crypto::{Entropy as _, OsEntropy};
+use hangar_team_protocol::e2e::{ChainHead, Challenge, PublicKey};
 use hangar_team_protocol::hash::KeyedHash;
 use hangar_team_protocol::ids::{
     Ciphertext, DeviceId, Epoch, MemberId, Sealed, StreamId, TeamId, UnixMillis,
@@ -40,9 +42,9 @@ use hangar_team_protocol::wire::{
     decode_client, encode_server, Ack, ClientMessage, Cursor, DeviceInfo, DeviceList,
     DeviceRemoved, ErrorBody, ErrorCode, Holder, KeyRotated, KeyWrapped, MemberLogAppend,
     MemberLogAppended, MemberLogEntries, MemberLogEntry, MemberRemoved, MemberRoleChanged,
-    PresenceState, PresenceUpdate, ReservationExpired, ReservationExpiring, ResyncRequired, Role,
-    ServerFrame, ServerMessage, SessionRef, TaskReleaseAnswered, TaskReleaseRequestEnded,
-    TaskReleaseRequested, TaskReleased, TaskReserved, Welcome,
+    PresenceState, PresenceUpdate, ProtoRange, ReservationExpired, ReservationExpiring,
+    ResyncRequired, Role, ServerFrame, ServerMessage, SessionRef, TaskReleaseAnswered,
+    TaskReleaseRequestEnded, TaskReleaseRequested, TaskReleased, TaskReserved, Welcome,
 };
 use tokio::sync::mpsc;
 use tokio_tungstenite::tungstenite::protocol::frame::coding::CloseCode;
@@ -392,6 +394,24 @@ struct RelayState {
     /// The note of the newest applied `task.reserve` per task, with its sender.
     notes: HashMap<KeyedHash, (Holder, Option<Sealed>)>,
     request_notes: HashMap<KeyedHash, Option<Sealed>>,
+    /// The versions the relay speaks; it negotiates with each `hello` (`{1, 3}` unless a test
+    /// plays an older relay).
+    proto: ProtoRange,
+    /// The version every accepted `hello` negotiated, in order.
+    negotiated: Vec<u16>,
+    /// `device.prove` frames that passed.
+    proofs: u32,
+    /// Kinds refused because the sender did not count as a device of the log, or came before
+    /// the version that has them.
+    refused: Vec<&'static str>,
+}
+
+/// What one connection negotiated and proved for the team (protocol version 3).
+#[derive(Default)]
+struct ConnProof {
+    proto: u16,
+    challenge: Option<Challenge>,
+    proven: Option<PublicKey>,
 }
 
 fn now() -> UnixMillis {
@@ -700,6 +720,10 @@ impl Relay {
             book: ReservationBook::new(Policy::default(), Epoch(0)),
             notes: HashMap::new(),
             request_notes: HashMap::new(),
+            proto: ProtoRange::CURRENT,
+            negotiated: Vec::new(),
+            proofs: 0,
+            refused: Vec::new(),
         }));
         let shared = Arc::clone(&state);
         tauri::async_runtime::spawn(async move {
@@ -760,6 +784,7 @@ async fn connection(stream: tokio::net::TcpStream, state: Arc<Mutex<RelayState>>
         state.next_conn
     };
     let mut bound: Option<(Holder, Role)> = None;
+    let mut proof = ConnProof::default();
     while let Some(Ok(message)) = source.next().await {
         let Message::Text(body) = message else {
             if matches!(message, Message::Close(_)) {
@@ -771,7 +796,7 @@ async fn connection(stream: tokio::net::TcpStream, state: Arc<Mutex<RelayState>>
             continue;
         };
         let mut state = guard(&state);
-        handle(&mut state, id, &out, &mut bound, frame);
+        handle(&mut state, id, &out, &mut bound, &mut proof, frame);
     }
     let mut state = guard(&state);
     if let Some(conn) = state.conns.remove(&id) {
@@ -796,6 +821,7 @@ fn handle(
     conn: u64,
     out: &mpsc::UnboundedSender<Message>,
     bound: &mut Option<(Holder, Role)>,
+    proof: &mut ConnProof,
     frame: hangar_team_protocol::wire::ClientFrame,
 ) {
     let team = state.team.clone();
@@ -813,11 +839,27 @@ fn handle(
             reply(err(ErrorCode::Forbidden));
             return;
         };
+        let Some(proto) = hello.proto.negotiate(state.proto) else {
+            reply(err(ErrorCode::OutdatedClient));
+            return;
+        };
+        state.negotiated.push(proto);
         let holder = Holder {
             member: MemberId::new(user).unwrap(),
             device: hello.device.clone(),
         };
         *bound = Some((holder.clone(), role));
+        // A new challenge with every welcome; the connection starts unproven.
+        let challenge = (proto >= 3).then(|| {
+            let mut bytes = [0u8; 32];
+            OsEntropy.fill(&mut bytes).unwrap();
+            Challenge::from_bytes(bytes)
+        });
+        *proof = ConnProof {
+            proto,
+            challenge,
+            proven: None,
+        };
         state.conns.insert(
             conn,
             Conn {
@@ -826,11 +868,12 @@ fn handle(
             },
         );
         let welcome = ServerMessage::Welcome(Welcome {
-            proto: 1,
+            proto,
             stream: state.stream.clone(),
             head: state.log.head(),
             member: holder.member.clone(),
             epoch: state.epoch,
+            challenge,
         });
         let replay: Result<Vec<(u64, ServerMessage)>, _> =
             match state.log.replay(hello.last_seq.as_ref()) {
@@ -890,7 +933,34 @@ fn handle(
         reply(err(ErrorCode::BadRequest));
         return;
     };
+    // As the relay of version 3: a kind newer than the connection's version is `badRequest`,
+    // and a device that does not count as a device of the log (`check_restricted`) may only
+    // register, prove itself and read.
+    if frame.message.since() > proof.proto {
+        state.refused.push(frame.message.kind());
+        reply(err(ErrorCode::BadRequest));
+        return;
+    }
+    let possession = Possession::of_connection(proof.proto, proof.proven.as_ref());
+    if check_restricted(state.verifier.state(), &sender, possession, &frame.message).is_err() {
+        state.refused.push(frame.message.kind());
+        reply(err(ErrorCode::Forbidden));
+        return;
+    }
     match frame.message {
+        ClientMessage::DeviceProve(prove) => {
+            let checked = proof.challenge.as_ref().and_then(|challenge| {
+                verify_connection_proof(&state.team, &sender, proof.proto, challenge, &prove).ok()
+            });
+            match checked {
+                Some(key) => {
+                    state.proofs += 1;
+                    proof.proven = Some(key);
+                    reply(ack(None));
+                }
+                None => reply(err(ErrorCode::Forbidden)),
+            }
+        }
         ClientMessage::TicketRenew(_) => {
             state.renewals += 1;
             reply(ack(None));
@@ -1441,6 +1511,20 @@ fn owner_creates_the_team_devices_and_members_join_and_a_removal_rotates() {
         a1.team.confirm(&pending[0].id).await.unwrap();
         b1.connected(1, 2, 3).await;
         a1.connected(1, 2, 3).await;
+        // Protocol version 3 all the way: every connection proved possession of its device's
+        // key, so the relay, which restricts unproven and unlisted devices, refused nothing
+        // (newcomers waiting for their admission only register and read).
+        {
+            let state = relay.state();
+            assert!(state.refused.is_empty(), "{:?}", state.refused);
+            assert!(
+                state.negotiated.iter().all(|&v| v == 3),
+                "{:?}",
+                state.negotiated
+            );
+            assert!(state.proofs >= 3, "{}", state.proofs);
+            assert_eq!(state.proofs as usize, state.negotiated.len());
+        }
 
         // Bob is removed on the website and the relay says so: the owner's device reads the
         // website's member list, removes bob from the log and rotates; bob's device sees the
@@ -1465,6 +1549,44 @@ fn owner_creates_the_team_devices_and_members_join_and_a_removal_rotates() {
         assert_eq!(a2.status(), TeamStatus::Off);
         assert!(a2.has_device());
         a1.team.shutdown();
+    });
+}
+
+/// A relay of protocol version 2 (released before the proof of possession) meets this app on
+/// version 2: no challenge, no `device.prove`, no version 3 kind, and the team forms as before,
+/// also with the relay's rule for devices the log does not list, which applies on every version.
+#[test]
+fn a_relay_of_version_two_is_served_without_the_proof() {
+    run(async {
+        let relay = Relay::start().await;
+        relay.state().proto = ProtoRange::new(1, 2).unwrap();
+        let website = Website::start(relay.port);
+        {
+            let mut mock = guard(&website.state);
+            mock.roles.insert("alice".to_owned(), "owner");
+            mock.roles.insert("bob".to_owned(), "member");
+        }
+        let a1 = Device::new(&website, "alice", "v2a");
+        a1.team.enable(PROJECT).await.unwrap();
+        a1.connected(1, 1, 1).await;
+        let b1 = Device::new(&website, "bob", "v2b");
+        b1.team.enable(PROJECT).await.unwrap();
+        b1.waiting().await;
+        let pending = a1.pending(1).await;
+        a1.team.confirm(&pending[0].id).await.unwrap();
+        b1.connected(1, 2, 2).await;
+        {
+            let state = relay.state();
+            assert!(state.refused.is_empty(), "{:?}", state.refused);
+            assert!(
+                state.negotiated.iter().all(|&v| v == 2),
+                "{:?}",
+                state.negotiated
+            );
+            assert_eq!(state.proofs, 0);
+        }
+        a1.team.shutdown();
+        b1.team.shutdown();
     });
 }
 

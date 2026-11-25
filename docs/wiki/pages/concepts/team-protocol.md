@@ -1,10 +1,10 @@
 ---
 title: "Team protocol: messages, keyed hashes, reservations and the event log"
 type: concept
-tags: [collaboration, teams, protocol, websocket, hmac, hkdf, reservation, claims, threat-model]
+tags: [collaboration, teams, protocol, websocket, hmac, hkdf, reservation, claims, threat-model, possession, blobs]
 sources: []
 created: 2026-11-09
-updated: 2026-11-22
+updated: 2026-11-25
 ---
 
 # Team protocol
@@ -21,7 +21,7 @@ WebSocket reader refuses a larger message before decoding (the connection ends, 
 
 | Field | Client frame | Server frame |
 | --- | --- | --- |
-| `v` | envelope version (`ENVELOPE_VERSION`), always 1; the message set is negotiated per team in `hello.proto` and `welcome.proto` (protocol version 2 since 2026-11-22, see [[0006-encrypted-project-notes]], "Phase 2 design") | the same |
+| `v` | envelope version (`ENVELOPE_VERSION`), always 1; the message set is negotiated per team in `hello.proto` and `welcome.proto` (protocol version 2 since 2026-11-22, see [[0006-encrypted-project-notes]], "Phase 2 design"; version 3 since 2026-11-25, see [[0020-proof-of-possession-at-hello]]) | the same |
 | `id` | op id, required; chosen per intent, a retry repeats it | the op this answers, if any |
 | `seq` | never | position in the team's event log, only on loggable events |
 | `team` | required except on `ping` (also refused when encoding): the website's project id, opaque | the team the event belongs to |
@@ -35,13 +35,15 @@ raw JSON into the message's type (`serde_json::value::RawValue`, no `Value` buff
 and duplicate fields are rejected at every level instead of the last duplicate silently winning;
 then the limits of lists and ciphertexts.
 
-**Protocol version 2.** `PROTOCOL_VERSION` is 2 and `ProtoRange::CURRENT` `{1, 2}`; the relay
-picks the highest common version per `hello`. Each kind names its version (`since()`): the relay
-answers a client kind newer than the team's negotiated version with `badRequest` and never sends
-a newer server kind to that connection; the app sends a version 2 kind only after a `welcome`
-with `proto` 2. Version 2 adds `notes.keys.get`, `notes.keys.set {base, content}` (compare and
-set, owner or admin device of the log, current epoch, deduplicated), `notes.keys {record}` and
-the live hint `notes.keys.updated {version, by}`; none is logged.
+**Protocol versions 2 and 3.** `PROTOCOL_VERSION` is 3 and `ProtoRange::CURRENT` `{1, 3}`; the
+relay picks the highest common version per `hello`. Each kind names its version (`since()`): the
+relay answers a client kind newer than the team's negotiated version with `badRequest` and never
+sends a newer server kind to that connection; the app sends a kind of version 2 or 3 only after a
+`welcome` with at least that `proto`. Version 2 adds `notes.keys.get`, `notes.keys.set {base,
+content}` (compare and set, owner or admin device of the log, current epoch, deduplicated),
+`notes.keys {record}` and the live hint `notes.keys.updated {version, by}`; none is logged.
+Version 3 adds the proof of possession (`welcome.challenge`, `device.prove`) and `blob.delete`;
+see [Protocol version 3](#protocol-version-3-proof-of-possession-and-blobdelete).
 
 Version errors: on the relay, a client older than the relay gets `outdatedClient`, a newer one
 `badRequest`; on the client, a newer relay means Hangar needs an update
@@ -78,6 +80,8 @@ number.
 | `claim.clear` | `session` | `ack`; ended overlaps as `claim.overlap` with level `none` |
 | `blob.put` | `kind` (decision, task, transcript), `content` sealed | `ack` with `blob` |
 | `blob.get` | `blob` | `ack` with `blob` and `content` |
+| `blob.delete` | `blob` (version 3) | `ack`; the author (any of its devices) or an owner or admin; `notFound` for a blob the team does not have, `forbidden` for anyone else; frees the quota |
+| `device.prove` | `sign` (Ed25519, 43 characters), `signature` (64 bytes, 86 characters) (version 3) | `ack` when the signature over the `welcome`'s challenge verifies; `forbidden` otherwise (the connection stays unproven) |
 | `device.keys` | `sign` (Ed25519), `kem` (X25519), each 32 bytes as 43 characters of canonical base64url; `proof` (the device's proof of possession, 64 bytes as 86 characters) | `ack`; replaces the device's keys |
 | `devices.get` | none | `devices` |
 | `device.remove` | `holder {member, device}`, `log` (the signed remove device entry as `{index, prev, entry}`) | the relay admits the entry first (`LogVerifier::admit_device_remove`, the log's rule: anyone for another device of its own, the owner for any other device, an admin for a member's device; the entry must remove exactly `holder`), then: `ack`, `memberlog.appended`, `device.removed`; the device's holds and claims end and its connections close with 4403; without `log` the frame does not decode |
@@ -94,11 +98,13 @@ A client never sends `notify` (decoding refuses it like an unknown type).
 **Answers and retries.** The answer to a client frame carries its op id as `id`: `ack` or `err`,
 `welcome` or `resync_required` for `hello`, `devices` and `memberlog.entries` for the two reads.
 The relay remembers the answer by op id only for intents that change shared state once
-(`ClientMessage::deduplicated`): every `task.*`, `blob.put`, `device.remove`, `memberlog.append`,
-`key.rotate`, `key.wrap`; a retry gets the first answer and is not applied again. `presence.set`, `heartbeat`,
+(`ClientMessage::deduplicated`): every `task.*`, `blob.put`, `blob.delete`, `device.remove`,
+`memberlog.append`, `key.rotate`, `key.wrap`, `notes.keys.set`; a retry gets the first answer and
+is not applied again. `presence.set`, `heartbeat`,
 `claim.set`, `claim.clear` and `device.keys` replace the sender's own state and are applied and
-acknowledged every time, and so is `ticket.renew` (the same ticket verifies to the same result);
-reads, `hello` and `ping` are answered every time.
+acknowledged every time, and so are `ticket.renew` (the same ticket verifies to the same result)
+and `device.prove` (the same signature verifies to the same result); reads, `hello` and `ping`
+are answered every time.
 
 The ticket is the website's short-lived Ed25519 ticket in compact form
 (`base64url(payload).base64url(signature)`, payload with `v`, `kid`, `sub`, `prj`, `role`,
@@ -128,7 +134,7 @@ relay delivers per device by holder, never by the device id alone.
 
 | Type | Body | Logged (`seq`) |
 | --- | --- | --- |
-| `welcome` | `proto`, `stream`, `head`, `member`, `epoch` | no |
+| `welcome` | `proto`, `stream`, `head`, `member`, `epoch`, and `challenge` exactly when `proto` is 3 or newer (left out of the text otherwise) | no |
 | `resync_required` | `stream`, `head`, `reason` (noCursor, otherStream, tooOld, ahead) | no |
 | `ack` | `blob`, `content`, `keys` (all optional) | no |
 | `err` | `code`, `retryAfterMs`, `holder` | no |
@@ -175,7 +181,12 @@ Server bodies are `deny_unknown_fields`, and the app ends the connection on a bo
 a logged event comes back on replay. A new field in a server message therefore breaks every app
 already released, even when it is optional: the relay may send one only after a version bump or a
 capability the app announces. For this reason `task.release_requested.requester` stays the member
-only (the note's signature names the requesting device, see [[team-service-v1]]).
+only (the note's signature names the requesting device, see [[team-service-v1]]). The one new
+server field so far, `welcome.challenge` (version 3), follows this rule: the relay writes it only
+to a connection that negotiated version 3, and when it is absent the field is left out of the
+text (`skip_serializing_if`), so a connection of version 2 gets byte for byte the `welcome` a
+relay of version 2 sent; the crate refuses to encode or decode a `welcome` whose challenge does
+not match its version.
 
 `device.removed` follows a `device.remove`, after the `task.released` (memberRemoved) and
 `task.release_request_ended` (withdrawn) events of the device's holds and requests. Clients drop
@@ -187,7 +198,8 @@ itself refuses that holder's `hello`. The website's revocation feed may later ca
 
 `err` codes: `conflict` (held by someone else, or a release request is open), `limit` (frame,
 list, ciphertext, reservations per member, also for a handover to a full member), `forbidden`
-(not the holder, not a member, not owner or admin), `rateLimited` (with `retryAfterMs`; also a
+(not the holder, not a member, not owner or admin, a device that does not count as a device of
+the log, a refused `device.prove`), `rateLimited` (with `retryAfterMs`; also a
 release request during the cooldown), `outdatedClient` (the client's newest version is older than
 the server's oldest), `staleEpoch` (a hash or ciphertext of another epoch), `badRequest` (also an
 op id reused with another body), `notFound`.
@@ -234,6 +246,8 @@ shared log.
 | `key.rotate` | owner, admin; the signed rotate epoch entry valid and for the log's next epoch, every wrapped key for a distinct device of the log | `forbidden`, `staleEpoch`, `badRequest` | `check_rotate`, then `LogVerifier::admit_rotation` |
 | `key.wrap` | a device of the log: an owner or admin for any other device of the log, a member for another device of its own; never the target itself; one package per sender, target and epoch | `forbidden`; `notFound` when the log does not list the target; `conflict` for a second package of the same sender; `limit` when the relay keeps 4 wrapped keys for the device in the current epoch | `hangar_team_crypto::relay::check_wrap` |
 | `device.remove` | the signed remove device entry in `log`: another device of one's own (any role), the owner for any other device, an admin for a member's device; never the sending device itself | the error's `code()` (`forbidden`, `badRequest`, `conflict`) | `LogVerifier::admit_device_remove` |
+| every intent of a team with a log, first | a device that counts as the log's device: listed, and on version 3 proven with the log's sign key; any other device only `hello`, `ticket.renew`, `device.keys`, `device.prove`, `devices.get`, `memberlog.get`, `ping` | `forbidden` | `hangar_team_crypto::possession::check_restricted` |
+| `blob.delete` (version 3) | the blob's author (the member that stored it), an owner or admin (the lower of log role and ticket role; without a log the ticket role) | `notFound` before the check, then `forbidden` | `hangar_team_crypto::relay::check_blob_delete` |
 
 `check_wrap` takes the verified `TeamState`, the ticket role, the `key.wrap` message itself, whose
 `wrapped.holder` names the target with its member, and the senders of the wrapped keys the relay
@@ -261,6 +275,62 @@ devices registered.
 `LogVerifier` per team, rebuilt from the stored entries after a restart, which admits a
 `memberlog.append`, a `key.rotate` or a `device.remove` only when the clients would accept it,
 and the module `relay` for `key.wrap` and registered keys ([[team-crypto]]).
+
+## Protocol version 3: proof of possession and blob.delete
+
+Decided in [[0020-proof-of-possession-at-hello]]; the relay's duties in [[relay-v3-server-spec]];
+the signed statement in [[team-crypto]] ("Connection proof").
+
+**Why.** Before version 3 the relay bound a connection to the device id `hello` named, which is
+the client's word: a device removed from the team came back under a new id and read what any
+member reads, and a stolen, unused ticket together with a listed device id acted as that device
+(it could overwrite the notes key ring). And no blob could be deleted, so a member could fill the
+team's quota for good.
+
+**Handshake on version 3.**
+
+```text
+app                                        relay
+hello {proto {1,3}, device}        --->    negotiate 3, draw 32 random bytes
+                                   <---    welcome {proto 3, .., challenge}
+device.keys {sign, kem, proof}     --->    (allowed before the proof)
+device.prove {sign, signature}     --->    verify_connection_proof: keep sign as proven
+memberlog.get {after}              --->    (allowed before the proof)
+... everything else                --->    allowed once the log lists the holder with the proven key
+```
+
+The proof goes out before the log fetch, so everything the app sends later meets a proven
+connection (the relay handles one connection's frames in order). A refused proof ends the
+connection on the app's side; the next connection brings a new challenge, and the reconnect
+backs off since the connection never settled.
+
+**Decisions and reasons.**
+
+| Decision | Reason |
+| --- | --- |
+| The challenge rides on `welcome` as an optional field, present exactly from version 3 on | The `welcome` is the first answer to `hello` and carries the negotiated version; a separate server kind would be one more frame without gain. Optional and left out of the text when absent, it changes nothing for version 2 connections (rule above). |
+| One challenge per `welcome` (one team on one connection), 32 random bytes | Fresh per connection, so a proof seen once cannot be replayed; per team, since one connection may carry several teams. |
+| The statement binds label, team, member, device, signing key, challenge and version | The label separates it from every other signature of the key (log entries, records, `device.keys` proofs, endorsements); team and holder stop a proof being used for another team or device; the version stops a proof being moved between versions; the key stops a signature being shown under another key. |
+| `device.prove` carries `sign`; the relay compares it with the log on every intent | No dependency on the order of `device.keys` and `device.prove`; a device waiting for its admission proves its key once and counts from the admitting entry on; a removal or new keys in the log end the match at once. |
+| Restricted devices may send only `hello`, `ticket.renew`, `device.keys`, `device.prove`, `devices.get`, `memberlog.get`, `ping` | What a device waiting for its admission needs, and exactly what Hangar sends then. |
+| The restriction applies to unlisted devices on every version, to unproven listed devices on version 3 | Released apps send only those kinds before the log lists them, so refusing the rest is safe for them; a listed device on version 2 cannot prove, so it is served as before (transition rule). |
+| Logged events are not filtered for unproven connections; targeted unlogged ones (`claim.overlap`, `key.wrapped`, `notify`) and the presence and reservation side effects of joining and leaving belong only to connections that count | Logged events withheld from one connection would be gaps in its cursor. Targeted messages and side effects go by holder, and a twin connection with a stolen ticket has the same holder, so they follow the connection, not the holder. The sends that read content (`blob.get`, `notes.keys.get`, `key.get`, `claim.set`) are closed; what remains is sealed under epoch keys, and `key.rotate` after a removal is the cure. |
+| The relay checks one connection's frames in arrival order; the departing `welcome` of a removed device carries a challenge too, and `device.keys` and `device.prove` there get `ack` without effect | The app sends `device.keys`, `device.prove` and its log fetch back to back. A removed device must still read the log up to its removal; the app also reads that answer when its proof was refused. |
+| Downgrade protection per holder, then for everyone | A holder that proved itself once on version 3 gets `outdatedClient` for a `hello` of an older version; `REQUIRE_DEVICE_PROOF` ends versions 1 and 2 when the operator chooses. Refusing them at once would cut off every released app on the day the relay updates. |
+| `blob.delete` by the author (member) or an owner or admin, deduplicated, no event | The author is a person, not a device, so any of its devices can tidy up; owners and admins clean up after people who left. Nothing lists blobs yet, so no event is needed; the relay keeps no tombstone, only size and author mattered for the quota. |
+| The app sends no `blob.delete` today | Hangar stores no blob yet: reservation notes, statuses and claim details travel inline, decisions are a draft (ADR 0005 amendment). The feature that first writes blobs deletes them when they become obsolete (a superseded or withdrawn decision). |
+
+**Compatibility matrix.**
+
+| | Relay of version 2 | Relay of version 3 |
+| --- | --- | --- |
+| App of version 2 | as before | negotiates 2, no challenge, served as before while the log lists the device; restricted while it does not (matches what it sends); `outdatedClient` once its holder proved itself on version 3, or with `REQUIRE_DEVICE_PROOF` |
+| App of version 3 | negotiates 2: no proof, no `blob.delete`, everything else as before | negotiates 3, proves after every `welcome`, restricted until the proof passes and the log lists its key |
+
+Checked in the app: the engine's unit tests run against an in-memory relay that applies
+`check_restricted` on versions 1, 2 and 3, and `src-tauri/tests/team.rs` runs `TeamService` over
+real WebSockets against a relay that negotiates `{1, 3}` (and one of version 2); no frame of an
+honest device is refused.
 
 ## Keys and keyed hashes
 
@@ -480,7 +550,10 @@ What the relay can and cannot do, and what the protocol relies on:
   remain only for the rekey grace.
 - **Identity binding:** the member comes from the verified ticket, the device must belong to
   that member, the role comes from the ticket. Without this binding a member could claim another
-  member's device and its holds.
+  member's device and its holds. The device id itself is the client's word; from version 3 on
+  the connection proves possession of the log's signing key for it (`device.prove`), and until
+  it has, it counts as an unknown device (see
+  [Protocol version 3](#protocol-version-3-proof-of-possession-and-blobdelete)).
 - **Abuse by members:** a member can reserve tasks without working on them (owner and admin
   force release), flood release requests (cooldown), or leave `prev` out to win a task during a
   rotation (honest clients send it; a dishonest member has simpler ways to cause trouble, such as
