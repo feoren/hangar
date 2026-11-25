@@ -7134,6 +7134,23 @@ label.setting-line:hover {
   vertical-align: -1px;
 }
 
+/* A shared note with an old team key: small and quiet, the note view says what it means. */
+.note-row-old {
+  display: inline-flex;
+  flex: none;
+  margin-left: 4px;
+  color: var(--warn);
+  vertical-align: -1px;
+}
+
+/* "Send anyway?" for a note with an old key, just above the send button. */
+.link-notice.note-send-check {
+  width: auto;
+  margin: 0 8px 8px;
+  border-color: color-mix(in srgb, var(--warn) 60%, transparent);
+  box-shadow: none;
+}
+
 .shared-notes-code-label {
   margin-top: 14px;
   font-weight: 600;

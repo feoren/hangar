@@ -2440,6 +2440,15 @@ const de = {
   "sharedNotes.oldServer": "Geteilte Team-Notizen brauchen einen neueren Teamserver.",
   "sharedNotes.renewing":
     "Der Schlüssel wird gerade erneuert. Speichern ist pausiert, bis ein Inhaber oder Admin ihn erneuert hat.",
+  "sharedNotes.oldKey": "Mit einem alten Schlüssel geschrieben. Die Herkunft ist unsicher.",
+  "sharedNotes.oldKeyLabel": "Alter Schlüssel, Herkunft unsicher",
+  "sharedNotes.oldKeySend":
+    "Diese Notiz wurde mit einem alten Schlüssel geschrieben, ihre Herkunft ist unsicher. Prüfe sie, bevor du sie sendest.",
+  "sharedNotes.oldKeyMove":
+    "Diese Notiz wurde mit einem alten Schlüssel geschrieben, ihre Herkunft ist unsicher. In deinen Notizen auf diesem Computer ist sie danach nicht mehr markiert. Prüfe sie, bevor du sie verschiebst.",
+  "sharedNotes.moveAnyway": "Trotzdem verschieben",
+  "sharedNotes.restoreOldKey":
+    "Nicht wiederhergestellt: Diese Notiz wurde mit einem alten Schlüssel geschrieben, und dieselbe Notiz liegt wieder im Ordner. Lösche zuerst die andere.",
   "sharedNotes.teamOffLine": "Teile Notizen verschlüsselt mit allen in {project}.",
   "sharedNotes.askManager":
     "Bitte einen Inhaber oder Admin von {project}, geteilte Notizen einzuschalten.",
@@ -4810,6 +4819,15 @@ const en: Record<MessageKey, string> = {
   "sharedNotes.oldServer": "Shared team notes need a newer team server.",
   "sharedNotes.renewing":
     "The key is being renewed. Saving is paused until an owner or admin has renewed it.",
+  "sharedNotes.oldKey": "Written with an old key. Its origin is uncertain.",
+  "sharedNotes.oldKeyLabel": "Old key, origin uncertain",
+  "sharedNotes.oldKeySend":
+    "This note was written with an old key, so its origin is uncertain. Check it before you send it.",
+  "sharedNotes.oldKeyMove":
+    "This note was written with an old key, so its origin is uncertain. On this computer it loses the mark. Check it before you move it.",
+  "sharedNotes.moveAnyway": "Move anyway",
+  "sharedNotes.restoreOldKey":
+    "Not restored: this note was written with an old key and the same note is back in the folder. Delete that one first.",
   "sharedNotes.teamOffLine": "Share notes with everyone in {project}, encrypted.",
   "sharedNotes.askManager": "Ask an owner or admin of {project} to turn on shared notes.",
   "sharedNotes.updateServer":
@@ -7254,6 +7272,15 @@ const el: Record<MessageKey, string> = {
     "Οι κοινόχρηστες σημειώσεις ομάδας χρειάζονται νεότερο διακομιστή ομάδας.",
   "sharedNotes.renewing":
     "Το κλειδί ανανεώνεται. Η αποθήκευση έχει παύσει μέχρι να το ανανεώσει ένας ιδιοκτήτης ή διαχειριστής.",
+  "sharedNotes.oldKey": "Γράφτηκε με παλιό κλειδί. Η προέλευσή της είναι αβέβαιη.",
+  "sharedNotes.oldKeyLabel": "Παλιό κλειδί, αβέβαιη προέλευση",
+  "sharedNotes.oldKeySend":
+    "Αυτή η σημείωση γράφτηκε με παλιό κλειδί, οπότε η προέλευσή της είναι αβέβαιη. Έλεγξέ τη πριν τη στείλεις.",
+  "sharedNotes.oldKeyMove":
+    "Αυτή η σημείωση γράφτηκε με παλιό κλειδί, οπότε η προέλευσή της είναι αβέβαιη. Σε αυτόν τον υπολογιστή χάνει τη σήμανση. Έλεγξέ τη πριν τη μετακινήσεις.",
+  "sharedNotes.moveAnyway": "Μετακίνηση παρ' όλα αυτά",
+  "sharedNotes.restoreOldKey":
+    "Δεν επαναφέρθηκε: αυτή η σημείωση γράφτηκε με παλιό κλειδί και η ίδια σημείωση βρίσκεται ξανά στον φάκελο. Διάγραψε πρώτα εκείνη.",
   "sharedNotes.teamOffLine": "Μοιράσου σημειώσεις κρυπτογραφημένες με όλους στο «{project}».",
   "sharedNotes.askManager":
     "Ζήτα από έναν ιδιοκτήτη ή διαχειριστή του «{project}» να ενεργοποιήσει τις κοινόχρηστες σημειώσεις.",
@@ -9672,6 +9699,15 @@ const es: Record<MessageKey, string> = {
     "Las notas compartidas del equipo necesitan un servidor del equipo más reciente.",
   "sharedNotes.renewing":
     "La clave se está renovando. Guardar está en pausa hasta que un propietario o administrador la renueve.",
+  "sharedNotes.oldKey": "Escrita con una clave antigua. Su origen es incierto.",
+  "sharedNotes.oldKeyLabel": "Clave antigua, origen incierto",
+  "sharedNotes.oldKeySend":
+    "Esta nota se escribió con una clave antigua, así que su origen es incierto. Revísala antes de enviarla.",
+  "sharedNotes.oldKeyMove":
+    "Esta nota se escribió con una clave antigua, así que su origen es incierto. En este equipo pierde la marca. Revísala antes de moverla.",
+  "sharedNotes.moveAnyway": "Mover de todos modos",
+  "sharedNotes.restoreOldKey":
+    "No se restauró: esta nota se escribió con una clave antigua y la misma nota vuelve a estar en la carpeta. Borra primero esa.",
   "sharedNotes.teamOffLine": "Comparte notas cifradas con todos en {project}.",
   "sharedNotes.askManager":
     "Pide a un propietario o administrador de {project} que active las notas compartidas.",
@@ -12116,6 +12152,15 @@ const fr: Record<MessageKey, string> = {
     "Les notes d'équipe partagées nécessitent un serveur d'équipe plus récent.",
   "sharedNotes.renewing":
     "La clé est en cours de renouvellement. L'enregistrement est en pause jusqu'à ce qu'un propriétaire ou un admin l'ait renouvelée.",
+  "sharedNotes.oldKey": "Écrite avec une ancienne clé. Son origine est incertaine.",
+  "sharedNotes.oldKeyLabel": "Ancienne clé, origine incertaine",
+  "sharedNotes.oldKeySend":
+    "Cette note a été écrite avec une ancienne clé, son origine est donc incertaine. Vérifie-la avant de l'envoyer.",
+  "sharedNotes.oldKeyMove":
+    "Cette note a été écrite avec une ancienne clé, son origine est donc incertaine. Sur cet ordinateur, elle perd sa marque. Vérifie-la avant de la déplacer.",
+  "sharedNotes.moveAnyway": "Déplacer quand même",
+  "sharedNotes.restoreOldKey":
+    "Non restaurée : cette note a été écrite avec une ancienne clé et la même note est de retour dans le dossier. Supprime d'abord celle-ci.",
   "sharedNotes.teamOffLine": "Partage des notes chiffrées avec tous les membres de {project}.",
   "sharedNotes.askManager":
     "Demande à un propriétaire ou un admin de {project} d'activer les notes partagées.",
@@ -14535,6 +14580,15 @@ const it: Record<MessageKey, string> = {
   "sharedNotes.oldServer": "Le note condivise del team richiedono un server del team più recente.",
   "sharedNotes.renewing":
     "La chiave è in fase di rinnovo. Il salvataggio è in pausa finché un proprietario o admin non l'ha rinnovata.",
+  "sharedNotes.oldKey": "Scritta con una chiave vecchia. La sua origine è incerta.",
+  "sharedNotes.oldKeyLabel": "Chiave vecchia, origine incerta",
+  "sharedNotes.oldKeySend":
+    "Questa nota è stata scritta con una chiave vecchia, quindi la sua origine è incerta. Controllala prima di inviarla.",
+  "sharedNotes.oldKeyMove":
+    "Questa nota è stata scritta con una chiave vecchia, quindi la sua origine è incerta. Su questo computer perde il contrassegno. Controllala prima di spostarla.",
+  "sharedNotes.moveAnyway": "Sposta comunque",
+  "sharedNotes.restoreOldKey":
+    "Non ripristinata: questa nota è stata scritta con una chiave vecchia e la stessa nota è di nuovo nella cartella. Elimina prima quella.",
   "sharedNotes.teamOffLine": "Condividi note cifrate con tutti in {project}.",
   "sharedNotes.askManager":
     "Chiedi a un proprietario o admin di {project} di attivare le note condivise.",
@@ -16951,6 +17005,15 @@ const ja: Record<MessageKey, string> = {
   "sharedNotes.oldServer": "チームの共有メモには、より新しいチームサーバーが必要です。",
   "sharedNotes.renewing":
     "キーを更新中です。オーナーまたは管理者が更新するまで、保存は一時停止しています。",
+  "sharedNotes.oldKey": "古い鍵で書かれています。作成者は確かではありません。",
+  "sharedNotes.oldKeyLabel": "古い鍵、作成者は不確か",
+  "sharedNotes.oldKeySend":
+    "このメモは古い鍵で書かれているため、作成者は確かではありません。送信する前に内容を確認してください。",
+  "sharedNotes.oldKeyMove":
+    "このメモは古い鍵で書かれているため、作成者は確かではありません。このコンピューターに移すと印が消えます。移動する前に内容を確認してください。",
+  "sharedNotes.moveAnyway": "それでも移動",
+  "sharedNotes.restoreOldKey":
+    "復元できませんでした。このメモは古い鍵で書かれており、同じメモがフォルダーに戻っています。先にそちらを削除してください。",
   "sharedNotes.teamOffLine": "{project} の全員とメモを暗号化して共有します。",
   "sharedNotes.askManager":
     "{project} のオーナーまたは管理者に、共有メモをオンにするよう頼んでください。",
@@ -19343,6 +19406,15 @@ const pl: Record<MessageKey, string> = {
   "sharedNotes.oldServer": "Udostępnione notatki zespołu wymagają nowszego serwera zespołu.",
   "sharedNotes.renewing":
     "Klucz jest odnawiany. Zapisywanie jest wstrzymane, dopóki właściciel lub administrator go nie odnowi.",
+  "sharedNotes.oldKey": "Zapisana starym kluczem. Jej pochodzenie jest niepewne.",
+  "sharedNotes.oldKeyLabel": "Stary klucz, niepewne pochodzenie",
+  "sharedNotes.oldKeySend":
+    "Ta notatka została zapisana starym kluczem, więc jej pochodzenie jest niepewne. Sprawdź ją przed wysłaniem.",
+  "sharedNotes.oldKeyMove":
+    "Ta notatka została zapisana starym kluczem, więc jej pochodzenie jest niepewne. Na tym komputerze straci oznaczenie. Sprawdź ją przed przeniesieniem.",
+  "sharedNotes.moveAnyway": "Przenieś mimo to",
+  "sharedNotes.restoreOldKey":
+    "Nie przywrócono: ta notatka została zapisana starym kluczem, a ta sama notatka znów jest w folderze. Najpierw usuń tamtą.",
   "sharedNotes.teamOffLine": "Udostępniaj zaszyfrowane notatki wszystkim w projekcie „{project}”.",
   "sharedNotes.askManager":
     "Poproś właściciela lub administratora projektu „{project}” o włączenie udostępnionych notatek.",
@@ -21749,6 +21821,15 @@ const pt: Record<MessageKey, string> = {
     "As notas compartilhadas da equipe precisam de um servidor da equipe mais recente.",
   "sharedNotes.renewing":
     "A chave está sendo renovada. Salvar está pausado até que um proprietário ou administrador a renove.",
+  "sharedNotes.oldKey": "Escrita com uma chave antiga. A origem é incerta.",
+  "sharedNotes.oldKeyLabel": "Chave antiga, origem incerta",
+  "sharedNotes.oldKeySend":
+    "Esta nota foi escrita com uma chave antiga, então a origem é incerta. Confira antes de enviar.",
+  "sharedNotes.oldKeyMove":
+    "Esta nota foi escrita com uma chave antiga, então a origem é incerta. Neste computador ela perde a marcação. Confira antes de mover.",
+  "sharedNotes.moveAnyway": "Mover mesmo assim",
+  "sharedNotes.restoreOldKey":
+    "Não restaurada: esta nota foi escrita com uma chave antiga e a mesma nota voltou à pasta. Exclua aquela primeiro.",
   "sharedNotes.teamOffLine": "Compartilhe notas criptografadas com todos em {project}.",
   "sharedNotes.askManager":
     "Peça a um proprietário ou administrador de {project} para ativar as notas compartilhadas.",
@@ -24132,6 +24213,15 @@ const ru: Record<MessageKey, string> = {
   "sharedNotes.oldServer": "Для общих заметок команды нужен более новый сервер команды.",
   "sharedNotes.renewing":
     "Ключ обновляется. Сохранение приостановлено, пока владелец или администратор его не обновит.",
+  "sharedNotes.oldKey": "Написана старым ключом. Её происхождение не подтверждено.",
+  "sharedNotes.oldKeyLabel": "Старый ключ, происхождение не подтверждено",
+  "sharedNotes.oldKeySend":
+    "Эта заметка написана старым ключом, поэтому её происхождение не подтверждено. Проверь её перед отправкой.",
+  "sharedNotes.oldKeyMove":
+    "Эта заметка написана старым ключом, поэтому её происхождение не подтверждено. На этом компьютере отметка пропадёт. Проверь её перед переносом.",
+  "sharedNotes.moveAnyway": "Всё равно перенести",
+  "sharedNotes.restoreOldKey":
+    "Не восстановлено: эта заметка написана старым ключом, а та же заметка снова в папке. Сначала удали ту.",
   "sharedNotes.teamOffLine": "Делись зашифрованными заметками со всеми в проекте «{project}».",
   "sharedNotes.askManager":
     "Попроси владельца или администратора проекта «{project}» включить общие заметки.",
@@ -26503,6 +26593,15 @@ const tr: Record<MessageKey, string> = {
   "sharedNotes.oldServer": "Paylaşılan ekip notları daha yeni bir ekip sunucusu gerektirir.",
   "sharedNotes.renewing":
     "Anahtar yenileniyor. Bir sahip veya yönetici yenileyene kadar kaydetme duraklatıldı.",
+  "sharedNotes.oldKey": "Eski bir anahtarla yazılmış. Kaynağı belirsiz.",
+  "sharedNotes.oldKeyLabel": "Eski anahtar, kaynağı belirsiz",
+  "sharedNotes.oldKeySend":
+    "Bu not eski bir anahtarla yazılmış, bu yüzden kaynağı belirsiz. Göndermeden önce kontrol et.",
+  "sharedNotes.oldKeyMove":
+    "Bu not eski bir anahtarla yazılmış, bu yüzden kaynağı belirsiz. Bu bilgisayarda işaretini kaybeder. Taşımadan önce kontrol et.",
+  "sharedNotes.moveAnyway": "Yine de taşı",
+  "sharedNotes.restoreOldKey":
+    "Geri yüklenmedi: bu not eski bir anahtarla yazılmış ve aynı not klasöre geri geldi. Önce onu sil.",
   "sharedNotes.teamOffLine": "Notları “{project}” projesindeki herkesle şifreli olarak paylaş.",
   "sharedNotes.askManager":
     "“{project}” projesinin bir sahibinden veya yöneticisinden paylaşılan notları açmasını iste.",
@@ -28742,6 +28841,14 @@ const zh: Record<MessageKey, string> = {
   "sharedNotes.waiting": "这台电脑连接到 {project} 后，共享笔记就会打开。",
   "sharedNotes.oldServer": "团队共享笔记需要更新版本的团队服务器。",
   "sharedNotes.renewing": "正在更新密钥。在所有者或管理员完成更新之前，保存已暂停。",
+  "sharedNotes.oldKey": "用旧密钥写入，来源不确定。",
+  "sharedNotes.oldKeyLabel": "旧密钥，来源不确定",
+  "sharedNotes.oldKeySend": "这条笔记是用旧密钥写入的，来源不确定。发送前请先检查。",
+  "sharedNotes.oldKeyMove":
+    "这条笔记是用旧密钥写入的，来源不确定。移到这台电脑后将不再有标记。移动前请先检查。",
+  "sharedNotes.moveAnyway": "仍然移动",
+  "sharedNotes.restoreOldKey":
+    "未恢复：这条笔记是用旧密钥写入的，且同一条笔记已回到文件夹中。请先删除那一条。",
   "sharedNotes.teamOffLine": "与 {project} 中的所有人加密共享笔记。",
   "sharedNotes.askManager": "请让 {project} 的所有者或管理员开启共享笔记。",
   "sharedNotes.updateServer": "更新团队服务器后，无需代码即可与 {project} 共享这些笔记。",

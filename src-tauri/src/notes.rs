@@ -99,6 +99,11 @@ pub struct NoteInfo {
     /// Unix time in milliseconds (modification time of the file).
     pub updated_at: Option<u64>,
     pub order: u32,
+    /// A shared team note sealed with a key older than the team's newest one: written by
+    /// someone who held that key, possibly after leaving the team (ADR 0006, "Old keys").
+    /// Never set for private notes; left out of the JSON when false.
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    pub old_key: bool,
 }
 
 /// A hit of [`NotesStore::search`].
@@ -865,6 +870,7 @@ impl NotesStore {
                 title: n.title.clone(),
                 updated_at: modified(&opened.file(n)),
                 order: n.order,
+                old_key: false,
             })
             .collect();
         notes.sort_by(|a, b| a.order.cmp(&b.order).then_with(|| a.title.cmp(&b.title)));

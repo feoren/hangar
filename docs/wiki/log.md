@@ -1678,3 +1678,13 @@ binding needed, device identity per relay base). Updated: [[relay-v3-server-spec
 The server already has migrations 0012 to 0015, among them `0014_blobs_member_index.sql` with
 `relay_blobs_member`. The proof table becomes the next free migration (0016 when written), and
 no index migration is needed. Updated: [[relay-v3-server-spec]], [[0020-proof-of-possession-at-hello]], index.
+
+## [2026-11-25] query | Shared notes under old keys after a removal
+Closed a security finding: a removed member who can still push could plant notes with an old
+notes key. Notes this computer knew move to the new key after a removal, others under an old key
+are marked and "Send to" asks first; old means every team key but the newest, justified without
+new ring metadata. Found and fixed on the way: from the 13th key on, writes used the team's oldest
+key (cache merged the wrong way round). Residual risk until signed authorship stated.
+After review: restoring an unknown old-key note under a new id is refused, a `vault.json` move
+learns notes only like a scan, and moving a marked note to this computer asks first.
+Updated: [[0006-encrypted-project-notes]], [[team-crypto]], [[notes]], index.

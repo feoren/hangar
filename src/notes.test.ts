@@ -13,6 +13,8 @@ import {
   sameNote,
   titleFromText,
   untitledTitle,
+  oldKeyQuestion,
+  withOldKeys,
 } from "./notes";
 
 describe("parseNoteFolders", () => {
@@ -45,6 +47,29 @@ describe("parseNotes", () => {
       ]).map((note) => note.title),
     ).toEqual(["One", "Two"]);
     expect(parseNotes(null)).toEqual([]);
+  });
+
+  it("marks only notes the backend reports with an old key", () => {
+    const notes = parseNotes([
+      { id: "a", title: "One", updatedAt: 1, order: 1, oldKey: true },
+      { id: "b", title: "Two", updatedAt: 2, order: 2 },
+      { id: "c", title: "Three", updatedAt: 3, order: 3, oldKey: "yes" },
+    ]);
+    expect(notes.map((note) => note.oldKey)).toEqual([true, false, false]);
+  });
+});
+
+describe("withOldKeys", () => {
+  it("follows the listed notes and keeps the others", () => {
+    const known = new Set(["x", "y"]);
+    const next = withOldKeys(known, [
+      ["x", false],
+      ["z", true],
+    ]);
+    expect([...next].sort()).toEqual(["y", "z"]);
+    expect(known.has("x")).toBe(true);
+    // Nothing changed: the same set, so no new render.
+    expect(withOldKeys(known, [["y", true]])).toBe(known);
   });
 });
 
@@ -155,5 +180,26 @@ describe("parseTrash", () => {
       parseTrash([{ id: "1", title: "Gone", deletedAt: 5 }, { id: "", title: "x" }, { id: "2" }]),
     ).toEqual([{ id: "1", title: "Gone", deletedAt: 5 }]);
     expect(parseTrash({})).toEqual([]);
+  });
+});
+
+describe("oldKeyQuestion", () => {
+  it("asks before a note with an old key is sent or moved to this computer", () => {
+    const send = { kind: "send", sessionId: 3 } as const;
+    const toLocal = { kind: "move", to: { path: "C:/repo" } } as const;
+    const toShared = { kind: "move", to: { path: "C:/repo", shared: true } } as const;
+    expect(oldKeyQuestion(true, send)).toEqual({
+      text: "sharedNotes.oldKeySend",
+      confirm: "paste.sendAnyway",
+    });
+    expect(oldKeyQuestion(true, toLocal)).toEqual({
+      text: "sharedNotes.oldKeyMove",
+      confirm: "sharedNotes.moveAnyway",
+    });
+    // Into the shared notes the note gets the newest key; nothing to warn about.
+    expect(oldKeyQuestion(true, toShared)).toBeNull();
+    // Without an old key nothing asks.
+    expect(oldKeyQuestion(false, send)).toBeNull();
+    expect(oldKeyQuestion(false, toLocal)).toBeNull();
   });
 });

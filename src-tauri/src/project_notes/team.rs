@@ -119,6 +119,8 @@ fn team_account(key: &str) -> String {
 pub(super) struct TeamRing {
     pub ring: Option<KeyRing>,
     pub stale: bool,
+    /// This run verified the team's log, so `stale` reflects the log, not a stored decision.
+    pub verified: bool,
 }
 
 /// Why a team vault does not open.
@@ -217,18 +219,23 @@ impl ProjectNotes {
             _ => None,
         };
         let view = team.view.as_ref();
-        let mut ring = cached.as_ref().map(|c| c.ring.clone());
-        if let Some(live) = view.and_then(|v| v.ring.as_ref()) {
-            match &mut ring {
-                None => ring = Some(live.clone()),
-                Some(mine) => {
-                    if mine.merge(live).is_err() {
-                        // A cached key with other bytes than the team's: the team wins.
-                        ring = Some(live.clone());
-                    }
+        // The team's ring comes first and the cache is merged into it, never the other way:
+        // merging puts the keys a ring lacks behind its own, so a cache of the newest keys with
+        // the team's whole ring merged in would end in the team's oldest key, and new notes
+        // would be sealed with it. Cached keys the team's ring lacks are newer than it (an old
+        // record shown again) and rightly go behind.
+        let ring = match (view.and_then(|v| v.ring.as_ref()), &cached) {
+            (Some(live), Some(cache)) => {
+                let mut ring = live.clone();
+                if ring.merge(&cache.ring).is_err() {
+                    // A cached key with other bytes than the team's: the team wins.
+                    ring = live.clone();
                 }
+                Some(ring)
             }
-        }
+            (Some(live), None) => Some(live.clone()),
+            (None, cache) => cache.as_ref().map(|c| c.ring.clone()),
+        };
         let fresh = match (
             cached.as_ref().and_then(|c| c.fresh),
             view.and_then(|v| v.fresh),
@@ -254,7 +261,11 @@ impl ProjectNotes {
                 }
             }
         }
-        TeamRing { ring, stale }
+        TeamRing {
+            ring,
+            stale,
+            verified: view.is_some_and(|v| v.log_epoch.is_some()),
+        }
     }
 
     /// The team vault's ring, or why it does not open.
@@ -388,6 +399,9 @@ impl ProjectNotes {
         if !matches!(open.vault.mode, VaultMode::Solo { .. }) {
             return Err(ProjectNotesError::AlreadyOn);
         }
+        // Only the owner holds a solo key: every note it opens is known, so the status after the
+        // switch moves them all to the team's newest key instead of marking them.
+        self.scan_known(&open)?;
         let team = self
             .linked_team(&open.project)
             .ok_or(ProjectNotesError::NotLinked)?;

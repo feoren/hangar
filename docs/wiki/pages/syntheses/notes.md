@@ -4,7 +4,7 @@ type: synthesis
 tags: [notes, contract]
 sources: ["[[notes-and-start-usability]]", "[[note-gitattributes-measurement]]"]
 created: 2026-11-07
-updated: 2026-11-22
+updated: 2026-11-25
 ---
 
 # Notes (contract)
@@ -243,3 +243,16 @@ team ([[0006-encrypted-project-notes]], "Phase 2 design" and "Phase 2 as built")
 means the clone is linked but this computer has no key yet, `oldServer` a team server of
 protocol version 1. While `renewing` is true every save, create, rename and restore answers
 "Waiting for an owner or admin to renew the notes key; saving is paused"; reading goes on.
+
+Old keys ([[0006-encrypted-project-notes]], "Old keys after a removal"): `list_notes` items of a
+team vault carry `oldKey: true` when the note is sealed with another key than the ring's newest
+(left out when false, never set for private or solo notes). `shared_notes_status` re-encrypts,
+under the newest key, every note under an old key whose exact file this computer knew (record
+`notes/shared/<vault id>/seen` in the app data folder), one file at a time, never while
+`renewing` and never a note whose conflict is left to Git; `uncommitted` counts those files. A
+conflict side under an old key is kept under the note's id and never re-encrypted as the copy;
+both sides old and different stay for Git. `restore_note` refuses a team note under an old key
+that this computer did not know when its id is taken again (`[notes_restore_old_key]`), since a
+new id means a new encryption. The window marks such notes in the list (warning sign,
+"Old key, origin uncertain"), shows one line in the open note and asks before "Send to"
+(Cancel, "Send anyway") and before "Move to this computer" (Cancel, "Move anyway").

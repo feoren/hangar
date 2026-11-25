@@ -442,6 +442,10 @@ Adds to the relay's view in [[team-protocol]] (threat model section):
   signed a head for shows as held back history. It can replay old records (the app's `ReplayGuard` refuses them where order holds),
   and drop or delay anything.
 - **Members** keep what they saw after removal; the next rotation locks them out of new content.
+  Shared project notes are authenticated by the notes key, not signed: a removed member keeps the
+  old notes keys, so notes under an old key are re-encrypted only when the app knew them and are
+  otherwise marked as of uncertain origin ([[0006-encrypted-project-notes]], "Old keys after a
+  removal").
   A removed device can still seal records naming an old log head until the next rotation (the
   relay refuses content of an old epoch afterwards). A compromised device has its keys and is out
   of scope.
