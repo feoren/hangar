@@ -1643,3 +1643,9 @@ limits in [[agent-gate-adapters]], and stated the notice token's residual risk i
 ## [2026-11-25] query | README scenes for 0.16.0
 The 0.16.0 screenshots replace `link-add` and `recently-opened` with `team-notes` and
 `home-glyphs` and show visitor figures in `sub-agents`. Updated: [[release-rollout]].
+
+## [2026-11-25] query | Sub-agent library folders the backend knows
+The library listed project definitions from a worktree session's main repository and from the
+chosen, not yet started target, while `open_sub_agent` and `set_sub_agent_model` refused them.
+`known_folders` now adds the main repository of sessions in Hangar's worktrees; the listing names
+the folders that take an open or model change (`editable`). Updated: [[sub-agent-library]].

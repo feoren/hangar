@@ -27,6 +27,7 @@ import {
 import {
   BUILTIN_FIGURES,
   DEF_TEMPLATE,
+  defEditable,
   defFigure,
   figureErrorCode,
   FIGURE_TYPES,
@@ -947,13 +948,17 @@ function ClaudeDetails({ entry }: { entry: LibraryEntry }) {
       ),
     ),
   ];
+  const def = entry.global ?? entry.def;
+  const folder = def.scope === "global" ? null : def.folder;
+  // A folder chosen for the next start is listed before the backend knows it: it opens and
+  // changes nothing there yet, so neither is offered.
+  const editable = defEditable(library, folder);
   const fail = (e: unknown) => {
     setProblem(parseDefError(e)?.message ?? errorText(e));
   };
   const open = () => {
     setProblem(null);
-    const def = entry.global ?? entry.def;
-    api.openSubAgent(entry.name, def.scope === "global" ? null : def.folder).catch(fail);
+    api.openSubAgent(entry.name, folder).catch(fail);
   };
   const remove = () => {
     setConfirming(false);
@@ -962,7 +967,6 @@ function ClaudeDetails({ entry }: { entry: LibraryEntry }) {
       .then(() => refreshLibrary())
       .catch(fail);
   };
-  const def = entry.global ?? entry.def;
   // Copies exist of global definitions only, and only for programs Hangar hands them to.
   const copies =
     entry.global === null || !provides(library, "codex") ? null : copiesOf(library, entry.name);
@@ -986,20 +990,19 @@ function ClaudeDetails({ entry }: { entry: LibraryEntry }) {
       <div className="sub-agent-models">
         <span className="sub-agent-model">
           <span className="muted">{PROGRAM_NAMES.claude}</span>
-          <ModelField
-            program="claude"
-            value={{ model: def.model, effort: null }}
-            label={t("subAgentLib.modelOf", { name: entry.name })}
-            onChange={(choice) => {
-              setProblem(null);
-              models.change(
-                "claude",
-                entry.name,
-                def.scope === "global" ? null : def.folder,
-                choice,
-              );
-            }}
-          />
+          {editable ? (
+            <ModelField
+              program="claude"
+              value={{ model: def.model, effort: null }}
+              label={t("subAgentLib.modelOf", { name: entry.name })}
+              onChange={(choice) => {
+                setProblem(null);
+                models.change("claude", entry.name, folder, choice);
+              }}
+            />
+          ) : (
+            <span>{modelText(def.model, t)}</span>
+          )}
         </span>
         {copies !== null && (
           <span className="sub-agent-model">
@@ -1036,15 +1039,22 @@ function ClaudeDetails({ entry }: { entry: LibraryEntry }) {
       {/* Copies exist of global definitions only. */}
       {entry.global !== null && <MarkdownCopies library={library} name={entry.name} />}
       {models.question}
+      {!editable && (
+        <p className="muted">
+          {t("subAgentLib.startToEdit", { folder: folderName(folder ?? "") })}
+        </p>
+      )}
       <div className="sub-agent-actions">
-        <button
-          type="button"
-          className="link-button"
-          title={t("subAgentLib.openHelp")}
-          onClick={open}
-        >
-          {t("subAgentLib.open")}
-        </button>
+        {editable && (
+          <button
+            type="button"
+            className="link-button"
+            title={t("subAgentLib.openHelp")}
+            onClick={open}
+          >
+            {t("subAgentLib.open")}
+          </button>
+        )}
         {/* Only Hangar's own agents wear figures, so only they can pick one. */}
         {isHangarAgent(entry.name) && (
           <button
@@ -1101,6 +1111,7 @@ function CodexDetails({ def }: { def: CodexDef }) {
   const { library } = useSubAgentLibrary();
   const [problem, setProblem] = useState<string | null>(null);
   const models = useModelChange(setProblem);
+  const editable = defEditable(library, def.folder);
   const place =
     def.folder === null
       ? t("subAgentLib.global")
@@ -1115,19 +1126,28 @@ function CodexDetails({ def }: { def: CodexDef }) {
       <p className="sub-agent-details-description">{def.description}</p>
       <div className="sub-agent-models">
         <span className="sub-agent-model">
-          <ModelField
-            program="codex"
-            value={{ model: def.model, effort: def.effort }}
-            suggestions={codexSuggestions(library, library.codexModels)}
-            label={t("subAgentLib.modelOf", { name: def.name })}
-            onChange={(choice) => {
-              setProblem(null);
-              models.change("codex", def.name, def.folder, choice);
-            }}
-          />
+          {editable ? (
+            <ModelField
+              program="codex"
+              value={{ model: def.model, effort: def.effort }}
+              suggestions={codexSuggestions(library, library.codexModels)}
+              label={t("subAgentLib.modelOf", { name: def.name })}
+              onChange={(choice) => {
+                setProblem(null);
+                models.change("codex", def.name, def.folder, choice);
+              }}
+            />
+          ) : (
+            <span>{modelText(def.model, t)}</span>
+          )}
         </span>
       </div>
       {models.question}
+      {!editable && (
+        <p className="muted">
+          {t("subAgentLib.startToEdit", { folder: folderName(def.folder ?? "") })}
+        </p>
+      )}
       {problem !== null && <p className="muted error-text">{problem}</p>}
     </>
   );

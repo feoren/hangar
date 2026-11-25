@@ -310,6 +310,42 @@ describe("SubAgentSettings", () => {
     expect(document.activeElement).toBe(button(t("subAgentLib.new")));
   });
 
+  it("offers open and model change only in folders the backend knows", async () => {
+    const reviewer = {
+      name: "reviewer",
+      description: "Reviews changes",
+      model: "sonnet",
+      color: null,
+      tools: [],
+      scope: "project" as const,
+      folder: "C:\\Work\\Chosen",
+      file: "reviewer.md",
+    };
+    // The second render keeps the details open from the first.
+    const openDetails = async (library: Library) => {
+      await render(library);
+      act(() => {
+        [...host.querySelectorAll<HTMLButtonElement>('button[aria-expanded="false"]')]
+          .find((element) => element.textContent.includes("reviewer"))
+          ?.click();
+      });
+    };
+    const modelField = () =>
+      host.querySelector(`[aria-label="${t("subAgentLib.modelOf", { name: "reviewer" })}"]`);
+    const hint = t("subAgentLib.startToEdit", { folder: "Chosen" });
+
+    // Chosen for the next start, not started yet: listed, but nothing that would fail.
+    await openDetails({ ...installed, defs: [reviewer] });
+    expect(button(t("subAgentLib.open"))).toBeUndefined();
+    expect(modelField()).toBeNull();
+    expect(host.textContent).toContain(hint);
+
+    await openDetails({ ...installed, defs: [reviewer], editable: ["C:\\Work\\Chosen"] });
+    expect(button(t("subAgentLib.open"))).toBeDefined();
+    expect(modelField()).not.toBeNull();
+    expect(host.textContent).not.toContain(hint);
+  });
+
   it("folds the files it could not read under their count", async () => {
     await render({
       ...installed,

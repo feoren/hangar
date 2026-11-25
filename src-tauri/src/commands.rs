@@ -908,6 +908,10 @@ pub struct LibraryView {
     md_copies: Vec<agent_provision::MdCopy>,
     /// Global definitions that are Hangar's unchanged bundled copies.
     bundled: Vec<String>,
+    /// The named project folders whose definitions open and take a model change: those the
+    /// backend knows ([`known_folders`]), spelled as the window named them. A folder chosen for
+    /// the next start but not started yet is listed, not editable.
+    editable: Vec<PathBuf>,
 }
 
 /// The global sub-agent definitions and those of the named project folders (at most 32,
@@ -918,11 +922,15 @@ pub async fn sub_agent_library(
     app: tauri::AppHandle,
     manager: Manager<'_>,
     store: State<'_, MainStore>,
+    data: State<'_, Store>,
     folders: Vec<PathBuf>,
 ) -> Result<LibraryView, DefError> {
     let installed = installed_programs(app).await.map_err(DefError::Task)?;
     let off = store.inner().clone();
+    let sessions = session_folders(&manager);
+    let worktrees = worktrees_dir(&data);
     defs_blocking(manager, move |home| {
+        let editable = known_of(&folders, &known_folders(sessions, &worktrees, &off));
         let bundled = bundled_agents::unchanged(home, &off.bundled_manifest());
         let off = off.load_sub_agents().provide_off;
         let targets = agent_provision::targets(&installed, &off);
@@ -939,17 +947,26 @@ pub async fn sub_agent_library(
                 .filter(|program| program.takes_model())
                 .collect(),
             sync_issues: agent_provision::last_issues(),
+            editable,
         })
     })
     .await
 }
 
-/// The project folders the backend knows itself: the sessions' working folders and the stored
-/// start places (favorites, recent). Copies and model changes reach no other project.
-fn known_folders(sessions: Vec<PathBuf>, store: &MainStore) -> Vec<PathBuf> {
+/// The project folders the backend knows itself: the sessions' working folders, the main
+/// repository of each session in one of Hangar's worktrees (`worktrees`, the window shows that
+/// one as the session's project) and the stored start places (favorites, recent). Copies and
+/// model changes reach no other project.
+fn known_folders(
+    sessions: Vec<PathBuf>,
+    worktrees: &std::path::Path,
+    store: &MainStore,
+) -> Vec<PathBuf> {
     let prefs = store.load_prefs().unwrap_or_default();
+    let roots = worktree_roots(&sessions, worktrees);
     sessions
         .into_iter()
+        .chain(roots)
         .chain(
             prefs
                 .favorites
@@ -960,16 +977,43 @@ fn known_folders(sessions: Vec<PathBuf>, store: &MainStore) -> Vec<PathBuf> {
         .collect()
 }
 
+/// The main repositories of the sessions working in Hangar's worktrees, read from each worktree's
+/// `.git` file. Only a folder in the worktrees layout counts, and only when its repo dir name is
+/// that repository's ([`worktree::repo_dir_name`]): a session elsewhere, or a `.git` file turned
+/// towards another repository, adds nothing.
+fn worktree_roots(sessions: &[PathBuf], worktrees: &std::path::Path) -> Vec<PathBuf> {
+    sessions
+        .iter()
+        .filter_map(|cwd| {
+            let (repo_dir, _slug) = worktree::check_layout(worktrees, cwd).ok()?;
+            let root = worktree_cleanup::root_from_dot_git(cwd)?;
+            (worktree::repo_dir_name(&root) == repo_dir).then_some(root)
+        })
+        .collect()
+}
+
+/// The folders of `requested` that are in `known`, as the window spelled them, compared the way
+/// [`agent_provision::permitted`] does.
+fn known_of(requested: &[PathBuf], known: &[PathBuf]) -> Vec<PathBuf> {
+    let known: std::collections::HashSet<String> = known.iter().map(|p| git::path_key(p)).collect();
+    requested
+        .iter()
+        .filter(|path| known.contains(&git::path_key(path)))
+        .cloned()
+        .collect()
+}
+
 /// Whether a definition's project folder named by the window is one the backend knows
 /// ([`known_folders`]); `None` (the global definition) always is.
 fn folder_permitted(
     folder: Option<&std::path::Path>,
     sessions: Vec<PathBuf>,
+    worktrees: &std::path::Path,
     store: &MainStore,
 ) -> bool {
     folder.is_none_or(|folder| {
-        !agent_provision::permitted(&[folder.to_path_buf()], &known_folders(sessions, store))
-            .is_empty()
+        let known = known_folders(sessions, worktrees, store);
+        !agent_provision::permitted(&[folder.to_path_buf()], &known).is_empty()
     })
 }
 
@@ -986,6 +1030,7 @@ pub async fn sync_sub_agents(
     window: tauri::Window,
     manager: Manager<'_>,
     store: State<'_, MainStore>,
+    data: State<'_, Store>,
     folders: Vec<PathBuf>,
 ) -> Result<Vec<agent_provision::Issue>, DefError> {
     main_store::check_main(window.label()).map_err(|_| DefError::WrongWindow)?;
@@ -993,9 +1038,10 @@ pub async fn sync_sub_agents(
         .await
         .map_err(DefError::Task)?;
     let sessions = session_folders(&manager);
+    let worktrees = worktrees_dir(&data);
     let store = store.inner().clone();
     defs_blocking(manager, move |home| {
-        let known = known_folders(sessions, &store);
+        let known = known_folders(sessions, &worktrees, &store);
         let folders = agent_provision::permitted(&folders, &known);
         Ok(sync_all(home, &folders, &installed, &store))
     })
@@ -1027,15 +1073,22 @@ pub async fn create_sub_agent(
     app: tauri::AppHandle,
     manager: Manager<'_>,
     store: State<'_, MainStore>,
+    data: State<'_, Store>,
     text: String,
     replace: bool,
 ) -> Result<AgentDef, DefError> {
     let installed = installed_programs(app).await.map_err(DefError::Task)?;
     let sessions = session_folders(&manager);
+    let worktrees = worktrees_dir(&data);
     let store = store.inner().clone();
     defs_blocking(manager, move |home| {
         let def = agent_defs::create(home, &text, replace)?;
-        sync_all(home, &known_folders(sessions, &store), &installed, &store);
+        sync_all(
+            home,
+            &known_folders(sessions, &worktrees, &store),
+            &installed,
+            &store,
+        );
         Ok(def)
     })
     .await
@@ -1048,14 +1101,21 @@ pub async fn delete_sub_agent(
     app: tauri::AppHandle,
     manager: Manager<'_>,
     store: State<'_, MainStore>,
+    data: State<'_, Store>,
     name: String,
 ) -> Result<(), DefError> {
     let installed = installed_programs(app).await.map_err(DefError::Task)?;
     let sessions = session_folders(&manager);
+    let worktrees = worktrees_dir(&data);
     let store = store.inner().clone();
     defs_blocking(manager, move |home| {
         agent_defs::delete(home, &name)?;
-        sync_all(home, &known_folders(sessions, &store), &installed, &store);
+        sync_all(
+            home,
+            &known_folders(sessions, &worktrees, &store),
+            &installed,
+            &store,
+        );
         Ok(())
     })
     .await
@@ -1069,6 +1129,7 @@ pub async fn set_sub_agent_model(
     window: tauri::Window,
     manager: Manager<'_>,
     store: State<'_, MainStore>,
+    data: State<'_, Store>,
     program: DefProgram,
     name: String,
     folder: Option<PathBuf>,
@@ -1078,9 +1139,10 @@ pub async fn set_sub_agent_model(
 ) -> Result<(), DefError> {
     main_store::check_main(window.label()).map_err(|_| DefError::WrongWindow)?;
     let sessions = session_folders(&manager);
+    let worktrees = worktrees_dir(&data);
     let store = store.inner().clone();
     defs_blocking(manager, move |home| {
-        if !folder_permitted(folder.as_deref(), sessions, &store) {
+        if !folder_permitted(folder.as_deref(), sessions, &worktrees, &store) {
             return Err(DefError::NotFound(name));
         }
         let choice = ModelChoice { model, effort };
@@ -1108,6 +1170,7 @@ pub async fn save_sub_agent_settings(
     window: tauri::Window,
     manager: Manager<'_>,
     store: State<'_, MainStore>,
+    data: State<'_, Store>,
     settings: SubAgentSettings,
 ) -> Result<(), MainStoreError> {
     main_store::check_main(window.label())?;
@@ -1118,10 +1181,16 @@ pub async fn save_sub_agent_settings(
         .await
         .map_err(MainStoreError::Task)?;
     let sessions = session_folders(&manager);
+    let worktrees = worktrees_dir(&data);
     let saved = settings.clone();
     tauri::async_runtime::spawn_blocking(move || {
         store.save_sub_agents(saved)?;
-        sync_all(&home, &known_folders(sessions, &store), &installed, &store);
+        sync_all(
+            &home,
+            &known_folders(sessions, &worktrees, &store),
+            &installed,
+            &store,
+        );
         Ok::<(), MainStoreError>(())
     })
     .await
@@ -1138,14 +1207,16 @@ pub async fn open_sub_agent(
     window: tauri::Window,
     manager: Manager<'_>,
     store: State<'_, MainStore>,
+    data: State<'_, Store>,
     name: String,
     folder: Option<PathBuf>,
 ) -> Result<(), DefError> {
     main_store::check_main(window.label()).map_err(|_| DefError::WrongWindow)?;
     let sessions = session_folders(&manager);
+    let worktrees = worktrees_dir(&data);
     let store = store.inner().clone();
     defs_blocking(manager, move |home| {
-        if !folder_permitted(folder.as_deref(), sessions, &store) {
+        if !folder_permitted(folder.as_deref(), sessions, &worktrees, &store) {
             return Err(DefError::NotFound(name));
         }
         let path = agent_defs::def_path(home, &name, folder.as_deref())?;
@@ -2292,21 +2363,24 @@ pub async fn git_changed_count(
 /// The user's own commits in the repositories of `folders`, for the activity calendar
 /// (git_activity.rs). Folders that are no repository are skipped, not reported. No session
 /// names these folders, so only those the backend knows itself count ([`known_folders`]: the
-/// sessions' folders, favorites and recent folders, exactly what the calendar asks for); the
+/// sessions' folders and the main repositories of worktree sessions, favorites and recent
+/// folders, exactly what the calendar asks for); the
 /// window can narrow the folders git runs in, never point it at another one.
 #[tauri::command]
 pub async fn git_activity(
     manager: Manager<'_>,
     store: State<'_, MainStore>,
+    data: State<'_, Store>,
     folders: Vec<PathBuf>,
 ) -> Result<GitActivity, ActivityError> {
     if folders.len() > git_activity::MAX_FOLDERS {
         return Err(ActivityError::TooManyFolders);
     }
     let sessions = session_folders(&manager);
+    let worktrees = worktrees_dir(&data);
     let store = store.inner().clone();
     tauri::async_runtime::spawn_blocking(move || {
-        let folders = activity_folders(&folders, sessions, &store);
+        let folders = activity_folders(&folders, sessions, &worktrees, &store);
         git_activity::activity(&Git::locate()?, &folders)
     })
     .await
@@ -2317,9 +2391,10 @@ pub async fn git_activity(
 fn activity_folders(
     requested: &[PathBuf],
     sessions: Vec<PathBuf>,
+    worktrees: &std::path::Path,
     store: &MainStore,
 ) -> Vec<PathBuf> {
-    agent_provision::permitted(requested, &known_folders(sessions, store))
+    agent_provision::permitted(requested, &known_folders(sessions, worktrees, store))
 }
 
 /// A working phase of a session ended (`from`, `to` in Unix ms); the window reports one event
@@ -4655,11 +4730,13 @@ mod tests {
             PathBuf::from("C:/Elsewhere"),
             PathBuf::from(r"\\hangar-test.invalid\share"),
         ];
-        let allowed = activity_folders(&requested, vec![PathBuf::from("C:/Work/Session")], &store);
+        let worktrees = dir.path().join("worktrees");
+        let session = || vec![PathBuf::from("C:/Work/Session")];
+        let allowed = activity_folders(&requested, session(), &worktrees, &store);
         assert_eq!(allowed, requested[..3]);
         // Without stored places only the sessions' folders remain.
         let empty = MainStore::new(dir.path().join("empty"));
-        let allowed = activity_folders(&requested, vec![PathBuf::from("C:/Work/Session")], &empty);
+        let allowed = activity_folders(&requested, session(), &worktrees, &empty);
         assert_eq!(allowed, [PathBuf::from("C:/Work/Session")]);
     }
 
@@ -4675,25 +4752,96 @@ mod tests {
             ..MainPrefs::default()
         };
         store.save_prefs(prefs).unwrap();
+        let worktrees = dir.path().join("worktrees");
         let sessions = || vec![PathBuf::from("C:/Work/Session")];
-        assert!(folder_permitted(None, sessions(), &store));
+        assert!(folder_permitted(None, sessions(), &worktrees, &store));
         for known in ["C:/Work/Favorite", "C:/Work/Recent", "C:/Work/Session"] {
             assert!(
-                folder_permitted(Some(std::path::Path::new(known)), sessions(), &store),
+                folder_permitted(
+                    Some(std::path::Path::new(known)),
+                    sessions(),
+                    &worktrees,
+                    &store
+                ),
                 "{known}"
             );
         }
         for unknown in ["C:/Elsewhere", r"\\hangar-test.invalid\share", ""] {
             assert!(
-                !folder_permitted(Some(std::path::Path::new(unknown)), sessions(), &store),
+                !folder_permitted(
+                    Some(std::path::Path::new(unknown)),
+                    sessions(),
+                    &worktrees,
+                    &store
+                ),
                 "{unknown}"
             );
         }
         assert!(!folder_permitted(
             Some(std::path::Path::new("C:/Work/Session")),
             Vec::new(),
+            &worktrees,
             &MainStore::new(dir.path().join("empty"))
         ));
+    }
+
+    /// A session in one of Hangar's worktrees makes its main repository known as well: the
+    /// window lists that folder as the session's project. Only a worktree in Hangar's own folder
+    /// whose repo dir name is that repository's counts; a `.git` file elsewhere, or one turned
+    /// towards another repository, adds nothing.
+    #[test]
+    fn a_worktree_session_makes_its_main_repository_known() {
+        let dir = crate::test_support::TempDir::new("commands-def-worktree");
+        let store = MainStore::new(dir.path().join("main"));
+        let worktrees = dir.path().join("worktrees");
+        let repo = dir.path().join("my repo");
+        let other = dir.path().join("other repo");
+        let linked = |root: &std::path::Path, at: &std::path::Path| {
+            std::fs::create_dir_all(at).unwrap();
+            let gitdir = root.join(".git").join("worktrees").join("feature-abc123");
+            std::fs::write(at.join(".git"), format!("gitdir: {}\n", gitdir.display())).unwrap();
+        };
+        let session = worktrees
+            .join(worktree::repo_dir_name(&repo))
+            .join("feature-abc123");
+        linked(&repo, &session);
+        let permitted = |folder: &std::path::Path, sessions: Vec<PathBuf>| {
+            folder_permitted(Some(folder), sessions, &worktrees, &store)
+        };
+        assert!(permitted(&repo, vec![session.clone()]));
+        assert!(permitted(&session, vec![session.clone()]));
+        assert!(!permitted(&repo, Vec::new()));
+        // The same `.git` file outside Hangar's worktrees folder.
+        let outside = dir.path().join("elsewhere").join("feature-abc123");
+        linked(&repo, &outside);
+        assert!(!permitted(&repo, vec![outside]));
+        // Inside it, but in the folder of another repository.
+        let foreign = worktrees
+            .join(worktree::repo_dir_name(&other))
+            .join("feature-abc123");
+        linked(&repo, &foreign);
+        assert!(!permitted(&repo, vec![foreign]));
+    }
+
+    /// The listing says which of the requested folders take an open or a model change, spelled
+    /// as the window asked: the ones the backend knows, nothing else.
+    #[test]
+    fn the_library_names_the_folders_the_backend_knows() {
+        let requested = [
+            PathBuf::from("C:/Work/Session"),
+            PathBuf::from("C:/Work/Chosen"),
+            PathBuf::from("c:/work/recent/"),
+        ];
+        let known = [
+            PathBuf::from("C:/Work/Session"),
+            PathBuf::from("C:/Work/Recent"),
+        ];
+        let expected: Vec<PathBuf> = if cfg!(any(windows, target_os = "macos")) {
+            vec![requested[0].clone(), requested[2].clone()]
+        } else {
+            vec![requested[0].clone()]
+        };
+        assert_eq!(known_of(&requested, &known), expected);
     }
 
     #[test]
