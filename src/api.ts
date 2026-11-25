@@ -325,6 +325,8 @@ export const api = {
   unwatchSubAgents: (sessionId: number) => invoke<boolean>("unwatch_sub_agents", { sessionId }),
   /** The sessions' newest context use; check with `parseContextSnapshot` (contextUsage.ts). */
   contextUsage: () => invoke<unknown>("context_usage"),
+  /** The sessions' running sub-agents; check with `parseSubAgentCounts` (subAgentCounts.ts). */
+  subAgentCounts: () => invoke<unknown>("sub_agent_counts"),
   /**
    * Tokens and estimated cost per running session and per local day; check with
    * `parseCostReport` (costs.ts). Only sessions whose program keeps readable usage appear.
@@ -1036,6 +1038,8 @@ export const NOTIFICATION_ACTIVATED = "notification-activated";
 export const TRAY_QUIT = "tray-quit";
 /** Event with the sessions' context use (`parseContextSnapshot` in contextUsage.ts). */
 export const CONTEXT_USAGE_CHANGED = "context-usage-changed";
+/** Event with the sessions' running sub-agents (`parseSubAgentCounts` in subAgentCounts.ts). */
+export const SUB_AGENT_COUNTS_CHANGED = "sub-agent-counts-changed";
 /** Signal without payload: the cost report changed; read it with `costReport` (costs.ts). */
 export const COST_USAGE_CHANGED = "cost-usage-changed";
 /** Event with the new power state, sent only on a change (`parsePowerState` in power.ts). */

@@ -221,6 +221,16 @@ pub trait SubAgentSource: Send {
     fn poll_log(&mut self) -> Option<LogBatch> {
         None
     }
+
+    /// How many sub-agents have [`AgentStatus::Running`] right now, the same status
+    /// [`Self::poll`] reports. A source may count without building the snapshot.
+    fn running(&mut self, now: SystemTime) -> usize {
+        self.poll(now)
+            .agents
+            .iter()
+            .filter(|agent| agent.status == AgentStatus::Running)
+            .count()
+    }
 }
 
 /// Messages to a running watch.
@@ -233,6 +243,14 @@ enum Control {
 pub fn source_for(target: &Target, excerpts: bool) -> Box<dyn SubAgentSource> {
     match target.kind {
         SubAgentKind::Claude => Box::new(claude::ClaudeSource::new(target, excerpts)),
+    }
+}
+
+/// A source for [`SubAgentSource::running`] only (the count on a session's sidebar row): it
+/// reads as little as the count needs and never any text.
+pub fn counter_for(target: &Target) -> Box<dyn SubAgentSource> {
+    match target.kind {
+        SubAgentKind::Claude => Box::new(claude::ClaudeSource::counting(target)),
     }
 }
 

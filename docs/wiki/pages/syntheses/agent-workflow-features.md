@@ -911,6 +911,29 @@ menu paste uses the clipboard plugin.
     placeholder, and updated from `restart_session` and from `resumeFallback` (reducer action
     `fellBack`, which also clears `resumed`). A fallback that arrives before `create_session`
     answers is kept on the terminal and applied after the session is added.
+    Count on every row (0.17.0, owner's request: with many sessions one could not see how many
+    sub-agents each one runs): a round red dot with the number of running sub-agents (white on
+    `--subagent-count-bg`, ringed in the sidebar color, "9+" from ten on, no animation; nothing
+    at 0 and nothing once the session has ended, even while its last sub-agents still count as
+    running for up to a minute). It always lies outside the flow, so it takes no width from the
+    row (its right parts stay in line with the next rows, the title line's container queries do
+    not switch): on the top right corner of the program's badge or avatar where the row layout
+    shows one (`badgeCount` of `SessionRowBody`), else at the row's top right corner, below the
+    hover actions; on the collapsed rail on the badge's top right corner. Its tooltip and
+    spoken text name the exact count (`subAgents.runningCount`; the rail button reads it through
+    `aria-describedby`, since its `aria-label` hides its content). Backend
+    (`src-tauri/src/subagent_counts.rs`): one thread for all sessions with a sub-agent source
+    (`context_targets`), every second, through `subagents::counter_for`, a `ClaudeSource` that
+    lists the sub-agent folder and reads the meta files but never reads a transcript (it asks an
+    unfinished one for its time: on NTFS the listing keeps the old time of a file held open for
+    writing until someone opens it, measured on Windows 11). The status
+    is the snapshot's own (`status_of` in `claude.rs`), so stale and finished ones never count.
+    Delivered as the event `sub-agent-counts-changed` (`{ sessions: [{ sessionId, running }] }`,
+    only sessions above 0, sent only on a change) plus the query `sub_agent_counts` for a window
+    that reloads; an event because the counts change rarely and a poll from every row would cost
+    more. While a session is watched (its tree or view is open) the row takes the count from the
+    watch's snapshot instead (`useWatchedRunning`), so the row and its tree change in the same
+    frame.
 
 24. **Clearer attention in the sidebar** (owner's request): the left bar marks only the active
     session; a waiting session gets a status chip at the right ("done", bell icon when the program

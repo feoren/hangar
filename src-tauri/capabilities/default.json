@@ -143,6 +143,7 @@
     "allow-focus-sub-agent",
     "allow-unwatch-sub-agents",
     "allow-context-usage",
+    "allow-sub-agent-counts",
     "allow-cost-report",
     "allow-account-status",
     "allow-account-sign-in",

@@ -164,6 +164,7 @@ const de = {
   "subAgents.all": "Alle Sub-Agents: {count}",
   "subAgents.counts": "läuft: {running} · fertig: {finished}",
   "subAgents.countStale": "keine Aktivität: {stale}",
+  "subAgents.runningCount": "Laufende Sub-Agents: {count}",
   "subAgents.more": "{count} weitere",
   "subAgents.loading": "Suche Sub-Agents …",
   "subAgents.notLocated":
@@ -2615,6 +2616,7 @@ const en: Record<MessageKey, string> = {
   "subAgents.all": "All sub-agents: {count}",
   "subAgents.counts": "running: {running} · finished: {finished}",
   "subAgents.countStale": "no activity: {stale}",
+  "subAgents.runningCount": "Running sub-agents: {count}",
   "subAgents.more": "{count} more",
   "subAgents.loading": "Looking for sub-agents …",
   "subAgents.notLocated":
@@ -5016,6 +5018,7 @@ const el: Record<MessageKey, string> = {
   "subAgents.all": "Όλοι οι υπο-πράκτορες: {count}",
   "subAgents.counts": "εκτελούνται: {running} · ολοκληρώθηκαν: {finished}",
   "subAgents.countStale": "χωρίς δραστηριότητα: {stale}",
+  "subAgents.runningCount": "Υπο-πράκτορες σε εκτέλεση: {count}",
   "subAgents.more": "{count} ακόμη",
   "subAgents.loading": "Αναζήτηση υπο-πρακτόρων …",
   "subAgents.notLocated":
@@ -7495,6 +7498,7 @@ const es: Record<MessageKey, string> = {
   "subAgents.all": "Todos los subagentes: {count}",
   "subAgents.counts": "en ejecución: {running} · terminados: {finished}",
   "subAgents.countStale": "sin actividad: {stale}",
+  "subAgents.runningCount": "Subagentes en ejecución: {count}",
   "subAgents.more": "{count} más",
   "subAgents.loading": "Buscando subagentes …",
   "subAgents.notLocated":
@@ -9947,6 +9951,7 @@ const fr: Record<MessageKey, string> = {
   "subAgents.all": "Tous les sous-agents : {count}",
   "subAgents.counts": "en cours : {running} · terminés : {finished}",
   "subAgents.countStale": "aucune activité : {stale}",
+  "subAgents.runningCount": "Sous-agents en cours : {count}",
   "subAgents.more": "{count} de plus",
   "subAgents.loading": "Recherche des sous-agents …",
   "subAgents.notLocated":
@@ -12425,6 +12430,7 @@ const it: Record<MessageKey, string> = {
   "subAgents.all": "Tutti i sotto-agenti: {count}",
   "subAgents.counts": "in esecuzione: {running} · terminati: {finished}",
   "subAgents.countStale": "nessuna attività: {stale}",
+  "subAgents.runningCount": "Sotto-agenti in esecuzione: {count}",
   "subAgents.more": "altri {count}",
   "subAgents.loading": "Ricerca dei sotto-agenti …",
   "subAgents.notLocated":
@@ -14878,6 +14884,7 @@ const ja: Record<MessageKey, string> = {
   "subAgents.all": "すべてのサブエージェント: {count}",
   "subAgents.counts": "実行中: {running} · 完了: {finished}",
   "subAgents.countStale": "応答なし: {stale}",
+  "subAgents.runningCount": "実行中のサブエージェント: {count}",
   "subAgents.more": "他 {count} 件",
   "subAgents.loading": "サブエージェントを検索中 …",
   "subAgents.notLocated":
@@ -17327,6 +17334,7 @@ const pl: Record<MessageKey, string> = {
   "subAgents.all": "Wszyscy podagenci: {count}",
   "subAgents.counts": "działa: {running} · zakończone: {finished}",
   "subAgents.countStale": "brak aktywności: {stale}",
+  "subAgents.runningCount": "Działający podagenci: {count}",
   "subAgents.more": "jeszcze {count}",
   "subAgents.loading": "Szukam podagentów …",
   "subAgents.notLocated":
@@ -19754,6 +19762,7 @@ const pt: Record<MessageKey, string> = {
   "subAgents.all": "Todos os subagentes: {count}",
   "subAgents.counts": "em execução: {running} · concluídos: {finished}",
   "subAgents.countStale": "sem atividade: {stale}",
+  "subAgents.runningCount": "Subagentes em execução: {count}",
   "subAgents.more": "mais {count}",
   "subAgents.loading": "Procurando subagentes …",
   "subAgents.notLocated":
@@ -22194,6 +22203,7 @@ const ru: Record<MessageKey, string> = {
   "subAgents.all": "Все субагенты: {count}",
   "subAgents.counts": "работают: {running} · завершены: {finished}",
   "subAgents.countStale": "нет активности: {stale}",
+  "subAgents.runningCount": "Работающие субагенты: {count}",
   "subAgents.more": "ещё {count}",
   "subAgents.loading": "Ищу субагентов …",
   "subAgents.notLocated":
@@ -24610,6 +24620,7 @@ const tr: Record<MessageKey, string> = {
   "subAgents.all": "Tüm alt ajanlar: {count}",
   "subAgents.counts": "çalışıyor: {running} · bitti: {finished}",
   "subAgents.countStale": "etkinlik yok: {stale}",
+  "subAgents.runningCount": "Çalışan alt ajanlar: {count}",
   "subAgents.more": "{count} tane daha",
   "subAgents.loading": "Alt ajanlar aranıyor …",
   "subAgents.notLocated": "Ajan henüz kaydını yazmadı. Alt ajanlar ilk isteğinden sonra görünür.",
@@ -27012,6 +27023,7 @@ const zh: Record<MessageKey, string> = {
   "subAgents.all": "全部子代理：{count}",
   "subAgents.counts": "运行中：{running} · 已完成：{finished}",
   "subAgents.countStale": "无活动：{stale}",
+  "subAgents.runningCount": "运行中的子代理：{count}",
   "subAgents.more": "另外 {count} 个",
   "subAgents.loading": "正在查找子代理 …",
   "subAgents.notLocated": "代理尚未写入记录。子代理会在你发出第一条指令后出现。",

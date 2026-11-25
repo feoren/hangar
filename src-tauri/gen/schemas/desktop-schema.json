@@ -1245,6 +1245,12 @@
           "markdownDescription": "Enables the stat_paths command without any pre-configured scope."
         },
         {
+          "description": "Enables the sub_agent_counts command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-sub-agent-counts",
+          "markdownDescription": "Enables the sub_agent_counts command without any pre-configured scope."
+        },
+        {
           "description": "Enables the sub_agent_figures command without any pre-configured scope.",
           "type": "string",
           "const": "allow-sub-agent-figures",
@@ -2527,6 +2533,12 @@
           "type": "string",
           "const": "deny-stat-paths",
           "markdownDescription": "Denies the stat_paths command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the sub_agent_counts command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-sub-agent-counts",
+          "markdownDescription": "Denies the sub_agent_counts command without any pre-configured scope."
         },
         {
           "description": "Denies the sub_agent_figures command without any pre-configured scope.",

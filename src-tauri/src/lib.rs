@@ -91,6 +91,7 @@ pub mod send_bin;
 pub mod server_check;
 pub mod session;
 pub mod single_instance;
+pub mod subagent_counts;
 pub mod subagents;
 pub mod system_usage;
 pub mod team;
@@ -333,6 +334,21 @@ pub fn run() -> tauri::Result<()> {
                 eprintln!("hangar: context meter not started: {error}");
             }
             app.manage(context);
+            // Running sub-agents on every session's row: one thread for all sessions, counts only.
+            let counts = subagent_counts::SubAgentCounts::default();
+            let sessions = app.handle().clone();
+            let events = app.handle().clone();
+            let started = counts.start(
+                move || sessions.state::<SessionManager>().context_targets(),
+                move |snapshot| {
+                    let _ =
+                        events.emit_to(panel_window::MAIN_LABEL, subagent_counts::EVENT, snapshot);
+                },
+            );
+            if let Err(error) = started {
+                eprintln!("hangar: sub-agent counts not started: {error}");
+            }
+            app.manage(counts);
             // Tokens and estimated cost per session and local day: one thread for all sessions,
             // numbers, titles and program names only. Prices: built in, plus the user's
             // model-prices.toml next to profiles.toml.
@@ -808,6 +824,7 @@ pub fn run() -> tauri::Result<()> {
             commands::focus_sub_agent,
             commands::unwatch_sub_agents,
             commands::context_usage,
+            commands::sub_agent_counts,
             commands::cost_report,
             commands::account_status,
             commands::account_sign_in,
@@ -915,6 +932,7 @@ pub fn run() -> tauri::Result<()> {
             // Do not let any agent outlive the app.
             handle.state::<subagents::Watchers>().stop_all();
             handle.state::<context_usage::ContextUsage>().stop();
+            handle.state::<subagent_counts::SubAgentCounts>().stop();
             handle.state::<cost_service::CostService>().stop();
             handle.state::<power::PowerMonitor>().stop();
             handle.state::<telemetry_service::TelemetryService>().stop();
