@@ -3210,11 +3210,13 @@ mod tests {
     /// Windows lets a second socket with `SO_REUSEADDR` bind a port another one listens on
     /// unless the first holds it with `SO_EXCLUSIVEADDRUSE`, by the documentation. Measured on
     /// Windows 11 with std's listener (no `SO_EXCLUSIVEADDRUSE`): the same address is refused
-    /// (`WSAEACCES`), and a wildcard bind of the port succeeds but gets none of the connections
-    /// to 127.0.0.1, which go to the more specific listener. Kept as a guard should that change.
+    /// (`WSAEACCES`), and a wildcard bind of the port gets none of the connections to 127.0.0.1
+    /// (claude-repo-settings-hooks-measurement). Only the first part is kept as a guard: a test
+    /// that listens on the wildcard address makes Windows Firewall ask about every new test
+    /// binary.
     #[cfg(windows)]
     #[test]
-    fn no_other_socket_takes_the_endpoints_connections() {
+    fn no_other_socket_binds_the_endpoints_address() {
         use socket2::{Domain, Socket, Type};
         let fixture = fixture(DECISION_TIMEOUT);
         fixture.service.configure(true);
@@ -3226,23 +3228,6 @@ mod tests {
             same.bind(&address.into()).is_err(),
             "the same address was bound"
         );
-
-        let wildcard = Socket::new(Domain::IPV4, Type::STREAM, None).unwrap();
-        wildcard.set_reuse_address(true).unwrap();
-        let any = SocketAddr::from((Ipv4Addr::UNSPECIFIED, port));
-        if wildcard.bind(&any.into()).is_ok() {
-            wildcard.listen(8).unwrap();
-            wildcard.set_nonblocking(true).unwrap();
-            for _ in 0..3 {
-                let client = TcpStream::connect(address).unwrap();
-                thread::sleep(Duration::from_millis(100));
-                assert!(
-                    wildcard.accept().is_err(),
-                    "the wildcard socket took a connection"
-                );
-                drop(client);
-            }
-        }
     }
 
     /// A tool hook's strings (command, path) are kept whole while its body is parsed, so its

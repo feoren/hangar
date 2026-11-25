@@ -1648,3 +1648,9 @@ The 0.16.0 screenshots replace `link-add` and `recently-opened` with `team-notes
 Members can link further: "Link with …" on a member adds sessions or merges its group with
 another, and Ctrl+click on members of two groups merges them, using the existing unlink and add
 steps. Ctrl+click is named in the session menu. Updated: [[0014-session-links]].
+
+## [2026-11-25] query | Sub-agent library folders the backend knows
+The library listed project definitions from a worktree session's main repository and from the
+chosen, not yet started target, while `open_sub_agent` and `set_sub_agent_model` refused them.
+`known_folders` now adds the main repository of sessions in Hangar's worktrees; the listing names
+the folders that take an open or model change (`editable`). Updated: [[sub-agent-library]].

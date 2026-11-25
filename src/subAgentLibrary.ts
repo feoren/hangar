@@ -144,6 +144,12 @@ export interface Library {
   mdCopies: MdCopy[];
   /** Global definitions that are Hangar's unchanged bundled copies. */
   bundled: string[];
+  /**
+   * The project folders whose definitions open and take a model change (Rust
+   * `LibraryView::editable`): those the backend knows. A folder chosen but not started yet is
+   * listed without them.
+   */
+  editable: string[];
 }
 
 export const EMPTY_LIBRARY: Library = {
@@ -156,6 +162,7 @@ export const EMPTY_LIBRARY: Library = {
   syncIssues: [],
   mdCopies: [],
   bundled: [],
+  editable: [],
 };
 
 /** Rust `FigureView`: a chosen figure. */
@@ -456,6 +463,14 @@ function samePath(a: string, b: string): boolean {
       .replace(/\\/g, "/")
       .toLowerCase();
   return norm(a) === norm(b);
+}
+
+/**
+ * Whether the backend opens and changes a definition's file: a global one (`folder` is `null`)
+ * always, a project's only in a folder it knows.
+ */
+export function defEditable(library: Library, folder: string | null): boolean {
+  return folder === null || library.editable.some((known) => samePath(known, folder));
 }
 
 /**
@@ -766,6 +781,7 @@ export function parseLibrary(value: unknown): Library | null {
     syncIssues: issues(field(value, "syncIssues")),
     mdCopies: mdCopies(field(value, "mdCopies")),
     bundled: strings(field(value, "bundled"), 64).filter(validAgentName).slice(0, 64),
+    editable: strings(field(value, "editable"), 4096).slice(0, 32),
   };
 }
 

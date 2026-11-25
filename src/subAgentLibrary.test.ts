@@ -8,6 +8,7 @@ import {
   DEF_TEMPLATE,
   EMPTY_LIBRARY,
   defaultFigure,
+  defEditable,
   defFigure,
   defsFor,
   firstLine,
@@ -282,6 +283,24 @@ describe("Hangar's bundled definitions", () => {
     expect(marked).toEqual(["backend"]);
     // An older backend sends no list: nothing is marked.
     expect(parseLibrary({ defs: [], problems: [] })?.bundled).toEqual([]);
+  });
+});
+
+describe("definitions the backend opens and changes", () => {
+  it("are the global ones and those of the folders it knows", () => {
+    const parsed = parseLibrary({
+      defs: [],
+      problems: [],
+      editable: ["C:\\Work\\Session", 7, "x".repeat(5000)],
+    });
+    expect(parsed?.editable).toEqual(["C:\\Work\\Session"]);
+    const library = parsed ?? EMPTY_LIBRARY;
+    expect(defEditable(library, null)).toBe(true);
+    expect(defEditable(library, "c:/work/session/")).toBe(true);
+    // Chosen for the next start, not started yet: listed, not editable.
+    expect(defEditable(library, "C:/Work/Chosen")).toBe(false);
+    // An older backend names none: project files offer neither.
+    expect(parseLibrary({ defs: [], problems: [] })?.editable).toEqual([]);
   });
 });
 

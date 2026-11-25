@@ -4,7 +4,7 @@ type: synthesis
 tags: [agents, claude-code, sub-agents, settings, figures]
 sources: [[claude-agent-flag-measurement]], [[claude-agent-frontmatter-reading]], [[sub-agent-models-research]], [[codex-subagent-model-measurement]], [[sub-agent-formats-measurement]], [[figure-motion-measurement-2026-11-22]]
 created: 2026-11-15
-updated: 2026-11-22
+updated: 2026-11-25
 ---
 
 # Sub-agent library and figures
@@ -328,10 +328,15 @@ repository.
   set of folders changes or Settings opens (`sync_sub_agents(folders)`). One run at a time
   (`run_lock`, also held by a model change of a copy). No watcher.
 - **Which folders:** the global `~/.codex/agents` and the `.codex/agents` of project folders the
-  backend knows itself: the sessions' working folders and the stored start places (favorites,
-  recent, `MainPrefs`). Folders the window names count only where they are among them
-  (`permitted`); the same holds for a model change of a project's file, which is also refused
-  when the project's `.claude`, `.codex` or their `agents` folder is a link.
+  backend knows itself (`known_folders`): the sessions' working folders, the main repository of
+  each session in one of Hangar's worktrees (read from the worktree's `.git` file, counted only
+  when the worktree's repo dir name is that repository's) and the stored start places
+  (favorites, recent, `MainPrefs`). Folders the window names count only where they are among them
+  (`permitted`); the same holds for opening a project's file and for a model change of it, which
+  is also refused when the project's `.claude`, `.codex` or their `agents` folder is a link. The
+  listing names these folders (`editable`): a folder chosen for the next start but not started
+  yet is listed without the open button and the model field, with a hint to start a session
+  there.
 - **Which programs:** every installed catalog program whose `agent_program` is not Claude Code
   and whose format was measured: Codex CLI, GitHub Copilot CLI from 1.0.114, OpenCode from 2.3.2
   and Gemini CLI from 0.70.0 ([[sub-agent-formats-measurement]]). The three Markdown programs
