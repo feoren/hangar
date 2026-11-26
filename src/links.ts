@@ -439,12 +439,18 @@ export function heldBySession(
   messages: readonly LinkMessage[],
   /** Messages whose automatic delivery runs in this window right now. */
   delivering: ReadonlySet<number> = new Set(),
+  /**
+   * Of those, the ones that wait for the person's draft in their target (`draftWait`): shown as a
+   * card that says so, whose "Send" stops the automatic delivery and sends it by hand.
+   */
+  draftWaiting: ReadonlySet<number> = new Set(),
 ): Map<number, LinkMessage[]> {
   const rows = new Map<number, LinkMessage[]>();
   for (const entry of messages) {
     // A claimed one is being pasted; its card would offer a second paste. So would one whose
     // slow automatic paste outlasted the backend's claim (`CLAIM_TIMEOUT_MS`).
-    if (entry.auto || entry.claimed || delivering.has(entry.id)) continue;
+    const waits = draftWaiting.has(entry.id) && !entry.claimed;
+    if (!waits && (entry.auto || entry.claimed || delivering.has(entry.id))) continue;
     const list = rows.get(entry.to);
     if (list === undefined) rows.set(entry.to, [entry]);
     else list.push(entry);
@@ -652,7 +658,10 @@ export function templateLinkRequest(
   return { ids: linkable.map((entry) => entry.id), names, lead };
 }
 
-/** Typing stops a delivery this long after the person's last key, even after their Enter. */
+/**
+ * Typing stops a delivery this long after the person's last key, even after their Enter. A draft
+ * the person has not sent stops it for as long as it stands (`TargetFacts.draft`).
+ */
 export const TYPING_PAUSE_MS = 4000;
 /** How often an automatic delivery looks at its target again. */
 export const AUTO_POLL_MS = 250;
@@ -666,7 +675,10 @@ export const INTRO_PATIENCE_MS = 5000;
  * asking, a bell, a gate decision), then becomes a card. A working target is waited for.
  */
 export const MESSAGE_PATIENCE_MS = 30_000;
-/** A message waits this long while the person types in its target, then becomes a card. */
+/**
+ * A message waits this long while the person types in its target without leaving a draft (arrows,
+ * a dialog's keys), then becomes a card. A draft is waited for without a limit.
+ */
 export const TYPING_PATIENCE_MS = 20_000;
 
 /** What the window knows about a target session at this moment. */
@@ -687,7 +699,10 @@ export interface TargetFacts {
   permissionPending?: boolean;
   /** Milliseconds since the person last typed there, `null` before any key. */
   typedAgoMs: number | null;
-  /** The person began a line there that waits for its Enter. */
+  /**
+   * The target's input line may hold a draft the person typed or pasted and has not sent
+   * (inputDraft.ts): the delivery's Enter would send it along.
+   */
   draft: boolean;
 }
 
@@ -695,14 +710,14 @@ export interface TargetFacts {
  * Whether Hangar may paste a message with Enter into this target now (ADR 0014): only when the
  * target went quiet after a working phase, which is its prompt waiting for the next task. Never
  * while it works or rests without having worked, rang the bell, waits for a gate decision, shows a
- * dialog its hooks reported or may show a question, and never while the person types there
- * (`typing`). A target on screen turns
- * "idle" instead of "attention" when it goes quiet; its `endedBy` still says "quiet".
+ * dialog its hooks reported or may show a question, never while the person types there
+ * (`typing`) and never while a draft of theirs stands in its input line (`draft`), which the
+ * delivery's Enter would send along. A target on screen turns "idle" instead of "attention" when
+ * it goes quiet; its `endedBy` still says "quiet".
  */
-export function autoReadiness(facts: TargetFacts): "ready" | "wait" | "typing" {
-  if (facts.draft || (facts.typedAgoMs !== null && facts.typedAgoMs < TYPING_PAUSE_MS)) {
-    return "typing";
-  }
+export function autoReadiness(facts: TargetFacts): "ready" | "wait" | "typing" | "draft" {
+  if (facts.draft) return "draft";
+  if (facts.typedAgoMs !== null && facts.typedAgoMs < TYPING_PAUSE_MS) return "typing";
   if (facts.asks || facts.gatePending || facts.permissionPending === true) return "wait";
   const quietAfterWork =
     facts.state === "attention"
@@ -717,7 +732,7 @@ export interface AutoPatience {
   waitWhileWorking: boolean;
   /** Not working and not ready this long: it becomes a card. */
   patienceMs: number;
-  /** The person types this long: it becomes a card. */
+  /** The person types this long without a draft: it becomes a card. */
   typingPatienceMs: number;
 }
 
@@ -754,20 +769,32 @@ export interface AutoDeliveryDeps {
   /** The second step after the paste; a failure leaves it claimed, never pasted again. */
   close: () => Promise<void>;
   wait: (ms: number) => Promise<void>;
+  /**
+   * Called when the delivery starts or stops waiting for the person's draft, so the window shows
+   * the message as a card that says why.
+   */
+  draftWait?: (waiting: boolean) => void;
+  /** The person sent the message by hand or discarded it: the delivery stops before its claim. */
+  cancelled?: () => boolean;
 }
 
 /**
- * How it ended: `pasted` with Enter; `gone` with its target; `refused` by the backend (it waits
- * for a click now); `timeout` or `typing` when the target was not ready in time; `failed` when
- * the target changed between the claim and the paste or the paste did not arrive. Everything
- * but `pasted` and `gone` turns the message into a card.
+ * How it ended: `pasted` (with Enter, unless the person typed between the paste and the Enter);
+ * `gone` with its target; `cancelled` by the person, who sends or discards it themselves;
+ * `refused` by the backend (it waits for a click now); `timeout` or `typing` when the target was
+ * not ready in time; `failed` when the target changed between the claim and the paste or the
+ * paste did not arrive. Everything but `pasted` and `gone` turns the message into a card.
  */
-export type AutoResult = "pasted" | "gone" | "refused" | "timeout" | "typing" | "failed";
+export type AutoResult =
+  "pasted" | "gone" | "cancelled" | "refused" | "timeout" | "typing" | "failed";
 
 /**
  * Delivers one link message on its own: waits until the target is ready (`autoReadiness`, then
  * bracketed paste on and output quiet as for the handover), has the backend claim it, checks the
- * target once more, pastes, presses Enter as a write of its own and closes it.
+ * target once more, pastes, presses Enter as a write of its own and closes it. A draft of the
+ * person's in the target is waited out without a limit, and its time counts against no other
+ * patience: the message goes once the person sent or cleared it and the target is ready again.
+ * Keys the person types between the paste and the Enter keep the Enter back.
  */
 export async function deliverAutomatically(
   deps: AutoDeliveryDeps,
@@ -776,10 +803,24 @@ export async function deliverAutomatically(
 ): Promise<AutoResult> {
   let waited = 0;
   let typing = 0;
+  let draft = false;
+  const showDraft = (waiting: boolean) => {
+    if (waiting === draft) return;
+    draft = waiting;
+    deps.draftWait?.(waiting);
+  };
   for (;;) {
-    if (deps.gone()) return "gone";
+    if (deps.gone()) {
+      showDraft(false);
+      return "gone";
+    }
+    if (deps.cancelled?.() === true) {
+      showDraft(false);
+      return "cancelled";
+    }
     const facts = deps.facts();
     const readiness = autoReadiness(facts);
+    showDraft(readiness === "draft");
     const quiet = deps.quietFor();
     if (
       readiness === "ready" &&
@@ -789,7 +830,9 @@ export async function deliverAutomatically(
     ) {
       break;
     }
-    if (readiness === "typing") {
+    if (readiness === "draft") {
+      // Waited for without a limit; the person sees the card and may send it by hand.
+    } else if (readiness === "typing") {
       typing += AUTO_POLL_MS;
       if (typing >= patience.typingPatienceMs) return "typing";
     } else if (!(patience.waitWhileWorking && facts.state === "working")) {
@@ -813,7 +856,8 @@ export async function deliverAutomatically(
     return "failed";
   }
   await deps.wait(enterDelayMs);
-  if (!deps.gone()) deps.submit();
+  // The paste itself is no draft (terminal.ts `pasteToSubmit`); a draft now is the person's keys.
+  if (!deps.gone() && !deps.facts().draft) deps.submit();
   await deps.close().catch(() => undefined);
   return "pasted";
 }

@@ -1761,3 +1761,9 @@ tauri-plugin-updater 2.14.1 compares with `semver::Version`'s derived `Ord`, whi
 metadata, so the reason "the updater ignores build metadata" was wrong; the rule that every release
 raises X, Y or Z stays, now justified by SemVer precedence. Found by the Hangar Drive project.
 Updated: [[0002-version-scheme]].
+
+## [2026-11-26] lint | Link messages wait for the person's draft
+An automatic link delivery sent a half-typed prompt along, because the draft was only known from
+xterm's key events and pastes, dictation and IME input never counted. Recorded the cause and the
+draft rule (`src/inputDraft.ts`, `autoReadiness` answers `draft`, no limit, card with the reason).
+Updated: [[0014-session-links]].

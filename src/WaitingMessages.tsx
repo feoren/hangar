@@ -129,6 +129,7 @@ function MessageStack({
   const running = messages.find((message) => sends.has(message.id));
   const send = running === undefined ? undefined : sends.get(running.id);
   const secrets = stackSecrets(messages);
+  const note = messages.find((message) => message.note !== undefined)?.note;
   const hangar = t("links.hangar");
   const senders = [...new Set(messages.map((message) => message.from))].map((name) =>
     name === "hangar" ? hangar : name,
@@ -182,6 +183,12 @@ function MessageStack({
         {secrets.length > 0 && (
           <div className="waiting-message-secret" role="note">
             {t("message.secretHint", { kinds: secretLabels(secrets, t) })}
+          </div>
+        )}
+        {/* Folded, the stack is all the person sees: why one of its messages waits shows here. */}
+        {note !== undefined && send === undefined && (
+          <div className="waiting-message-note" role="note">
+            {note}
           </div>
         )}
         <div className="waiting-message-actions">
@@ -378,6 +385,11 @@ function WaitingMessageCard({
       {message.secrets !== undefined && message.secrets.length > 0 && (
         <div className="waiting-message-secret" role="note">
           {t("message.secretHint", { kinds: secretLabels(message.secrets, t) })}
+        </div>
+      )}
+      {message.note !== undefined && send === undefined && (
+        <div className="waiting-message-note" role="note">
+          {message.note}
         </div>
       )}
       {/* Always there, empty while nothing runs: a live region only announces changes to a

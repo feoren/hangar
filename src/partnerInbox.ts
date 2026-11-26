@@ -32,6 +32,11 @@ export interface WaitingMessage {
    * the agent's text. Set by the window, never by the backend.
    */
   intro?: IntroSummary;
+  /**
+   * Why a message that goes on its own waits (a link message held back by the person's draft in
+   * its target). Set by the window, never by the backend.
+   */
+  note?: string;
 }
 
 function waitingMessage(value: unknown): WaitingMessage | null {

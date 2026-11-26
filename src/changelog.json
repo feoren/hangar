@@ -86,6 +86,20 @@
         "ru": "Исправлено: заметка с переводами строк Windows (CRLF), например изменённая вне Hangar, открывалась пустой, и ввод её перезаписывал.",
         "tr": "Düzeltildi: Windows satır sonları (CRLF) içeren bir not, örneğin Hangar dışında düzenlenmiş olan, boş açılıyordu ve yazınca üzerine yazılıyordu.",
         "zh": "已修复：带有 Windows 换行符 (CRLF) 的笔记（例如在 Hangar 之外编辑过的）打开时为空，输入后会覆盖原内容。"
+      },
+      {
+        "de": "Behoben: Eine Nachricht aus dem Verbund schickte deine halb getippte Eingabe mit ab. Jetzt wartet sie, bis du gesendet oder gelöscht hast.",
+        "en": "Fixed: a message from the link group sent your half-typed input along. It now waits until you have sent or cleared it.",
+        "el": "Διορθώθηκε: ένα μήνυμα από το δίκτυο έστελνε μαζί και τη μισογραμμένη σου εισαγωγή. Τώρα περιμένει να τη στείλεις ή να τη σβήσεις.",
+        "es": "Corregido: un mensaje de la red enviaba también lo que estabas escribiendo. Ahora espera a que lo envíes o lo borres.",
+        "fr": "Corrigé : un message du réseau envoyait aussi ta saisie à moitié tapée. Il attend maintenant que tu l'aies envoyée ou effacée.",
+        "it": "Corretto: un messaggio della rete inviava anche il testo che stavi scrivendo. Ora attende che tu lo invii o lo cancelli.",
+        "ja": "修正: 連携からのメッセージが入力途中の内容まで一緒に送信していました。今は送信または消去するまで待ちます。",
+        "pl": "Naprawiono: wiadomość z sieci wysyłała razem z sobą twój niedokończony wpis. Teraz czeka, aż go wyślesz lub usuniesz.",
+        "pt": "Corrigido: uma mensagem da rede enviava junto o que você estava digitando. Agora ela espera até você enviar ou apagar.",
+        "ru": "Исправлено: сообщение из связки отправляло вместе с собой твой недописанный ввод. Теперь оно ждёт, пока ты его отправишь или сотрёшь.",
+        "tr": "Düzeltildi: ağdan gelen bir mesaj yarım yazdığın girişi de gönderiyordu. Artık sen gönderene ya da silene kadar bekliyor.",
+        "zh": "已修复：来自关联的消息会把你输入到一半的内容一起发出。现在它会等你发送或清除后再发送。"
       }
     ]
   },

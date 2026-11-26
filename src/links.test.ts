@@ -454,6 +454,18 @@ describe("delivery", () => {
     expect(rows.get(2)?.map((m) => m.id)).toEqual([1, 3]);
     expect(rows.has(1)).toBe(false);
   });
+
+  it("shows a message that waits for the person's draft as a card, in its place", () => {
+    const waiting = message(2, 2, true);
+    const rows = heldBySession(
+      [message(1, 2, false), waiting, message(3, 2, false)],
+      new Set([2]),
+      new Set([2]),
+    );
+    expect(rows.get(2)?.map((m) => m.id)).toEqual([1, 2, 3]);
+    // Once its paste began, the backend claimed it: no card offers a second paste.
+    expect(heldBySession([{ ...waiting, claimed: true }], new Set([2]), new Set([2])).size).toBe(0);
+  });
 });
 
 describe("claimed messages", () => {
@@ -515,10 +527,17 @@ describe("autoReadiness", () => {
     expect(autoReadiness({ ...QUIET, permissionPending: false })).toBe("ready");
   });
 
-  it("waits while the person types or left a line half typed", () => {
-    expect(autoReadiness({ ...QUIET, draft: true })).toBe("typing");
+  it("waits while the person types", () => {
     expect(autoReadiness({ ...QUIET, typedAgoMs: TYPING_PAUSE_MS - 1 })).toBe("typing");
     expect(autoReadiness({ ...QUIET, typedAgoMs: TYPING_PAUSE_MS })).toBe("ready");
+  });
+
+  it("waits for a draft the person has not sent, however long ago they typed it", () => {
+    expect(autoReadiness({ ...QUIET, draft: true })).toBe("draft");
+    expect(autoReadiness({ ...QUIET, draft: true, typedAgoMs: 60_000 })).toBe("draft");
+    expect(autoReadiness({ ...QUIET, draft: true, typedAgoMs: 0 })).toBe("draft");
+    // Whatever else holds the target, the draft is what the card names.
+    expect(autoReadiness({ ...QUIET, draft: true, asks: true })).toBe("draft");
   });
 });
 
@@ -597,9 +616,81 @@ describe("deliverAutomatically", () => {
     );
   });
 
-  it("gives up while the person keeps typing", async () => {
-    const box = fake({}, { ...QUIET, draft: true });
+  it("gives up while the person keeps typing without a draft (arrows, a dialog)", async () => {
+    const box = fake({}, { ...QUIET, typedAgoMs: 0 });
     expect(await deliverAutomatically(box.deps, PATIENT, 10)).toBe("typing");
+    expect(box.log).toEqual([]);
+  });
+
+  it("never pastes into a draft: waits without a limit and goes once it is sent", async () => {
+    const shown: boolean[] = [];
+    const box = fake(
+      {
+        draftWait: (waiting) => {
+          shown.push(waiting);
+        },
+      },
+      { ...QUIET, draft: true },
+    );
+    let polls = 0;
+    box.deps.wait = () => {
+      polls += 1;
+      // Far past every patience: the person's Enter, then the agent's work, then quiet again.
+      if (polls === 400) box.facts.current = { ...QUIET, state: "working", reason: null };
+      if (polls === 420) box.facts.current = QUIET;
+      return Promise.resolve();
+    };
+    expect(await deliverAutomatically(box.deps, PATIENT, 10)).toBe("pasted");
+    expect(polls * AUTO_POLL_MS).toBeGreaterThan(PATIENT.typingPatienceMs * 10);
+    expect(box.log).toEqual(["take", "paste:[Message]\n| hi", "enter", "close"]);
+    // The card says why it waits while the draft stands, and goes with it.
+    expect(shown).toEqual([true, false]);
+  });
+
+  it("does not count the time a draft stood against the other patience", async () => {
+    const fresh = { ...QUIET, state: "idle" as const, reason: null, endedBy: null };
+    const box = fake({}, { ...fresh, draft: true });
+    let polls = 0;
+    box.deps.wait = () => {
+      polls += 1;
+      if (polls === 100) box.facts.current = fresh;
+      if (polls === 102) box.facts.current = QUIET;
+      return Promise.resolve();
+    };
+    expect(await deliverAutomatically(box.deps, PATIENT, 10)).toBe("pasted");
+  });
+
+  it("pastes nothing when the person begins a draft during the backend's round trip", async () => {
+    const box = fake();
+    box.deps.take = () => {
+      box.facts.current = { ...QUIET, draft: true };
+      return Promise.resolve("x");
+    };
+    expect(await deliverAutomatically(box.deps, PATIENT, 10)).toBe("failed");
+    expect(box.log).toEqual([]);
+  });
+
+  it("never presses Enter over keys the person typed between the paste and the Enter", async () => {
+    const box = fake();
+    box.deps.paste = (text) => {
+      box.log.push(`paste:${text}`);
+      box.facts.current = { ...QUIET, draft: true, typedAgoMs: 0 };
+      return Promise.resolve();
+    };
+    expect(await deliverAutomatically(box.deps, PATIENT, 10)).toBe("pasted");
+    expect(box.log).toEqual(["take", "paste:[Message]\n| hi", "close"]);
+  });
+
+  it("stops without pasting once the person sends it by hand or discards it", async () => {
+    let stop = false;
+    const box = fake({ cancelled: () => stop }, { ...QUIET, draft: true });
+    let polls = 0;
+    box.deps.wait = () => {
+      polls += 1;
+      if (polls === 3) stop = true;
+      return Promise.resolve();
+    };
+    expect(await deliverAutomatically(box.deps, PATIENT, 10)).toBe("cancelled");
     expect(box.log).toEqual([]);
   });
 

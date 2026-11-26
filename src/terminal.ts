@@ -65,6 +65,7 @@ import { guardSecondaryClick } from "./terminalMouse";
 import { InputStalled, settleStalled } from "./sessionInput";
 import { RESET_INPUT_MODES, trustsBracketedPaste } from "./terminalModes";
 import { setupUnicode } from "./terminalUnicode";
+import { InputDraft } from "./inputDraft";
 import { TypedInput } from "./typedInput";
 import {
   canvasMeasure,
@@ -234,8 +235,15 @@ export class SessionTerminal {
   private typedSinceTaken = false;
   /** When the person last pressed a key here (wall clock), `null` before any. */
   private personKeyAt: number | null = null;
-  /** The person typed since their last Enter: a half-typed line may stand at the prompt. */
-  private personDraft = false;
+  /**
+   * Whether the input line may hold a draft the person has not sent (inputDraft.ts): fed with
+   * every key and paste that reaches the program, except the paste of an automatic delivery.
+   */
+  private readonly draft = new InputDraft();
+  /** The key xterm reported just before its data (`onKey` fires first), so the data is a key. */
+  private keyData: string | null = null;
+  /** A paste whose Enter follows at once runs (`pasteToSubmit`): it is no draft. */
+  private submitting = false;
   /** The person typed printable text since their last Enter or Ctrl+C (`ownLineKey`). */
   private personLine = false;
   /** The person sent a line they typed here themselves (not Hangar's `submit`, not a bare Enter). */
@@ -347,11 +355,15 @@ export class SessionTerminal {
       if (data === "\x03" || data === "\x1b") this.attention.interrupted();
       // Enter on its own; a paste arrives as one chunk and only becomes a task with its Enter.
       if (data === "\r") this.attention.submitted();
+      const key = data === this.keyData;
+      this.keyData = null;
+      if (!this.submitting) this.draft.feed(data, key);
       this.send(data);
       this.trackTyped(data);
     });
     // Real key presses only, not xterm's automatic replies (cursor position, focus).
     this.term.onKey(({ key }) => {
+      this.keyData = key;
       this.typedSinceTaken = true;
       this.attention.typed();
       this.programSelection.keyTyped();
@@ -380,6 +392,8 @@ export class SessionTerminal {
   createChannel(): Channel<SessionEvent> {
     // A new process: an address from the old one belongs to a server that is gone.
     this.forgetDevServer();
+    // Its input line starts empty.
+    this.draft.reset();
     const channel = new Channel<SessionEvent>();
     channel.onmessage = (event) => {
       this.handleEvent(event);
@@ -515,7 +529,10 @@ export class SessionTerminal {
       { row: buffer.viewportY + row - edit.first, col },
       term.modes.applicationCursorKeysMode,
     );
-    if (keys !== "") this.send(keys);
+    if (keys !== "") {
+      this.draft.feed(keys, true);
+      this.send(keys);
+    }
   }
 
   /**
@@ -937,7 +954,10 @@ export class SessionTerminal {
     return trustsBracketedPaste(this.shellKind()) && this.term.modes.bracketedPasteMode;
   }
 
-  /** Text from the app (dropped paths): the same path as pasting, with bracketed paste. */
+  /**
+   * Text from the app (dropped paths): the same path as pasting, with bracketed paste. What stays
+   * in the input line counts as the person's draft (inputDraft.ts) until it is sent.
+   */
   pasteText(text: string): void {
     const clean = sanitizePaste(text);
     // An image path can arrive after the session was closed.
@@ -960,11 +980,27 @@ export class SessionTerminal {
     return settleStalled(this.lastWrite);
   }
 
+  /**
+   * Like `pasteAndWait`, for an automatic delivery whose Enter follows at once: its text is no
+   * draft of the person's, so a draft seen before that Enter is keys the person typed meanwhile,
+   * and the Enter stays back (links.ts `deliverAutomatically`). xterm hands a paste to `onData`
+   * synchronously, so the flag covers exactly this paste.
+   */
+  pasteToSubmit(text: string): Promise<void> {
+    this.submitting = true;
+    try {
+      return this.pasteAndWait(text);
+    } finally {
+      this.submitting = false;
+    }
+  }
+
   /** Enter, as if typed: runs what was pasted before. */
   submit(): void {
     this.attention.typed();
     this.attention.submitted();
     this.typedSinceTaken = true;
+    this.draft.feed("\r");
     this.send("\r");
     this.trackTyped("\r");
   }
@@ -981,12 +1017,13 @@ export class SessionTerminal {
 
   /**
    * What the person's own keys tell (link groups, ADR 0014): when they last typed here and
-   * whether a line they began still waits for its Enter. Hangar's own pastes do not count.
+   * whether a draft may stand in the input line (inputDraft.ts). An automatic delivery's paste
+   * does not count.
    */
   personInput(now: number = Date.now()): { typedAgoMs: number | null; draft: boolean } {
     return {
       typedAgoMs: this.personKeyAt === null ? null : Math.max(0, now - this.personKeyAt),
-      draft: this.personDraft,
+      draft: this.draft.pending,
     };
   }
 
@@ -996,12 +1033,6 @@ export class SessionTerminal {
     const own = ownLineKey(this.personLine, key);
     this.personLine = own.line;
     if (own.sent) this.onPersonSubmit?.();
-    // Enter sends the line; Ctrl+C clears it in the agent CLIs.
-    if (key === "\r" || key === "\x03") {
-      this.personDraft = false;
-    } else {
-      this.personDraft = true;
-    }
   }
 
   /** Like `takeTyped`, without resetting: whether the work that starts now follows input. */
@@ -1313,6 +1344,7 @@ export class SessionTerminal {
         if (action.send !== null) {
           this.typedSinceTaken = true;
           this.attention.typed();
+          this.draft.feed(action.send, true);
           this.send(action.send);
         }
         return false;
@@ -1324,6 +1356,7 @@ export class SessionTerminal {
         this.term.clearSelection();
         this.typedSinceTaken = true;
         this.attention.typed();
+        this.draft.feed(keys, true);
         this.send(keys);
         this.trackTyped(keys);
         return false;

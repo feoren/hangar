@@ -77,6 +77,18 @@ describe("WaitingMessages", () => {
     expect(render()).not.toContain("waiting-message-secret");
   });
 
+  it("says why a message that goes on its own waits, and still offers Send", () => {
+    const html = render(new Map(), "de", { ...message, note: "Wartet, bis du fertig bist." });
+    expect(html).toContain('<div class="waiting-message-note" role="note">');
+    expect(html).toContain("Wartet, bis du fertig bist.");
+    expect(html).toContain(">Senden<");
+    expect(render()).not.toContain("waiting-message-note");
+    // While a send runs, the status line says what happens instead.
+    expect(render(waiting(true), "en", { ...message, note: "Waits." })).not.toContain(
+      "waiting-message-note",
+    );
+  });
+
   it("names sender and time in one line and offers one clear Send", () => {
     const html = render();
     expect(html).toMatch(

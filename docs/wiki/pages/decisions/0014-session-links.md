@@ -539,6 +539,30 @@ budget) and a command that releases both and lets the held messages go on their 
 introduction per member in the queue (a newer one replacing the queued one) instead of discarding
 older ones in the window.
 
+### Never into the person's draft (2026-11-26)
+An automatic delivery pasted into a member while the person had a half-typed prompt in its input
+line; its Enter sent the prompt along. The draft was only known from xterm's `onKey`, so text that
+reaches the program without a key press (a paste with Ctrl+V or the menu, a dropped path, dictation,
+a note or snippet pasted from the app, dead keys and IME input) never counted, and after 4 seconds
+without a key the message went in. Prepending the message instead was rejected: its Enter would
+still send the draft.
+
+- `src/inputDraft.ts` follows the input line from every key and paste that reaches the program,
+  keeping only a count, never the text. Enter (not after a backslash) and Ctrl+C clear it;
+  Backspace to empty and Ctrl+U clear it only while the cursor stayed at the end of one line.
+  Cursor moves, word deletes and Up or Down (a history line) leave the content unknown, which
+  counts as a draft until Enter or Ctrl+C. Escape sequences that are no key press (replies, focus,
+  mouse, the wheel in a full-screen program) change nothing; a lone Escape never clears, since
+  agents differ there.
+- `autoReadiness` answers `draft` first. A draft is waited for without a limit and its time counts
+  against no other patience; the message shows as a card that says it waits for the person's input,
+  and goes on its own once the draft is gone and the target is ready by the rules above. The
+  card's "Send" stops the automatic delivery and sends it by hand, as the person's own choice.
+- The delivery's own paste does not count (`pasteToSubmit`); a draft seen between that paste and
+  its Enter is the person's keys, so the Enter stays back and the message stays in the input line.
+- Partner messages and every other send (cards, "Send to several", agent commands) go only on the
+  person's click, so the guard applies to link messages, the only automatic delivery.
+
 ## Evidence
 - [[cross-project-paste-measurement]]: a bracketed paste with a header line arrives as one prompt,
   Enter as a separate write submits it (Claude Code, Codex CLI, Pi, Aider on Windows).

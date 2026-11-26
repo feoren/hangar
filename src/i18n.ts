@@ -354,6 +354,7 @@ const de = {
   "links.growHelp":
     "Füge diesem Verbund Sessions hinzu oder verknüpfe ihn mit einem anderen Verbund zu einem.",
   "links.notReady": "„{session}“ war nicht bereit. Die Nachricht wartet auf deinen Klick.",
+  "links.waitsForDraft": "Wartet, bis du deine Eingabe gesendet hast.",
   "links.namesHelp": "Mit diesen Namen sprechen sich die Agenten gegenseitig an.",
   "links.unattended": "ohne Rückfragen",
   "links.unattendedNote":
@@ -2820,6 +2821,7 @@ const en: Record<MessageKey, string> = {
   "links.linkWithGroup": "Merge with link group: {names}",
   "links.growHelp": "Add sessions to this link group, or merge it with another link group.",
   "links.notReady": "“{session}” was not ready. The message waits for your click.",
+  "links.waitsForDraft": "Waits until you have sent what you typed.",
   "links.namesHelp": "These are the names the agents use to address each other.",
   "links.unattended": "without prompts",
   "links.unattendedNote":
@@ -5248,6 +5250,7 @@ const el: Record<MessageKey, string> = {
   "links.linkWithGroup": "Σύνδεση με το δίκτυο: {names}",
   "links.growHelp": "Πρόσθεσε sessions σε αυτό το δίκτυο ή σύνδεσέ το με άλλο δίκτυο σε ένα.",
   "links.notReady": "Το «{session}» δεν ήταν έτοιμο. Το μήνυμα περιμένει το κλικ σου.",
+  "links.waitsForDraft": "Περιμένει μέχρι να στείλεις ό,τι πληκτρολόγησες.",
   "links.namesHelp": "Με αυτά τα ονόματα οι agents απευθύνονται ο ένας στον άλλον.",
   "links.unattended": "χωρίς ερωτήσεις",
   "links.unattendedNote":
@@ -7741,6 +7744,7 @@ const es: Record<MessageKey, string> = {
   "links.linkWithGroup": "Vincular con la red: {names}",
   "links.growHelp": "Añade sesiones a esta red o vincúlala con otra red en una sola.",
   "links.notReady": "«{session}» no estaba lista. El mensaje espera tu clic.",
+  "links.waitsForDraft": "Espera hasta que envíes lo que escribiste.",
   "links.namesHelp": "Con estos nombres se dirigen los agentes entre sí.",
   "links.unattended": "sin preguntas",
   "links.unattendedNote":
@@ -10212,6 +10216,7 @@ const fr: Record<MessageKey, string> = {
   "links.growHelp":
     "Ajoute des sessions à ce réseau ou relie-le à un autre réseau pour n’en faire qu’un.",
   "links.notReady": "« {session} » n’était pas prête. Le message attend ton clic.",
+  "links.waitsForDraft": "Attend que tu aies envoyé ta saisie.",
   "links.namesHelp": "Ce sont les noms avec lesquels les agents s’adressent les uns aux autres.",
   "links.unattended": "sans questions",
   "links.unattendedNote":
@@ -12704,6 +12709,7 @@ const it: Record<MessageKey, string> = {
   "links.growHelp":
     "Aggiungi sessioni a questa rete o collegala a un’altra rete per farne una sola.",
   "links.notReady": "«{session}» non era pronta. Il messaggio attende il tuo clic.",
+  "links.waitsForDraft": "Attende che tu abbia inviato ciò che hai scritto.",
   "links.namesHelp": "Sono i nomi con cui gli agenti si rivolgono l’uno all’altro.",
   "links.unattended": "senza domande",
   "links.unattendedNote":
@@ -15183,6 +15189,7 @@ const ja: Record<MessageKey, string> = {
   "links.growHelp": "この連携にセッションを追加するか、別の連携とまとめて1つにします。",
   "links.notReady":
     "「{session}」の準備ができていませんでした。メッセージはクリックを待っています。",
+  "links.waitsForDraft": "入力した内容を送信するまで待機します。",
   "links.namesHelp": "エージェントはこの名前で互いを呼びます。",
   "links.unattended": "確認なし",
   "links.unattendedNote":
@@ -17640,6 +17647,7 @@ const pl: Record<MessageKey, string> = {
   "links.linkWithGroup": "Połącz z siecią: {names}",
   "links.growHelp": "Dodaj sesje do tej sieci albo połącz ją z inną siecią w jedną.",
   "links.notReady": "„{session}” nie była gotowa. Wiadomość czeka na twoje kliknięcie.",
+  "links.waitsForDraft": "Czeka, aż wyślesz swój wpis.",
   "links.namesHelp": "Pod tymi nazwami agenty zwracają się do siebie.",
   "links.unattended": "bez pytań",
   "links.unattendedNote":
@@ -20085,6 +20093,7 @@ const pt: Record<MessageKey, string> = {
   "links.linkWithGroup": "Vincular à rede: {names}",
   "links.growHelp": "Adicione sessões a esta rede ou vincule-a a outra rede para formar uma só.",
   "links.notReady": "“{session}” não estava pronta. A mensagem espera seu clique.",
+  "links.waitsForDraft": "Espera até você enviar o que digitou.",
   "links.namesHelp": "São os nomes com que os agentes se dirigem uns aos outros.",
   "links.unattended": "sem perguntas",
   "links.unattendedNote":
@@ -22540,6 +22549,7 @@ const ru: Record<MessageKey, string> = {
   "links.linkWithGroup": "Объединить со связкой: {names}",
   "links.growHelp": "Добавь сессии в эту связку или объедини её с другой связкой в одну.",
   "links.notReady": "«{session}» не была готова. Сообщение ждёт твоего щелчка.",
+  "links.waitsForDraft": "Ждёт, пока ты отправишь введённый текст.",
   "links.namesHelp": "Под этими именами агенты обращаются друг к другу.",
   "links.unattended": "без вопросов",
   "links.unattendedNote":
@@ -24973,6 +24983,7 @@ const tr: Record<MessageKey, string> = {
   "links.linkWithGroup": "Ağla bağla: {names}",
   "links.growHelp": "Bu ağa oturum ekle ya da onu başka bir ağla tek ağ olacak şekilde bağla.",
   "links.notReady": "“{session}” hazır değildi. Mesaj tıklamanı bekliyor.",
+  "links.waitsForDraft": "Yazdığını gönderene kadar bekler.",
   "links.namesHelp": "Agent'lar birbirine bu adlarla seslenir.",
   "links.unattended": "sormadan",
   "links.unattendedNote":
@@ -27385,6 +27396,7 @@ const zh: Record<MessageKey, string> = {
   "links.linkWithGroup": "与关联合并：{names}",
   "links.growHelp": "向此关联添加会话，或将它与另一个关联合并为一个。",
   "links.notReady": "“{session}”尚未就绪。消息等待你点击。",
+  "links.waitsForDraft": "等你发送已输入的内容后再发送。",
   "links.namesHelp": "代理之间用这些名称互相称呼。",
   "links.unattended": "无需确认",
   "links.unattendedNote":

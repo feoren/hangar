@@ -15223,6 +15223,12 @@ button.sub-agent-card:focus-visible {
   overflow-wrap: anywhere;
 }
 
+.waiting-message-note {
+  color: var(--muted);
+  font-style: italic;
+  overflow-wrap: anywhere;
+}
+
 .waiting-message-text {
   max-height: 16em;
   overflow-y: auto;

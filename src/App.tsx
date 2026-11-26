@@ -1058,6 +1058,15 @@ export function App() {
   const linkDeliveringIds = useRef<Set<number>>(new Set());
   /** The same ids for the render, which must not read a ref. */
   const [deliveringIds, setDeliveringIds] = useState<ReadonlySet<number>>(() => new Set());
+  /**
+   * The automatic deliveries running here, by message id: `stop` ends one before its claim (the
+   * person sends or discards the message themselves), `done` settles once it ended.
+   */
+  const linkAutoRuns = useRef(new Map<number, { stop: () => void; done: Promise<void> }>());
+  /** Of those, the ones that wait for the person's draft in their target (links.ts `draftWait`). */
+  const linkDraftWaiting = useRef<Set<number>>(new Set());
+  /** The same ids for the render: each shows as a card that says why it waits. */
+  const [draftWaitIds, setDraftWaitIds] = useState<ReadonlySet<number>>(() => new Set());
   /** The link groups for listeners outside React (the terminals' key handlers). */
   const linkStateRef = useRef(linkState);
   useEffect(() => {
@@ -5392,6 +5401,7 @@ export function App() {
     ...heldBySession(
       linkState.messages.filter((message) => !hiddenLinks.has(message.id)),
       deliveringIds,
+      draftWaitIds,
     ),
   ].map(([to, list]) => [to, stackCards(list)] as const);
   /** The introductions a shown one replaces, by its id: they go along with it. */
@@ -5418,6 +5428,7 @@ export function App() {
           at: message.at,
           ...(message.secrets === undefined ? {} : { secrets: message.secrets }),
           ...(intro === null ? {} : { intro }),
+          ...(draftWaitIds.has(message.id) ? { note: t("links.waitsForDraft") } : {}),
           title:
             message.fromName === null
               ? t(INTRO_TITLES[introKind(message.text)])
@@ -6462,7 +6473,9 @@ export function App() {
    * nobody types there (links.ts `autoReadiness`, `deliverAutomatically`). Whatever stops it turns
    * it into a message that waits for a click, so nothing is lost or retried without end. The
    * introduction to a session that never finished a task waits only a few seconds: it may show a
-   * trust dialog, which an Enter would answer (links.ts `deliveryPatience`).
+   * trust dialog, which an Enter would answer (links.ts `deliveryPatience`). A draft of the
+   * person's in the target holds it as a card that says so, for as long as the draft stands; its
+   * "Send" stops this delivery and sends it by hand (`pasteHeldLink`).
    */
   const deliverLinkMessage = async (message: LinkMessage) => {
     const terminal = terminals.get(message.to);
@@ -6471,6 +6484,22 @@ export function App() {
     linkDeliveringIds.current.add(message.id);
     setDeliveringIds(new Set(linkDeliveringIds.current));
     const gone = () => terminals.get(message.to) !== terminal;
+    let stopped = false;
+    let ended: () => void = () => undefined;
+    const done = new Promise<void>((resolve) => {
+      ended = resolve;
+    });
+    linkAutoRuns.current.set(message.id, {
+      stop: () => {
+        stopped = true;
+      },
+      done,
+    });
+    const showDraftWait = (waiting: boolean) => {
+      if (waiting) linkDraftWaiting.current.add(message.id);
+      else linkDraftWaiting.current.delete(message.id);
+      setDraftWaitIds(new Set(linkDraftWaiting.current));
+    };
     try {
       const result = await deliverAutomatically(
         {
@@ -6492,12 +6521,17 @@ export function App() {
             return last === null ? null : Date.now() - last;
           },
           take: () => api.linkMessageText(message.id, message.to, true),
-          paste: (text) => terminal.pasteAndWait(text),
+          // Its Enter follows at once: the paste is no draft of the person's (terminal.ts).
+          paste: (text) => terminal.pasteToSubmit(text),
           submit: () => {
             terminal.submit();
           },
           close: () => api.closeLinkMessage(message.id, message.to).then(() => undefined),
           wait: delay,
+          draftWait: showDraftWait,
+          // Sent by hand, discarded, or gone with its group while a draft held it.
+          cancelled: () =>
+            stopped || !linkStateRef.current.messages.some((entry) => entry.id === message.id),
         },
         deliveryPatience(message, terminal.attention.finishedTask),
         BROADCAST_ENTER_DELAY_MS,
@@ -6517,9 +6551,26 @@ export function App() {
       linkDelivering.current.delete(message.to);
       linkDeliveringIds.current.delete(message.id);
       setDeliveringIds(new Set(linkDeliveringIds.current));
+      if (linkDraftWaiting.current.has(message.id)) showDraftWait(false);
+      linkAutoRuns.current.delete(message.id);
+      ended();
       // Also brings back the card of a message whose claim ran out meanwhile.
       loadLinksRef.current();
     }
+  };
+
+  /**
+   * Stops the automatic delivery of link message `id` while it waits for the person's draft, and
+   * resolves once it ended and the backend holds the message for a click. `false` when one runs
+   * past that wait already: it is being pasted, so nothing else may paste it.
+   */
+  const stopDraftWait = async (id: number): Promise<boolean> => {
+    const run = linkAutoRuns.current.get(id);
+    if (run === undefined) return true;
+    if (!linkDraftWaiting.current.has(id)) return false;
+    run.stop();
+    await run.done;
+    return true;
   };
 
   // Link messages that go on their own (ADR 0014): one at a time per target, each once the
@@ -6540,10 +6591,12 @@ export function App() {
   /**
    * Sends held link message `id` into session `to` after the person's click. The backend claims
    * it for the paste; one that did not go in is freed for the next click. One whose automatic
-   * delivery still runs here is refused: it is being pasted already. An introduction takes the
-   * older ones it replaces along once it went in. Whether it went in.
+   * delivery still runs here is refused: it is being pasted already, unless it only waits for the
+   * person's draft, which the click overrules: the person chose to send it now. An introduction
+   * takes the older ones it replaces along once it went in. Whether it went in.
    */
   const pasteHeldLink = async (to: number, id: number, submit: boolean): Promise<boolean> => {
+    if (!(await stopDraftWait(id))) return false;
     if (linkDeliveringIds.current.has(id)) return false;
     const older = linkSuperseded.get(id) ?? [];
     const pasted = await sendCardMessage({
@@ -6571,6 +6624,8 @@ export function App() {
   const discardLink = (id: number, withOlder = true) => {
     const older = withOlder ? (linkSuperseded.get(id) ?? []) : [];
     for (const entry of [id, ...older]) {
+      // One that waits for the person's draft stops; its hold after the close finds nothing.
+      if (linkDraftWaiting.current.has(entry)) linkAutoRuns.current.get(entry)?.stop();
       discardCard(
         entry,
         setHiddenLinks,

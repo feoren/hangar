@@ -145,6 +145,15 @@ describe("the message stack", () => {
     expect(hint?.getAttribute("role")).toBe("note");
   });
 
+  it("says in the folded stack line why one of its messages waits", () => {
+    show([first, { ...second, note: "Waits until you have sent what you typed." }]);
+    const note = host.querySelector(".waiting-stack .waiting-message-note");
+    expect(note?.textContent).toBe("Waits until you have sent what you typed.");
+    expect(note?.getAttribute("role")).toBe("note");
+    show([first, second], { generation: 2 });
+    expect(host.querySelector(".waiting-message-note")).toBeNull();
+  });
+
   it("says that a send of the stack waits, with Cancel instead of its buttons", () => {
     const sends = new Map([[2, { phase: "waiting", submit: true, target: "app", to: 1 } as const]]);
     show([first, second], { sends });
