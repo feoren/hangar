@@ -1729,3 +1729,12 @@ every session with a sub-agent source (folder listing and meta files only, the s
 status), sends `sub-agent-counts-changed` on a change, and the rows show a round red dot ("9+"
 from ten on), the watched session from its own snapshot. Updated: [[agent-workflow-features]]
 (item 23).
+
+## [2026-11-26] query | Calmer link groups, package 1 (window only)
+Introductions to a session that finished a task now wait like messages; only the first one to a
+session that never finished a task keeps the few seconds for a trust dialog
+(`AttentionTracker.finishedTask`, `deliveryPatience`). The group label counts messages on their
+way, opens a menu (brake with "Allow to go on" as an unchanged `edit_link_group`, lead, edit,
+history, unlink); two or more cards below a row form a message stack with "Send all" and
+"Discard all"; only the newest introduction of a group shows; link cards lose "Paste only".
+Backend needs noted for a later package. Updated: [[0014-session-links]].

@@ -1,9 +1,10 @@
-import type { CSSProperties } from "react";
+import { useId, type CSSProperties } from "react";
 
 import { useT, type Translate } from "./i18n";
 import { CrownIcon } from "./icons";
 import type { BracketPiece } from "./linkBracket";
-import { linkColor, type LinkMark } from "./links";
+import type { PendingDelivery } from "./linkCards";
+import { historyPreview, linkColor, type LinkMark } from "./links";
 
 /** What a member row says about its link: the member's name, that messages wait while the brake
  * holds, or that the member leads the group. */
@@ -46,20 +47,51 @@ export function LinkBracketLine({
   return <span className={className} style={bracketStyle(piece.color)} aria-hidden="true" />;
 }
 
+/** Characters of a message's first line in the tooltip of the messages on their way. */
+const PENDING_PREVIEW_CHARS = 60;
+
+/** One line per message on its way, for the label's tooltip: "app to web: first line". */
+export function pendingLines(pending: readonly PendingDelivery[], t: Translate): string[] {
+  return pending.map((entry) => {
+    const route = t("links.historyRoute", {
+      from: entry.fromName ?? t("links.hangar"),
+      to: entry.toName,
+    });
+    const line = historyPreview(entry.text);
+    const chars = Array.from(line);
+    const short =
+      chars.length > PENDING_PREVIEW_CHARS
+        ? `${chars.slice(0, PENDING_PREVIEW_CHARS - 1).join("")}…`
+        : line;
+    return short === "" ? route : `${route}: ${short}`;
+  });
+}
+
 /**
- * The label above a group's first run: "Group · 3", in the group's color; a click opens Edit
- * group. While the loop brake holds, the line is dashed and the label says why.
+ * The label above a group's first run: "Group · 3", in the group's color, and "2 on the way"
+ * while messages go on their own; the tooltip lists them. A click opens the group's menu
+ * (lead, brake, history, unlink). While the loop brake holds, the line is dashed and the label
+ * says why. The label stands in its own row, so none of this takes width from a session row.
  */
 export function LinkBracketHead({
   piece,
-  onEdit,
+  pending,
+  menuOpen,
+  onMenu,
 }: {
   piece: BracketPiece;
-  onEdit: (group: number) => void;
+  /** The group's messages on their way (linkCards.ts `pendingByGroup`). */
+  pending: readonly PendingDelivery[];
+  menuOpen: boolean;
+  onMenu: (group: number, anchor: HTMLElement) => void;
 }) {
   const t = useT();
-  const edit = t("links.bracketEdit", { count: piece.members });
-  const name = piece.braked ? `${edit}, ${t("links.bracketBraked")}` : edit;
+  const listId = useId();
+  const group = t("links.bracketMenu", { count: piece.members });
+  const name = piece.braked ? `${group}, ${t("links.bracketBraked")}` : group;
+  const lines = pendingLines(pending, t);
+  const count = lines.length > 0 ? t("links.pending", { count: lines.length }) : null;
+  const tooltip = [name, ...lines].join("\n");
   // The visible label starts the button's name, so voice control finds it by what it shows.
   return (
     <li className="link-bracket-head" style={bracketStyle(piece.color)}>
@@ -70,14 +102,23 @@ export function LinkBracketHead({
       <button
         type="button"
         className="link-bracket-label"
-        title={name}
-        onClick={() => {
-          onEdit(piece.group);
+        title={tooltip}
+        aria-haspopup="menu"
+        aria-expanded={menuOpen}
+        aria-describedby={lines.length > 0 ? listId : undefined}
+        onClick={(event) => {
+          onMenu(piece.group, event.currentTarget);
         }}
       >
         {t("links.bracket", { count: piece.members })}
+        {count !== null && <span className="link-bracket-pending">{count}</span>}
         <span className="sr-only">: {name}</span>
       </button>
+      {lines.length > 0 && (
+        <span id={listId} className="sr-only">
+          {lines.join("; ")}
+        </span>
+      )}
     </li>
   );
 }

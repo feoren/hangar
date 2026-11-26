@@ -6,7 +6,7 @@ superseded_by:
 tags: [sessions, agents, hooks, security, pty, sidebar]
 sources: ["[[0012-cross-project-messages]]", "[[cross-project-paste-measurement]]", "[[paste-opencode-gemini-measurement]]", "[[unattended-settings-reading]]"]
 created: 2026-11-19
-updated: 2026-11-25
+updated: 2026-11-26
 ---
 
 # ADR 0014: Linked sessions that work together
@@ -371,6 +371,57 @@ claims nothing (the claim comes only with the paste), so a reloaded window or a 
 the message as it was; the same path serves partner messages, which have no automatic delivery;
 and no new state or command is needed in the backend. A window reload ends the wait, and the card
 simply offers "Send" again.
+
+## Calmer groups, package 1 (2026-11-26)
+The owner asked for groups to be simpler and calmer: fewer cards, a place that says what goes on
+in a group, and introductions that do not end as cards while an agent works. Window only; the
+backend is unchanged. Each rule is built with a test.
+
+- **Patience of introductions** (`deliveryPatience` in `src/links.ts`). The few seconds of
+  patience exist for the trust dialog a session may show before its first task. They now apply
+  only while the target never finished a task: `AttentionTracker.finishedTask` (`src/attention.ts`)
+  turns true when a working phase ends quiet and false on a restart. An introduction to a session
+  that finished a task (after sessions joined, the roles changed or a merge) waits for a working
+  target without a limit and then has the 30 seconds of a member's message, like any message.
+- **On the way.** The group's label shows "2 on the way" in quiet text while messages go on their
+  own: every message marked to go on its own, whether its paste has claimed it yet or not, and
+  one this window still pastes after its claim ran out (`pendingByGroup` in `src/linkCards.ts`).
+  A message that waits for a click is a card and not counted, also while a click's paste claims
+  it. Its tooltip and, for screen readers, its description list each one as
+  "app to web: first line". It sits in the label's own row, not on a session row, so it takes no
+  width from a row and cannot be mistaken for the red sub-agent count on a row's program badge.
+- **Message stack.** From two cards below one row on, the cards sum up in one line: "3 messages
+  from the group", the senders, a secret hint when any of them seems to hold a key
+  ([[0015-secret-guard]]), "Send all", "Discard all" and "Show each" for the single cards. Its
+  buttons arm like a card's (`useArmDelay`). "Send all" sends one message after another, oldest
+  first, each once the one before went in (`sendInTurn`): every message stays a prompt of its own,
+  so the next waits until the target paused again; the first that does not go in (cancelled, not
+  ready, refused) stops the rest, which stay as cards. While one is sent, the line says so with
+  "Cancel".
+- **One introduction per group.** Every introduction lists the whole group, the roles and how to
+  write (links.rs `introduction`), so only the newest of a group shows as a card below a row
+  (`stackCards`); the older ones are discarded along with it when it is sent or discarded, and
+  appear in the history as discarded. When a newer introduction goes in on its own, the older
+  ones still waiting as cards for that session in that group go too (`olderIntroductions`); a
+  member's message is never taken along.
+- **The label's menu.** A click on the group's label opens a menu instead of Edit group: while the
+  brake holds, "Automatic delivery paused" with "Allow to go on"; the lead as a choice among the
+  members ("No lead" first); then "Edit group …", "Group history …" and "Unlink", the same
+  entries and handlers as the session menu of a member. "Allow to go on" is an `edit_link_group`
+  that changes nothing, which the backend counts as the person stepping in (`Brake::person_acted`):
+  the budget starts again. The rate's brake is not released by it and still needs its quiet
+  minute; the group reports only `braked`, so the window reads the state again after the edit:
+  no brake any more says "New messages go on their own again", a brake that still holds says
+  the group sends too fast and goes on after a quiet minute (`resumeNotice`). Choosing a
+  lead is an `edit_link_group` with the new lead, so the members get the introduction of changed
+  roles as before.
+- **No "Paste only" on link cards.** A member's message is a prompt for the agent, not a draft for
+  the person; "Send" alone stays. Partner message cards keep "Paste only".
+
+Left for a later package, since they need the backend: the kind of brake in `GroupView` (rate or
+budget) and a command that releases both and lets the held messages go on their own again; one
+introduction per member in the queue (a newer one replacing the queued one) instead of discarding
+older ones in the window.
 
 ## Evidence
 - [[cross-project-paste-measurement]]: a bracketed paste with a header line arrives as one prompt,

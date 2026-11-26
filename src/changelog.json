@@ -44,6 +44,20 @@
         "ru": "Боковая панель показывает у каждой сессии красную точку с числом её работающих субагентов, и в свёрнутом виде тоже.",
         "tr": "Kenar çubuğu her oturumda çalışan alt ajanlarının sayısını kırmızı bir noktayla gösterir, daraltılmışken de.",
         "zh": "侧边栏在每个会话上用红点显示其正在运行的子代理数量，折叠时也会显示。"
+      },
+      {
+        "de": "Ruhigere Gruppen: wartende Nachrichten in einer Zeile mit „Alle senden“, ein Menü an der Gruppe für Leitung und Pause, Einführungen warten auf den Agenten.",
+        "en": "Calmer groups: waiting messages in one line with “Send all”, a menu on the group for lead and pause, introductions wait for the agent.",
+        "el": "Πιο ήρεμες ομάδες: μηνύματα σε αναμονή σε μία γραμμή με «Αποστολή όλων», μενού στην ομάδα για ηγεσία και παύση, οι συστάσεις περιμένουν τον agent.",
+        "es": "Grupos más tranquilos: mensajes en espera en una línea con «Enviar todos», un menú del grupo para liderazgo y pausa, las presentaciones esperan al agente.",
+        "fr": "Groupes plus calmes : messages en attente sur une ligne avec « Tout envoyer », un menu pour la direction et la pause, les présentations attendent l'agent.",
+        "it": "Gruppi più tranquilli: messaggi in attesa in una riga con «Invia tutti», un menu del gruppo per guida e pausa, le presentazioni aspettano l'agente.",
+        "ja": "グループがより静かに: 待機中のメッセージは「すべて送信」付きの1行に、グループのメニューでリーダーと一時停止を操作、紹介はエージェントの作業終了を待ちます。",
+        "pl": "Spokojniejsze grupy: czekające wiadomości w jednym wierszu z „Wyślij wszystkie”, menu grupy do prowadzenia i pauzy, przedstawienia czekają na agenta.",
+        "pt": "Grupos mais calmos: mensagens em espera numa linha com “Enviar todas”, um menu do grupo para liderança e pausa, apresentações esperam o agente.",
+        "ru": "Спокойнее группы: ждущие сообщения в одной строке с «Отправить все», меню группы для ведущего и паузы, представления ждут агента.",
+        "tr": "Daha sakin gruplar: bekleyen mesajlar “Tümünü gönder” ile tek satırda, lider ve duraklama için grup menüsü, tanıtımlar ajanı bekler.",
+        "zh": "更安静的组：等待中的消息合为一行并带有“全部发送”，组菜单可设置负责人和暂停，介绍会等待智能体完成。"
       }
     ]
   },
