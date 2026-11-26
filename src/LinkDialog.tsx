@@ -234,7 +234,7 @@ export function LinkDialog(props: {
           ))}
         </ul>
       )}
-      {/* A growing group keeps its lead; "Edit group" changes it. */}
+      {/* A growing group keeps its lead; "Edit link group" changes it. */}
       {own === undefined && ids.length >= 2 && (
         <LeadChoice
           options={picked.map((session) => ({ session: session.id, label: session.title }))}
@@ -266,14 +266,14 @@ export function LinkDialog(props: {
   );
 }
 
-/** A session that joins the group in the "Edit group" dialog, with its name there. */
+/** A session that joins the group in the "Edit link group" dialog, with its name there. */
 export interface AddedMember {
   session: number;
   name: string;
 }
 
 /**
- * "Edit group": each member's name inside the group, which its agent writes to, sessions to add
+ * "Edit link group": each member's name inside the group, which its agent writes to, sessions to add
  * with their names, the lead and the toggle "Ask before pasting". Names are checked as the
  * backend checks them before Save is offered.
  */

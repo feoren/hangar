@@ -97,7 +97,7 @@ describe("the message stack", () => {
   it("sums up two or more messages in one line, naming who sent them", () => {
     show([first, second, third]);
     const stack = host.querySelector(".waiting-stack");
-    expect(stack?.getAttribute("aria-label")).toBe("3 messages from the group");
+    expect(stack?.getAttribute("aria-label")).toBe("3 messages from the link group");
     expect(stack?.textContent).toContain("From web, docs");
     expect(button("Send all")?.className).toBe("primary-button");
     expect(button("Discard all")).toBeDefined();
@@ -194,7 +194,7 @@ describe("the message stack", () => {
   it("reads in German", () => {
     show([first, second], { language: "de" });
     expect(host.querySelector(".waiting-stack")?.getAttribute("aria-label")).toBe(
-      "2 Nachrichten aus der Gruppe",
+      "2 Nachrichten aus dem Verbund",
     );
     expect(button("Alle senden")).toBeDefined();
     expect(button("Alle verwerfen")).toBeDefined();

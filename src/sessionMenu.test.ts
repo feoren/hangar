@@ -256,8 +256,8 @@ describe("stall hint entries", () => {
       stall: null,
       link: "member",
     }).map((entry) => (entry.type === "action" ? entry.label : ""));
-    expect(labels).toContain("Edit group …");
-    expect(labels).toContain("Group history …");
+    expect(labels).toContain("Edit link group …");
+    expect(labels).toContain("Link group history …");
     expect(labels).toContain("Unlink");
     const german = createTranslator("de");
     const link = sessionMenuEntries({ status: "running" }, german, false, {

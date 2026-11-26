@@ -63,7 +63,7 @@ function HistoryRow({
 }
 
 /**
- * "Group history": the last messages of a link group, newest first, each closed to one line and
+ * "Link group history": the last messages of a link group, newest first, each closed to one line and
  * opened for the whole text (ADR 0014). It reads the history again whenever `version` changes
  * (the group's messages changed); the history lives in the backend's memory only.
  */

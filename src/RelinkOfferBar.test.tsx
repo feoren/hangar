@@ -15,7 +15,7 @@ function bar(missing: string[], language: Language = "en"): string {
 describe("the bar offering a group of the last run", () => {
   it("asks, names the members and offers Link and Discard", () => {
     const html = bar([], "de");
-    expect(html).toContain("Gruppe von vor dem Neustart wieder verknüpfen?");
+    expect(html).toContain("Verbund von vor dem Neustart wieder verknüpfen?");
     expect(html).toContain("Shop, web");
     expect(html).toContain(">Verknüpfen</button>");
     expect(html).toContain(">Verwerfen</button>");

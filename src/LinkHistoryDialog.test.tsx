@@ -47,7 +47,7 @@ describe("the lead", () => {
     const html = render(<LeadCrown color={2} />);
     expect(html).toContain('class="session-crown"');
     expect(html).toContain("--link-color:var(--link-2)");
-    expect(html).toContain('title="Leads the group"');
+    expect(html).toContain('title="Leads the link group"');
     expect(linkMarkText(mark, createTranslator("en"))).toBe("Linked as “app”, lead");
     expect(linkMarkText(mark, createTranslator("de"))).toBe("Verknüpft als „app“, Leitung");
   });

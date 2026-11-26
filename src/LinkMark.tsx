@@ -68,7 +68,7 @@ export function pendingLines(pending: readonly PendingDelivery[], t: Translate):
 }
 
 /**
- * The label above a group's first run: "Group · 3", in the group's color, and "2 on the way"
+ * The label above a group's first run: "Link group · 3", in the group's color, and "2 on the way"
  * while messages go on their own; the tooltip lists them. A click opens the group's menu
  * (lead, brake, history, unlink). While the loop brake holds, the line is dashed and the label
  * says why. The label stands in its own row, so none of this takes width from a session row.

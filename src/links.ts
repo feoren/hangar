@@ -270,7 +270,7 @@ export type LinkOffer = "link" | "member" | "grow" | null;
 
 /**
  * "Link with …" only where at least one other session could join or a group has room for this
- * one (only offer what works). A member gets "Edit group" and "Unlink", and "Link with …" too
+ * one (only offer what works). A member gets "Edit link group" and "Unlink", and "Link with …" too
  * while its group has room for a session in no group or can merge with another group.
  */
 export function linkOffer<T extends LinkableSession>(

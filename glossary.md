@@ -5,8 +5,8 @@ UI texts in `src/i18n.ts` are translated per language and are not bound by this 
 
 | German                                          | English                           | Note                                                                                 |
 | ----------------------------------------------- | --------------------------------- | ------------------------------------------------------------------------------------ |
-| Session                                         | session                           |                                                                                      |
-| Agenten-Sitzung (aufrufende)                    | calling agent session             | the agent that launched Hangar's dev instance                                        |
+| Session                                         | session                           | also the German UI term; never „Sitzung“                                             |
+| Agenten-Session (aufrufende)                    | calling agent session             | the agent that launched Hangar's dev instance                                        |
 | Agent, Agenten-CLI                              | agent, agent CLI                  |                                                                                      |
 | Agenten-Katalog, Katalog                        | agent catalog, catalog            | `agent_catalog.toml`                                                                 |
 | Profil, Profildatei                             | profile, profile file             | `profiles.toml`                                                                      |
@@ -61,7 +61,7 @@ UI texts in `src/i18n.ts` are translated per language and are not bound by this 
 | Melde-Token                                     | notice token                      | token of scope `Notify` on the hook endpoint, in `HANGAR_NOTIFY_TOKEN`               |
 | wartet auf Freigabe                             | waits for approval                | attention reason `permission`, set by the notice hooks                               |
 | Partnerliste                                    | partner book                      | the named projects and their pairs, `partner-projects.json`; `PartnerBook`           |
-| Link-Gruppe                                     | link group                        | running agent sessions linked to message each other, ADR 0014; `links.rs`            |
+| Link-Gruppe, in der UI „Verbund“                | link group                        | agent sessions linked to message each other, ADR 0014; `links.rs`; UI never „Gruppe“ |
 | Mitgliedsname                                   | member name                       | `[a-z0-9-]{1,32}` name of a session in its link group, `hangar-send <name>`          |
 | Schleifenbremse                                 | loop brake                        | 3 automatic deliveries per member and minute, then a click; `Brake`, `Limits`        |
 | Zustellbudget                                   | budget (link group)               | 10 automatic deliveries per member until the person acts; `Limits::budget`           |
@@ -95,7 +95,7 @@ UI texts in `src/i18n.ts` are translated per language and are not bound by this 
 | Einstellungen                                   | Settings                          |                                                                                      |
 | Bereich (in den Einstellungen)                  | section                           |                                                                                      |
 | Sidebar, Seitenleiste                           | sidebar                           |                                                                                      |
-| Gruppe (Sidebar)                                | group                             |                                                                                      |
+| Gruppe (Sidebar)                                | group                             | only the sidebar's project and program groups, never a link group                    |
 | Agentengruppe (Sidebar)                         | agent group                       | top-level group of one program's sessions, worktree or not; `agentGroupKey`          |
 | Projektgruppe (Sidebar)                         | project group                     | top-level group of one project folder's sessions; `sessionGroupKey`                  |
 | Gruppierung (Sidebar)                           | session grouping                  | by program or by project; `SessionGrouping`                                          |

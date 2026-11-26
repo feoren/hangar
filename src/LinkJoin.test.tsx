@@ -1,7 +1,7 @@
 // @vitest-environment happy-dom
 
 // Sessions joining an existing link group (ADR 0014): from "Link with …" with one click per
-// group, and from "Edit group", where a joining session shows with its default name, which can be
+// group, and from "Edit link group", where a joining session shows with its default name, which can be
 // changed before Save.
 
 import { act } from "react";
@@ -86,7 +86,7 @@ function type(input: HTMLInputElement, value: string) {
   });
 }
 
-/** The button that adds session `title` in "Edit group". */
+/** The button that adds session `title` in "Edit link group". */
 function adder(title: string): HTMLButtonElement {
   const found = [...host.querySelectorAll<HTMLButtonElement>(".link-add-session")].find(
     (entry) => entry.textContent === title,
@@ -118,10 +118,10 @@ describe("Link with …", () => {
         onClose={() => undefined}
       />,
     );
-    expect(host.textContent).toContain("New group");
+    expect(host.textContent).toContain("New link group");
     expect(host.querySelectorAll('input[type="checkbox"]').length).toBe(2);
     await act(async () => {
-      button("Add to group: shop, cart").click();
+      button("Add to link group: shop, cart").click();
       await Promise.resolve();
     });
     expect(onJoin).toHaveBeenCalledWith(7);
@@ -142,8 +142,8 @@ describe("Link with …", () => {
         onClose={() => undefined}
       />,
     );
-    expect(host.textContent).toContain("Add to group: shop, cart");
-    expect(host.textContent).not.toContain("New group");
+    expect(host.textContent).toContain("Add to link group: shop, cart");
+    expect(host.textContent).not.toContain("New link group");
     expect(host.textContent).not.toContain("No other session can be linked");
     expect(host.querySelector('input[type="checkbox"]')).toBeNull();
     // No "Link" button that could never be pressed.
@@ -158,7 +158,7 @@ type SaveFn = (
   added: AddedMember[],
 ) => Promise<string | null>;
 
-describe("Edit group: adding sessions", () => {
+describe("Edit link group: adding sessions", () => {
   function edit(onSave: SaveFn, target: LinkGroup = group) {
     show(
       <LinkGroupDialog

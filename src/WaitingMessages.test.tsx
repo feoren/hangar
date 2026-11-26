@@ -62,7 +62,7 @@ const intro: WaitingMessage = {
   to: "1",
   text: 'You are linked with other agents in Hangar.\nYour member name is "hangar".',
   at: 1,
-  title: "Linked into a group",
+  title: "Joined a link group",
   intro: summary,
 };
 
@@ -167,7 +167,7 @@ describe("WaitingMessages", () => {
 
   it("shows Hangar's introduction as whom the session works with, the agent's text on request", () => {
     const html = render(new Map(), "en", intro);
-    expect(html).toContain('<span class="waiting-message-from">Linked into a group</span>');
+    expect(html).toContain('<span class="waiting-message-from">Joined a link group</span>');
     expect(html).toContain("This session now works with:");
     expect(html).toContain('<span class="link-intro-name">website</span>');
     expect(html).toContain('<span class="link-intro-lead">Lead</span>');
@@ -181,7 +181,7 @@ describe("WaitingMessages", () => {
     expect(html).toContain(">Send<");
     expect(html).toContain(">Paste only<");
     const leads = render(new Map(), "de", { ...intro, intro: { ...summary, leads: true } });
-    expect(leads).toContain("Diese Session leitet die Gruppe mit:");
+    expect(leads).toContain("Diese Session leitet den Verbund mit:");
     expect(leads).toContain(">Text für den Agenten anzeigen<");
     expect(leads).toContain(">Leitung<");
   });

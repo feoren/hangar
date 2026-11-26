@@ -3,7 +3,7 @@ import { readFileSync } from "node:fs";
 
 import { describe, expect, it } from "vitest";
 
-// "Edit group" lists the members' names and, below them, each session that joins with its name
+// "Edit link group" lists the members' names and, below them, each session that joins with its name
 // and a button that takes it out again (LinkDialog.tsx). The name fields form one column: a
 // joining row must not give up width to its button, or its field starts left of the others.
 
@@ -26,7 +26,7 @@ function declarations(selector: string): Map<string, string> {
   return found;
 }
 
-describe("a joining session's row in Edit group", () => {
+describe("a joining session's row in Edit link group", () => {
   it("keeps the full row width for its name, like a member's row", () => {
     // A flex row would share the width with the button and shift the two grid columns.
     expect(declarations(".link-joining").get("display")).toBeUndefined();

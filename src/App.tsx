@@ -6763,7 +6763,7 @@ export function App() {
     setLinkDialog(null);
     focusActive();
   };
-  /** The group the "Edit group" dialog shows; gone once the group ended. */
+  /** The group the "Edit link group" dialog shows; gone once the group ended. */
   const editedGroup =
     linkDialog?.kind === "edit"
       ? linkState.groups.find((entry) => entry.id === linkDialog.group)
@@ -6885,7 +6885,7 @@ export function App() {
     if (problem === null) closeLinkDialog();
     return problem;
   };
-  /** The group the "Group history" dialog shows; gone once the group ended. */
+  /** The group the "Link group history" dialog shows; gone once the group ended. */
   const historyGroup =
     linkDialog?.kind === "history"
       ? linkState.groups.find((entry) => entry.id === linkDialog.group)

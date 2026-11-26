@@ -15387,7 +15387,7 @@ button.sub-agent-card:focus-visible {
    A link group's members are held by a bracket in the group's color (--link-color, set per
    element): a thin line in the free column left of the program group's tree guide, below the
    header's chevron, so it crosses no elbow. A label above the group's first run names it and its
-   size and opens Edit group; members further down (another sidebar group, or past other rows)
+   size and opens Edit link group; members further down (another sidebar group, or past other rows)
    get the line alone. While the loop brake holds messages, the line is dashed: shape, not color
    alone. Static: nothing moves. */
 .agent-rows {
@@ -15628,7 +15628,7 @@ button.sub-agent-card:focus-visible {
   white-space: normal;
 }
 
-/* "Link with …" and "Edit group" (LinkDialog.tsx). */
+/* "Link with …" and "Edit link group" (LinkDialog.tsx). */
 .dialog.link-dialog {
   width: min(480px, calc(100vw - 32px));
 }
@@ -15757,7 +15757,7 @@ button.sub-agent-card:focus-visible {
   font-weight: 600;
 }
 
-/* A session that joins in "Edit group": its name row, and a button that takes it out again. The
+/* A session that joins in "Edit link group": its name row, and a button that takes it out again. The
    button sits inside the end of the name field, so the row keeps the members' columns and its
    field lines up with theirs. */
 .link-joining {

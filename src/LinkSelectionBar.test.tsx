@@ -41,7 +41,7 @@ describe("the link selection bar", () => {
   });
 
   it("says when the group would hold too many", () => {
-    expect(bar(5, "tooMany")).toContain("A group takes at most 8 sessions.");
+    expect(bar(5, "tooMany")).toContain("A link group takes at most 8 sessions.");
   });
 
   it("says why a session cannot be linked, also without a selection", () => {

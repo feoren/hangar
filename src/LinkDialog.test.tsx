@@ -91,13 +91,15 @@ describe("the link bracket", () => {
     expect(html).toContain('class="link-bracket-head"');
     expect(html).toContain("--link-color:var(--link-3)");
     // The name starts with the visible label (WCAG 2.5.3).
-    expect(html).toContain('>Group · 3<span class="sr-only">: Group with 3 sessions</span>');
+    expect(html).toContain(
+      '>Link group · 3<span class="sr-only">: Link group with 3 sessions</span>',
+    );
     expect(html).toContain('aria-haspopup="menu"');
     expect(html).toContain('aria-expanded="false"');
     expect(html).not.toContain("aria-label=");
     expect(head(piece, [], "en", true)).toContain('aria-expanded="true"');
     expect(head(piece, [], "de")).toContain(
-      '>Gruppe · 3<span class="sr-only">: Gruppe mit 3 Sessions</span>',
+      '>Verbund · 3<span class="sr-only">: Verbund mit 3 Sessions</span>',
     );
   });
 
@@ -105,7 +107,7 @@ describe("the link bracket", () => {
     const braked = { ...piece, braked: true };
     const html = head(braked);
     expect(html).toContain('class="link-bracket head braked"');
-    expect(html).toContain("Group with 3 sessions, messages wait for your click");
+    expect(html).toContain("Link group with 3 sessions, messages wait for your click");
     expect(render(<LinkBracketLine piece={braked} />)).toContain('class="link-bracket braked"');
   });
 
@@ -327,8 +329,8 @@ describe("LinkDialog with an agent that runs without prompts", () => {
         onClose={() => undefined}
       />,
     );
-    expect(html).toContain("Add sessions to this group, or link it with another group into one.");
-    expect(html).toContain("Link with group: docs, shop");
+    expect(html).toContain("Add sessions to this link group, or merge it with another link group.");
+    expect(html).toContain("Merge with link group: docs, shop");
     expect(html).toContain("Add session");
     // One session to add is enough; nothing is checked at the start.
     expect(html.match(/type="checkbox"/g)?.length).toBe(1);
@@ -359,7 +361,7 @@ describe("LinkDialog with an agent that runs without prompts", () => {
         onClose={() => undefined}
       />,
     );
-    expect(html).toContain("A group takes at most 8 sessions.");
+    expect(html).toContain("A link group takes at most 8 sessions.");
     expect(html).toMatch(/class="primary-button" disabled=""/);
   });
 });
