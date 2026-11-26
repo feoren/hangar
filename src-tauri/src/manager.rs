@@ -211,14 +211,26 @@ pub struct SendLaunch {
     pub path_dir: Option<PathBuf>,
     /// A line for the agent's instructions ([`StartExtras::hint`]).
     pub hint: Option<String>,
+    /// Config overrides placed before the start arguments (`codex -c ... resume --last`) and never
+    /// dropped for length: what lets the commands the agent runs see the endpoint and keeps
+    /// Hangar's tokens from them ([`crate::codex_shell_env`]). Never the token.
+    pub prepend: Vec<String>,
 }
 
 /// Hands sessions the send client, called like [`LaunchGate`]: `prepare` without the session lock
 /// for every process start of an agent session (private and team alike), `ended` under it when
 /// that process is gone.
 pub trait LaunchSend: Send + Sync {
-    /// `program`: the resolved program of the start; a shell gets nothing.
-    fn prepare(&self, session: SessionId, cwd: &Path, program: &Path) -> SendLaunch;
+    /// `program`: the resolved program of the start of `agent`, a shell gets nothing; `args`:
+    /// its start arguments (`args`, `resume_args` and so on).
+    fn prepare(
+        &self,
+        session: SessionId,
+        cwd: &Path,
+        agent: &Agent,
+        program: &Path,
+        args: &[String],
+    ) -> SendLaunch;
     fn ended(&self, session: SessionId);
 }
 
@@ -873,17 +885,27 @@ pub fn extra_args(
     (before, after)
 }
 
+/// `before` with the config overrides of the sub-agent model default in front: they go before a
+/// subcommand such as `codex resume --last`, like `HANGAR.md`.
+fn with_overrides(mut before: Vec<String>, models: &agent_models::ModelLaunch) -> Vec<String> {
+    before.splice(0..0, models.args.iter().cloned());
+    before
+}
+
 /// The arguments of one process start before Hangar's extras are placed.
 struct ArgParts<'a> {
     /// `args`, `resume_args` and so on, with the conversation id.
     start: Vec<String>,
     gate: Option<&'a GateLaunch>,
+    /// [`SendLaunch::prepend`], right after the gate's options. Never dropped for length: without
+    /// it the commands may lose `HANGAR_SEND` or get Hangar's tokens.
+    send: &'a [String],
     /// Option and folder of programs that take the working folder as an argument.
     cwd_flag: Option<(&'static str, String)>,
 }
 
 impl ArgParts<'_> {
-    /// The whole argument list: gate options first, then the instructions (before a subcommand
+    /// The whole argument list: gate options first, the send overrides, then the instructions (before a subcommand
     /// such as `codex resume --last`), the start arguments, the gate's arguments, the first prompt
     /// (last of all options: a positional prompt must not be taken for an option's value) and the
     /// working folder option.
@@ -893,6 +915,7 @@ impl ArgParts<'_> {
         });
         let mut args: Vec<String> = prepend
             .iter()
+            .chain(self.send)
             .chain(before)
             .chain(&self.start)
             .chain(appended)
@@ -2048,7 +2071,7 @@ fn spawn(
     // Private and team sessions alike may send (partner projects, link groups); an installer
     // never.
     let send = match (launch.kind, shared.launch_send()) {
-        (SessionKind::Agent, Some(send)) => send.prepare(id, cwd, &program),
+        (SessionKind::Agent, Some(send)) => send.prepare(id, cwd, agent, &program, &args),
         _ => SendLaunch::default(),
     };
     let extra = if launch.kind == SessionKind::Agent {
@@ -2056,16 +2079,15 @@ fn spawn(
             hint: send.hint.clone(),
             ..launch.extras.clone()
         };
-        let (mut before, after) = extra_args(agent, &program, &extras);
-        // Config overrides go before a subcommand such as `codex resume --last`, like HANGAR.md.
-        before.splice(0..0, models.args.iter().cloned());
-        (before, after)
+        let (before, after) = extra_args(agent, &program, &extras);
+        (with_overrides(before, &models), after)
     } else {
         (Vec::new(), Vec::new())
     };
     let parts = ArgParts {
         start: args,
         gate: gate.as_ref(),
+        send: &send.prepend,
         cwd_flag: agent
             .cwd_flag
             .map(|flag| (flag, cwd.to_string_lossy().into_owned())),
@@ -2542,6 +2564,57 @@ mod tests {
     }
 
     #[test]
+    fn send_overrides_go_before_a_subcommand() {
+        let models = agent_models::ModelLaunch {
+            env: Vec::new(),
+            args: strings(&["-c", "agents.default_subagent_model=gpt-5"]),
+        };
+        let send = strings(&["-c", "shell_environment_policy.inherit=all"]);
+        let before = with_overrides(strings(&["-c", "developer_instructions=x"]), &models);
+        let parts = ArgParts {
+            start: strings(&["resume", "--last"]),
+            gate: None,
+            send: &send,
+            cwd_flag: None,
+        };
+        assert_eq!(
+            parts.compose(&before, &[]),
+            strings(&[
+                "-c",
+                "shell_environment_policy.inherit=all",
+                "-c",
+                "agents.default_subagent_model=gpt-5",
+                "-c",
+                "developer_instructions=x",
+                "resume",
+                "--last",
+            ])
+        );
+    }
+
+    #[test]
+    fn a_too_long_command_line_keeps_the_send_overrides() {
+        let send = strings(&["-c", "shell_environment_policy.exclude=['HANGAR_GATE']"]);
+        let parts = ArgParts {
+            start: strings(&["resume", "--last"]),
+            gate: None,
+            send: &send,
+            cwd_flag: None,
+        };
+        let huge = vec!["x".repeat(instructions::COMMAND_LINE_MAX)];
+        // Only the instructions fall away; the policy stays in front of the subcommand.
+        assert_eq!(
+            parts.fitting("p", (huge, Vec::new()), "P"),
+            strings(&[
+                "-c",
+                "shell_environment_policy.exclude=['HANGAR_GATE']",
+                "resume",
+                "--last",
+            ])
+        );
+    }
+
+    #[test]
     fn a_too_long_command_line_loses_the_instructions_first() {
         let gate = GateLaunch {
             prepend: strings(&["--hook-trust"]),
@@ -2551,6 +2624,7 @@ mod tests {
         let parts = ArgParts {
             start: strings(&["resume", "--last"]),
             gate: Some(&gate),
+            send: &[],
             cwd_flag: Some(("--cd", "/work".to_owned())),
         };
         let before = strings(&["--append-system-prompt=Use tabs."]);

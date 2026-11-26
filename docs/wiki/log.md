@@ -1767,3 +1767,29 @@ An automatic link delivery sent a half-typed prompt along, because the draft was
 xterm's key events and pastes, dictation and IME input never counted. Recorded the cause and the
 draft rule (`src/inputDraft.ts`, `autoReadiness` answers `draft`, no limit, card with the reason).
 Updated: [[0014-session-links]].
+
+## [2026-11-26] ingest | Codex CLI shell environment policy and HANGAR_SEND
+Measured Codex CLI 0.172.0 on Windows with `codex sandbox`: its default shell environment policy
+passes only a core set, so `hangar-send` in a Codex session found no `HANGAR_SEND`; `inherit=all`
+passes it but alone also hands on names with TOKEN and KEY, which
+`ignore_default_excludes=false` and `exclude` keep out. A Codex session with a send endpoint now
+gets these `-c` overrides unless the person set the policy (`src-tauri/src/codex_shell_env.rs`).
+New: [[codex-shell-environment-measurement]] with its raw record. Updated:
+[[0012-cross-project-messages]], index.
+
+## [2026-11-26] ingest | Correction: Codex CLI shell environment policy
+The entry above misread the measurement: it ran with the owner's own `inherit = "core"` policy.
+Codex 0.172.0's default passes every variable (source at `rust-v0.172.0`), so `HANGAR_SEND`
+arrives and Hangar's tokens too. New measurements with a test `CODEX_HOME`: `-c` keys merge into
+the file's table, `-c` arrays replace it, profile files merge over the user config, legacy
+profiles stop Codex, `inherit=all` plus `include_only` of the core list adds exactly
+`HANGAR_SEND`. The built behavior changed with it: an `exclude` of Hangar's tokens without a
+policy, `include_only` for a core policy, no sending for a policy that cannot carry the variable.
+Updated: [[codex-shell-environment-measurement]] (raw record with a correction section),
+[[0012-cross-project-messages]], index.
+
+## [2026-11-26] ingest | Codex project config fails closed
+A `shell_environment_policy` in a project's `.codex/config.toml` between the working folder and
+the repository root (top level or in a profile table), or such a file that cannot be read as TOML,
+now means the Codex session is not offered sending; project layering is not measured. Updated:
+[[codex-shell-environment-measurement]] (and its raw record).

@@ -19,8 +19,9 @@ use crate::gate::{
 /// First argument of the Hangar executable that runs the helper instead of the app.
 pub const HELPER_SUBCOMMAND: &str = "gate-hook";
 /// Environment variable of the helper with `<port>:<token>`. A neutral name on purpose: Gemini
-/// CLI may strip variables whose names contain TOKEN, KEY or AUTH from a hook's environment,
-/// and Codex's shell environment policy drops such names by default.
+/// CLI may strip variables whose names contain TOKEN, KEY or AUTH from a hook's environment, and
+/// a Codex shell environment policy with the default excludes on drops such names (Codex hooks
+/// themselves get the process environment, not the policy).
 pub const HELPER_ENV: &str = "HANGAR_GATE";
 
 /// Qwen Code reads its system settings from this file instead of the administrator's one.

@@ -7,11 +7,16 @@
 //! target paused, bracketed paste on, output quiet), because only it sees the terminal. A
 //! message an agent sends later (ADR 0012, `hangar-send`) passes the same checks here.
 
+use std::collections::BTreeMap;
 use std::path::{Component, Path, PathBuf};
 use std::sync::{Arc, Mutex};
 
 use serde::Serialize;
 use zeroize::Zeroizing;
+
+use crate::agent_catalog::Agent;
+use crate::agent_models::DefProgram;
+use crate::codex_shell_env;
 
 use crate::gate_service::GateService;
 use crate::git::repo_place_of;
@@ -554,6 +559,29 @@ pub struct PartnerLaunch {
     bin_dir: Option<PathBuf>,
     /// Told which sessions can send, so only those are offered for linking.
     links: Option<LinkService>,
+    /// Codex CLI's home for a start with the profile's environment in a working folder and how
+    /// its files are read ([`codex_disk`]); replaced in tests so they never read the real home.
+    codex_disk: CodexDisk,
+}
+
+/// Codex CLI's home for a start (the profile's environment, the working folder) and the reader
+/// of its config files.
+type CodexDisk = (
+    fn(&BTreeMap<String, String>, &Path) -> Option<PathBuf>,
+    fn(&Path) -> codex_shell_env::ConfigFile,
+);
+
+/// [`PartnerLaunch::codex_disk`] on the real disk.
+fn codex_disk() -> CodexDisk {
+    fn home(profile_env: &BTreeMap<String, String>, cwd: &Path) -> Option<PathBuf> {
+        let home_var = if cfg!(windows) { "USERPROFILE" } else { "HOME" };
+        let home = std::env::var_os(home_var)
+            .filter(|value| !value.is_empty())
+            .map(PathBuf::from);
+        let var = |name: &str| std::env::var(name).ok();
+        codex_shell_env::codex_home(profile_env, &var, home.as_deref(), cwd)
+    }
+    (home, codex_shell_env::read_config)
 }
 
 impl PartnerLaunch {
@@ -563,7 +591,50 @@ impl PartnerLaunch {
             store,
             bin_dir,
             links: None,
+            codex_disk: codex_disk(),
         }
+    }
+
+    #[cfg(test)]
+    fn with_codex_disk(mut self, disk: CodexDisk) -> Self {
+        self.codex_disk = disk;
+        self
+    }
+
+    /// Whether the commands of `agent`'s session would see the endpoint, and the arguments that
+    /// make sure ([`codex_shell_env`]). Codex CLI's files are read only for a Codex start.
+    fn shell_env_plan(
+        &self,
+        cwd: &Path,
+        agent: &Agent,
+        program: &Path,
+        args: &[String],
+    ) -> codex_shell_env::Plan {
+        let (home, read) = self.codex_disk;
+        let codex = agent.prompting.agent_program == Some(DefProgram::Codex);
+        let codex_home = if codex {
+            home(&agent.profile.env, cwd)
+        } else {
+            None
+        };
+        let project_dirs = if codex {
+            codex_shell_env::project_dirs(cwd, &codex_shell_env::is_repo_root)
+        } else {
+            Vec::new()
+        };
+        codex_shell_env::plan(
+            &codex_shell_env::Start {
+                program: agent.prompting.agent_program,
+                args,
+                secret_env: &agent.profile.secret_env,
+                batch: crate::batch::is_batch(program),
+            },
+            &codex_shell_env::Disk {
+                codex_home: codex_home.as_deref(),
+                project_dirs: &project_dirs,
+                read: &read,
+            },
+        )
     }
 
     /// Reports every session that got the client, and every one that ended, to `links`.
@@ -574,7 +645,14 @@ impl PartnerLaunch {
 }
 
 impl LaunchSend for PartnerLaunch {
-    fn prepare(&self, session: SessionId, cwd: &Path, program: &Path) -> SendLaunch {
+    fn prepare(
+        &self,
+        session: SessionId,
+        cwd: &Path,
+        agent: &Agent,
+        program: &Path,
+        args: &[String],
+    ) -> SendLaunch {
         let Some(bin_dir) = &self.bin_dir else {
             return SendLaunch::default();
         };
@@ -582,6 +660,15 @@ impl LaunchSend for PartnerLaunch {
         if is_shell_command(&program.to_string_lossy()) {
             return SendLaunch::default();
         }
+        // Only offer what works: an agent whose commands would never see the variable gets
+        // neither token nor client nor hint, and is not offered for linking.
+        let codex_shell_env::Plan::Send(prepend) = self.shell_env_plan(cwd, agent, program, args)
+        else {
+            eprintln!(
+                "hangar: sending not offered: the agent's shell environment policy would not pass {SEND_ENV}"
+            );
+            return SendLaunch::default();
+        };
         let book = self.store.load_partners();
         let names = if book.projects.is_empty() {
             Vec::new()
@@ -603,6 +690,7 @@ impl LaunchSend for PartnerLaunch {
                     // name the partners, which hold for the session's whole life.
                     hint: (!names.is_empty())
                         .then(|| send_hint(&names.iter().map(String::as_str).collect::<Vec<_>>())),
+                    prepend,
                 }
             }
             Err(error) => {
@@ -1165,5 +1253,126 @@ mod tests {
             Err(PartnerServiceError::Partner(PartnerError::NotAPartner(_)))
         ));
         assert!(inbox.waiting(&parted).is_empty());
+    }
+
+    fn catalog_agent(id: &str) -> crate::agent_catalog::Agent {
+        let catalog = crate::agent_catalog::builtin()
+            .unwrap()
+            .into_iter()
+            .find(|agent| agent.id == id)
+            .unwrap();
+        crate::agent_catalog::Agent::from_catalog(catalog)
+    }
+
+    /// Codex's config files as a test sees them.
+    #[derive(Clone, Copy)]
+    enum Codex {
+        NoConfig,
+        /// The owner's: `inherit = "core"` plus a `set` table.
+        CoreWithSet,
+        InheritNone,
+    }
+
+    fn launcher(tmp: &crate::test_support::TempDir, codex: Codex) -> PartnerLaunch {
+        use codex_shell_env::ConfigFile;
+        let gate = GateService::new(
+            tmp.path().join("gate"),
+            || Arc::new(Vec::new()),
+            std::collections::HashMap::new,
+            |_| {},
+        );
+        let launch = PartnerLaunch::new(
+            gate,
+            MainStore::new(tmp.path().join("store")),
+            Some(tmp.path().join("bin")),
+        );
+        let home: fn(&BTreeMap<String, String>, &Path) -> Option<PathBuf> =
+            |_, _| Some(PathBuf::from("codex-home"));
+        let read: fn(&Path) -> ConfigFile = match codex {
+            Codex::NoConfig => |_| ConfigFile::Missing,
+            Codex::CoreWithSet => |path| {
+                if path == Path::new("codex-home").join("config.toml") {
+                    ConfigFile::Text(
+                        "[shell_environment_policy]\ninherit = \"core\"\n\
+                         [shell_environment_policy.set]\nAPI_TIMEOUT_MS = \"1800000\"\n"
+                            .to_owned(),
+                    )
+                } else {
+                    ConfigFile::Missing
+                }
+            },
+            Codex::InheritNone => {
+                |_| ConfigFile::Text("[shell_environment_policy]\ninherit = \"none\"\n".to_owned())
+            }
+        };
+        launch.with_codex_disk((home, read))
+    }
+
+    #[test]
+    fn a_codex_session_without_a_policy_only_drops_hangars_tokens() {
+        let tmp = crate::test_support::TempDir::new("partner-launch-codex");
+        let launch = launcher(&tmp, Codex::NoConfig);
+        let codex = catalog_agent("codex");
+        let cwd = PathBuf::from(folder("app"));
+        let start = vec!["resume".to_owned(), "--last".to_owned()];
+        let out = launch.prepare(1, &cwd, &codex, Path::new("codex"), &start);
+        assert!(out.env.iter().any(|(name, _)| name == SEND_ENV));
+        assert!(out.path_dir.is_some());
+        assert_eq!(
+            out.prepend,
+            [
+                "-c",
+                "shell_environment_policy.exclude=['HANGAR_GATE','HANGAR_HOOK_TOKEN','HANGAR_NOTIFY_TOKEN']",
+            ]
+        );
+        // The token never goes into an argument.
+        let (_, token) = &out.env[0];
+        assert!(out.prepend.iter().all(|arg| !arg.contains(token.as_str())));
+        launch.ended(1);
+        // Claude Code gets no Codex override.
+        let claude = catalog_agent("claude");
+        let out = launch.prepare(2, &cwd, &claude, Path::new("claude"), &[]);
+        assert!(!out.env.is_empty());
+        assert!(out.prepend.is_empty());
+        launch.ended(2);
+        // A shell gets nothing at all.
+        let out = launch.prepare(3, &cwd, &codex, Path::new("pwsh"), &[]);
+        assert!(out.env.is_empty() && out.prepend.is_empty() && out.path_dir.is_none());
+    }
+
+    #[test]
+    fn a_core_policy_with_a_set_table_still_sends() {
+        let tmp = crate::test_support::TempDir::new("partner-launch-codex-core");
+        let launch = launcher(&tmp, Codex::CoreWithSet);
+        let out = launch.prepare(
+            1,
+            &PathBuf::from(folder("app")),
+            &catalog_agent("codex"),
+            Path::new("codex"),
+            &[],
+        );
+        assert!(out.env.iter().any(|(name, _)| name == SEND_ENV));
+        assert_eq!(out.prepend[1], "shell_environment_policy.inherit=all");
+        assert!(out.prepend[3].starts_with("shell_environment_policy.include_only=['PATH',"));
+        assert!(
+            out.prepend[3].ends_with(",'HANGAR_SEND','API_TIMEOUT_MS']"),
+            "{}",
+            out.prepend[3]
+        );
+        launch.ended(1);
+    }
+
+    #[test]
+    fn a_policy_that_cannot_carry_the_variable_offers_no_sending() {
+        let tmp = crate::test_support::TempDir::new("partner-launch-codex-none");
+        let launch = launcher(&tmp, Codex::InheritNone);
+        let cwd = PathBuf::from(folder("app"));
+        let out = launch.prepare(1, &cwd, &catalog_agent("codex"), Path::new("codex"), &[]);
+        assert!(out.env.is_empty() && out.path_dir.is_none() && out.hint.is_none());
+        assert!(out.prepend.is_empty());
+        // The same files mean nothing to another program.
+        let out = launch.prepare(2, &cwd, &catalog_agent("claude"), Path::new("claude"), &[]);
+        assert!(!out.env.is_empty());
+        launch.ended(2);
     }
 }
