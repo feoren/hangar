@@ -4,6 +4,20 @@
     "date": null,
     "items": [
       {
+        "de": "Gruppen kommen nach dem Neustart wieder, wenn du zustimmst. Größere Gruppen senden mehr von selbst, und „Weiter erlauben“ löst die Bremse ganz.",
+        "en": "Groups come back after a restart once you agree. Larger groups send more on their own, and “Allow to go on” releases the brake fully.",
+        "el": "Οι ομάδες επιστρέφουν μετά την επανεκκίνηση, αν συμφωνήσεις. Οι μεγάλες ομάδες στέλνουν περισσότερα μόνες τους, και το «Να συνεχίσει» λύνει όλο το φρένο.",
+        "es": "Los grupos vuelven tras reiniciar si lo aceptas. Los grupos grandes envían más solos, y «Permitir que siga» suelta el freno del todo.",
+        "fr": "Les groupes reviennent après un redémarrage si tu acceptes. Les grands groupes envoient plus tout seuls, et « Laisser continuer » lève tout le frein.",
+        "it": "I gruppi tornano dopo il riavvio se accetti. I gruppi più grandi inviano di più da soli, e «Lascia continuare» toglie del tutto il freno.",
+        "ja": "再起動後、同意するとグループが戻ります。大きなグループはより多く自動で送信し、「続行を許可」でブレーキが完全に解除されます。",
+        "pl": "Grupy wracają po ponownym uruchomieniu, jeśli się zgodzisz. Większe grupy wysyłają więcej same, a „Pozwól kontynuować” całkiem zwalnia hamulec.",
+        "pt": "Os grupos voltam depois de reiniciar se você aceitar. Grupos maiores enviam mais sozinhos, e “Permitir que continue” solta o freio por completo.",
+        "ru": "Группы возвращаются после перезапуска, если ты согласишься. Большие группы отправляют больше сами, а «Разрешить продолжить» полностью снимает тормоз.",
+        "tr": "Gruplar yeniden başlatmadan sonra onaylarsan geri gelir. Büyük gruplar kendiliğinden daha çok gönderir ve “Devam etmesine izin ver” freni tamamen çözer.",
+        "zh": "重启后，经你同意，组会回来。较大的组可以自动发送更多消息，“允许继续”会完全解除制动。"
+      },
+      {
         "de": "Verknüpfte Sessions lassen sich weiter verknüpfen: Sessions zu einer Gruppe hinzufügen oder zwei Gruppen vereinen. Strg+Klick in der Seitenleiste wählt aus.",
         "en": "Linked sessions can link further: add sessions to a group or merge two groups into one. Ctrl+click in the sidebar selects them (Cmd+click on macOS).",
         "el": "Τα συνδεδεμένα sessions συνδέονται πια και παραπέρα: πρόσθεσε sessions σε μια ομάδα ή ένωσε δύο ομάδες. Το Ctrl+κλικ στην πλαϊνή στήλη τα επιλέγει.",

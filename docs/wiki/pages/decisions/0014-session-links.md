@@ -45,7 +45,9 @@ every other member.
 
 **3. Lifetime.** A group lives only in memory. It ends when the person chooses "Unlink" or when
 fewer than two members remain (a member's session closed or exited). Nothing is stored on disk;
-after a restart there are no groups. A member that leaves loses the right to send to the group at
+after a restart there are no groups. (Amended on 2026-11-26, see "Remembered groups": only the
+composition is kept and offered again; no group exists after a restart before the person confirms
+one, and no message or history goes to disk.) A member that leaves loses the right to send to the group at
 once; its queued messages to others stay deliverable, messages queued for it are dropped.
 
 **4. Sending.** The send route of 0012 resolves the target in this order: member of the sender's
@@ -319,6 +321,119 @@ assume that.
   nothing, opens nothing and says so in the bar for five seconds. A plain click still opens a
   session and ends the selection.
 
+## Calmer groups (2026-11-26)
+The owner asked for groups that are simpler and calmer: fewer messages from Hangar, a brake the
+person can release, larger groups that are not throttled like a pair, and groups that come back
+after a restart. Backend part, each rule built with a test in `src-tauri/src/links.rs`,
+`link_memory.rs` and `link_service.rs`; the window's wiring follows. Amends point 3, point 5,
+the loop brake of point 6, "Introductions" under "Adding sessions to a group" and "No new
+backend command" under "Growing and merging groups".
+
+- **Brake and budget scale with the members** (`Limits` in `links.rs`). Rate 3 and budget 10
+  per member, the member count taken between 2 and 8: a pair keeps its 6 a minute and 20
+  without the person, a group of four gets 12 and 40, a group of eight 24 and 80. Why linear: a
+  lead's round in a group of `n` (a task to every member, a result back from each) is
+  `2 (n - 1)` deliveries. With fixed bounds a group of eight spent its budget in about one round
+  and met the rate within it, a pair after ten; linear keeps one round of every size inside the
+  rate and lets each size run a similar number of rounds before the person is asked. The bound
+  against an endless loop stays: no group goes past 24 a minute and 80 in all (`Limits::MOST`),
+  and the budget still starts again only when the person acts. The bounds follow the group's
+  size at each delivery, so a member that leaves lowers them at once.
+- **What holds, in the view.** `GroupView` carries `brake` (`none`, `rate`, `budget`;
+  `none` while "Ask before pasting" holds everything anyway), `budgetLeft` and `budget`, beside
+  the old `braked`. A message the brake held is marked `braked` in the message view.
+- **Go on.** `resume_link_group(group)` (`check_main`) is the person stepping in on the brake's
+  hint: rate and budget both start again (`Brake::resume`; typing only restores the budget), and
+  each message the brake alone held goes on its own again (`LinkQueue::resume_group`). Anything
+  that held a message later clears the mark: "Ask before pasting" turned on, a failed paste, a
+  claim that ran out, a sender that left. With the toggle on, "Go on" releases the brake but
+  sends nothing; the person pastes each card. A message with a secret is never marked.
+- **One introduction per member.** A new introduction replaces the one that still waits for
+  that member (`LinkQueue::take_introduction`), unless a paste of it runs. A replaced one leaves
+  no history entry: it never reached anyone.
+- **Settle window.** After a join, a merge or a change of the lead, the introductions wait
+  3 seconds (`INTRO_SETTLE_MS`, `LinkMessage::ready_at`) before the window sees them
+  (`link_state` leaves them out, `link_message_text` refuses them with `link_held`); the backend
+  signals again when they become visible. A further step in that time renews the introduction of
+  every member whose one still settles, so several joins in a row reach each newcomer as one
+  introduction naming everybody. A plain "Link" is not delayed: nothing can merge with it.
+- **No "group grew" message.** Members already in a group hear nothing when others join; they
+  ask with `hangar-send --members` when they need to. Only a change of the lead reaches them
+  ("The roles in your link group in Hangar changed."), since it changes whom they report to.
+  The newcomers get the full introduction. `Occasion::Joined` and its opening are gone, and so
+  is the window's "New members in the group" title (`src/linkIntro.ts`).
+- **Merging in the backend.** `merge_link_groups(into, groups, ids, names)` (`check_main`)
+  merges in one step what the window did with three (`Links::merge`, `LinkService::merge`). The
+  rules stay those of 2026-11-25: the staying group keeps id, color, brake and lead, without a
+  lead the first absorbed group's lead leads, absorbed members keep their names and step aside
+  with the first free number, "Ask before pasting" ends up on when any group had it on or a
+  newcomer runs without prompts, at most eight. Nothing that waits is dropped: the absorbed
+  groups' messages move into the staying group (`LinkQueue::regroup`), their histories join its
+  history in the order they happened (`History::merge`). Only the members new to the staying
+  group get an introduction, the staying members one only when the lead changed. Any refusal
+  changes nothing. This replaces the window's unlink and add, and with it the moment in which
+  the absorbed members were in no group.
+- **An introduction without room** no longer goes to the log only. It is owed: the group view
+  lists the member in `pendingIntroductions`, and the introduction goes into the queue on its own
+  once a message for that member is pasted or discarded (`fill_owed`). A newer one replaces it;
+  it goes when the member leaves or the group ends. Adding no longer refuses a step whose
+  introductions find no room; "Link" no longer fails on that either.
+- **`hangar-send --members`.** Posts to `/v1/members` on the same endpoint with the same send
+  token (`TokenScope::Send`; a hook token gets 403, a body over 64 bytes 413). The answer names
+  the member's own name and role, every member with `(you)` and `(lead)`, and who leads
+  (`LinkGroup::roster`); exit code 0. A session in no group gets `not_linked` (exit code 4) and
+  nothing about any group. The introduction mentions the option.
+- **Remembered groups.** What is kept: per group the members by workspace key (the UUID a
+  session keeps across restarts in `workspace.json`, bound with `snapshot_bind`), their member
+  names, the lead and "Ask before pasting", in `link-groups.json` in the local app data folder
+  (`link_memory.rs`, `MainStore::load_link_groups`). Not kept: messages, introductions, history,
+  session ids, colors, the brake. The file is written after every step of the person that
+  changes a group (link, add, merge, edit, unlink, applying or declining an offer), on a blocking
+  thread, never when a session ends: when Hangar quits every session ends, and the groups must
+  survive exactly that. Reading checks every rule of a live group (2 to 8 members, keys as UUIDs
+  once in the whole file, valid unique names, at most one lead, at most 32 groups); a damaged,
+  oversized or invalid file gives nothing. At start the members whose key is not in the saved
+  workspace are dropped, and a group with fewer than two goes.
+- **Offer, then confirm.** After the restore, `link_offers()` answers each remembered group
+  whose members' restored sessions run with the send client and are in no group, at least two:
+  `{ id, members: { session, name, role }[], missing: <member names>, askFirst }`. Nothing is
+  linked before the person confirms: `apply_link_offer(id)` links the running members with their names, lead and
+  toggle (an agent without prompts still turns the toggle on), each gets the full introduction;
+  `discard_link_offer(id)` forgets it. An offer that is neither waits for the next restart; one
+  whose members the person links otherwise loses them and goes once fewer than two remain. Why
+  the core of point 3 holds: after a restart no group exists and no agent can reach another
+  until the person confirms, and nothing a group carried (messages, history) is stored. All five
+  new commands are in `build.rs`, `capabilities/default.json`, the main-window-only list of
+  `tests/contract.rs` and the window check of `tests/security_config.rs`.
+- **The budget's own answer.** A message the spent budget holds answers the agent that the group
+  sent many messages since the person last stepped in (`HeldBy::Budget`), not that many went in
+  the last minute, which stays the rate's answer.
+
+### In the window (2026-11-26)
+- **Parsed, not passed on.** `parseLinkState` reads `brake`, `budgetLeft`, `budget` and
+  `pendingIntroductions` (only members' sessions) of a group and `braked` of a message (only
+  for one that waits); an unknown brake kind reads as the rate while the group is braked.
+  `parseLinkOffers` (`src/linkOffers.ts`) reads the offers and drops malformed ones.
+- **Group menu.** "Allow to go on" calls `resume_link_group` instead of an empty edit; since it
+  releases rate and budget at once, the hint after it is one sentence ("New messages go on their
+  own again.") and the old "wait for a quiet minute" hint is gone. The menu's note names the kind
+  ("Too many messages within a minute" or "The group used up its deliveries"); without a brake,
+  once part of the budget is used, a quiet note says how many of the budget still go on their
+  own; owed introductions show as "Introduction for <session> follows" (`groupMenuEntries` in
+  `src/linkCards.ts`).
+- **Merge.** The selection's merge calls `merge_link_groups` once; the window's unlink, add and
+  roll back are gone. The single sessions among the selection join with the names
+  `memberAliases` derives; the backend steps absorbed names aside itself.
+- **Offer after a restart.** The window asks `link_offers` whenever a session gets its workspace
+  key (`snapshot_bind`) and whenever the link state changes, so an offer appears as soon as two of
+  its sessions run. One offer at a time shows as a bar below the session list
+  (`RelinkOfferBar.tsx`): "Link the group from before the restart again?", the members by
+  session title, "Not here: …" for the missing ones, "Link" and "Discard". Why there and not a
+  toast: it is the place and shape of the selection bar, so nothing new to learn; it concerns
+  the rows right above it; it stays until the person decides instead of timing out, and it
+  never covers the terminal. A decided offer hides at once and shows again only if the backend
+  refused the step.
+
 ## Simpler cards (2026-11-20)
 The owner reported that the card below a member row ("Paste", "Paste and send", "Discard")
 sometimes did not go away, and asked for it to be simpler. Causes found in the code, each built
@@ -412,7 +527,8 @@ backend is unchanged. Each rule is built with a test.
   the budget starts again. The rate's brake is not released by it and still needs its quiet
   minute; the group reports only `braked`, so the window reads the state again after the edit:
   no brake any more says "New messages go on their own again", a brake that still holds says
-  the group sends too fast and goes on after a quiet minute (`resumeNotice`). Choosing a
+  the group sends too fast and goes on after a quiet minute (`resumeNotice`; replaced by
+  `resume_link_group` the same day, see "In the window" under "Calmer groups"). Choosing a
   lead is an `edit_link_group` with the new lead, so the members get the introduction of changed
   roles as before.
 - **No "Paste only" on link cards.** A member's message is a prompt for the agent, not a draft for

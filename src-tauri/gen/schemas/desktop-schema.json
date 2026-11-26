@@ -249,6 +249,12 @@
           "markdownDescription": "Enables the answer_gate command without any pre-configured scope."
         },
         {
+          "description": "Enables the apply_link_offer command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-apply-link-offer",
+          "markdownDescription": "Enables the apply_link_offer command without any pre-configured scope."
+        },
+        {
           "description": "Enables the arena_apply command without any pre-configured scope.",
           "type": "string",
           "const": "allow-arena-apply",
@@ -495,6 +501,12 @@
           "markdownDescription": "Enables the dictation_take_text command without any pre-configured scope."
         },
         {
+          "description": "Enables the discard_link_offer command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-discard-link-offer",
+          "markdownDescription": "Enables the discard_link_offer command without any pre-configured scope."
+        },
+        {
           "description": "Enables the edit_link_group command without any pre-configured scope.",
           "type": "string",
           "const": "allow-edit-link-group",
@@ -663,6 +675,12 @@
           "markdownDescription": "Enables the link_message_text command without any pre-configured scope."
         },
         {
+          "description": "Enables the link_offers command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-link-offers",
+          "markdownDescription": "Enables the link_offers command without any pre-configured scope."
+        },
+        {
           "description": "Enables the link_partner command without any pre-configured scope.",
           "type": "string",
           "const": "allow-link-partner",
@@ -775,6 +793,12 @@
           "type": "string",
           "const": "allow-main-prefs",
           "markdownDescription": "Enables the main_prefs command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the merge_link_groups command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-merge-link-groups",
+          "markdownDescription": "Enables the merge_link_groups command without any pre-configured scope."
         },
         {
           "description": "Enables the move_note command without any pre-configured scope.",
@@ -1003,6 +1027,12 @@
           "type": "string",
           "const": "allow-restore-note",
           "markdownDescription": "Enables the restore_note command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the resume_link_group command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-resume-link-group",
+          "markdownDescription": "Enables the resume_link_group command without any pre-configured scope."
         },
         {
           "description": "Enables the reveal_note command without any pre-configured scope.",
@@ -1539,6 +1569,12 @@
           "markdownDescription": "Denies the answer_gate command without any pre-configured scope."
         },
         {
+          "description": "Denies the apply_link_offer command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-apply-link-offer",
+          "markdownDescription": "Denies the apply_link_offer command without any pre-configured scope."
+        },
+        {
           "description": "Denies the arena_apply command without any pre-configured scope.",
           "type": "string",
           "const": "deny-arena-apply",
@@ -1785,6 +1821,12 @@
           "markdownDescription": "Denies the dictation_take_text command without any pre-configured scope."
         },
         {
+          "description": "Denies the discard_link_offer command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-discard-link-offer",
+          "markdownDescription": "Denies the discard_link_offer command without any pre-configured scope."
+        },
+        {
           "description": "Denies the edit_link_group command without any pre-configured scope.",
           "type": "string",
           "const": "deny-edit-link-group",
@@ -1953,6 +1995,12 @@
           "markdownDescription": "Denies the link_message_text command without any pre-configured scope."
         },
         {
+          "description": "Denies the link_offers command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-link-offers",
+          "markdownDescription": "Denies the link_offers command without any pre-configured scope."
+        },
+        {
           "description": "Denies the link_partner command without any pre-configured scope.",
           "type": "string",
           "const": "deny-link-partner",
@@ -2065,6 +2113,12 @@
           "type": "string",
           "const": "deny-main-prefs",
           "markdownDescription": "Denies the main_prefs command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the merge_link_groups command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-merge-link-groups",
+          "markdownDescription": "Denies the merge_link_groups command without any pre-configured scope."
         },
         {
           "description": "Denies the move_note command without any pre-configured scope.",
@@ -2293,6 +2347,12 @@
           "type": "string",
           "const": "deny-restore-note",
           "markdownDescription": "Denies the restore_note command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the resume_link_group command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-resume-link-group",
+          "markdownDescription": "Denies the resume_link_group command without any pre-configured scope."
         },
         {
           "description": "Denies the reveal_note command without any pre-configured scope.",

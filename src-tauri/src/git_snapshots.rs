@@ -2194,6 +2194,15 @@ impl Snapshots {
         Ok(())
     }
 
+    /// The workspace key bound to each session, as the main window set it. Link groups are
+    /// remembered by these keys (ADR 0014), since a session id changes with every start.
+    pub fn keys(&self) -> HashMap<SessionId, String> {
+        self.binding()
+            .iter()
+            .map(|(id, entry)| (*id, entry.key.clone()))
+            .collect()
+    }
+
     fn bound(&self, id: SessionId) -> Result<Bound, SnapshotError> {
         self.binding()
             .get(&id)
@@ -3040,6 +3049,11 @@ mod tests {
         service.bind(1, KEY, &fx.repo, &alive).unwrap();
         assert!(service.bind(1, OTHER, &fx.repo, &alive).is_err());
         assert!(service.bind(2, KEY, &fx.repo, &alive).is_err());
+        // The keys as link groups remember them: lower case, one per bound session.
+        assert_eq!(
+            service.keys(),
+            HashMap::from([(1, KEY.to_ascii_lowercase())])
+        );
 
         let small = SnapshotEnv {
             max_files: 1,

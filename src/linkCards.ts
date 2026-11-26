@@ -108,8 +108,15 @@ export async function sendInTurn(
 
 /** One entry of the menu behind a group's label in the sidebar. */
 export type GroupMenuEntry =
-  /** The brake or the budget holds messages: says so and offers to let it go on. */
-  | { kind: "paused" }
+  /**
+   * The brake holds messages, by the rate (too many within a minute) or the budget (too many
+   * without the person): says which and offers to let it go on (`resume_link_group`).
+   */
+  | { kind: "paused"; brake: "rate" | "budget" }
+  /** How many deliveries still go on their own before the budget asks the person. */
+  | { kind: "budget"; left: number; total: number }
+  /** Members whose introduction waits for a free place in their queue. */
+  | { kind: "pendingIntro"; sessions: number[] }
   /** One choice of the lead; `session: null` is "No lead". */
   | { kind: "lead"; session: number | null; current: boolean }
   | { kind: "edit" }
@@ -117,15 +124,25 @@ export type GroupMenuEntry =
   | { kind: "unlink" };
 
 /**
- * What the group's label offers, top to bottom: the brake's state while it holds, the lead as a
- * choice among the members, then the entries the session menu has for a member (edit, history,
- * unlink). While "Ask before pasting" is on, every message waits anyway; the backend then reports
- * no brake.
+ * What the group's label offers, top to bottom: the brake's state while it holds (else, quietly,
+ * the budget left once some of it is used), introductions still owed, the lead as a choice among
+ * the members, then the entries the session menu has for a member (edit, history, unlink). While
+ * "Ask before pasting" is on, every message waits anyway; the backend then reports no brake, and
+ * the budget says nothing.
  */
 export function groupMenuEntries(group: LinkGroup): GroupMenuEntry[] {
   const lead = leadOf(group);
+  const state: GroupMenuEntry[] =
+    group.brake !== "none"
+      ? [{ kind: "paused", brake: group.brake }]
+      : !group.askFirst && group.budget > 0 && group.budgetLeft < group.budget
+        ? [{ kind: "budget", left: group.budgetLeft, total: group.budget }]
+        : [];
   return [
-    ...(group.braked ? [{ kind: "paused" } as const] : []),
+    ...state,
+    ...(group.pendingIntroductions.length > 0
+      ? [{ kind: "pendingIntro" as const, sessions: [...group.pendingIntroductions] }]
+      : []),
     { kind: "lead", session: null, current: lead === null },
     ...group.members.map((member): GroupMenuEntry => ({
       kind: "lead",
@@ -143,27 +160,6 @@ export interface GroupEdit {
   names: { session: number; name: string }[];
   askFirst: boolean;
   lead: number | null;
-}
-
-/**
- * Lets the group go on: an edit that changes nothing, which the backend counts as the person
- * stepping in, so the budget starts again (links.rs `Brake::person_acted`). The rate's brake still
- * needs its quiet minute.
- */
-export function resumeEdit(group: LinkGroup): GroupEdit {
-  return { names: [], askFirst: group.askFirst, lead: leadOf(group) };
-}
-
-/**
- * What the window says after "Allow to go on", read from the group as the backend reports it
- * afterwards: going on, or still too fast for the rate's brake, which only a quiet minute
- * releases. Nothing when the group is gone meanwhile.
- */
-export function resumeNotice(
-  group: Pick<LinkGroup, "braked"> | undefined,
-): "links.resumed" | "links.resumeLater" | null {
-  if (group === undefined) return null;
-  return group.braked ? "links.resumeLater" : "links.resumed";
 }
 
 /**

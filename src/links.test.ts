@@ -25,6 +25,7 @@ import {
   nameProblem,
   newlyBraked,
   nextDeliveries,
+  parseBrake,
   parseLinkState,
   mergeTargets,
   selectedForLink,
@@ -44,6 +45,10 @@ const group: LinkGroup = {
   color: 2,
   askFirst: false,
   braked: false,
+  brake: "none",
+  budgetLeft: 20,
+  budget: 20,
+  pendingIntroductions: [],
   members: [
     { session: 1, name: "app", role: "member" },
     { session: 2, name: "web", role: "member" },
@@ -56,7 +61,7 @@ function message(
   auto: boolean,
   fromName: string | null = "app",
 ): LinkMessage {
-  return { id, group: 1, fromName, to, text: "go on", at: id, auto, claimed: false };
+  return { id, group: 1, fromName, to, text: "go on", at: id, auto, claimed: false, braked: false };
 }
 
 function state(overrides: Partial<LinkState> = {}): LinkState {
@@ -87,6 +92,10 @@ describe("parseLinkState", () => {
           color: 2,
           askFirst: true,
           braked: false,
+          brake: "none",
+          budgetLeft: 20,
+          budget: 20,
+          pendingIntroductions: [],
           members: [
             { session: 1, name: "app" },
             { session: 2, name: "web" },
@@ -103,6 +112,44 @@ describe("parseLinkState", () => {
     expect([...parsed.sendable]).toEqual([1, 2]);
     expect(parsed.messages[0]?.fromName).toBeNull();
     expect([...parsed.unattended]).toEqual([2]);
+  });
+
+  it("reads which part of the brake holds, the budget and the owed introductions", () => {
+    const raw = {
+      id: 1,
+      color: 0,
+      askFirst: false,
+      braked: true,
+      brake: "budget",
+      budgetLeft: 0,
+      budget: 40,
+      pendingIntroductions: [2, 9, "x"],
+      members: [
+        { session: 1, name: "app" },
+        { session: 2, name: "web" },
+      ],
+    };
+    const held = { id: 4, group: 1, fromName: "app", to: 2, text: "x", at: 1, claimed: false };
+    const parsed = parseLinkState({
+      groups: [raw],
+      messages: [
+        { ...held, auto: false, braked: true },
+        { ...held, id: 5, auto: true, braked: true },
+      ],
+    });
+    const found = parsed.groups[0];
+    expect(found?.brake).toBe("budget");
+    expect([found?.budgetLeft, found?.budget]).toEqual([0, 40]);
+    // Only members can be owed an introduction.
+    expect(found?.pendingIntroductions).toEqual([2]);
+    // A message that goes on its own is held by nothing.
+    expect(parsed.messages.map((m) => m.braked)).toEqual([true, false]);
+    // A budget left above the budget reads as the budget; an unknown kind as the hint's state.
+    const odd = parseLinkState({
+      groups: [{ ...raw, brake: "loud", budgetLeft: 99, pendingIntroductions: null }],
+    }).groups[0];
+    expect([odd?.brake, odd?.budgetLeft, odd?.pendingIntroductions]).toEqual(["rate", 40, []]);
+    expect(parseBrake(undefined, false)).toBe("none");
   });
 
   it("leaves out what is malformed", () => {
@@ -252,6 +299,10 @@ describe("merging groups", () => {
     color: 4,
     askFirst: false,
     braked: false,
+    brake: "none",
+    budgetLeft: 20,
+    budget: 20,
+    pendingIntroductions: [],
     members: [
       { session: 3, name: "relay", role: "member" },
       { session: 5, name: "web", role: "lead" },
@@ -278,13 +329,10 @@ describe("merging groups", () => {
         { session: 5, name: "web-2" },
       ],
       ids: [],
-      // The group that stays has no lead; the other group's lead keeps leading.
-      lead: 5,
-      askFirst: false,
     });
   });
 
-  it("keeps the larger group and its lead", () => {
+  it("keeps the larger group", () => {
     const larger: LinkGroup = {
       ...other,
       members: [
@@ -303,17 +351,15 @@ describe("merging groups", () => {
     const current = state({ groups: [led, larger], sendable: new Set([1, 2, 3, 5, 7, 8]) });
     const plan = selectionPlan(current, wide, new Set([1, 3]));
     expect(plan?.kind === "merge" ? plan.group.id : null).toBe(2);
-    expect(plan?.kind === "merge" ? plan.lead : null).toBe(7);
     expect(plan?.kind === "merge" ? plan.members.map((m) => m.name) : []).toEqual(["app", "web"]);
   });
 
-  it("adds single sessions along with a merge, and keeps asking first when one group asked", () => {
+  it("adds single sessions along with a merge", () => {
     const asking = { ...other, askFirst: true };
     const current = state({ groups: [group, asking], sendable: new Set([1, 2, 3, 5, 7, 8]) });
     const plan = selectionPlan(current, wide, new Set([8, 5, 1]));
     expect(plan?.kind).toBe("merge");
     expect(plan?.kind === "merge" ? plan.ids : null).toEqual([8]);
-    expect(plan?.kind === "merge" ? plan.askFirst : null).toBe(true);
   });
 
   it("refuses a merge beyond the limit and says why", () => {

@@ -185,6 +185,12 @@ fn commands_are_registered_allowed_and_wired() {
         // group decides which agent's text reaches which session.
         "link_history",
         "add_to_link_group",
+        "merge_link_groups",
+        "resume_link_group",
+        // Remembered groups name sessions by their workspace key; applying one links agents.
+        "link_offers",
+        "apply_link_offer",
+        "discard_link_offer",
         // Which sessions wait for a dialog (ADR 0016): the main window's alone.
         "permission_waiting",
         "permission_answered",

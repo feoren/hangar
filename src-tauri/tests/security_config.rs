@@ -102,6 +102,9 @@ fn link_group_changes_answer_the_main_window_only() {
         "link_sessions",
         "add_to_link_group",
         "edit_link_group",
+        "merge_link_groups",
+        "apply_link_offer",
+        "discard_link_offer",
     ] {
         let body = command_body(&commands, name);
         assert!(

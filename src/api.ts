@@ -606,6 +606,33 @@ export const api = {
   /** Removes link message `id`: pasted into `pastedInto`, or discarded (`null`). */
   closeLinkMessage: (id: number, pastedInto: number | null) =>
     invoke<null>("close_link_message", { id, pastedInto }),
+  /**
+   * "Go on" on the brake's hint of link group `group`: rate and budget start again, and the
+   * messages the brake held (`braked`) go on their own again, unless the group asks first.
+   */
+  resumeLinkGroup: (group: number) => invoke<null>("resume_link_group", { group }),
+  /**
+   * Merges the link groups `groups` into group `into` in one step, nothing that waits dropped;
+   * `ids` (sessions in no group, named by `names`) join as well. Only those new to `into` get an
+   * introduction. Rejects with the reason; resolves with the merged group (as in `linkState`).
+   */
+  mergeLinkGroups: (
+    into: number,
+    groups: readonly number[],
+    ids: readonly number[] = [],
+    names: readonly { session: number; name: string }[] = [],
+  ) => invoke<unknown>("merge_link_groups", { into, groups, ids, names }),
+  /**
+   * The link groups of the last run that can be linked again now ("Link again?"): each
+   * `{ id, members: { session, name, role }[], missing: string[], askFirst }`; check with
+   * `parseLinkOffers`. Nothing is linked before
+   * `applyLinkOffer`.
+   */
+  linkOffers: () => invoke<unknown>("link_offers"),
+  /** Links offer `id` again, with its remembered names, lead and toggle; resolves with the group. */
+  applyLinkOffer: (id: number) => invoke<unknown>("apply_link_offer", { id }),
+  /** Forgets offer `id`; it is not offered again. */
+  discardLinkOffer: (id: number) => invoke<null>("discard_link_offer", { id }),
   /** Queued message texts per session key, `null` before the first save. */
   loadMessageQueue: () => invoke<unknown>("load_message_queue"),
   /** Replaces the stored queued messages; keys are session keys (UUIDs). */

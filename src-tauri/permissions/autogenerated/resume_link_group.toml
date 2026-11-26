@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-resume-link-group"
+description = "Enables the resume_link_group command without any pre-configured scope."
+commands.allow = ["resume_link_group"]
+
+[[permission]]
+identifier = "deny-resume-link-group"
+description = "Denies the resume_link_group command without any pre-configured scope."
+commands.deny = ["resume_link_group"]

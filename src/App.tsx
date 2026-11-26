@@ -174,12 +174,17 @@ import {
 import { memberAliases, type AliasSource } from "./linkAliases";
 import { introKind, introSummary, type IntroKind } from "./linkIntro";
 import {
+  keepOffered,
+  offerMemberNames,
+  parseLinkOffers,
+  shownOffer,
+  type RelinkOffer,
+} from "./linkOffers";
+import {
   groupMenuEntries,
   leadEdit,
   olderIntroductions,
   pendingByGroup,
-  resumeEdit,
-  resumeNotice,
   sendInTurn,
   stackCards,
   type GroupEdit,
@@ -673,7 +678,6 @@ type Filled =
 const INTRO_TITLES: Record<IntroKind, MessageKey> = {
   linked: "links.intro",
   rolesChanged: "links.introRoles",
-  joined: "links.introJoined",
 };
 
 /** Debounced workspace save: several changes in quick succession result in one write. */
@@ -1493,6 +1497,33 @@ export function App() {
       },
     ),
   );
+
+  /**
+   * The link groups of the last run that can be linked again (linkOffers.ts). Read whenever a
+   * session gets its workspace key or the link state changes (a restored session got the send
+   * client): only running sessions with both make an offer.
+   */
+  const [relinkOffers, setRelinkOffers] = useState<RelinkOffer[]>([]);
+  /** Offers decided here whose answer is still on its way. */
+  const [decidedOffers, setDecidedOffers] = useState<ReadonlySet<number>>(new Set());
+  const loadOffersRef = useRef(
+    latestOnly(
+      () => api.linkOffers(),
+      (value) => {
+        const offers = parseLinkOffers(value);
+        setRelinkOffers(offers);
+        // An offer the backend no longer has needs no hiding any more.
+        setDecidedOffers((before) => keepOffered(before, offers));
+      },
+      () => {
+        // An offer is a convenience: without one, linking by hand still works.
+        setRelinkOffers([]);
+      },
+    ),
+  );
+  useEffect(() => {
+    loadOffersRef.current();
+  }, [linkState]);
 
   // A claim the window never closed runs out in the backend (links.rs `CLAIM_TIMEOUT_MS`) without
   // an event: read again then, so its card comes back.
@@ -2772,7 +2803,15 @@ export function App() {
       terminals.set(id, terminal);
       // The backend names the session's snapshots by this key from now on; windows name the
       // session by ID only.
-      if (!isPlaceholder(id)) api.snapshotBind(id, terminal.key).catch(() => undefined);
+      // A remembered link group may name it by this key, too: ask for the offers again.
+      if (!isPlaceholder(id)) {
+        api
+          .snapshotBind(id, terminal.key)
+          .then(() => {
+            loadOffersRef.current();
+          })
+          .catch(() => undefined);
+      }
     },
     [flasher, chimes, pushes, offerDone, takeSnapshot, changeQueue, stallMonitor, confirmPaste],
   );
@@ -6556,26 +6595,60 @@ export function App() {
     for (const id of ids) discardLink(id);
   };
 
+  /** The remembered group the sidebar offers to link again, one at a time. */
+  const shownRelink = shownOffer(relinkOffers, decidedOffers);
   /**
-   * An edit from the group's menu: a new lead, or letting the group go on after its brake. The
-   * list is read again either way; after letting it go on, the group's brake as the backend reports
-   * it then decides what the hint says.
+   * The person's answer to an offer: link it again (`apply`) or forget it. It goes from the bar at
+   * once; a refusal shows why, and the next read brings it back where the backend still offers it.
    */
-  const editFromGroupMenu = (group: number, edit: GroupEdit, resumed: boolean) => {
+  const decideRelink = (id: number, apply: boolean) => {
+    setDecidedOffers((before) => new Set([...before, id]));
+    const step = apply ? api.applyLinkOffer(id) : api.discardLinkOffer(id);
+    step
+      .catch((e: unknown) => {
+        // Refused: the offer shows again if the backend still has it.
+        setDecidedOffers((before) => {
+          const next = new Set(before);
+          next.delete(id);
+          return next;
+        });
+        showError(e);
+      })
+      .finally(() => {
+        loadLinksRef.current();
+        loadOffersRef.current();
+      });
+  };
+
+  /** A new lead from the group's menu; the list is read again afterwards. */
+  const editFromGroupMenu = (group: number, edit: GroupEdit) => {
     api
       .editLinkGroup(group, edit.names, edit.askFirst, edit.lead)
-      .then(async () => {
-        if (!resumed) return;
-        // The budget starts again at once; the rate's brake may still hold (linkCards.ts).
-        const after = parseLinkState(await api.linkState());
-        const notice = resumeNotice(after.groups.find((entry) => entry.id === group));
-        if (notice !== null) setStartHint(t(notice));
+      .catch(showError)
+      .finally(() => {
+        loadLinksRef.current();
+      });
+  };
+
+  /**
+   * "Allow to go on": the backend releases the rate and the budget at once and sends what the
+   * brake held on its own again (links.rs `Brake::resume`), so one hint says it all.
+   */
+  const resumeGroup = (group: number) => {
+    api
+      .resumeLinkGroup(group)
+      .then(() => {
+        setStartHint(t("links.resumed"));
       })
       .catch(showError)
       .finally(() => {
         loadLinksRef.current();
       });
   };
+
+  /** What a session is called in the sidebar, its member name where the window does not know it. */
+  const memberTitle = (session: number, name: string) =>
+    state.sessions.find((s) => s.id === session)?.title ?? name;
 
   /** The menu behind a link group's label: brake, lead, then the session menu's group entries. */
   const groupMenuGroup =
@@ -6588,17 +6661,47 @@ export function App() {
           switch (entry.kind) {
             case "paused":
               return [
-                { type: "note", key: "paused", label: t("links.paused"), describes: "resume" },
+                {
+                  type: "note",
+                  key: "paused",
+                  label: t(entry.brake === "rate" ? "links.pausedRate" : "links.pausedBudget"),
+                  describes: "resume",
+                },
                 {
                   type: "action",
                   key: "resume",
                   label: t("links.resume"),
                   run: () => {
-                    editFromGroupMenu(group.id, resumeEdit(group), true);
+                    resumeGroup(group.id);
                   },
                 },
                 { type: "separator", key: "sep-paused" },
               ];
+            case "budget":
+              return [
+                {
+                  type: "note",
+                  key: "budget",
+                  label: t("links.budgetLeft", {
+                    left: String(entry.left),
+                    total: String(entry.total),
+                  }),
+                },
+                { type: "separator", key: "sep-budget" },
+              ];
+            case "pendingIntro": {
+              const names = entry.sessions.map((session) =>
+                memberTitle(session, group.members.find((m) => m.session === session)?.name ?? ""),
+              );
+              return [
+                {
+                  type: "note",
+                  key: "pending-intro",
+                  label: t("links.introPending", { names: names.join(", ") }),
+                },
+                { type: "separator", key: "sep-pending-intro" },
+              ];
+            }
             case "lead": {
               const member = group.members.find((m) => m.session === entry.session);
               const item: PopupItem = {
@@ -6612,7 +6715,7 @@ export function App() {
                 current: entry.current,
                 run: () => {
                   const edit = leadEdit(group, entry.session);
-                  if (edit !== null) editFromGroupMenu(group.id, edit, false);
+                  if (edit !== null) editFromGroupMenu(group.id, edit);
                 },
               };
               return entry.session === null
@@ -6724,61 +6827,26 @@ export function App() {
     }
   };
   /**
-   * Merges link groups as `plan` says, with the backend's existing steps instead of a command of
-   * its own: "Ask before pasting" goes on first where a merged group asked, then every absorbed
-   * group ends and its members join `plan.group` together with the single sessions, so each
-   * member gets one introduction that names everybody. Should a step fail, the absorbed groups
-   * that already ended form again with their names, lead and toggle, and the staying group's
-   * toggle goes back off where the merge turned it on, so nobody is left unlinked.
+   * Merges link groups as `plan` says, in one backend step (`merge_link_groups`): nothing that
+   * waits is dropped, and the backend keeps the rules (names, lead, toggle). The single sessions
+   * among the selection join with the names the window derives for them; any refusal changes
+   * nothing, so there is nothing to roll back.
    */
   const mergeGroups = async (
     plan: Extract<SelectionPlan, { kind: "merge" }>,
   ): Promise<string | null> => {
-    const { group } = plan;
-    const singles = joinAliases(plan.ids, [...group.members, ...plan.members]);
-    const names = [
-      ...plan.members,
-      ...plan.ids.map((session, index) => ({ session, name: singles[index] ?? "" })),
-    ];
-    const kept = group.members.map((m) => ({ session: m.session, name: m.name }));
-    let askTurnedOn = false;
-    const ended: LinkGroup[] = [];
-    const restore = async () => {
-      if (askTurnedOn) {
-        await api.editLinkGroup(group.id, kept, false, leadOf(group)).catch(() => undefined);
-      }
-      for (const entry of ended) {
-        await api
-          .linkSessions(
-            entry.members.map((m) => m.session),
-            {
-              names: entry.members.map((m) => ({ session: m.session, name: m.name })),
-              lead: leadOf(entry),
-              askFirst: entry.askFirst,
-            },
-          )
-          .catch(() => undefined);
-      }
-    };
+    const singles = joinAliases(plan.ids, [...plan.group.members, ...plan.members]);
+    const names = plan.ids.map((session, index) => ({ session, name: singles[index] ?? "" }));
     try {
-      if (plan.askFirst && !group.askFirst) {
-        await api.editLinkGroup(group.id, kept, true, leadOf(group));
-        askTurnedOn = true;
-      }
-      for (const entry of plan.absorbed) {
-        await api.unlinkGroup(entry.id);
-        ended.push(entry);
-      }
-      await api.addToLinkGroup(
-        group.id,
-        names.map((entry) => entry.session),
+      await api.mergeLinkGroups(
+        plan.group.id,
+        plan.absorbed.map((entry) => entry.id),
+        plan.ids,
         names,
-        plan.lead,
       );
       loadLinksRef.current();
       return null;
     } catch (e) {
-      await restore();
       loadLinksRef.current();
       return errorText(e);
     }
@@ -7258,6 +7326,20 @@ export function App() {
             void runLinkPlan(plan).then((problem) => {
               if (problem !== null) setError(problem);
             });
+          }}
+          relinkOffer={
+            shownRelink === null
+              ? null
+              : {
+                  names: offerMemberNames(
+                    shownRelink,
+                    (session) => state.sessions.find((s) => s.id === session)?.title,
+                  ),
+                  missing: shownRelink.missing,
+                }
+          }
+          onRelink={(apply) => {
+            if (shownRelink !== null) decideRelink(shownRelink.id, apply);
           }}
           linkInbox={linkInboxRows}
           linkSends={linkSends}

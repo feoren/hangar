@@ -150,6 +150,10 @@ describe("templateMembers", () => {
     color: 0,
     askFirst,
     braked: false,
+    brake: "none",
+    budgetLeft: 20,
+    budget: 20,
+    pendingIntroductions: [],
     members: sessions.map((session, index) => ({
       session,
       name: `m${String(session)}`,

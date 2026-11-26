@@ -11,6 +11,10 @@ const state: LinkState = {
       color: 0,
       askFirst: false,
       braked: false,
+      brake: "none",
+      budgetLeft: 20,
+      budget: 20,
+      pendingIntroductions: [],
       members: [
         { session: 1, name: "hangar", role: "member" },
         { session: 2, name: "website", role: "lead" },
@@ -43,9 +47,8 @@ describe("introKind", () => {
     expect(introKind("The roles in your link group in Hangar changed. The other agents")).toBe(
       "rolesChanged",
     );
-    expect(introKind('Your link group in Hangar grew: "docs" joined. The other agents')).toBe(
-      "joined",
-    );
+    // The backend no longer tells members that others joined; such a text reads as the first.
+    expect(introKind('Your link group in Hangar grew: "docs" joined.')).toBe("linked");
   });
 });
 

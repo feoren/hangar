@@ -2,7 +2,9 @@
 //! which sessions got the send client at their start, checks a link request against the running
 //! sessions, queues the introduction and the messages agents send with `hangar-send`, keeps each
 //! group's history of messages until the group ends, and answers the send route together with
-//! the partner projects of ADR 0012. The rules live in [`crate::links`].
+//! the partner projects of ADR 0012. It also hands out what is remembered of the groups (their
+//! composition only) and the offers to link the last run's groups again
+//! ([`crate::link_memory`]). The rules live in [`crate::links`].
 //!
 //! Delivery is split like in ADR 0012: this side decides who may send to whom, what text may be
 //! pasted and whether it goes on its own ([`Pace`]); the window decides when (the target waiting
@@ -12,16 +14,18 @@
 //! service never asks the manager anything while it holds its own lock; callers hand the session
 //! list in.
 
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 use std::sync::{Arc, Mutex};
+use std::time::Duration;
 
 use serde::{Deserialize, Serialize};
 
 use crate::hook_http;
+use crate::link_memory::{self, Offer, RememberedGroup};
 use crate::links::{
-    compose, introduction, GroupId, History, HistoryEntry, Leave, LinkError, LinkGroup,
-    LinkMessage, LinkQueue, Links, Member, NewMember, Occasion, Outcome, Outgoing, Pace, Peer,
-    Resolve, Role,
+    compose, introduction, BrakeKind, GroupId, History, HistoryEntry, Leave, LinkError, LinkGroup,
+    LinkMessage, LinkQueue, Links, NewMember, Occasion, Outcome, Outgoing, Pace, Peer, Resolve,
+    Role, INTRO_SETTLE_MS,
 };
 use crate::lock;
 use crate::main_store::MainStoreError;
@@ -70,7 +74,18 @@ pub struct GroupView {
     pub ask_first: bool,
     /// The loop brake holds messages right now; the group shows a hint.
     pub braked: bool,
+    /// Which part of the brake holds: `none`, `rate` (a quiet minute releases it) or `budget`
+    /// (only the person does). `none` while "Ask before pasting" is on, since then the toggle
+    /// holds everything anyway.
+    pub brake: BrakeKind,
+    /// Automatic deliveries left before the budget is spent, and the budget for the group's
+    /// size now ([`crate::links::Limits`]).
+    pub budget_left: usize,
+    pub budget: usize,
     pub members: Vec<MemberView>,
+    /// Members whose introduction waits for a free place in their queue; it goes in on its own
+    /// once one of their messages is pasted or discarded.
+    pub pending_introductions: Vec<SessionId>,
 }
 
 /// A message between members as the window delivers or shows it.
@@ -91,6 +106,8 @@ pub struct LinkMessageView {
     pub claimed: bool,
     /// Kinds of secret the text seems to hold (ADR 0015); the card names them.
     pub secrets: Vec<SecretKind>,
+    /// It waits only because the loop brake held it: `resume_link_group` sends it on its own.
+    pub braked: bool,
 }
 
 /// One message of a group's history as the window shows it, newest first.
@@ -161,7 +178,10 @@ pub struct LinkRequest {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum HeldBy {
     AskFirst,
+    /// Over the rate: too many messages within a minute.
     Brake,
+    /// The budget is spent: only the person lets the group go on.
+    Budget,
     /// The text seems to hold a secret of these kinds (ADR 0015); it wins over the others.
     Secret(Vec<SecretKind>),
 }
@@ -186,6 +206,13 @@ pub enum LinkRoute {
     Taken(Result<Sent, LinkError>),
 }
 
+/// An introduction that found no room in its member's queue: it goes in once there is some.
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct Owed {
+    group: GroupId,
+    text: String,
+}
+
 #[derive(Default)]
 struct State {
     links: Links,
@@ -194,10 +221,18 @@ struct State {
     history: History,
     /// Sessions whose current process holds a send token and has `hangar-send` on its `PATH`.
     sendable: BTreeSet<SessionId>,
+    /// Introductions owed per member, the newest only.
+    owed: BTreeMap<SessionId, Owed>,
+    /// Remembered groups not decided yet after a restart, each with the id its offer carries.
+    offers: Vec<(u64, RememberedGroup)>,
+    next_offer: u64,
 }
 
 struct Inner {
     state: Mutex<State>,
+    /// Held while the remembered groups are worked out and written, so the last write is
+    /// always of the newest state (lock order: this one first, then `state`).
+    memory: Mutex<()>,
     changed: Box<dyn Fn() + Send + Sync>,
 }
 
@@ -212,6 +247,7 @@ impl LinkService {
         Self {
             inner: Arc::new(Inner {
                 state: Mutex::new(State::default()),
+                memory: Mutex::new(()),
                 changed: Box::new(changed),
             }),
         }
@@ -219,6 +255,22 @@ impl LinkService {
 
     fn signal(&self) {
         (self.inner.changed)();
+    }
+
+    /// Signals now, and again once the introductions settling at `now` become visible, so the
+    /// window reads them then ([`INTRO_SETTLE_MS`]). One short-lived thread per step of the
+    /// person; a signal too many only makes the window read again.
+    fn signal_settled(&self, now: i64) {
+        self.signal();
+        let wait = lock(&self.inner.state).queue.next_ready(now);
+        if let Some(at) = wait {
+            let delay = u64::try_from(at.saturating_sub(now)).unwrap_or(0);
+            let service = self.clone();
+            std::thread::spawn(move || {
+                std::thread::sleep(Duration::from_millis(delay));
+                service.signal();
+            });
+        }
     }
 
     /// The session's new process got the send client (`PartnerLaunch`): it can be linked now.
@@ -251,7 +303,17 @@ impl LinkService {
             }
             // A sender that left is no member any more: what it sent waits for a click.
             let held = state.queue.hold_from(session);
-            was_sendable || leave != Leave::NotLinked || !dropped.is_empty() || held
+            let owed = state.owed.remove(&session).is_some();
+            if let Leave::Ended { group, .. } = leave {
+                state.owed.retain(|_, entry| entry.group != group);
+            }
+            let filled = fill_owed(&mut state, crate::work_log::now_ms());
+            was_sendable
+                || leave != Leave::NotLinked
+                || !dropped.is_empty()
+                || held
+                || owed
+                || filled
         };
         if changed {
             self.signal();
@@ -260,6 +322,7 @@ impl LinkService {
 
     /// `unattended`: whether a session's agent runs without asking before tools.
     /// A claim that ran out shows as a card again ([`LinkQueue::release_stale`]).
+    /// Introductions still settling ([`INTRO_SETTLE_MS`]) are left out until their time.
     pub fn snapshot(&self, now: i64, unattended: &dyn Fn(SessionId) -> bool) -> LinkSnapshot {
         let mut state = lock(&self.inner.state);
         state.queue.release_stale(now);
@@ -274,10 +337,10 @@ impl LinkService {
                 .links
                 .groups()
                 .iter()
-                .map(|group| group_view(group, now))
+                .map(|group| group_view(group, &state.owed, now))
                 .collect(),
             sendable: state.sendable.iter().copied().collect(),
-            messages: state.queue.messages().iter().map(message_view).collect(),
+            messages: state.queue.visible(now).map(message_view).collect(),
         }
     }
 
@@ -334,21 +397,15 @@ impl LinkService {
             .group(group_id)
             .cloned()
             .ok_or(LinkError::UnknownGroup)?;
-        // A new member has nothing queued yet; only a queue full in every group refuses it, and
-        // then the group does not form.
-        if let Some(refused) = introduce(&mut state.queue, &group, sessions, facts, now, &|_| {
-            Occasion::Formed
-        })
-        .into_iter()
-        .next()
-        {
-            state.queue.drop_group(group.id);
-            state.links.unlink(group.id)?;
-            return Err(refused.into());
-        }
+        // A member whose queue is full (messages from a group it was in before) gets its
+        // introduction once there is room.
+        introduce(&mut state, &group, sessions, facts, now, now, &|_| {
+            Some(Occasion::Formed)
+        });
+        let view = group_view(&group, &state.owed, now);
         drop(state);
         self.signal();
-        Ok(group_view(&group, now))
+        Ok(view)
     }
 
     /// Adds the sessions `ids` to group `group`: each must be a running agent session whose
@@ -356,11 +413,12 @@ impl LinkService {
     /// others get a name derived from their title that no member carries); `lead` is the group's
     /// lead afterwards (`None`: no member leads). A newcomer whose agent runs without asking
     /// before tools turns "Ask before pasting" on, as when linking, and what waits to go on its
-    /// own then waits for a click. Every newcomer gets Hangar's full introduction, every member
-    /// one that names the newcomers (and the new roles, if the lead changed); like all of Hangar's
-    /// introductions they land in the group's history once pasted or discarded. A member whose
-    /// queue is full misses its introduction, as after an edit; a newcomer never does, since the
-    /// whole step is refused while the queue has no room for it.
+    /// own then waits for a click. Every newcomer gets Hangar's full introduction; the members
+    /// hear nothing unless the lead changed, then they get one with the new roles. The
+    /// introductions settle for [`INTRO_SETTLE_MS`], so a further join right after replaces them
+    /// with one naming everybody. Like all of Hangar's introductions they land in the group's
+    /// history once pasted or discarded. One that finds no room in its member's queue goes in
+    /// once there is some ([`GroupView::pending_introductions`]).
     #[allow(clippy::too_many_arguments)] // The group's new members plus what an introduction needs.
     pub fn add(
         &self,
@@ -372,43 +430,14 @@ impl LinkService {
         facts: &dyn Fn(&SessionInfo) -> MemberFacts,
         now: i64,
     ) -> Result<GroupView, LinkServiceError> {
-        let current = {
+        let view = {
             let mut state = lock(&self.inner.state);
             if names.iter().any(|entry| !ids.contains(&entry.session)) {
                 return Err(LinkError::NotMember.into());
             }
-            let mut chosen = Vec::with_capacity(ids.len());
-            for id in ids {
-                let info = linkable(&state.sendable, sessions, *id)?;
-                chosen.push(NewMember {
-                    session: info.id,
-                    title: info.title.as_str(),
-                    name: names
-                        .iter()
-                        .find(|entry| entry.session == info.id)
-                        .map(|entry| entry.name.as_str()),
-                    lead: false,
-                });
-            }
-            let room: Vec<Member> = chosen
-                .iter()
-                .map(|entry| Member {
-                    session: entry.session,
-                    name: String::new(),
-                    role: Role::Member,
-                })
-                .collect();
-            if let Err(full) = state.queue.room_for(&room) {
-                return Err(LinkError::Full(full.to_owned()).into());
-            }
+            let chosen = chosen_members(&state.sendable, sessions, ids, names)?;
             let roles_changed = state.links.add_members(group, &chosen, lead)?;
-            let unattended = chosen.iter().any(|entry| {
-                sessions
-                    .iter()
-                    .find(|info| info.id == entry.session)
-                    .is_some_and(|info| asks_first(&facts(info)))
-            });
-            if unattended {
+            if chosen_ask_first(&chosen, sessions, facts) {
                 state.links.set_ask_first(group, true)?;
                 hold_group(&mut state.queue, group);
             }
@@ -417,29 +446,97 @@ impl LinkService {
                 .group(group)
                 .cloned()
                 .ok_or(LinkError::UnknownGroup)?;
-            let newcomers: Vec<String> = current
-                .members
-                .iter()
-                .filter(|member| ids.contains(&member.session))
-                .map(|member| member.name.clone())
-                .collect();
-            let occasion = |session: SessionId| {
-                if ids.contains(&session) {
-                    Occasion::Formed
-                } else {
-                    Occasion::Joined {
-                        newcomers: &newcomers,
-                        roles_changed,
+            let mut fresh = settling_introductions(&state.queue, group, now);
+            fresh.extend_from_slice(ids);
+            let occasion = |session: SessionId| joined_occasion(&fresh, roles_changed, session);
+            let settled = now.saturating_add(INTRO_SETTLE_MS);
+            introduce(
+                &mut state, &current, sessions, facts, now, settled, &occasion,
+            );
+            group_view(&current, &state.owed, now)
+        };
+        self.signal_settled(now);
+        Ok(view)
+    }
+
+    /// Merges the groups `absorbed` into group `into` in one step, with the sessions `ids` (each
+    /// a running agent session with the send client, in no group yet, `names` naming them
+    /// beforehand) joining as well (ADR 0014, "Merging in the backend"). Nothing that waits is
+    /// dropped: the absorbed groups' messages and history move into the staying group. The rules
+    /// are [`Links::merge`]'s. Everyone new to the staying group gets the full introduction; its
+    /// members hear only of a new lead. A newcomer whose agent runs without asking before tools
+    /// turns "Ask before pasting" on, as when linking. On any refusal nothing changes.
+    #[allow(clippy::too_many_arguments)] // The groups and newcomers plus what an introduction needs.
+    pub fn merge(
+        &self,
+        into: GroupId,
+        absorbed: &[GroupId],
+        ids: &[SessionId],
+        names: &[MemberName],
+        sessions: &[SessionInfo],
+        facts: &dyn Fn(&SessionInfo) -> MemberFacts,
+        now: i64,
+    ) -> Result<GroupView, LinkServiceError> {
+        let view = {
+            let mut state = lock(&self.inner.state);
+            if names.iter().any(|entry| !ids.contains(&entry.session)) {
+                return Err(LinkError::NotMember.into());
+            }
+            let chosen = chosen_members(&state.sendable, sessions, ids, names)?;
+            let merged = state.links.merge(into, absorbed, &chosen)?;
+            let staying = state
+                .links
+                .group(into)
+                .cloned()
+                .ok_or(LinkError::UnknownGroup)?;
+            for gone in &merged.absorbed {
+                state.queue.regroup(*gone, &staying);
+                state.history.merge(*gone, into);
+                for owed in state.owed.values_mut() {
+                    if owed.group == *gone {
+                        owed.group = into;
                     }
                 }
-            };
-            for refused in introduce(&mut state.queue, &current, sessions, facts, now, &occasion) {
-                eprintln!("hangar: a link group's newcomers were not introduced: {refused}");
             }
-            current
+            if chosen_ask_first(&chosen, sessions, facts) {
+                state.links.set_ask_first(into, true)?;
+            }
+            let current = state
+                .links
+                .group(into)
+                .cloned()
+                .ok_or(LinkError::UnknownGroup)?;
+            if current.ask_first {
+                hold_group(&mut state.queue, into);
+            }
+            let mut fresh = settling_introductions(&state.queue, into, now);
+            fresh.extend_from_slice(&merged.newcomers);
+            let occasion =
+                |session: SessionId| joined_occasion(&fresh, merged.lead_changed, session);
+            let settled = now.saturating_add(INTRO_SETTLE_MS);
+            introduce(
+                &mut state, &current, sessions, facts, now, settled, &occasion,
+            );
+            group_view(&current, &state.owed, now)
         };
+        self.signal_settled(now);
+        Ok(view)
+    }
+
+    /// The person chose "Go on" on the brake's hint of group `group`: the rate and the budget
+    /// start again, and what the brake alone held goes on its own again. Not while "Ask before
+    /// pasting" is on: then the toggle holds everything, and the person pastes each one.
+    pub fn resume(&self, group: GroupId) -> Result<(), LinkServiceError> {
+        {
+            let mut state = lock(&self.inner.state);
+            state.links.resume(group)?;
+            let asks = state.links.group(group).is_some_and(|g| g.ask_first);
+            if !asks {
+                state.queue.resume_group(group);
+            }
+        }
         self.signal();
-        Ok(group_view(&current, now))
+        Ok(())
     }
 
     /// The person unlinks the group: it ends, and what still waits in it goes, so the agents stop
@@ -450,6 +547,8 @@ impl LinkService {
             state.links.unlink(group)?;
             state.queue.drop_group(group);
             state.history.end(group);
+            state.owed.retain(|_, entry| entry.group != group);
+            fill_owed(&mut state, crate::work_log::now_ms());
         }
         self.signal();
         Ok(())
@@ -457,8 +556,8 @@ impl LinkService {
 
     /// New member names, the "Ask before pasting" toggle and the lead (`None`: no member leads).
     /// Turning the toggle on holds what waits to go on its own, too. A new lead, or none any
-    /// more, gives every member a fresh introduction with its role; a member whose queue is full
-    /// misses it, since the change itself must not fail on that.
+    /// more, gives every member a fresh introduction with its role, settling like after a join;
+    /// one that finds no room goes in once there is some.
     #[allow(clippy::too_many_arguments)] // The group's new state plus what an introduction needs.
     pub fn edit(
         &self,
@@ -484,16 +583,17 @@ impl LinkService {
                     .group(group)
                     .cloned()
                     .ok_or(LinkError::UnknownGroup)?;
-                let roles = |_| Occasion::RolesChanged;
-                for refused in introduce(&mut state.queue, &current, sessions, facts, now, &roles) {
-                    eprintln!("hangar: a link group's new roles were not introduced: {refused}");
-                }
+                // A newcomer whose introduction still settles keeps a full one.
+                let fresh = settling_introductions(&state.queue, group, now);
+                let roles = |session| joined_occasion(&fresh, true, session);
+                let settled = now.saturating_add(INTRO_SETTLE_MS);
+                introduce(&mut state, &current, sessions, facts, now, settled, &roles);
             }
             if ask_first {
                 hold_group(&mut state.queue, group);
             }
         }
-        self.signal();
+        self.signal_settled(now);
         Ok(())
     }
 
@@ -541,7 +641,10 @@ impl LinkService {
                 held = Some(if ask_first {
                     HeldBy::AskFirst
                 } else {
-                    HeldBy::Brake
+                    match state.links.group(group).map(|g| g.brake.kind(now)) {
+                        Some(BrakeKind::Budget) => HeldBy::Budget,
+                        _ => HeldBy::Brake,
+                    }
                 });
             }
             if let Err(error) = state.queue.push(Outgoing {
@@ -555,6 +658,9 @@ impl LinkService {
                 at: now,
                 auto: pace == Pace::Auto,
                 secrets: &secrets,
+                // Held with the toggle off and no secret: the brake held it.
+                braked: pace == Pace::Held && !ask_first,
+                ready_at: now,
             }) {
                 return LinkRoute::Taken(Err(error));
             }
@@ -590,6 +696,10 @@ impl LinkService {
         let message = state.queue.get(id).cloned().ok_or(LinkError::MessageGone)?;
         if message.to != to || !runs {
             return Err(LinkError::WrongTarget.into());
+        }
+        // Still settling: the window cannot know it yet, and a second step may replace it.
+        if message.settling(now) {
+            return Err(LinkError::Held.into());
         }
         if message.claimed {
             return Err(LinkError::Claimed.into());
@@ -658,10 +768,128 @@ impl LinkService {
                 let entry = HistoryEntry::of(&message, outcome, now);
                 state.history.record(message.group, entry);
             }
+            // A place is free now: an owed introduction may take it.
+            fill_owed(&mut state, now);
             message
         };
         self.signal();
         Ok(message)
+    }
+
+    /// What `hangar-send --members` answers session `from`: its group's roster
+    /// ([`LinkGroup::roster`]), or `None` when it is in no group or cannot send.
+    pub fn roster(&self, from: SessionId) -> Option<String> {
+        let state = lock(&self.inner.state);
+        if !state.sendable.contains(&from) {
+            return None;
+        }
+        state.links.group_of(from)?.roster(from)
+    }
+
+    /// The remembered groups of the last run, already without members that will not come back
+    /// ([`link_memory::prune`]): they wait as offers until the person decides.
+    pub fn load_offers(&self, groups: Vec<RememberedGroup>) {
+        let mut state = lock(&self.inner.state);
+        for group in groups {
+            state.next_offer = state.next_offer.saturating_add(1);
+            let id = state.next_offer;
+            state.offers.push((id, group));
+        }
+    }
+
+    /// The offers that can be applied now: remembered groups with at least two members whose
+    /// key (`session_of`) a running agent session with the send client in no group carries.
+    pub fn offers(
+        &self,
+        sessions: &[SessionInfo],
+        session_of: &dyn Fn(&str) -> Option<SessionId>,
+    ) -> Vec<Offer> {
+        let state = lock(&self.inner.state);
+        let free = |key: &str| {
+            session_of(key).filter(|id| {
+                linkable(&state.sendable, sessions, *id).is_ok()
+                    && state.links.group_of(*id).is_none()
+            })
+        };
+        state
+            .offers
+            .iter()
+            .filter_map(|(id, group)| link_memory::offer(*id, group, &free))
+            .collect()
+    }
+
+    /// The person confirmed offer `id`: its members that run now are linked as one group with
+    /// the remembered names, lead and toggle (each gets the full introduction, as at "Link"),
+    /// and the offer is gone. An agent without prompts still turns "Ask before pasting" on.
+    pub fn apply_offer(
+        &self,
+        id: u64,
+        sessions: &[SessionInfo],
+        session_of: &dyn Fn(&str) -> Option<SessionId>,
+        facts: &dyn Fn(&SessionInfo) -> MemberFacts,
+        now: i64,
+    ) -> Result<GroupView, LinkServiceError> {
+        let offer = self
+            .offers(sessions, session_of)
+            .into_iter()
+            .find(|offer| offer.id == id)
+            .ok_or(LinkError::UnknownGroup)?;
+        let ids: Vec<SessionId> = offer.members.iter().map(|m| m.session).collect();
+        let request = LinkRequest {
+            names: offer
+                .members
+                .iter()
+                .map(|member| MemberName {
+                    session: member.session,
+                    name: member.name.clone(),
+                })
+                .collect(),
+            lead: offer
+                .members
+                .iter()
+                .find(|member| member.role == Role::Lead)
+                .map(|member| member.session),
+            ask_first: offer.ask_first,
+        };
+        let view = self.link(&ids, sessions, facts, now, &request)?;
+        lock(&self.inner.state)
+            .offers
+            .retain(|(offered, _)| *offered != id);
+        Ok(view)
+    }
+
+    /// The person declined offer `id`: it goes and is not offered again.
+    pub fn discard_offer(&self, id: u64) -> Result<(), LinkServiceError> {
+        let mut state = lock(&self.inner.state);
+        let before = state.offers.len();
+        state.offers.retain(|(offered, _)| *offered != id);
+        if state.offers.len() == before {
+            return Err(LinkError::UnknownGroup.into());
+        }
+        Ok(())
+    }
+
+    /// Works out what to remember (the live groups by workspace key, `key_of`, then the offers
+    /// not decided yet) and hands it to `save`. Called after every step of the person that
+    /// changes a group, never when a session ends: when Hangar quits, every session ends, and
+    /// the groups must still be remembered then.
+    pub fn remember<E>(
+        &self,
+        key_of: &dyn Fn(SessionId) -> Option<String>,
+        save: &dyn Fn(Vec<RememberedGroup>) -> Result<(), E>,
+    ) -> Result<(), E> {
+        let _writing = lock(&self.inner.memory);
+        let file = {
+            let mut state = lock(&self.inner.state);
+            let live: Vec<RememberedGroup> = state
+                .links
+                .groups()
+                .iter()
+                .filter_map(|group| link_memory::remember(group, key_of))
+                .collect();
+            link_memory::combine(live, &mut state.offers)
+        };
+        save(file)
     }
 
     /// The history of group `group`, newest first: what was delivered or discarded since it
@@ -705,13 +933,79 @@ fn linkable<'s>(
         .ok_or(LinkError::NotLinkable)
 }
 
+/// Sessions `ids` as newcomers of a group: each linkable ([`linkable`]), with the name `names`
+/// chose for it, if any.
+fn chosen_members<'s>(
+    sendable: &BTreeSet<SessionId>,
+    sessions: &'s [SessionInfo],
+    ids: &[SessionId],
+    names: &'s [MemberName],
+) -> Result<Vec<NewMember<'s>>, LinkError> {
+    ids.iter()
+        .map(|id| {
+            let info = linkable(sendable, sessions, *id)?;
+            Ok(NewMember {
+                session: info.id,
+                title: info.title.as_str(),
+                name: names
+                    .iter()
+                    .find(|entry| entry.session == info.id)
+                    .map(|entry| entry.name.as_str()),
+                lead: false,
+            })
+        })
+        .collect()
+}
+
+/// Whether a newcomer makes its group ask before pasting ([`asks_first`]).
+fn chosen_ask_first(
+    chosen: &[NewMember<'_>],
+    sessions: &[SessionInfo],
+    facts: &dyn Fn(&SessionInfo) -> MemberFacts,
+) -> bool {
+    chosen.iter().any(|entry| {
+        sessions
+            .iter()
+            .find(|info| info.id == entry.session)
+            .is_some_and(|info| asks_first(&facts(info)))
+    })
+}
+
+/// The members of group `group` whose full introduction still settles at `now`: they joined a
+/// moment ago, so a further join renews theirs instead of leaving them a list that misses the
+/// next newcomer ([`INTRO_SETTLE_MS`]).
+fn settling_introductions(queue: &LinkQueue, group: GroupId, now: i64) -> Vec<SessionId> {
+    queue
+        .messages()
+        .iter()
+        .filter(|m| m.group == group && m.is_introduction() && !m.claimed && m.settling(now))
+        .map(|m| m.to)
+        .collect()
+}
+
+/// Who hears what after sessions joined: a newcomer (or a member whose introduction still
+/// settles, `fresh` holds both) the full introduction, a member only a change of the lead.
+fn joined_occasion(
+    fresh: &[SessionId],
+    roles_changed: bool,
+    session: SessionId,
+) -> Option<Occasion> {
+    if fresh.contains(&session) {
+        Some(Occasion::Formed)
+    } else if roles_changed {
+        Some(Occasion::RolesChanged)
+    } else {
+        None
+    }
+}
+
 /// What waits in group `group` to go on its own waits for a click from now on ("Ask before
-/// pasting" turned on).
+/// pasting" turned on), what the brake held included: "Go on" must not send it then.
 fn hold_group(queue: &mut LinkQueue, group: GroupId) {
     let held: Vec<u64> = queue
         .messages()
         .iter()
-        .filter(|message| message.group == group && message.auto)
+        .filter(|message| message.group == group && (message.auto || message.braked))
         .map(|message| message.id)
         .collect();
     for id in held {
@@ -719,18 +1013,59 @@ fn hold_group(queue: &mut LinkQueue, group: GroupId) {
     }
 }
 
-/// Queues Hangar's introduction for every member of `group`, each for its role and for the
-/// occasion `occasion` names for it. Answers the refusals of members without room.
-fn introduce<'a>(
-    queue: &mut LinkQueue,
+/// Puts owed introductions into the queue where there is room now, each going on its own unless
+/// its group asks first. One whose member left its group goes. `true` when any changed.
+fn fill_owed(state: &mut State, now: i64) -> bool {
+    let mut changed = false;
+    let owed = std::mem::take(&mut state.owed);
+    for (session, entry) in owed {
+        let Some(group) = state.links.group(entry.group) else {
+            changed = true;
+            continue;
+        };
+        let Some(member) = group.member(session) else {
+            changed = true;
+            continue;
+        };
+        let pushed = state.queue.push(Outgoing {
+            group: group.id,
+            from: None,
+            from_name: "",
+            from_role: Role::Member,
+            to: session,
+            to_name: &member.name,
+            text: &entry.text,
+            at: now,
+            auto: !group.ask_first,
+            secrets: &[],
+            braked: false,
+            ready_at: now,
+        });
+        if pushed.is_ok() {
+            changed = true;
+        } else {
+            state.owed.insert(session, entry);
+        }
+    }
+    changed
+}
+
+/// Queues Hangar's introduction for the members of `group` that `occasion` names an occasion
+/// for, each for its role, visible from `ready_at` on. A new introduction replaces the one that
+/// still waits for that member; one without room is owed ([`fill_owed`]).
+fn introduce(
+    state: &mut State,
     group: &LinkGroup,
     sessions: &[SessionInfo],
     facts: &dyn Fn(&SessionInfo) -> MemberFacts,
     now: i64,
-    occasion: &dyn Fn(SessionId) -> Occasion<'a>,
-) -> Vec<LinkError> {
-    let mut refused = Vec::new();
+    ready_at: i64,
+    occasion: &dyn Fn(SessionId) -> Option<Occasion>,
+) {
     for member in &group.members {
+        let Some(occasion) = occasion(member.session) else {
+            continue;
+        };
         let peers: Vec<(String, Role, String, String)> = group
             .members
             .iter()
@@ -754,8 +1089,10 @@ fn introduce<'a>(
                 folder,
             })
             .collect();
-        let text = introduction(&member.name, member.role, &peers, occasion(member.session));
-        if let Err(error) = queue.push(Outgoing {
+        let text = introduction(&member.name, member.role, &peers, occasion);
+        state.queue.take_introduction(member.session);
+        state.owed.remove(&member.session);
+        let pushed = state.queue.push(Outgoing {
             group: group.id,
             from: None,
             from_name: "",
@@ -766,19 +1103,35 @@ fn introduce<'a>(
             at: now,
             auto: !group.ask_first,
             secrets: &[],
-        }) {
-            refused.push(error);
+            braked: false,
+            ready_at,
+        });
+        if pushed.is_err() {
+            state.owed.insert(
+                member.session,
+                Owed {
+                    group: group.id,
+                    text,
+                },
+            );
         }
     }
-    refused
 }
 
-fn group_view(group: &LinkGroup, now: i64) -> GroupView {
+fn group_view(group: &LinkGroup, owed: &BTreeMap<SessionId, Owed>, now: i64) -> GroupView {
+    let limits = group.limits();
     GroupView {
         id: group.id,
         color: group.color,
         ask_first: group.ask_first,
         braked: !group.ask_first && group.brake.engaged(now),
+        brake: if group.ask_first {
+            BrakeKind::Clear
+        } else {
+            group.brake.kind(now)
+        },
+        budget_left: group.brake.left(limits),
+        budget: limits.budget,
         members: group
             .members
             .iter()
@@ -787,6 +1140,11 @@ fn group_view(group: &LinkGroup, now: i64) -> GroupView {
                 name: member.name.clone(),
                 role: member.role,
             })
+            .collect(),
+        pending_introductions: owed
+            .iter()
+            .filter(|(_, entry)| entry.group == group.id)
+            .map(|(session, _)| *session)
             .collect(),
     }
 }
@@ -802,6 +1160,7 @@ fn message_view(message: &LinkMessage) -> LinkMessageView {
         auto: message.auto,
         claimed: message.claimed,
         secrets: message.secrets.clone(),
+        braked: message.braked,
     }
 }
 
@@ -853,6 +1212,19 @@ pub fn link_answer(result: &Result<Sent, LinkError>) -> (hook_http::Status, Send
             format!(
                 "Many messages went back and forth in this group within the last minute, so the \
                  message to {} waits in Hangar for the person. Send again only when it matters.",
+                quoted(to)
+            ),
+        ),
+        Ok(Sent {
+            to,
+            held: Some(HeldBy::Budget),
+        }) => answer(
+            hook_http::Status::Ok,
+            "waiting",
+            format!(
+                "This group sent many messages on its own since the person last stepped in, so \
+                 the message to {} waits in Hangar for the person. Send again only when it \
+                 matters.",
                 quoted(to)
             ),
         ),
@@ -956,13 +1328,41 @@ pub fn answer_send(
     (status, body)
 }
 
+/// The members route for `hangar-send --members` (ADR 0014): with the same send token, the
+/// sending session learns its own member name and role, the other members and the lead.
+/// `not_linked` (exit code 4) for a session in no group: no other session's data is answered.
+pub fn answer_members(links: &LinkService, from: SessionId) -> (hook_http::Status, String) {
+    let (status, answer) = match links.roster(from) {
+        Some(roster) => (
+            hook_http::Status::Ok,
+            SendAnswer {
+                code: "members",
+                message: roster,
+            },
+        ),
+        None => (
+            hook_http::Status::NotFound,
+            SendAnswer {
+                code: "not_linked",
+                message: "This session is in no link group.".to_owned(),
+            },
+        ),
+    };
+    // A struct of two strings always serializes.
+    let body = serde_json::to_string(&answer).unwrap_or_default();
+    (status, body)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use std::path::{Path, PathBuf};
     use std::sync::atomic::{AtomicUsize, Ordering};
 
-    use crate::links::{BRAKE_LIMIT, CLAIM_TIMEOUT_MS, MAX_WAITING_PER_TARGET};
+    use crate::links::{Limits, CLAIM_TIMEOUT_MS, MAX_WAITING_PER_TARGET};
+    const BRAKE_LIMIT: usize = Limits::PAIR.rate;
+    /// Long after every introduction of a test settled.
+    const LATER: i64 = 1 << 40;
     use crate::main_store::MainStore;
     use crate::partners::ProjectEnd;
 
@@ -1041,8 +1441,9 @@ mod tests {
         }
     }
 
+    /// Pastes everything that waits, settling introductions included.
     fn take_all(links: &LinkService) {
-        for message in links.snapshot(0, &attended).messages {
+        for message in links.snapshot(LATER, &attended).messages {
             links.close(message.id, true, 0).unwrap();
         }
     }
@@ -1785,7 +2186,7 @@ mod tests {
             .unwrap();
         take_all(&links);
         // One delivery every 20 seconds keeps under the rate; the budget still ends it.
-        for step in 0..crate::links::AUTO_BUDGET as i64 {
+        for step in 0..Limits::PAIR.budget as i64 {
             let sent = links.receive(1, &request("web", "x"), step * 20_000);
             assert_eq!(
                 sent,
@@ -1802,10 +2203,18 @@ mod tests {
         assert!(matches!(
             held,
             LinkRoute::Taken(Ok(Sent {
-                held: Some(HeldBy::Brake),
+                held: Some(HeldBy::Budget),
                 ..
             }))
         ));
+        // The agent learns it is the budget, not the last minute.
+        let LinkRoute::Taken(result) = &held else {
+            unreachable!()
+        };
+        let (_, answer) = link_answer(result);
+        assert_eq!(answer.code, "waiting");
+        assert!(answer.message.contains("since the person last stepped in"));
+        assert!(!answer.message.contains("minute"), "{}", answer.message);
         assert!(links.snapshot(late + 10 * 60_000, &attended).groups[0].braked);
         take_all(&links);
         // Typing into a member restores it; typing elsewhere does nothing.
@@ -1942,7 +2351,7 @@ mod tests {
         links
             .edit(group.id, &[], false, Some(2), &sessions(), &facts, 3)
             .unwrap();
-        let messages = links.snapshot(3, &attended).messages;
+        let messages = links.snapshot(3 + INTRO_SETTLE_MS, &attended).messages;
         assert_eq!(messages.len(), 2);
         assert!(messages
             .iter()
@@ -2076,24 +2485,26 @@ mod tests {
                 ("relay-x", Role::Member)
             ]
         );
-        let messages = links.snapshot(5, &attended).messages;
-        assert_eq!(messages.len(), 3);
+        // The introduction settles first: the window does not see it yet, nor can it paste it.
+        assert!(links.snapshot(5, &attended).messages.is_empty());
+        let settled = 5 + INTRO_SETTLE_MS;
+        let messages = links.snapshot(settled, &attended).messages;
+        // Only the newcomer hears of it, with the full introduction; the members hear nothing.
+        assert_eq!(messages.len(), 1);
         assert!(messages.iter().all(|m| m.auto && m.from_name.is_none()));
-        let to = |id: SessionId| messages.iter().find(|m| m.to == id).unwrap().text.clone();
-        let newcomer = to(3);
-        assert!(newcomer.starts_with("You are linked"), "{newcomer}");
-        assert!(newcomer.contains("- \"app\" (lead):"), "{newcomer}");
-        assert!(newcomer.contains("- \"web\":"), "{newcomer}");
-        let member = to(2);
+        let newcomer = &messages[0];
+        assert_eq!(newcomer.to, 3);
         assert!(
-            member.starts_with("Your link group in Hangar grew: \"relay-x\" joined. The other"),
-            "{member}"
+            newcomer.text.starts_with("You are linked"),
+            "{}",
+            newcomer.text
         );
         assert!(
-            member.contains("- \"relay-x\": Claude Code in "),
-            "{member}"
+            newcomer.text.contains("- \"app\" (lead):"),
+            "{}",
+            newcomer.text
         );
-        assert!(to(1).contains("You lead this group"));
+        assert!(newcomer.text.contains("- \"web\":"), "{}", newcomer.text);
         // The newcomer is reachable and can write at once.
         assert!(matches!(
             links.receive(3, &request("lead", "hi"), 6),
@@ -2171,8 +2582,8 @@ mod tests {
             .unwrap();
         assert!(grown.ask_first);
         // Every introduction waits for a click, the earlier ones not yet pasted included.
-        let messages = links.snapshot(1, &attended).messages;
-        assert_eq!(messages.len(), 5);
+        let messages = links.snapshot(1 + INTRO_SETTLE_MS, &attended).messages;
+        assert_eq!(messages.len(), 3);
         assert!(messages.iter().all(|m| !m.auto));
     }
 
@@ -2190,14 +2601,18 @@ mod tests {
         links
             .add(group.id, &[3, 4], &[], Some(3), &sessions(), &facts, 1)
             .unwrap();
-        let messages = links.snapshot(1, &attended).messages;
+        let messages = links.snapshot(1 + INTRO_SETTLE_MS, &attended).messages;
+        assert_eq!(messages.len(), 4);
+        // The members learn the new roles, not who joined.
         let to_app = &messages.iter().find(|m| m.to == 1).unwrap().text;
         assert!(
-            to_app.contains("\"relay\" and \"lone\" joined. Its roles changed as well."),
+            to_app.starts_with("The roles in your link group in Hangar changed."),
             "{to_app}"
         );
+        assert!(!to_app.contains("joined"), "{to_app}");
         assert!(to_app.contains("- \"relay\" (lead):"), "{to_app}");
         let to_relay = &messages.iter().find(|m| m.to == 3).unwrap().text;
+        assert!(to_relay.starts_with("You are linked"), "{to_relay}");
         assert!(to_relay.contains("You lead this group"), "{to_relay}");
     }
 
@@ -2214,5 +2629,458 @@ mod tests {
         let json = serde_json::to_value(links.snapshot(0, &attended)).unwrap();
         assert_eq!(json["groups"][0]["members"][0]["role"], "member");
         assert_eq!(json["groups"][0]["members"][1]["role"], "lead");
+    }
+
+    /// Sends `BRAKE_LIMIT` messages back and forth in group [1, 2], pasting each, so the next
+    /// one meets the rate.
+    fn reach_the_rate(links: &LinkService) {
+        for at in 0..BRAKE_LIMIT as i64 {
+            let (from, to) = if at % 2 == 0 { (1, "web") } else { (2, "app") };
+            assert!(matches!(
+                links.receive(from, &request(to, "x"), at),
+                LinkRoute::Taken(Ok(Sent { held: None, .. }))
+            ));
+            take_all(links);
+        }
+    }
+
+    #[test]
+    fn the_group_view_tells_the_brake_and_the_budget_left() {
+        let (links, _) = service();
+        links
+            .link(&[1, 2], &sessions(), &facts, 0, &LinkRequest::default())
+            .unwrap();
+        take_all(&links);
+        let view = &links.snapshot(0, &attended).groups[0];
+        assert_eq!(
+            (view.brake, view.budget_left, view.budget),
+            (BrakeKind::Clear, 20, 20)
+        );
+        reach_the_rate(&links);
+        let view = &links.snapshot(10, &attended).groups[0];
+        assert_eq!(view.budget_left, 20 - BRAKE_LIMIT);
+        assert_eq!(view.brake, BrakeKind::Clear);
+        links.receive(1, &request("web", "x"), 10);
+        let json = serde_json::to_value(links.snapshot(11, &attended)).unwrap();
+        assert_eq!(json["groups"][0]["brake"], "rate");
+        assert_eq!(json["groups"][0]["braked"], true);
+        assert_eq!(json["groups"][0]["budgetLeft"], 20 - BRAKE_LIMIT);
+        assert_eq!(json["groups"][0]["budget"], 20);
+        assert_eq!(
+            json["groups"][0]["pendingIntroductions"],
+            serde_json::json!([])
+        );
+        assert_eq!(json["messages"][0]["braked"], true);
+        // A group of three has the budget of three.
+        let (three, _) = service();
+        three
+            .link(&[1, 2, 3], &sessions(), &facts, 0, &LinkRequest::default())
+            .unwrap();
+        assert_eq!(three.snapshot(0, &attended).groups[0].budget, 30);
+        // The spent budget shows as such.
+        let (spent, _) = service();
+        spent
+            .link(&[1, 2], &sessions(), &facts, 0, &LinkRequest::default())
+            .unwrap();
+        take_all(&spent);
+        for step in 0..=Limits::PAIR.budget as i64 {
+            spent.receive(1, &request("web", "x"), step * 20_000);
+            take_all(&spent);
+        }
+        let view = &spent.snapshot(1_000_000, &attended).groups[0];
+        assert_eq!((view.brake, view.budget_left), (BrakeKind::Budget, 0));
+    }
+
+    #[test]
+    fn going_on_releases_the_brake_and_what_it_held() {
+        let (links, signals) = service();
+        let group = links
+            .link(&[1, 2], &sessions(), &facts, 0, &LinkRequest::default())
+            .unwrap();
+        take_all(&links);
+        reach_the_rate(&links);
+        links.receive(1, &request("web", "held"), 10);
+        let held = links.snapshot(11, &attended).messages[0].clone();
+        assert!(!held.auto && held.braked);
+        let before = signals.load(Ordering::SeqCst);
+        links.resume(group.id).unwrap();
+        assert_eq!(signals.load(Ordering::SeqCst), before + 1);
+        let snapshot = links.snapshot(12, &attended);
+        assert!(snapshot.messages[0].auto && !snapshot.messages[0].braked);
+        assert_eq!(snapshot.groups[0].brake, BrakeKind::Clear);
+        assert!(!snapshot.groups[0].braked);
+        // The window may paste it on its own now, and the next one goes on its own as well.
+        assert!(links.text_for(held.id, 2, &sessions(), true, 12).is_ok());
+        assert!(matches!(
+            links.receive(2, &request("app", "next"), 13),
+            LinkRoute::Taken(Ok(Sent { held: None, .. }))
+        ));
+        assert!(matches!(
+            links.resume(99),
+            Err(LinkServiceError::Link(LinkError::UnknownGroup))
+        ));
+    }
+
+    #[test]
+    fn going_on_does_not_send_what_the_toggle_holds() {
+        let (links, _) = service();
+        let group = links
+            .link(&[1, 2], &sessions(), &facts, 0, &LinkRequest::default())
+            .unwrap();
+        take_all(&links);
+        reach_the_rate(&links);
+        links.receive(1, &request("web", "held"), 10);
+        // "Ask before pasting" turned on afterwards: the message waits for the person now.
+        edit(&links, group.id, &[], true).unwrap();
+        assert!(!links.snapshot(11, &attended).messages[0].braked);
+        links.resume(group.id).unwrap();
+        assert!(!links.snapshot(12, &attended).messages[0].auto);
+    }
+
+    #[test]
+    fn joins_in_a_row_reach_each_newcomer_as_one_introduction() {
+        let (links, _) = service();
+        let group = links
+            .link(&[1, 2], &sessions(), &facts, 0, &LinkRequest::default())
+            .unwrap();
+        take_all(&links);
+        links
+            .add(group.id, &[3], &[], None, &sessions(), &facts, 100)
+            .unwrap();
+        links
+            .add(group.id, &[4], &[], None, &sessions(), &facts, 1_000)
+            .unwrap();
+        // Nothing shows before the second step settled, not even the first newcomer's.
+        assert!(links
+            .snapshot(100 + INTRO_SETTLE_MS, &attended)
+            .messages
+            .is_empty());
+        let messages = links.snapshot(1_000 + INTRO_SETTLE_MS, &attended).messages;
+        assert_eq!(
+            messages.iter().map(|m| m.to).collect::<Vec<_>>(),
+            [3, 4],
+            "one each for the newcomers, none for the members"
+        );
+        // The first newcomer's one names the second.
+        assert!(
+            messages[0].text.contains("- \"lone\":"),
+            "{}",
+            messages[0].text
+        );
+        // The replaced one leaves no trace in the history.
+        take_all(&links);
+        let history = links.history(group.id).unwrap();
+        assert_eq!(history.iter().filter(|h| h.to_name == "relay").count(), 1);
+    }
+
+    #[test]
+    fn an_introduction_without_room_goes_in_once_there_is_some() {
+        let (links, _) = service();
+        let group = links
+            .link(&[1, 2], &sessions(), &facts, 0, &LinkRequest::default())
+            .unwrap();
+        take_all(&links);
+        for at in 0..MAX_WAITING_PER_TARGET as i64 {
+            links.receive(1, &request("web", "x"), at * 20_000);
+        }
+        links
+            .edit(group.id, &[], false, Some(1), &sessions(), &facts, 200_000)
+            .unwrap();
+        let later = 200_000 + INTRO_SETTLE_MS;
+        let snapshot = links.snapshot(later, &attended);
+        assert_eq!(snapshot.groups[0].pending_introductions, [2]);
+        assert_eq!(
+            snapshot
+                .messages
+                .iter()
+                .filter(|m| m.from_name.is_none())
+                .map(|m| m.to)
+                .collect::<Vec<_>>(),
+            [1]
+        );
+        // One of the messages for "web" is pasted: the owed introduction takes its place.
+        let first = snapshot.messages.iter().find(|m| m.to == 2).unwrap().id;
+        links.close(first, true, later).unwrap();
+        let snapshot = links.snapshot(later, &attended);
+        assert!(snapshot.groups[0].pending_introductions.is_empty());
+        let intro = snapshot
+            .messages
+            .iter()
+            .find(|m| m.to == 2 && m.from_name.is_none())
+            .unwrap();
+        assert!(intro.auto);
+        assert!(
+            intro.text.starts_with("The roles in your link group"),
+            "{}",
+            intro.text
+        );
+        // A member that leaves owes nothing any more.
+        let (three, _) = service();
+        let group = three
+            .link(&[1, 2, 3], &sessions(), &facts, 0, &LinkRequest::default())
+            .unwrap();
+        take_all(&three);
+        for at in 0..MAX_WAITING_PER_TARGET as i64 {
+            three.receive(1, &request("web", "x"), at * 20_000);
+        }
+        three
+            .edit(group.id, &[], false, Some(1), &sessions(), &facts, 200_000)
+            .unwrap();
+        three.ended(2);
+        assert!(three.snapshot(later, &attended).groups[0]
+            .pending_introductions
+            .is_empty());
+    }
+
+    #[test]
+    fn a_merge_keeps_what_waits_and_introduces_only_the_newcomers() {
+        let (links, _) = service();
+        let stay = links
+            .link(&[1, 2], &sessions(), &facts, 0, &LinkRequest::default())
+            .unwrap();
+        let other = links
+            .link(&[3, 4], &sessions(), &facts, 0, &LinkRequest::default())
+            .unwrap();
+        take_all(&links);
+        links.receive(3, &request("lone", "keep me"), 5);
+        // A refusal changes nothing.
+        assert!(matches!(
+            links.merge(stay.id, &[99], &[], &[], &sessions(), &facts, 6),
+            Err(LinkServiceError::Link(LinkError::UnknownGroup))
+        ));
+        assert_eq!(links.snapshot(6, &attended).groups.len(), 2);
+        let merged = links
+            .merge(stay.id, &[other.id], &[], &[], &sessions(), &facts, 10)
+            .unwrap();
+        assert_eq!(merged.id, stay.id);
+        assert_eq!(merged.members.len(), 4);
+        let snapshot = links.snapshot(10 + INTRO_SETTLE_MS, &attended);
+        assert_eq!(snapshot.groups.len(), 1);
+        // The member's message is still there, now in the merged group.
+        let kept = snapshot
+            .messages
+            .iter()
+            .find(|m| m.text == "keep me")
+            .unwrap();
+        assert_eq!(kept.group, stay.id);
+        assert!(kept.auto);
+        let intros: Vec<SessionId> = snapshot
+            .messages
+            .iter()
+            .filter(|m| m.from_name.is_none())
+            .map(|m| m.to)
+            .collect();
+        assert_eq!(intros, [3, 4]);
+        // The absorbed group's history moved along.
+        let history = links.history(stay.id).unwrap();
+        assert!(history.iter().any(|h| h.to_name == "relay"), "{history:?}");
+        assert!(links.history(other.id).is_err());
+        // The absorbed members reach the staying ones by name.
+        assert!(matches!(
+            links.receive(3, &request("app", "hi"), 20),
+            LinkRoute::Taken(Ok(_))
+        ));
+    }
+
+    #[test]
+    fn a_merge_with_an_agent_without_prompts_asks_first() {
+        let (links, _) = service();
+        let list = list_with(4, "yolo");
+        let stay = links
+            .link(&[1, 2], &list, &facts, 0, &LinkRequest::default())
+            .unwrap();
+        let other = links
+            .link(&[3, 4], &list, &facts, 0, &LinkRequest::default())
+            .unwrap();
+        assert!(other.ask_first);
+        let merged = links
+            .merge(stay.id, &[other.id], &[], &[], &list, &facts, 1)
+            .unwrap();
+        assert!(merged.ask_first);
+        assert!(links
+            .snapshot(LATER, &attended)
+            .messages
+            .iter()
+            .all(|m| !m.auto));
+    }
+
+    #[test]
+    fn members_learn_who_is_in_their_group() {
+        let (links, _) = service();
+        let request = LinkRequest {
+            lead: Some(2),
+            ..LinkRequest::default()
+        };
+        links
+            .link(&[1, 2, 3], &sessions(), &facts, 0, &request)
+            .unwrap();
+        let (status, body) = answer_members(&links, 1);
+        let answer: serde_json::Value = serde_json::from_str(&body).unwrap();
+        assert_eq!(status, hook_http::Status::Ok);
+        assert_eq!(answer["code"], "members");
+        let roster = answer["message"].as_str().unwrap();
+        assert!(roster.starts_with("You are \"app\" (member)"), "{roster}");
+        assert!(roster.contains("- \"web\" (lead)"), "{roster}");
+        assert!(roster.contains("- \"relay\""), "{roster}");
+        // A session in no group learns nothing about any group.
+        let (status, body) = answer_members(&links, 4);
+        assert_eq!(status, hook_http::Status::NotFound);
+        assert!(body.contains("not_linked"), "{body}");
+        assert!(!body.contains("app"), "{body}");
+        // Nor does one whose process ended.
+        links.ended(3);
+        assert_eq!(answer_members(&links, 3).0, hook_http::Status::NotFound);
+    }
+
+    fn key(n: SessionId) -> String {
+        format!("00000000-0000-4000-8000-{n:012x}")
+    }
+
+    fn session_of(key_text: &str) -> Option<SessionId> {
+        (1..=9).find(|n| key(*n) == key_text)
+    }
+
+    /// Runs [`LinkService::remember`] and answers what it would write.
+    fn remembered(links: &LinkService) -> Vec<RememberedGroup> {
+        let written = Mutex::new(Vec::new());
+        links
+            .remember(&|id| Some(key(id)), &|groups| {
+                *written.lock().unwrap() = groups;
+                Ok::<(), ()>(())
+            })
+            .unwrap();
+        written.into_inner().unwrap()
+    }
+
+    #[test]
+    fn groups_are_remembered_by_composition_only() {
+        let (links, _) = service();
+        let request = LinkRequest {
+            names: names(&[(3, "relay-x")]),
+            lead: Some(1),
+            ask_first: true,
+        };
+        links
+            .link(&[1, 2, 3], &sessions(), &facts, 0, &request)
+            .unwrap();
+        links.receive(1, &request_to("web", "never stored"), 1);
+        let file = remembered(&links);
+        assert_eq!(file.len(), 1);
+        assert!(file[0].ask_first);
+        assert_eq!(
+            file[0]
+                .members
+                .iter()
+                .map(|m| (m.key.clone(), m.name.as_str(), m.lead))
+                .collect::<Vec<_>>(),
+            [
+                (key(1), "app", true),
+                (key(2), "web", false),
+                (key(3), "relay-x", false)
+            ]
+        );
+        let json = serde_json::to_string(&file).unwrap();
+        assert!(!json.contains("never stored"), "{json}");
+        assert!(!json.contains("You are linked"), "{json}");
+        // Unlinked, it is forgotten.
+        links
+            .unlink(links.snapshot(0, &attended).groups[0].id)
+            .unwrap();
+        assert!(remembered(&links).is_empty());
+    }
+
+    #[test]
+    fn a_remembered_group_is_only_linked_once_the_person_confirms() {
+        // The last run's group, as the file brings it back.
+        let (before, _) = service();
+        let request = LinkRequest {
+            names: names(&[(2, "site")]),
+            lead: Some(2),
+            ask_first: true,
+        };
+        before
+            .link(&[1, 2, 3], &sessions(), &facts, 0, &request)
+            .unwrap();
+        let file = remembered(&before);
+        let (links, _) = service();
+        links.load_offers(file);
+        // Nothing is linked on its own.
+        assert!(links.snapshot(0, &attended).groups.is_empty());
+        let offers = links.offers(&sessions(), &session_of);
+        assert_eq!(offers.len(), 1);
+        let offer = &offers[0];
+        assert!(offer.missing.is_empty());
+        assert!(offer.ask_first);
+        assert_eq!(
+            offer
+                .members
+                .iter()
+                .map(|m| (m.session, m.name.as_str(), m.role))
+                .collect::<Vec<_>>(),
+            [
+                (1, "app", Role::Member),
+                (2, "site", Role::Lead),
+                (3, "relay", Role::Member)
+            ]
+        );
+        let group = links
+            .apply_offer(offer.id, &sessions(), &session_of, &facts, 5)
+            .unwrap();
+        assert!(group.ask_first);
+        assert_eq!(group.members[1].name, "site");
+        assert_eq!(group.members[1].role, Role::Lead);
+        // Each member gets the full introduction, waiting for a click as the group asks first.
+        let messages = links.snapshot(5, &attended).messages;
+        assert_eq!(messages.len(), 3);
+        assert!(messages
+            .iter()
+            .all(|m| !m.auto && m.text.starts_with("You are linked")));
+        // The offer is gone; applying it again is refused.
+        assert!(links.offers(&sessions(), &session_of).is_empty());
+        assert!(links
+            .apply_offer(offer.id, &sessions(), &session_of, &facts, 6)
+            .is_err());
+        assert_eq!(remembered(&links).len(), 1);
+    }
+
+    #[test]
+    fn offers_wait_for_their_sessions_and_can_be_declined() {
+        let (before, _) = service();
+        before
+            .link(&[1, 2], &sessions(), &facts, 0, &LinkRequest::default())
+            .unwrap();
+        before
+            .link(&[3, 4], &sessions(), &facts, 0, &LinkRequest::default())
+            .unwrap();
+        let file = remembered(&before);
+        let signals = Arc::new(AtomicUsize::new(0));
+        let links = LinkService::new(move || {
+            signals.fetch_add(1, Ordering::SeqCst);
+        });
+        links.load_offers(file);
+        // Restored, but their processes have not got the client yet: nothing to offer.
+        assert!(links.offers(&sessions(), &session_of).is_empty());
+        for id in 1..=4 {
+            links.sendable(id);
+        }
+        let offers = links.offers(&sessions(), &session_of);
+        assert_eq!(offers.len(), 2);
+        // The person links 2 and 3 by hand: both offers lose a member and cannot form.
+        links
+            .link(&[2, 3], &sessions(), &facts, 0, &LinkRequest::default())
+            .unwrap();
+        assert!(links.offers(&sessions(), &session_of).is_empty());
+        // Remembering now drops what no longer can form, and keeps the live group.
+        let file = remembered(&links);
+        assert_eq!(file.len(), 1);
+        assert_eq!(file[0].members.len(), 2);
+        // Declining: the offer is gone for good, and an unknown one is refused.
+        let (fresh, _) = service();
+        fresh.load_offers(remembered(&before));
+        let first = fresh.offers(&sessions(), &session_of)[0].id;
+        fresh.discard_offer(first).unwrap();
+        assert_eq!(fresh.offers(&sessions(), &session_of).len(), 1);
+        assert!(fresh.discard_offer(first).is_err());
+        assert_eq!(remembered(&fresh).len(), 1);
     }
 }

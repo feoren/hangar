@@ -117,6 +117,8 @@ fn fixture(name: &str) -> Fixture {
             1,
         )
     });
+    let asked = links.clone();
+    gate.set_members(move |from| link_service::answer_members(&asked, from));
     let launch = PartnerLaunch::new(gate.clone(), store.clone(), Some(tmp.0.join("bin")))
         .with_links(links.clone());
     Fixture {
@@ -399,9 +401,20 @@ fn linked_agents_message_each_other_by_member_name() {
     let own = run(Some(&lone_env), &["relay", "x"]);
     assert_eq!(own.status.code(), Some(6));
 
+    // A member asks who is in its group, with the same token.
+    let members = run(Some(&lone_env), &["--members"]);
+    assert_eq!(members.status.code(), Some(0), "{}", text(&members.stderr));
+    let roster = text(&members.stdout);
+    assert!(roster.starts_with("You are \"relay\" (member)"), "{roster}");
+    assert!(roster.contains("- \"t\"\n"), "{roster}");
+    assert!(roster.contains("No member leads this group."), "{roster}");
+
     // Once the other member ends, the group ends and the token grants nothing again.
     fixture.launch.ended(1);
     assert!(fixture.links.snapshot(1, &|_| false).groups.is_empty());
     let after = run(Some(&lone_env), &["t", "x"]);
     assert_eq!(after.status.code(), Some(4), "{}", text(&after.stderr));
+    let alone = run(Some(&lone_env), &["--members"]);
+    assert_eq!(alone.status.code(), Some(4), "{}", text(&alone.stderr));
+    assert!(text(&alone.stderr).contains("no link group"));
 }

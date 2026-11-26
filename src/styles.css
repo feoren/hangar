@@ -15614,6 +15614,20 @@ button.sub-agent-card:focus-visible {
   padding: 3px 12px;
 }
 
+/* The offer to link a group of the last run (RelinkOfferBar.tsx): its question is longer than
+   the selection's count, so it gets the whole width and wraps, and the buttons go below it. */
+.link-selection.link-offer {
+  flex-wrap: wrap;
+}
+
+.link-offer .link-selection-text {
+  flex-basis: 100%;
+}
+
+.link-offer .link-selection-count {
+  white-space: normal;
+}
+
 /* "Link with …" and "Edit group" (LinkDialog.tsx). */
 .dialog.link-dialog {
   width: min(480px, calc(100vw - 32px));
