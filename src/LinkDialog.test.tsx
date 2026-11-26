@@ -5,7 +5,14 @@ import { describe, expect, it } from "vitest";
 import { createTranslator, I18nContext, type Language } from "./i18n";
 import { LinkDialog, LinkGroupDialog } from "./LinkDialog";
 import type { BracketPiece } from "./linkBracket";
-import { LinkBracketHead, LinkBracketLine, LinkRailEdge, linkMarkText } from "./LinkMark";
+import type { PendingDelivery } from "./linkCards";
+import {
+  LinkBracketHead,
+  LinkBracketLine,
+  LinkRailEdge,
+  linkMarkText,
+  pendingLines,
+} from "./LinkMark";
 import type { LinkGroup } from "./links";
 import type { SessionView } from "./sessions";
 
@@ -52,26 +59,69 @@ const piece: BracketPiece = {
   members: 3,
 };
 
+function head(
+  shown: BracketPiece = piece,
+  pending: readonly PendingDelivery[] = [],
+  language: Language = "en",
+  menuOpen = false,
+): string {
+  return render(
+    <LinkBracketHead
+      piece={shown}
+      pending={pending}
+      menuOpen={menuOpen}
+      onMenu={() => undefined}
+    />,
+    language,
+  );
+}
+
+const onTheWay: PendingDelivery[] = [
+  { id: 7, fromName: "app", toName: "web", text: "Please run the tests\nand report" },
+  { id: 8, fromName: null, toName: "docs", text: "You are linked with other agents" },
+];
+
 describe("the link bracket", () => {
-  it("labels the group with its size, a button that opens Edit group", () => {
-    const html = render(<LinkBracketHead piece={piece} onEdit={() => undefined} />);
+  it("labels the group with its size, a button that opens the group's menu", () => {
+    const html = head();
     expect(html).toContain('class="link-bracket-head"');
     expect(html).toContain("--link-color:var(--link-3)");
-    // The name starts with the visible label (WCAG 2.5.3) and says what a click does.
-    expect(html).toContain('>Group · 3<span class="sr-only">: Edit group with 3 sessions</span>');
+    // The name starts with the visible label (WCAG 2.5.3).
+    expect(html).toContain('>Group · 3<span class="sr-only">: Group with 3 sessions</span>');
+    expect(html).toContain('aria-haspopup="menu"');
+    expect(html).toContain('aria-expanded="false"');
     expect(html).not.toContain("aria-label=");
-    const german = render(<LinkBracketHead piece={piece} onEdit={() => undefined} />, "de");
-    expect(german).toContain(
-      '>Gruppe · 3<span class="sr-only">: Gruppe mit 3 Sessions bearbeiten</span>',
+    expect(head(piece, [], "en", true)).toContain('aria-expanded="true"');
+    expect(head(piece, [], "de")).toContain(
+      '>Gruppe · 3<span class="sr-only">: Gruppe mit 3 Sessions</span>',
     );
   });
 
   it("dashes its line and says why while the brake holds", () => {
     const braked = { ...piece, braked: true };
-    const head = render(<LinkBracketHead piece={braked} onEdit={() => undefined} />);
-    expect(head).toContain('class="link-bracket head braked"');
-    expect(head).toContain("Edit group with 3 sessions, messages wait for your click");
+    const html = head(braked);
+    expect(html).toContain('class="link-bracket head braked"');
+    expect(html).toContain("Group with 3 sessions, messages wait for your click");
     expect(render(<LinkBracketLine piece={braked} />)).toContain('class="link-bracket braked"');
+  });
+
+  it("counts the messages on their way, quietly, and lists them in the tooltip", () => {
+    const html = head(piece, onTheWay);
+    expect(html).toContain('<span class="link-bracket-pending">2 on the way</span>');
+    expect(html).toContain("app to web: Please run the tests");
+    expect(html).toContain("Hangar to docs: You are linked with other agents");
+    // Screen readers get the list as the button's description.
+    expect(html).toMatch(/aria-describedby="[^"]+"/);
+    expect(head(piece, onTheWay, "de")).toContain("2 in Zustellung");
+    // Nothing on the way: no count, no description.
+    expect(head()).not.toContain("link-bracket-pending");
+    expect(head()).not.toContain("aria-describedby");
+  });
+
+  it("cuts a long first line in the tooltip", () => {
+    const long = [{ id: 1, fromName: "app", toName: "web", text: "x".repeat(200) }];
+    const [line] = pendingLines(long, createTranslator("en"));
+    expect(line).toBe(`app to web: ${"x".repeat(59)}…`);
   });
 
   it("closes a run with ticks only where no label stands above it", () => {

@@ -15283,6 +15283,22 @@ button.sub-agent-card:focus-visible {
   border-style: dashed;
 }
 
+/* Two or more link messages of one row in one line (message stack); the single cards on request. */
+.waiting-stack-from {
+  overflow: hidden;
+  color: var(--muted);
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.waiting-stack-cards {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding-left: 8px;
+  border-left: 2px solid var(--border);
+}
+
 /* Hangar's introduction of a link group, for people: one line, then the other members as chips
    with their program's icon. */
 .link-intro {
@@ -15483,6 +15499,19 @@ button.sub-agent-card:focus-visible {
 
 .link-bracket-label:hover {
   background: var(--hover);
+}
+
+/* Messages on their way on their own: quiet text after the label, apart from the red count of
+   sub-agents on a row's program badge. */
+.link-bracket-pending {
+  margin-left: 6px;
+  color: var(--muted);
+  font-weight: 400;
+}
+
+.link-bracket-pending::before {
+  margin-right: 6px;
+  content: "\00B7";
 }
 
 [data-one-line] .link-bracket-head {

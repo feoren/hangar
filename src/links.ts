@@ -633,7 +633,10 @@ export function templateLinkRequest(
 export const TYPING_PAUSE_MS = 4000;
 /** How often an automatic delivery looks at its target again. */
 export const AUTO_POLL_MS = 250;
-/** The introduction waits this long for its target to be ready, then becomes a card. */
+/**
+ * The introduction to a target that never finished a task waits this long for it to be ready,
+ * then becomes a card (`deliveryPatience`).
+ */
 export const INTRO_PATIENCE_MS = 5000;
 /**
  * A member's message waits this long for a target that is not working and not ready (resting,
@@ -693,6 +696,25 @@ export interface AutoPatience {
   patienceMs: number;
   /** The person types this long: it becomes a card. */
   typingPatienceMs: number;
+}
+
+/**
+ * How patient the automatic delivery of `message` is. A member's message waits for a working
+ * target. So does an introduction to a target that finished a task already: the follow-up after
+ * sessions joined or the roles changed must not interrupt its work and then turn into a card.
+ * Only an introduction to a target that never finished a task waits a few seconds and then
+ * becomes a card: such a session may show a trust dialog, which an Enter would answer.
+ */
+export function deliveryPatience(
+  message: Pick<LinkMessage, "fromName">,
+  targetFinishedTask: boolean,
+): AutoPatience {
+  const first = message.fromName === null && !targetFinishedTask;
+  return {
+    waitWhileWorking: !first,
+    patienceMs: first ? INTRO_PATIENCE_MS : MESSAGE_PATIENCE_MS,
+    typingPatienceMs: TYPING_PATIENCE_MS,
+  };
 }
 
 /** What an automatic delivery needs from the window and the backend (faked in tests). */

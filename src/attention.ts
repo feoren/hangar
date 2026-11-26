@@ -69,6 +69,8 @@ export class AttentionTracker {
   private task = false;
   /** When the current working phase started. */
   private workingSince = 0;
+  /** A working phase of this process ended quiet once; see `finishedTask`. */
+  private finished = false;
 
   constructor(
     private readonly clock: Clock,
@@ -94,6 +96,14 @@ export class AttentionTracker {
    */
   get endedBy(): AttentionReason | null {
     return this.ending;
+  }
+
+  /**
+   * The program finished a task since it started (a working phase ended quiet), and so got past
+   * whatever it shows at its start, such as a trust dialog. Stays true until a restart (`reset`).
+   */
+  get finishedTask(): boolean {
+    return this.finished;
   }
 
   output(bytes: number): void {
@@ -192,6 +202,7 @@ export class AttentionTracker {
     this.ending = null;
     this.interrupting = false;
     this.task = false;
+    this.finished = false;
     this.set("idle");
   }
 
@@ -242,6 +253,7 @@ export class AttentionTracker {
     this.task = false;
     // A redraw without a task ends like an interruption: resting, nothing finished.
     this.ending = this.interrupting || !task ? null : "quiet";
+    if (this.ending === "quiet") this.finished = true;
     this.interrupting = false;
     if (this.isWatched() || !task) this.set("idle");
     else this.set("attention", "quiet");

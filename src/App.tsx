@@ -144,17 +144,15 @@ import {
   BRAKE_WINDOW_MS,
   CLAIM_TIMEOUT_MS,
   deliverAutomatically,
+  deliveryPatience,
   EMPTY_LINKS,
   groupOf,
   groupsWithRoom,
-  INTRO_PATIENCE_MS,
   leadOf,
   mergeTargets,
   selectableForLink,
   selectionPlan,
   selectionVerdict,
-  MESSAGE_PATIENCE_MS,
-  TYPING_PATIENCE_MS,
   heldBySession,
   linkCandidates,
   linkMarks,
@@ -175,6 +173,17 @@ import {
 } from "./links";
 import { memberAliases, type AliasSource } from "./linkAliases";
 import { introKind, introSummary, type IntroKind } from "./linkIntro";
+import {
+  groupMenuEntries,
+  leadEdit,
+  olderIntroductions,
+  pendingByGroup,
+  resumeEdit,
+  resumeNotice,
+  sendInTurn,
+  stackCards,
+  type GroupEdit,
+} from "./linkCards";
 import {
   CardSends,
   cardNotice,
@@ -1029,6 +1038,13 @@ export function App() {
   const [linkRuns] = useState(() => new CardSends(setLinkSends));
   /** Held link messages the person discarded; hidden until the backend no longer lists them. */
   const [hiddenLinks, setHiddenLinks] = useState<ReadonlySet<number>>(() => new Set());
+  /** The menu behind a link group's label in the sidebar, below the label that opened it. */
+  const [groupMenu, setGroupMenu] = useState<{
+    group: number;
+    x: number;
+    y: number;
+    from: HTMLElement;
+  } | null>(null);
   /** Targets whose automatic delivery runs right now: one message at a time per target. */
   const linkDelivering = useRef<Set<number>>(new Set());
   /**
@@ -5329,16 +5345,22 @@ export function App() {
   }, []);
 
   const profileById = new Map(profiles.map((profile) => [profile.id, profile]));
-  /** Link messages that wait for a click, as cards below their target's row. */
+  /**
+   * Link messages that wait for a click, as cards below their target's row: of a group's
+   * introductions only the newest, which replaces the older ones (linkCards.ts `stackCards`).
+   */
+  const linkStacks = [
+    ...heldBySession(
+      linkState.messages.filter((message) => !hiddenLinks.has(message.id)),
+      deliveringIds,
+    ),
+  ].map(([to, list]) => [to, stackCards(list)] as const);
+  /** The introductions a shown one replaces, by its id: they go along with it. */
+  const linkSuperseded = new Map(linkStacks.flatMap(([, stack]) => [...stack.superseded]));
   const linkInboxRows = new Map(
-    [
-      ...heldBySession(
-        linkState.messages.filter((message) => !hiddenLinks.has(message.id)),
-        deliveringIds,
-      ),
-    ].map(([to, list]) => [
+    linkStacks.map(([to, stack]) => [
       to,
-      list.map((message) => {
+      stack.cards.map((message) => {
         // Hangar's own introduction is written for the agent; people get a summary of it.
         const intro =
           message.fromName === null
@@ -6284,14 +6306,14 @@ export function App() {
     close: () => Promise<void>;
     release?: () => Promise<void>;
     reload: () => void;
-  }) => {
+  }): Promise<boolean> => {
     const terminal = terminals.get(card.to);
     const name = titleOf(card.to);
     if (!terminal) {
       setStartHint(t("partner.unsent", { session: name }));
-      return;
+      return false;
     }
-    if (!card.runs.start(card.id, card.submit, name, card.to)) return;
+    if (!card.runs.start(card.id, card.submit, name, card.to)) return false;
     const gone = () => terminals.get(card.to) !== terminal || !card.listed();
     const cancelled = () => card.runs.cancelled(card.id);
     try {
@@ -6343,13 +6365,14 @@ export function App() {
         dispatch({ type: "activated", id: card.to });
         focusTerminal();
       }
+      return result.kind === "pasted";
     } finally {
       card.runs.finish(card.id);
     }
   };
 
   /** Sends waiting partner message `id` into session `to`; Enter only when `submit`. */
-  const pasteWaiting = (to: number, id: number, submit: boolean) =>
+  const pasteWaiting = (to: number, id: number, submit: boolean): Promise<unknown> =>
     sendCardMessage({
       runs: inboxRuns,
       to,
@@ -6399,8 +6422,8 @@ export function App() {
    * Delivers a link message on its own, with Enter, once its target went quiet after working and
    * nobody types there (links.ts `autoReadiness`, `deliverAutomatically`). Whatever stops it turns
    * it into a message that waits for a click, so nothing is lost or retried without end. The
-   * introduction waits only a few seconds: a session that never worked may show a trust dialog,
-   * which an Enter would answer.
+   * introduction to a session that never finished a task waits only a few seconds: it may show a
+   * trust dialog, which an Enter would answer (links.ts `deliveryPatience`).
    */
   const deliverLinkMessage = async (message: LinkMessage) => {
     const terminal = terminals.get(message.to);
@@ -6410,7 +6433,6 @@ export function App() {
     setDeliveringIds(new Set(linkDeliveringIds.current));
     const gone = () => terminals.get(message.to) !== terminal;
     try {
-      const intro = message.fromName === null;
       const result = await deliverAutomatically(
         {
           facts: () => ({
@@ -6438,14 +6460,15 @@ export function App() {
           close: () => api.closeLinkMessage(message.id, message.to).then(() => undefined),
           wait: delay,
         },
-        {
-          waitWhileWorking: !intro,
-          patienceMs: intro ? INTRO_PATIENCE_MS : MESSAGE_PATIENCE_MS,
-          typingPatienceMs: TYPING_PATIENCE_MS,
-        },
+        deliveryPatience(message, terminal.attention.finishedTask),
         BROADCAST_ENTER_DELAY_MS,
       );
-      if (result !== "pasted") {
+      if (result === "pasted") {
+        // An older introduction still waiting as a card says less than this one: it goes.
+        for (const id of olderIntroductions(linkStateRef.current.messages, message)) {
+          discardLink(id, false);
+        }
+      } else {
         await api.holdLinkMessage(message.id).catch(() => undefined);
         if (result === "timeout" || result === "typing" || result === "failed") {
           setStartHint(t("links.notReady", { session: titleOf(message.to) }));
@@ -6478,11 +6501,13 @@ export function App() {
   /**
    * Sends held link message `id` into session `to` after the person's click. The backend claims
    * it for the paste; one that did not go in is freed for the next click. One whose automatic
-   * delivery still runs here is refused: it is being pasted already.
+   * delivery still runs here is refused: it is being pasted already. An introduction takes the
+   * older ones it replaces along once it went in. Whether it went in.
    */
-  const pasteHeldLink = async (to: number, id: number, submit: boolean) => {
-    if (linkDeliveringIds.current.has(id)) return;
-    await sendCardMessage({
+  const pasteHeldLink = async (to: number, id: number, submit: boolean): Promise<boolean> => {
+    if (linkDeliveringIds.current.has(id)) return false;
+    const older = linkSuperseded.get(id) ?? [];
+    const pasted = await sendCardMessage({
       runs: linkRuns,
       to,
       id,
@@ -6496,19 +6521,140 @@ export function App() {
         loadLinksRef.current();
       },
     });
+    if (pasted) for (const entry of older) discardLink(entry, false);
+    return pasted;
   };
 
-  /** Discards held link message `id`; nothing of it stays but its line in the group's history. */
-  const discardLink = (id: number) => {
-    discardCard(
-      id,
-      setHiddenLinks,
-      () => api.closeLinkMessage(id, null),
-      () => {
-        loadLinksRef.current();
-      },
-    );
+  /**
+   * Discards held link message `id`; nothing of it stays but its line in the group's history.
+   * An introduction takes the older ones it replaces along (`withOlder`).
+   */
+  const discardLink = (id: number, withOlder = true) => {
+    const older = withOlder ? (linkSuperseded.get(id) ?? []) : [];
+    for (const entry of [id, ...older]) {
+      discardCard(
+        entry,
+        setHiddenLinks,
+        () => api.closeLinkMessage(entry, null),
+        () => {
+          loadLinksRef.current();
+        },
+      );
+    }
   };
+
+  /**
+   * A message stack's "Send all": each message into session `to` once the one before went in,
+   * oldest first (linkCards.ts `sendInTurn`). What did not go in stays as a card.
+   */
+  const sendAllLinks = (to: number, ids: readonly number[]) => {
+    void sendInTurn(ids, (id) => pasteHeldLink(to, id, true));
+  };
+
+  /** A message stack's "Discard all". */
+  const discardAllLinks = (ids: readonly number[]) => {
+    for (const id of ids) discardLink(id);
+  };
+
+  /**
+   * An edit from the group's menu: a new lead, or letting the group go on after its brake. The
+   * list is read again either way; after letting it go on, the group's brake as the backend reports
+   * it then decides what the hint says.
+   */
+  const editFromGroupMenu = (group: number, edit: GroupEdit, resumed: boolean) => {
+    api
+      .editLinkGroup(group, edit.names, edit.askFirst, edit.lead)
+      .then(async () => {
+        if (!resumed) return;
+        // The budget starts again at once; the rate's brake may still hold (linkCards.ts).
+        const after = parseLinkState(await api.linkState());
+        const notice = resumeNotice(after.groups.find((entry) => entry.id === group));
+        if (notice !== null) setStartHint(t(notice));
+      })
+      .catch(showError)
+      .finally(() => {
+        loadLinksRef.current();
+      });
+  };
+
+  /** The menu behind a link group's label: brake, lead, then the session menu's group entries. */
+  const groupMenuGroup =
+    groupMenu === null ? undefined : linkState.groups.find((entry) => entry.id === groupMenu.group);
+  const groupMenuItems: PopupItem[] =
+    groupMenuGroup === undefined
+      ? []
+      : groupMenuEntries(groupMenuGroup).flatMap((entry): PopupItem[] => {
+          const group = groupMenuGroup;
+          switch (entry.kind) {
+            case "paused":
+              return [
+                { type: "note", key: "paused", label: t("links.paused"), describes: "resume" },
+                {
+                  type: "action",
+                  key: "resume",
+                  label: t("links.resume"),
+                  run: () => {
+                    editFromGroupMenu(group.id, resumeEdit(group), true);
+                  },
+                },
+                { type: "separator", key: "sep-paused" },
+              ];
+            case "lead": {
+              const member = group.members.find((m) => m.session === entry.session);
+              const item: PopupItem = {
+                type: "action",
+                key: `lead-${String(entry.session)}`,
+                label:
+                  member === undefined
+                    ? t("links.noLead")
+                    : (state.sessions.find((s) => s.id === member.session)?.title ?? member.name),
+                ...(member === undefined ? {} : { detail: member.name }),
+                current: entry.current,
+                run: () => {
+                  const edit = leadEdit(group, entry.session);
+                  if (edit !== null) editFromGroupMenu(group.id, edit, false);
+                },
+              };
+              return entry.session === null
+                ? [{ type: "heading", key: "lead-heading", label: t("links.lead") }, item]
+                : [item];
+            }
+            case "edit":
+              return [
+                { type: "separator", key: "sep-group" },
+                {
+                  type: "action",
+                  key: "edit",
+                  label: t("links.edit"),
+                  run: () => {
+                    setLinkDialog({ kind: "edit", group: group.id });
+                  },
+                },
+              ];
+            case "history":
+              return [
+                {
+                  type: "action",
+                  key: "history",
+                  label: t("links.history"),
+                  run: () => {
+                    setLinkDialog({ kind: "history", group: group.id });
+                  },
+                },
+              ];
+            case "unlink":
+              return [
+                {
+                  type: "action",
+                  key: "unlink",
+                  label: t("links.unlink"),
+                  run: () => {
+                    api.unlinkGroup(group.id).catch(showError);
+                  },
+                },
+              ];
+          }
+        });
 
   const closeLinkDialog = () => {
     setLinkDialog(null);
@@ -7090,9 +7236,16 @@ export function App() {
           onInboxCancel={(messageId) => inboxRuns.cancel(messageId)}
           onInboxDiscard={discardWaiting}
           links={linkMarks(linkState)}
-          onEditLinkGroup={(group) => {
-            setLinkDialog({ kind: "edit", group });
+          onLinkGroupMenu={(group, anchor) => {
+            if (groupMenu?.group === group) {
+              setGroupMenu(null);
+              return;
+            }
+            const rect = anchor.getBoundingClientRect();
+            setGroupMenu({ group, x: rect.left, y: rect.bottom + 2, from: anchor });
           }}
+          linkGroupMenuOpen={groupMenuGroup === undefined ? null : groupMenuGroup.id}
+          linkPending={pendingByGroup(linkState, deliveringIds)}
           linkable={selectableForLink(linkState, state.sessions)}
           linkSelectionState={(ids) => {
             const verdict = selectionVerdict(linkState, state.sessions, new Set(ids));
@@ -7112,7 +7265,11 @@ export function App() {
             void pasteHeldLink(sessionId, messageId, submit);
           }}
           onLinkCancel={(messageId) => linkRuns.cancel(messageId)}
-          onLinkDiscard={discardLink}
+          onLinkDiscard={(messageId) => {
+            discardLink(messageId);
+          }}
+          onLinkSendAll={sendAllLinks}
+          onLinkDiscardAll={discardAllLinks}
           stalls={stalls}
           longWaits={longWaits}
           waitThresholdMs={waitThresholdMs(settings.waitMinutes)}
@@ -7979,6 +8136,22 @@ export function App() {
             onClose={() => {
               setTerminalMenu(null);
               focusTerminal();
+            }}
+          />
+        )}
+        {groupMenu !== null && groupMenuGroup !== undefined && (
+          <PopupMenu
+            items={groupMenuItems}
+            label={t("links.bracketMenu", { count: groupMenuGroup.members.length })}
+            position={groupMenu}
+            anchor={{ current: groupMenu.from }}
+            onClose={(reason) => {
+              const from = groupMenu.from;
+              setGroupMenu(null);
+              // Dismissed, the focus goes back to the label; after an action as from the session
+              // menu, where a dialog it opened takes the focus itself.
+              if (reason === "dismiss" && from.isConnected) from.focus();
+              else focusActive();
             }}
           />
         )}

@@ -497,3 +497,35 @@ describe("only a task ends as done", () => {
     expect(tracker.state).toBe("idle");
   });
 });
+
+describe("finishedTask", () => {
+  it("stays false while the program only drew its start screen", () => {
+    tracker.output(BIG);
+    clock.advance(QUIET);
+    expect(tracker.finishedTask).toBe(false);
+  });
+
+  it("turns true once a task ended quiet, and stays so while the program works again", () => {
+    task();
+    clock.advance(QUIET);
+    expect(tracker.finishedTask).toBe(true);
+    tracker.seen();
+    task();
+    expect(tracker.state).toBe("working");
+    expect(tracker.finishedTask).toBe(true);
+  });
+
+  it("does not count a task the person interrupted", () => {
+    task();
+    tracker.interrupted();
+    clock.advance(QUIET);
+    expect(tracker.finishedTask).toBe(false);
+  });
+
+  it("is forgotten on a restart", () => {
+    task();
+    clock.advance(QUIET);
+    tracker.reset();
+    expect(tracker.finishedTask).toBe(false);
+  });
+});

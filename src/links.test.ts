@@ -4,7 +4,11 @@ import {
   AUTO_POLL_MS,
   autoReadiness,
   deliverAutomatically,
+  deliveryPatience,
   EMPTY_LINKS,
+  INTRO_PATIENCE_MS,
+  MESSAGE_PATIENCE_MS,
+  TYPING_PATIENCE_MS,
   TYPING_PAUSE_MS,
   canLink,
   groupOf,
@@ -612,5 +616,49 @@ describe("ownLineKey", () => {
   it("starts over after Enter or Ctrl+C", () => {
     expect(keys(["a", "\r", "\r"])).toEqual([false, true, false]);
     expect(keys(["a", "\x03", "\r"])).toEqual([false, false, false]);
+  });
+});
+
+describe("deliveryPatience", () => {
+  it("lets a member's message wait for a working target", () => {
+    for (const worked of [false, true]) {
+      expect(deliveryPatience({ fromName: "app" }, worked)).toEqual({
+        waitWhileWorking: true,
+        patienceMs: MESSAGE_PATIENCE_MS,
+        typingPatienceMs: TYPING_PATIENCE_MS,
+      });
+    }
+  });
+
+  it("gives the first introduction a few seconds only: a trust dialog may wait for Enter", () => {
+    expect(deliveryPatience({ fromName: null }, false)).toEqual({
+      waitWhileWorking: false,
+      patienceMs: INTRO_PATIENCE_MS,
+      typingPatienceMs: TYPING_PATIENCE_MS,
+    });
+  });
+
+  it("lets a later introduction to a session that worked wait like a message", () => {
+    expect(deliveryPatience({ fromName: null }, true)).toEqual(
+      deliveryPatience({ fromName: "app" }, true),
+    );
+  });
+
+  it("delivers a follow-up introduction after the target's work instead of a card", async () => {
+    const working = { ...QUIET, state: "working" as const, reason: null, endedBy: null };
+    const box = fake({}, working);
+    let polls = 0;
+    box.deps.wait = () => {
+      polls += 1;
+      // Far longer than the first introduction's patience.
+      if (polls === (INTRO_PATIENCE_MS * 3) / AUTO_POLL_MS) box.facts.current = QUIET;
+      return Promise.resolve();
+    };
+    const patience = deliveryPatience({ fromName: null }, true);
+    expect(await deliverAutomatically(box.deps, patience, 10)).toBe("pasted");
+    // The first one, to a session that never finished a task, becomes a card.
+    const fresh = fake({}, working);
+    const first = deliveryPatience({ fromName: null }, false);
+    expect(await deliverAutomatically(fresh.deps, first, 10)).toBe("timeout");
   });
 });

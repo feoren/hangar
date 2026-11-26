@@ -1,8 +1,9 @@
-import { useId, useLayoutEffect, useRef, useState } from "react";
+import { useId, useLayoutEffect, useRef, useState, type ReactNode } from "react";
 
 import { Badge } from "./Badge";
 import { useT } from "./i18n";
 import { ChevronIcon, CloseIcon } from "./icons";
+import { STACK_FROM, stackSecrets } from "./linkCards";
 import type { IntroSummary } from "./linkIntro";
 import { cardPreview, cardTime, type CardSend } from "./messageCard";
 import type { WaitingMessage } from "./partnerInbox";
@@ -15,7 +16,12 @@ import { useArmDelay } from "./useArmDelay";
  * The messages that wait below a session row for the person's click: from agents of partner
  * projects (ADR 0012) and from members of its link group (ADR 0014). Sender and time in one line,
  * the text cut to a few lines with "More", one clear "Send" (paste plus Enter), "Paste only" as a
- * quiet text button and discard as a close mark. Nothing reaches the terminal before a click.
+ * quiet text button (partner messages only: a link message is a prompt for the agent, not a
+ * draft for the person) and discard as a close mark. Nothing reaches the terminal before a click.
+ *
+ * Two or more link messages below one row sum up in a message stack: one line with how many wait
+ * and from whom, "Send all" and "Discard all", and the single cards on request. A secret hint of
+ * any of them shows in the stack too.
  *
  * While a send waits for its target to pause, the card says so with "Cancel" instead of its
  * buttons, and goes once the message is in. The text is plain text with invisible characters
@@ -48,23 +54,199 @@ export function WaitingMessages(props: {
   onSend: (id: number, submit: boolean) => void;
   onCancel: (id: number) => void;
   onDiscard: (id: number) => void;
+  /** Offers "Paste only" besides "Send" (partner messages); off for link messages. */
+  pasteOnly?: boolean;
+  /** Sums up two or more cards in a message stack (link messages). */
+  stack?: {
+    /** Sends the cards one after another, oldest first. */
+    onSendAll: (ids: number[]) => void;
+    onDiscardAll: (ids: number[]) => void;
+  };
 }) {
+  const pasteOnly = props.pasteOnly ?? true;
+  const stacked = props.stack !== undefined && props.messages.length >= STACK_FROM;
+  const cards = props.messages.map((message) => (
+    <WaitingMessageCard
+      key={message.id}
+      message={message}
+      send={props.sends.get(message.id)}
+      generation={props.generation}
+      language={props.language}
+      session={props.session}
+      badgeFor={props.badgeFor}
+      pasteOnly={pasteOnly}
+      announce={!stacked}
+      onSend={props.onSend}
+      onCancel={props.onCancel}
+      onDiscard={props.onDiscard}
+    />
+  ));
+  if (props.stack === undefined || !stacked) {
+    return <div className="waiting-messages">{cards}</div>;
+  }
+  return (
+    <MessageStack
+      messages={props.messages}
+      sends={props.sends}
+      generation={props.generation}
+      onSendAll={props.stack.onSendAll}
+      onDiscardAll={props.stack.onDiscardAll}
+      onCancel={props.onCancel}
+    >
+      {cards}
+    </MessageStack>
+  );
+}
+
+/**
+ * The message stack: "3 messages from the group", who sent them, "Send all" and "Discard all",
+ * and "Show each" for the single cards below. While one of them is being sent, the line says so
+ * with "Cancel" instead of its buttons. Its buttons arm like a card's.
+ */
+function MessageStack({
+  messages,
+  sends,
+  generation,
+  onSendAll,
+  onDiscardAll,
+  onCancel,
+  children,
+}: {
+  messages: readonly WaitingMessage[];
+  sends: ReadonlyMap<number, CardSend>;
+  generation: string | number;
+  onSendAll: (ids: number[]) => void;
+  onDiscardAll: (ids: number[]) => void;
+  onCancel: (id: number) => void;
+  children: ReactNode;
+}) {
+  const t = useT();
+  const listId = useId();
+  const [open, setOpen] = useState(false);
+  const { armed, guard } = useArmDelay(`stack:${String(generation)}`);
+  const waitArm = armed ? undefined : true;
+  const ids = messages.map((message) => message.id);
+  const running = messages.find((message) => sends.has(message.id));
+  const send = running === undefined ? undefined : sends.get(running.id);
+  const secrets = stackSecrets(messages);
+  const hangar = t("links.hangar");
+  const senders = [...new Set(messages.map((message) => message.from))].map((name) =>
+    name === "hangar" ? hangar : name,
+  );
+  const title = t("links.stack", { count: messages.length });
+  const mode = send === undefined ? "idle" : send.phase;
+  const sendAllButton = useRef<HTMLButtonElement>(null);
+  const cancelButton = useRef<HTMLButtonElement>(null);
+  const toggleButton = useRef<HTMLButtonElement>(null);
+  /** The keyboard focus was in the stack's line last; a button that goes takes it to the page. */
+  const focusInside = useRef(false);
+  // The buttons swap when a send starts or ends. Focus that was in the line follows: to "Cancel"
+  // while a send waits, to "Show each" while one goes in, back to "Send all" when it ended.
+  // Focus parked on "Show each" during a send counts as lost, too.
+  const parked = useRef(false);
+  useLayoutEffect(() => {
+    const active = document.activeElement;
+    const lost =
+      active === null ||
+      active === document.body ||
+      (parked.current && active === toggleButton.current);
+    parked.current = false;
+    if (!focusInside.current || !lost) return;
+    if (mode === "waiting") cancelButton.current?.focus();
+    else if (mode === "sending") {
+      toggleButton.current?.focus();
+      parked.current = true;
+    } else sendAllButton.current?.focus();
+  }, [mode]);
   return (
     <div className="waiting-messages">
-      {props.messages.map((message) => (
-        <WaitingMessageCard
-          key={message.id}
-          message={message}
-          send={props.sends.get(message.id)}
-          generation={props.generation}
-          language={props.language}
-          session={props.session}
-          badgeFor={props.badgeFor}
-          onSend={props.onSend}
-          onCancel={props.onCancel}
-          onDiscard={props.onDiscard}
-        />
-      ))}
+      <section
+        className="waiting-message waiting-stack"
+        aria-label={title}
+        data-sending={send !== undefined}
+        onFocus={() => {
+          focusInside.current = true;
+        }}
+        onBlur={(event) => {
+          // A removed button blurs without a new target: the focus counts as still here.
+          const next = event.relatedTarget;
+          if (next !== null && !event.currentTarget.contains(next)) focusInside.current = false;
+        }}
+      >
+        <div className="waiting-message-head">
+          <span className="waiting-message-from">{title}</span>
+        </div>
+        <div className="waiting-stack-from">
+          {t("links.stackFrom", { names: senders.join(", ") })}
+        </div>
+        {secrets.length > 0 && (
+          <div className="waiting-message-secret" role="note">
+            {t("message.secretHint", { kinds: secretLabels(secrets, t) })}
+          </div>
+        )}
+        <div className="waiting-message-actions">
+          {send === undefined && (
+            <button
+              ref={sendAllButton}
+              type="button"
+              className="primary-button"
+              aria-disabled={waitArm}
+              onClick={guard(() => {
+                onSendAll(ids);
+              })}
+            >
+              {t("links.sendAll")}
+            </button>
+          )}
+          {send === undefined && (
+            <button
+              type="button"
+              className="link-button"
+              aria-disabled={waitArm}
+              onClick={guard(() => {
+                onDiscardAll(ids);
+              })}
+            >
+              {t("links.discardAll")}
+            </button>
+          )}
+          {/* Always there, empty while nothing runs, so a screen reader hears the change. */}
+          <span className="waiting-message-status" role="status">
+            {send === undefined
+              ? ""
+              : t(send.phase === "waiting" ? "inbox.waitSend" : "inbox.sending")}
+          </span>
+          {running !== undefined && send?.phase === "waiting" && (
+            <button
+              ref={cancelButton}
+              type="button"
+              className="link-button"
+              onClick={() => {
+                onCancel(running.id);
+              }}
+            >
+              {t("common.cancel")}
+            </button>
+          )}
+        </div>
+        <button
+          ref={toggleButton}
+          type="button"
+          className="link-button waiting-message-more"
+          aria-expanded={open}
+          aria-controls={open ? listId : undefined}
+          onClick={() => {
+            setOpen((current) => !current);
+          }}
+        >
+          {t(open ? "links.stackHide" : "links.stackShow")}
+        </button>
+      </section>
+      {open && (
+        <div className="waiting-stack-cards" id={listId}>
+          {children}
+        </div>
+      )}
     </div>
   );
 }
@@ -76,6 +258,8 @@ function WaitingMessageCard({
   language,
   session,
   badgeFor,
+  pasteOnly,
+  announce,
   onSend,
   onCancel,
   onDiscard,
@@ -86,6 +270,9 @@ function WaitingMessageCard({
   language: string;
   session: number | undefined;
   badgeFor: ((profileId: string) => BadgeLook) | undefined;
+  pasteOnly: boolean;
+  /** Announces its send's status; off inside a message stack, whose line announces it once. */
+  announce: boolean;
   onSend: (id: number, submit: boolean) => void;
   onCancel: (id: number) => void;
   onDiscard: (id: number) => void;
@@ -195,9 +382,11 @@ function WaitingMessageCard({
       )}
       {/* Always there, empty while nothing runs: a live region only announces changes to a
           region that already existed. Outside the body, so a folded card still announces. */}
-      <span className="sr-only" role="status">
-        {status}
-      </span>
+      {announce && (
+        <span className="sr-only" role="status">
+          {status}
+        </span>
+      )}
       <div className="waiting-message-body" id={bodyId} hidden={folded}>
         {intro !== undefined && <IntroMembers intro={intro} badgeFor={badgeFor} />}
         {(intro === undefined || open) && (
@@ -248,7 +437,7 @@ function WaitingMessageCard({
               {t("inbox.send")}
             </button>
           )}
-          {send === undefined && (
+          {send === undefined && pasteOnly && (
             <button
               type="button"
               className="link-button"

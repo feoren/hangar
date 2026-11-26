@@ -12,6 +12,7 @@ import { SessionLook } from "./SessionLook";
 import { exitDetail } from "./format";
 import { gateHint } from "./gate";
 import { linkBrackets, type BracketPiece } from "./linkBracket";
+import type { PendingDelivery } from "./linkCards";
 import {
   LeadCrown,
   LinkBracketHead,
@@ -147,6 +148,9 @@ import { litRows, TreeFlowElbow, TreeFlowRate, TreeFlowTrunk } from "./TreeFlowV
 import { useTreeFlow } from "./treeFlowStore";
 import { displayVersion } from "./version";
 import { VersionText } from "./VersionText";
+
+/** One stable empty list for a group without messages on their way. */
+const NO_PENDING: readonly PendingDelivery[] = [];
 
 /** How long the selection bar says that a Ctrl or Cmd clicked session cannot be linked. */
 const REFUSED_HINT_MS = 5000;
@@ -319,8 +323,12 @@ interface Props {
   onInboxDiscard: (messageId: number) => void;
   /** Members of link groups: the bracket beside their rows (links.ts `linkMarks`, linkBracket.ts). */
   links: ReadonlyMap<number, LinkMark>;
-  /** The bracket's label: opens Edit group for link group `group`. */
-  onEditLinkGroup: (group: number) => void;
+  /** The bracket's label: opens the menu of link group `group` below `anchor`. */
+  onLinkGroupMenu: (group: number, anchor: HTMLElement) => void;
+  /** The link group whose menu is open, `null` when none is. */
+  linkGroupMenuOpen: number | null;
+  /** Each link group's messages on their way on their own (linkCards.ts `pendingByGroup`). */
+  linkPending: ReadonlyMap<number, readonly PendingDelivery[]>;
   /**
    * Sessions a Ctrl or Cmd click selects (links.ts `selectableForLink`): those that can be linked,
    * and members, whose group the others then join or merge with.
@@ -340,6 +348,9 @@ interface Props {
   onLinkPaste: (sessionId: number, messageId: number, submit: boolean) => void;
   onLinkCancel: (messageId: number) => void;
   onLinkDiscard: (messageId: number) => void;
+  /** A message stack's "Send all": the messages one after another into session `sessionId`. */
+  onLinkSendAll: (sessionId: number, messageIds: number[]) => void;
+  onLinkDiscardAll: (messageIds: number[]) => void;
   /** Working agent sessions that showed nothing new for a while: since when (stall.ts). */
   stalls: ReadonlyMap<number, number>;
   /** Sessions that have waited for the person past the wait hint's threshold: since when (waitHint.ts). */
@@ -1134,7 +1145,12 @@ export function Sidebar(props: Props) {
             return (
               <Fragment key={session.id}>
                 {piece?.label === true && (
-                  <LinkBracketHead piece={piece} onEdit={props.onEditLinkGroup} />
+                  <LinkBracketHead
+                    piece={piece}
+                    pending={props.linkPending.get(piece.group) ?? NO_PENDING}
+                    menuOpen={props.linkGroupMenuOpen === piece.group}
+                    onMenu={props.onLinkGroupMenu}
+                  />
                 )}
                 <SessionItem
                   bracket={piece ?? null}
@@ -1192,6 +1208,13 @@ export function Sidebar(props: Props) {
                       language={props.language}
                       session={session.id}
                       badgeFor={badgeFor}
+                      pasteOnly={false}
+                      stack={{
+                        onSendAll: (messageIds) => {
+                          props.onLinkSendAll(session.id, messageIds);
+                        },
+                        onDiscardAll: props.onLinkDiscardAll,
+                      }}
                       onSend={(messageId, submit) => {
                         props.onLinkPaste(session.id, messageId, submit);
                       }}
