@@ -31,6 +31,12 @@ export interface LinkMember {
   role: LinkRole;
 }
 
+/**
+ * Which part of the loop brake holds a group's messages (backend `BrakeKind`): none, the rate
+ * (too many within a minute) or the budget (too many without the person stepping in).
+ */
+export type BrakeKind = "none" | "rate" | "budget";
+
 /** The backend's `GroupView`. */
 export interface LinkGroup {
   id: number;
@@ -39,7 +45,14 @@ export interface LinkGroup {
   askFirst: boolean;
   /** The loop brake holds messages right now. */
   braked: boolean;
+  /** Which part holds; "none" while "Ask before pasting" holds everything anyway. */
+  brake: BrakeKind;
+  /** Automatic deliveries left before the budget is spent, and the budget for the group's size. */
+  budgetLeft: number;
+  budget: number;
   members: LinkMember[];
+  /** Members whose introduction waits for a free place in their queue. */
+  pendingIntroductions: number[];
 }
 
 /** The backend's `LinkMessageView`. */
@@ -56,6 +69,8 @@ export interface LinkMessage {
   auto: boolean;
   /** A paste of it runs right now. */
   claimed: boolean;
+  /** It waits only because the loop brake held it: "Allow to go on" sends it on its own. */
+  braked: boolean;
   /** Kinds of secret the backend found (ADR 0015): it never goes on its own; left out when none. */
   secrets?: readonly SecretKind[];
 }
@@ -116,15 +131,35 @@ function group(value: unknown): LinkGroup | null {
   const kept = parsed.filter((entry): entry is LinkMember => entry !== null);
   // At most one lead: a second one reads as a member.
   const lead = kept.findIndex((entry) => entry.role === "lead");
+  const budget = id(Reflect.get(value, "budget")) ?? 0;
+  const budgetLeft = Math.min(id(Reflect.get(value, "budgetLeft")) ?? 0, budget);
+  const pending: unknown = Reflect.get(value, "pendingIntroductions");
+  const memberIds = new Set(kept.map((entry) => entry.session));
   return {
     id: groupId,
     color,
     askFirst,
     braked,
+    brake: parseBrake(Reflect.get(value, "brake"), braked && !askFirst),
+    budgetLeft,
+    budget,
     members: kept.map((entry, index) =>
       entry.role === "lead" && index !== lead ? { ...entry, role: "member" } : entry,
     ),
+    // Only members can be owed an introduction.
+    pendingIntroductions: Array.isArray(pending)
+      ? pending.map(id).filter((entry): entry is number => entry !== null && memberIds.has(entry))
+      : [],
   };
+}
+
+/**
+ * The brake's kind as the backend sends it. Anything else reads as the rate while the group is
+ * braked (the hint must not vanish) and as none otherwise.
+ */
+export function parseBrake(value: unknown, braked: boolean): BrakeKind {
+  if (value === "none" || value === "rate" || value === "budget") return value;
+  return braked ? "rate" : "none";
 }
 
 function message(value: unknown): LinkMessage | null {
@@ -144,7 +179,9 @@ function message(value: unknown): LinkMessage | null {
   if (typeof text !== "string" || text.trim() === "") return null;
   if (typeof at !== "number" || !Number.isFinite(at) || typeof auto !== "boolean") return null;
   if (typeof claimed !== "boolean") return null;
-  const found = { id: messageId, group: groupId, fromName, to, text, at, auto, claimed };
+  // Only a message that waits can be held by the brake.
+  const braked = Reflect.get(value, "braked") === true && !auto;
+  const found = { id: messageId, group: groupId, fromName, to, text, at, auto, claimed, braked };
   const secrets = secretKinds(Reflect.get(value, "secrets"));
   // A message with a secret waits for a click, whatever `auto` says.
   return secrets.length === 0 ? found : { ...found, auto: false, secrets };
@@ -298,10 +335,6 @@ export type SelectionPlan =
       absorbed: LinkGroup[];
       members: { session: number; name: string }[];
       ids: number[];
-      /** The merged group's lead: the one `group` had, else the first absorbed group's. */
-      lead: number | null;
-      /** "Ask before pasting" of the merged group: on when any of the groups had it on. */
-      askFirst: boolean;
     };
 
 /** Why "Link" does nothing with the selection: one more session needed, or too many. */
@@ -354,18 +387,8 @@ export function selectionVerdict(
       return { session: m.session, name };
     }),
   );
-  const lead = [target, ...absorbed].map(leadOf).find((entry) => entry !== null) ?? null;
-  return {
-    plan: {
-      kind: "merge",
-      group: target,
-      absorbed,
-      members,
-      ids,
-      lead,
-      askFirst: [target, ...absorbed].some((entry) => entry.askFirst),
-    },
-  };
+  // The backend keeps the lead and "Ask before pasting" itself (links.rs `Links::merge`).
+  return { plan: { kind: "merge", group: target, absorbed, members, ids } };
 }
 
 /** The selection's plan (`selectionVerdict`), `null` where "Link" would do nothing. */

@@ -58,6 +58,10 @@ const group: LinkGroup = {
   color: 2,
   askFirst: false,
   braked: false,
+  brake: "none",
+  budgetLeft: 20,
+  budget: 20,
+  pendingIntroductions: [],
   members: [
     { session: 1, name: "shop", role: "lead" },
     { session: 2, name: "cart", role: "member" },

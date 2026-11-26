@@ -5,8 +5,6 @@ import {
   leadEdit,
   olderIntroductions,
   pendingByGroup,
-  resumeEdit,
-  resumeNotice,
   sendInTurn,
   stackCards,
   stackSecrets,
@@ -18,6 +16,10 @@ const group: LinkGroup = {
   color: 0,
   askFirst: false,
   braked: false,
+  brake: "none",
+  budgetLeft: 30,
+  budget: 30,
+  pendingIntroductions: [],
   members: [
     { session: 1, name: "app", role: "member" },
     { session: 2, name: "web", role: "lead" },
@@ -39,6 +41,7 @@ function message(
     at: id * 10,
     auto: false,
     claimed: false,
+    braked: false,
     ...overrides,
   };
 }
@@ -161,42 +164,45 @@ describe("groupMenuEntries", () => {
     expect(groupMenuEntries(plain)[0]).toEqual({ kind: "lead", session: null, current: true });
   });
 
-  it("says first that the brake holds, to let it go on", () => {
-    expect(groupMenuEntries({ ...group, braked: true })[0]).toEqual({ kind: "paused" });
+  it("says first which part of the brake holds, to let it go on", () => {
+    expect(groupMenuEntries({ ...group, braked: true, brake: "rate" })[0]).toEqual({
+      kind: "paused",
+      brake: "rate",
+    });
+    expect(groupMenuEntries({ ...group, braked: true, brake: "budget", budgetLeft: 0 })[0]).toEqual(
+      { kind: "paused", brake: "budget" },
+    );
     expect(groupMenuEntries(group).some((entry) => entry.kind === "paused")).toBe(false);
+  });
+
+  it("tells the budget left quietly once some of it is used", () => {
+    expect(groupMenuEntries({ ...group, budgetLeft: 12 })[0]).toEqual({
+      kind: "budget",
+      left: 12,
+      total: 30,
+    });
+    // Unused, or while every message waits for a click anyway: nothing to say.
+    expect(groupMenuEntries(group).some((entry) => entry.kind === "budget")).toBe(false);
+    expect(
+      groupMenuEntries({ ...group, askFirst: true, budgetLeft: 3 }).some(
+        (entry) => entry.kind === "budget",
+      ),
+    ).toBe(false);
+  });
+
+  it("names the introductions still owed", () => {
+    const entries = groupMenuEntries({ ...group, pendingIntroductions: [3] });
+    expect(entries[0]).toEqual({ kind: "pendingIntro", sessions: [3] });
   });
 });
 
-describe("the menu's edits", () => {
-  it("lets the group go on with an edit that changes nothing", () => {
-    expect(resumeEdit(group)).toEqual({ names: [], askFirst: false, lead: 2 });
-    expect(resumeEdit({ ...group, askFirst: true })).toEqual({
-      names: [],
-      askFirst: true,
-      lead: 2,
-    });
-  });
-
+describe("leadEdit", () => {
   it("changes the lead only, and only to a member", () => {
     expect(leadEdit(group, 1)).toEqual({ names: [], askFirst: false, lead: 1 });
     expect(leadEdit(group, null)).toEqual({ names: [], askFirst: false, lead: null });
     // Leads already, or no member: nothing to do.
     expect(leadEdit(group, 2)).toBeNull();
     expect(leadEdit(group, 9)).toBeNull();
-  });
-});
-
-describe("resumeNotice", () => {
-  it("says the group goes on once the brake let go", () => {
-    expect(resumeNotice({ braked: false })).toBe("links.resumed");
-  });
-
-  it("says it waits for a quiet minute while the rate's brake still holds", () => {
-    expect(resumeNotice({ braked: true })).toBe("links.resumeLater");
-  });
-
-  it("says nothing for a group that is gone", () => {
-    expect(resumeNotice(undefined)).toBeNull();
   });
 });
 

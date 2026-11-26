@@ -8,14 +8,12 @@ import { isProgramTitle, projectFolder } from "./sessionLabel";
 
 /** Opening of the introduction sent after the group's lead changed (links.rs). */
 const ROLES_CHANGED = "The roles in your link group";
-/** Opening of the introduction sent to members after sessions joined (links.rs `JOINED_OPENING`). */
-const JOINED = "Your link group in Hangar grew:";
 
 /**
- * Which introduction it is: the first one (also a newcomer's), the one after the roles changed,
- * or the one telling members that sessions joined.
+ * Which introduction it is: the first one (also a newcomer's), or the one after the roles
+ * changed. Members hear nothing when others join (ADR 0014, "Calmer groups").
  */
-export type IntroKind = "linked" | "rolesChanged" | "joined";
+export type IntroKind = "linked" | "rolesChanged";
 
 /** One other member as the card shows it. */
 export interface IntroMember {
@@ -46,9 +44,7 @@ export interface IntroSession {
 
 /** The kind of introduction `text` is. */
 export function introKind(text: string): IntroKind {
-  const start = text.trimStart();
-  if (start.startsWith(ROLES_CHANGED)) return "rolesChanged";
-  return start.startsWith(JOINED) ? "joined" : "linked";
+  return text.trimStart().startsWith(ROLES_CHANGED) ? "rolesChanged" : "linked";
 }
 
 /**

@@ -78,7 +78,9 @@ use crate::hook_recipes::{
 };
 use crate::lock;
 use crate::manager::{GateLaunch, GatePlan, LaunchGate};
-use crate::partners::{read_send_request, SendRequest, MAX_SEND_BODY_BYTES, ROUTE_SEND};
+use crate::partners::{
+    read_send_request, SendRequest, MAX_SEND_BODY_BYTES, ROUTE_MEMBERS, ROUTE_SEND,
+};
 use crate::permission_wait::PermissionWaits;
 use crate::repo_hooks;
 use crate::session::{GateStatus, SessionId};
@@ -168,6 +170,10 @@ type TeamDecisions = Box<dyn Fn(&str, &str) -> Vec<TeamDecision> + Send + Sync>;
 /// Hands a message an agent sent with `hangar-send` to the partner service: the sending session
 /// and the request; the answer is the HTTP status and the JSON body for the client.
 type Messages = Arc<dyn Fn(SessionId, SendRequest) -> (Status, String) + Send + Sync>;
+/// Answers `hangar-send --members` for the asking session: HTTP status and JSON body.
+type Members = Arc<dyn Fn(SessionId) -> (Status, String) + Send + Sync>;
+/// `hangar-send --members` posts `{}`; anything much larger is no such question.
+const MAX_MEMBERS_BODY_BYTES: u64 = 64;
 /// Tells the window that the dialog signals changed.
 type Signal = Arc<dyn Fn() + Send + Sync>;
 
@@ -213,6 +219,8 @@ struct Inner {
     per_session: Arc<Mutex<HashMap<SessionId, usize>>>,
     /// Where the send route hands messages, once the app set it ([`GateService::set_messages`]).
     messages: Mutex<Option<Messages>>,
+    /// Where the members route answers, once the app set it ([`GateService::set_members`]).
+    members: Mutex<Option<Members>>,
     /// Sessions whose agent shows a permission or input dialog (ADR 0016).
     permission: Mutex<PermissionWaits>,
     /// Announces a change of [`Inner::permission`], once the app set it.
@@ -331,6 +339,7 @@ impl GateService {
                 heads: Arc::new(Mutex::new(Heads::default())),
                 per_session: Arc::new(Mutex::new(HashMap::new())),
                 messages: Mutex::new(None),
+                members: Mutex::new(None),
                 permission: Mutex::new(PermissionWaits::default()),
                 permission_signal: Mutex::new(None),
                 #[cfg(test)]
@@ -378,6 +387,15 @@ impl GateService {
         messages: impl Fn(SessionId, SendRequest) -> (Status, String) + Send + Sync + 'static,
     ) {
         *lock(&self.inner.messages) = Some(Arc::new(messages));
+    }
+
+    /// Where the members route ([`ROUTE_MEMBERS`]) asks who is in the sending session's link
+    /// group. It takes the send token, like the send route.
+    pub fn set_members(
+        &self,
+        members: impl Fn(SessionId) -> (Status, String) + Send + Sync + 'static,
+    ) {
+        *lock(&self.inner.members) = Some(Arc::new(members));
     }
 
     /// A send token for the session's next process and the endpoint's port, which starts now if
@@ -2053,6 +2071,19 @@ impl Inner {
         }
     }
 
+    /// `hangar-send --members` for `session`: the question carries nothing, so a body beyond
+    /// an empty JSON object is refused unread.
+    fn members(&self, session: SessionId, head: &Head) -> (Status, String) {
+        if head.content_length > MAX_MEMBERS_BODY_BYTES {
+            return (Status::PayloadTooLarge, String::new());
+        }
+        let members = lock(&self.members).clone();
+        match members {
+            Some(members) => members(session),
+            None => (Status::Unavailable, String::new()),
+        }
+    }
+
     /// The answer to a known session's request that finds no free slot, without reading its
     /// body. A tool hook is denied while the gate is on: an unanswered one (503, closed) lets
     /// the call go ahead unchecked, so a session flooding the endpoint could wave a command
@@ -2088,7 +2119,7 @@ impl Inner {
     ) -> (Status, String) {
         let path = head.path.as_str();
         let wanted = match path {
-            ROUTE_SEND => TokenScope::Send,
+            ROUTE_SEND | ROUTE_MEMBERS => TokenScope::Send,
             ROUTE_PRE_TOOL_USE
             | ROUTE_PRE_TOOL_USE_JSON
             | ROUTE_USER_PROMPT_SUBMIT
@@ -2102,6 +2133,9 @@ impl Inner {
         let mut body = reader.take(head.content_length);
         if path == ROUTE_SEND {
             return self.send(session, head, &mut body);
+        }
+        if path == ROUTE_MEMBERS {
+            return self.members(session, head);
         }
         if wanted == TokenScope::Notify {
             return self.notice(session, head, &mut body);
@@ -3167,6 +3201,32 @@ mod tests {
         let older = launched(fixture.service.prepare(2, &claude(), program, &[], None));
         assert_eq!(older.env.len(), 1);
         assert!(!older.args[1].contains("PermissionRequest"));
+    }
+
+    #[test]
+    fn the_members_route_takes_only_a_send_token() {
+        let fixture = fixture(DECISION_TIMEOUT);
+        let (port, send) = fixture.service.send_token(7).unwrap();
+        let send = send.to_string();
+        assert_eq!(post(port, ROUTE_MEMBERS, Some(&send), "{}").0, 503);
+        fixture
+            .service
+            .set_members(|session| (Status::Ok, format!("members of {session}")));
+        assert_eq!(
+            post(port, ROUTE_MEMBERS, Some(&send), "{}"),
+            (200, "members of 7".to_owned())
+        );
+        assert_eq!(post(port, ROUTE_MEMBERS, None, "{}").0, 401);
+        assert_eq!(post(port, ROUTE_MEMBERS, Some("wrong"), "{}").0, 401);
+        assert_eq!(
+            post(port, ROUTE_MEMBERS, Some(&send), &"x".repeat(100)).0,
+            413
+        );
+        fixture.service.configure(true);
+        let (_, hooks) = launch(&fixture, 1);
+        assert_eq!(post(port, ROUTE_MEMBERS, Some(&hooks), "{}").0, 403);
+        fixture.service.revoke_send(7);
+        assert_eq!(post(port, ROUTE_MEMBERS, Some(&send), "{}").0, 401);
     }
 
     #[test]

@@ -9,8 +9,10 @@
 //! a waiting session shows itself, the daily budget with its early warning and the day and level
 //! its notice last showed, whether the morning summary is offered and for which day it last was,
 //! and whether the dictation key is on), the partner projects ([`crate::partners`]: which
-//! projects may send each other messages) and the recently opened sessions
-//! ([`ClosedSession`]: program and folder to start again with one click).
+//! projects may send each other messages), the recently opened sessions
+//! ([`ClosedSession`]: program and folder to start again with one click) and the remembered
+//! link groups ([`crate::link_memory`]: which sessions formed a group, offered again after a
+//! restart and linked only once the person confirms).
 //!
 //! The panel and file viewer windows share the main window's origin and with it its
 //! `localStorage`. A compromised viewer (a crafted Markdown file) could otherwise turn the gate
@@ -52,6 +54,8 @@ pub const INBOX_FILE: &str = "partner-messages.json";
 /// The recently opened sessions, to start again with one click (`recentlyOpened.ts`). The file
 /// keeps its first name, so a list from before carries over.
 pub const RECENTLY_CLOSED_FILE: &str = "recently-closed.json";
+/// The composition of the link groups, offered again after a restart ([`crate::link_memory`]).
+pub const LINK_GROUPS_FILE: &str = "link-groups.json";
 /// Recently opened sessions kept, as the window bounds them (`recentlyOpened.ts` `KEEP_LIMIT`).
 pub const MAX_RECENTLY_CLOSED: usize = 10;
 /// Every entry at its longest in escaped JSON: folder, program, title, marker and id, with room.
@@ -122,6 +126,8 @@ pub enum MainStoreError {
     InvalidClosed(&'static str),
     #[error(transparent)]
     Partners(#[from] crate::partners::PartnerError),
+    #[error(transparent)]
+    LinkMemory(#[from] crate::link_memory::MemoryError),
     #[error("File {path} cannot be read or written: {source}")]
     Io {
         path: PathBuf,
@@ -895,6 +901,30 @@ impl MainStore {
 
     pub fn save_inbox(&self, inbox: &Inbox) -> Result<(), MainStoreError> {
         save(&self.dir.join(INBOX_FILE), inbox)
+    }
+
+    /// The remembered link groups (ADR 0014). A missing, damaged or invalid file gives none:
+    /// they are only ever an offer the person confirms, but a planted file should not even
+    /// offer anything.
+    pub fn load_link_groups(&self) -> Vec<crate::link_memory::RememberedGroup> {
+        let path = self.dir.join(LINK_GROUPS_FILE);
+        load::<crate::link_memory::MemoryFile>(&path, crate::link_memory::MAX_FILE_BYTES)
+            .flatten()
+            .filter(|file| crate::link_memory::validate(file).is_ok())
+            .map(|file| file.groups)
+            .unwrap_or_default()
+    }
+
+    pub fn save_link_groups(
+        &self,
+        groups: Vec<crate::link_memory::RememberedGroup>,
+    ) -> Result<(), MainStoreError> {
+        let file = crate::link_memory::MemoryFile {
+            version: crate::link_memory::VERSION,
+            groups,
+        };
+        crate::link_memory::validate(&file)?;
+        save(&self.dir.join(LINK_GROUPS_FILE), &file)
     }
 }
 

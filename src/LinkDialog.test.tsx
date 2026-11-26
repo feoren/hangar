@@ -41,6 +41,10 @@ const group: LinkGroup = {
   color: 3,
   askFirst: false,
   braked: false,
+  brake: "none",
+  budgetLeft: 20,
+  budget: 20,
+  pendingIntroductions: [],
   members: [
     { session: 1, name: "app", role: "member" },
     { session: 2, name: "web", role: "member" },
@@ -207,6 +211,10 @@ describe("LinkDialog", () => {
           color: 0,
           askFirst: false,
           braked: false,
+          brake: "none",
+          budgetLeft: 20,
+          budget: 20,
+          pendingIntroductions: [],
           members: [
             { session: 1, name: "app", role: "member" },
             { session: 2, name: "web", role: "member" },
@@ -225,6 +233,10 @@ describe("LinkDialog", () => {
           color: 0,
           askFirst: false,
           braked: false,
+          brake: "none",
+          budgetLeft: 20,
+          budget: 20,
+          pendingIntroductions: [],
           members: [
             { session: 1, name: "app", role: "lead" },
             { session: 2, name: "web", role: "member" },

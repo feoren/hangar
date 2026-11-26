@@ -32,6 +32,9 @@ const _: () = assert!(MAX_WAITING_PER_PAIR < MAX_WAITING_PER_PROJECT);
 
 /// The route of the hook endpoint (`gate_service.rs`) that `hangar-send` posts to.
 pub const ROUTE_SEND: &str = "/v1/send";
+/// The route of the same endpoint that `hangar-send --members` posts to, with the same send
+/// token: who is in the sending session's link group (ADR 0014).
+pub const ROUTE_MEMBERS: &str = "/v1/members";
 /// Environment variable of a session that may send, with `<port>:<token>`. A neutral name on
 /// purpose, like the gate helper's (`hook_recipes::HELPER_ENV`): Codex's shell environment policy
 /// drops names with TOKEN, KEY or SECRET by default, and the agent's shell runs `hangar-send`.

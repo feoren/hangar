@@ -7,7 +7,12 @@
 //! ```text
 //! hangar-send <name> <message...>
 //! hangar-send <name> < message.txt
+//! hangar-send --members
 //! ```
+//!
+//! `--members` asks Hangar who is in this session's link group: the own member name and role,
+//! the other members and the lead, over the members route of the same endpoint with the same
+//! token.
 //!
 //! It posts to the send route of Hangar's endpoint on 127.0.0.1, with the port and token from the
 //! session's environment (`HANGAR_SEND=<port>:<token>`). Hangar checks everything (link group,
@@ -26,6 +31,8 @@ use std::time::Duration;
 
 const SEND_ENV: &str = "HANGAR_SEND";
 const ROUTE: &str = "/v1/send";
+/// `ROUTE_MEMBERS` in `partners.rs`.
+const ROUTE_MEMBERS: &str = "/v1/members";
 /// The endpoint refuses larger bodies.
 const MAX_BODY_BYTES: usize = 256 * 1024;
 /// Hangar's answers are one sentence.
@@ -35,14 +42,18 @@ const TIMEOUT: Duration = Duration::from_secs(10);
 const USAGE: &str = "\
 Usage: hangar-send <name> <message...>
        hangar-send <name> < file
+       hangar-send --members
 
 Sends a message to another agent session in Hangar. <name> is a member name of this
-session's link group, all for every other member, or the short name of a partner
-project. Inside a link group the message is pasted once the other agent waits for
-input; to a partner project it waits until the person there pastes or discards it.
+session's link group, all for every other member, lead for its lead, or the short name
+of a partner project. Inside a link group the message is pasted once the other agent
+waits for input; to a partner project it waits until the person there pastes or
+discards it. --members shows your own member name and role, the other members and
+the lead.
 
-Exit codes: 0 waiting or queued, 1 failed, 2 usage, 3 no Hangar session,
-4 unknown member or partner, 5 too many waiting messages, 6 message refused.";
+Exit codes: 0 waiting, queued or members shown, 1 failed, 2 usage, 3 no Hangar session,
+4 unknown member or partner, or no link group, 5 too many waiting messages,
+6 message refused.";
 
 /// The exit codes, documented in [`USAGE`].
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -59,6 +70,8 @@ enum Exit {
 #[derive(Debug, PartialEq, Eq)]
 enum Command {
     Help,
+    /// Who is in this session's link group.
+    Members,
     /// `text: None`: read it from stdin.
     Send {
         partner: String,
@@ -76,6 +89,11 @@ fn parse_args(args: &[String]) -> Result<Command, String> {
             options = false;
         } else if options && (arg == "-h" || arg == "--help") {
             return Ok(Command::Help);
+        } else if options && arg == "--members" && words.is_empty() {
+            if args.len() > 1 {
+                return Err("--members takes no further arguments".to_owned());
+            }
+            return Ok(Command::Members);
         } else if options && arg.starts_with('-') && arg.len() > 1 && words.is_empty() {
             return Err(format!("unknown option {arg}"));
         } else {
@@ -131,9 +149,9 @@ fn parse_endpoint(value: &str) -> Option<(u16, String)> {
     visible.then(|| (port, token.to_owned()))
 }
 
-fn request(port: u16, token: &str, body: &str) -> String {
+fn request(port: u16, token: &str, route: &str, body: &str) -> String {
     format!(
-        "POST {ROUTE} HTTP/1.1\r\nHost: 127.0.0.1:{port}\r\nAuthorization: Bearer {token}\r\n\
+        "POST {route} HTTP/1.1\r\nHost: 127.0.0.1:{port}\r\nAuthorization: Bearer {token}\r\n\
          Content-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
         body.len()
     )
@@ -158,8 +176,8 @@ fn parse_response(raw: &[u8]) -> Option<(u16, Option<(String, String)>)> {
 fn outcome(status: u16, answer: Option<(String, String)>) -> (Exit, String) {
     if let Some((code, message)) = answer {
         let exit = match code.as_str() {
-            "waiting" | "queued" => Exit::Waiting,
-            "not_partner" | "not_member" => Exit::NotPartner,
+            "waiting" | "queued" | "members" => Exit::Waiting,
+            "not_partner" | "not_member" | "not_linked" => Exit::NotPartner,
             "full" => Exit::Full,
             "refused" => Exit::Refused,
             "no_session" | "not_agent" => Exit::NoHangar,
@@ -181,22 +199,36 @@ fn outcome(status: u16, answer: Option<(String, String)>) -> (Exit, String) {
     }
 }
 
-fn send(port: u16, token: &str, body: &str) -> io::Result<Vec<u8>> {
+fn send(port: u16, token: &str, route: &str, body: &str) -> io::Result<Vec<u8>> {
     let address = SocketAddr::from((Ipv4Addr::LOCALHOST, port));
     let mut stream = TcpStream::connect_timeout(&address, TIMEOUT)?;
     stream.set_read_timeout(Some(TIMEOUT))?;
     stream.set_write_timeout(Some(TIMEOUT))?;
-    stream.write_all(request(port, token, body).as_bytes())?;
+    stream.write_all(request(port, token, route, body).as_bytes())?;
     stream.flush()?;
     let mut raw = Vec::new();
     stream.take(MAX_ANSWER_BYTES).read_to_end(&mut raw)?;
     Ok(raw)
 }
 
+/// Posts `body` to `route` and reads what the answer means.
+fn ask(port: u16, token: &str, route: &str, body: &str) -> (Exit, String) {
+    match send(port, token, route, body) {
+        Ok(raw) => match parse_response(&raw) {
+            Some((status, answer)) => outcome(status, answer),
+            None => (Exit::Failed, "Hangar sent no readable answer.".to_owned()),
+        },
+        Err(error) => (
+            Exit::NoHangar,
+            format!("Hangar is not reachable ({error}); it may have been closed."),
+        ),
+    }
+}
+
 fn run(args: &[String]) -> (Exit, String) {
-    let (partner, text) = match parse_args(args) {
+    let command = match parse_args(args) {
         Ok(Command::Help) => return (Exit::Waiting, USAGE.to_owned()),
-        Ok(Command::Send { partner, text }) => (partner, text),
+        Ok(command) => command,
         Err(problem) => return (Exit::Usage, format!("{problem}\n\n{USAGE}")),
     };
     let Some((port, token)) = std::env::var(SEND_ENV)
@@ -211,6 +243,11 @@ fn run(args: &[String]) -> (Exit, String) {
                  in agent sessions it starts."
             ),
         );
+    };
+    let (partner, text) = match command {
+        Command::Send { partner, text } => (partner, text),
+        Command::Members => return ask(port, &token, ROUTE_MEMBERS, "{}"),
+        Command::Help => return (Exit::Waiting, USAGE.to_owned()),
     };
     let text = match text {
         Some(text) => text,
@@ -233,16 +270,7 @@ fn run(args: &[String]) -> (Exit, String) {
     if body.len() > MAX_BODY_BYTES {
         return (Exit::Refused, "The message is too long.".to_owned());
     }
-    match send(port, &token, &body) {
-        Ok(raw) => match parse_response(&raw) {
-            Some((status, answer)) => outcome(status, answer),
-            None => (Exit::Failed, "Hangar sent no readable answer.".to_owned()),
-        },
-        Err(error) => (
-            Exit::NoHangar,
-            format!("Hangar is not reachable ({error}); it may have been closed."),
-        ),
-    }
+    ask(port, &token, ROUTE, &body)
 }
 
 /// `text` safe for the agent's terminal: every control character but the line break becomes
@@ -314,6 +342,32 @@ mod tests {
     }
 
     #[test]
+    fn members_is_an_option_of_its_own() {
+        assert_eq!(parse_args(&args(&["--members"])), Ok(Command::Members));
+        assert!(parse_args(&args(&["--members", "web"])).is_err());
+        // After a name it is part of the message, after "--" a name.
+        assert_eq!(
+            parse_args(&args(&["web", "--members"])),
+            Ok(send_cmd("web", Some("--members")))
+        );
+        assert_eq!(
+            parse_args(&args(&["--", "--members", "x"])),
+            Ok(send_cmd("--members", Some("x")))
+        );
+        let text = request(4711, "abc", ROUTE_MEMBERS, "{}");
+        assert!(text.starts_with("POST /v1/members HTTP/1.1\r\n"), "{text}");
+        assert_eq!(
+            outcome(200, Some(("members".into(), "You are".into()))),
+            (Exit::Waiting, "You are".to_owned())
+        );
+        assert_eq!(
+            outcome(404, Some(("not_linked".into(), "m".into()))).0,
+            Exit::NotPartner
+        );
+        assert!(USAGE.contains("hangar-send --members"));
+    }
+
+    #[test]
     fn stdin_may_be_utf8_or_utf16_with_a_mark() {
         assert_eq!(decode("f\u{fc}r".as_bytes()).unwrap(), "f\u{fc}r");
         assert_eq!(decode(b"\xEF\xBB\xBFhi").unwrap(), "hi");
@@ -344,7 +398,7 @@ mod tests {
 
     #[test]
     fn the_request_is_a_plain_post_to_the_send_route() {
-        let text = request(4711, "abc", "{}");
+        let text = request(4711, "abc", ROUTE, "{}");
         assert!(text.starts_with("POST /v1/send HTTP/1.1\r\n"), "{text}");
         assert!(text.contains("Host: 127.0.0.1:4711\r\n"));
         assert!(text.contains("Authorization: Bearer abc\r\n"));
@@ -406,7 +460,8 @@ mod tests {
         ] {
             assert_eq!(exit as u8, number);
         }
-        assert!(USAGE.contains("0 waiting or queued, 1 failed, 2 usage, 3 no Hangar session"));
-        assert!(USAGE.contains("4 unknown member or partner, 5 too many waiting messages"));
+        assert!(USAGE.contains("0 waiting, queued or members shown, 1 failed, 2 usage"));
+        assert!(USAGE.contains("3 no Hangar session"));
+        assert!(USAGE.contains("4 unknown member or partner, or no link group, 5 too many"));
     }
 }

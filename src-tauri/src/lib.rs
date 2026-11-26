@@ -53,6 +53,7 @@ pub mod icon;
 pub mod install_source;
 pub mod instructions;
 pub mod launcher_badge;
+pub mod link_memory;
 pub mod link_service;
 pub mod links;
 pub mod login_path;
@@ -481,6 +482,8 @@ pub fn run() -> tauri::Result<()> {
             // that are gone, leftover temporary indexes (git_snapshots.rs). Other snapshot calls
             // wait until this is done.
             let keep = persist::Store::new(local_dir.clone()).workspace_keys();
+            // The sessions the window restores; only they can bring a remembered link group back.
+            let link_keep = keep.clone().unwrap_or_default();
             let folder = local_dir.join(git_snapshots::FOLDER);
             let upkeep = app.handle().clone();
             std::thread::spawn(move || {
@@ -590,6 +593,14 @@ pub fn run() -> tauri::Result<()> {
             let links = link_service::LinkService::new(move || {
                 let _ = events.emit_to(panel_window::MAIN_LABEL, link_service::EVENT, ());
             });
+            // The groups of the last run come back as offers only; the person confirms each
+            // (`link_offers`, `apply_link_offer`).
+            links.load_offers(link_memory::prune(
+                partner_store.load_link_groups(),
+                &link_keep,
+            ));
+            let asked = links.clone();
+            gate.set_members(move |from| link_service::answer_members(&asked, from));
             let receiver = inbox.clone();
             let linked = links.clone();
             let sessions = app.handle().clone();
@@ -882,6 +893,11 @@ pub fn run() -> tauri::Result<()> {
             commands::link_person_typed,
             commands::close_link_message,
             commands::link_history,
+            commands::resume_link_group,
+            commands::merge_link_groups,
+            commands::link_offers,
+            commands::apply_link_offer,
+            commands::discard_link_offer,
             commands::set_panel_session,
             commands::take_update_results,
             commands::dictation_status,

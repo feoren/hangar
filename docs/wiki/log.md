@@ -1738,3 +1738,20 @@ way, opens a menu (brake with "Allow to go on" as an unchanged `edit_link_group`
 history, unlink); two or more cards below a row form a message stack with "Send all" and
 "Discard all"; only the newest introduction of a group shows; link cards lose "Paste only".
 Backend needs noted for a later package. Updated: [[0014-session-links]].
+
+## [2026-11-26] query | Calmer link groups, backend part
+Built the backend of "groups: simpler and calmer, part 2": the loop brake scales with the members
+(3 a minute and 10 in all per member, capped at eight members), the group view tells which part
+holds and the budget left, `resume_link_group` releases it and sends what it held, one
+introduction per member with a 3 second settle window, no message to members when others join
+(only a new lead), merging in one backend step without dropping what waits, owed introductions
+instead of a log line, `hangar-send --members`, and remembered groups (composition by workspace
+key only) offered again after a restart and linked only once the person confirms. Updated:
+[[0014-session-links]] (section "Calmer groups", point 3 amended), index.
+
+## [2026-11-26] query | Calmer link groups, window wiring of package 2
+The window parses the new group fields and offers, "Allow to go on" calls `resume_link_group`
+(one hint), the menu names the brake's kind, the budget left and owed introductions, the merge is
+one `merge_link_groups`, and a bar below the session list offers the groups of the last run
+(`RelinkOfferBar.tsx`). The budget's answer to agents no longer speaks of the last minute; offers
+name missing members. Updated: [[0014-session-links]].

@@ -61,10 +61,14 @@ UI texts in `src/i18n.ts` are translated per language and are not bound by this 
 | Melde-Token                                     | notice token                      | token of scope `Notify` on the hook endpoint, in `HANGAR_NOTIFY_TOKEN`               |
 | wartet auf Freigabe                             | waits for approval                | attention reason `permission`, set by the notice hooks                               |
 | Partnerliste                                    | partner book                      | the named projects and their pairs, `partner-projects.json`; `PartnerBook`           |
-| Link-Gruppe                                     | link group                        | running agent sessions linked to message each other, ADR 0014; in memory, `links.rs` |
+| Link-Gruppe                                     | link group                        | running agent sessions linked to message each other, ADR 0014; `links.rs`            |
 | Mitgliedsname                                   | member name                       | `[a-z0-9-]{1,32}` name of a session in its link group, `hangar-send <name>`          |
-| Schleifenbremse                                 | loop brake                        | at most 6 automatic deliveries per link group and minute, then a click; `Brake`      |
-| Zustellbudget                                   | budget (link group)               | at most 20 automatic deliveries per link group until the person acts; `AUTO_BUDGET`  |
+| Schleifenbremse                                 | loop brake                        | 3 automatic deliveries per member and minute, then a click; `Brake`, `Limits`        |
+| Zustellbudget                                   | budget (link group)               | 10 automatic deliveries per member until the person acts; `Limits::budget`           |
+| Weitermachen (Bremse)                           | go on (brake)                     | the person releases rate and budget of a link group; `resume_link_group`             |
+| Gemerkte Gruppe                                 | remembered group                  | a link group's composition by workspace key, offered again after a restart           |
+| Angebot (Link-Gruppe)                           | offer (link group)                | a remembered group the person may link again ("Link again?"); `link_offers`          |
+| Sammelfenster                                   | settle window                     | 3 s an introduction waits so a further join replaces it; `INTRO_SETTLE_MS`           |
 | Leitung (Link-Gruppe)                           | lead                              | member that hands out tasks and collects results; `hangar-send lead`                 |
 | Verlauf (Link-Gruppe)                           | link history                      | last 200 messages of a link group, in memory until it ends; `History`                |
 | Sammelkarte                                     | message stack                     | 2+ link messages of one row in one line, "Send all"; `linkCards.ts`                  |

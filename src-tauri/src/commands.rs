@@ -47,6 +47,7 @@ use crate::gpu::GpuMonitor;
 use crate::icon::{self, IconCache};
 use crate::install_source::{self, SystemProbe};
 use crate::instructions::{self, StartPrompt};
+use crate::link_memory;
 use crate::link_service::{
     GroupView, HistoryView, LinkRequest, LinkService, LinkServiceError, LinkSnapshot, MemberFacts,
     MemberName,
@@ -4325,6 +4326,7 @@ async fn member_facts(
 #[allow(clippy::too_many_arguments)] // One Tauri command: its states and one argument per field.
 pub async fn link_sessions(
     window: tauri::Window,
+    app: tauri::AppHandle,
     manager: Manager<'_>,
     links: State<'_, LinkService>,
     gate: State<'_, GateService>,
@@ -4340,7 +4342,136 @@ pub async fn link_sessions(
         lead,
         ask_first: ask_first.unwrap_or(false),
     };
-    links.link(&ids, &manager.list(), &facts, work_log::now_ms(), &request)
+    let view = links.link(&ids, &manager.list(), &facts, work_log::now_ms(), &request)?;
+    remember_links(&app).await;
+    Ok(view)
+}
+
+/// Writes the composition of the link groups (members by workspace key, names, lead, "Ask
+/// before pasting") and the offers not decided yet, on a blocking thread (ADR 0014). Called
+/// after every step of the person that changes a group; a failure is logged, the step stands.
+async fn remember_links(app: &tauri::AppHandle) {
+    let keys = app.state::<Snapshots>().keys();
+    let links = app.state::<LinkService>().inner().clone();
+    let store = app.state::<MainStore>().inner().clone();
+    let saved = tauri::async_runtime::spawn_blocking(move || {
+        links.remember(&|id| keys.get(&id).cloned(), &|groups| {
+            store.save_link_groups(groups)
+        })
+    })
+    .await;
+    match saved {
+        Ok(Ok(())) => {}
+        Ok(Err(error)) => eprintln!("hangar: link groups not remembered: {error}"),
+        Err(error) => eprintln!("hangar: link groups not remembered: {error}"),
+    }
+}
+
+/// The session that carries workspace key `key` now, from the keys the main window bound.
+fn session_of_key(keys: &HashMap<SessionId, String>, key: &str) -> Option<SessionId> {
+    keys.iter()
+        .find(|(_, bound)| bound.as_str() == key)
+        .map(|(id, _)| *id)
+}
+
+/// The link groups of the last run that can be linked again now: each with the members whose
+/// restored session runs, their remembered names, the lead and "Ask before pasting". Nothing is
+/// linked before the person confirms one (`apply_link_offer`).
+#[tauri::command]
+pub fn link_offers(
+    window: tauri::Window,
+    manager: Manager<'_>,
+    links: State<'_, LinkService>,
+    snapshots: State<'_, Snapshots>,
+) -> Result<Vec<link_memory::Offer>, LinkServiceError> {
+    main_store::check_main(window.label())?;
+    let keys = snapshots.keys();
+    Ok(links.offers(&manager.list(), &|key| session_of_key(&keys, key)))
+}
+
+/// The person confirmed offer `id`: its running members are linked again as one group, each
+/// with the full introduction.
+#[tauri::command]
+#[allow(clippy::too_many_arguments)] // One Tauri command: its states and one argument per field.
+pub async fn apply_link_offer(
+    window: tauri::Window,
+    app: tauri::AppHandle,
+    manager: Manager<'_>,
+    links: State<'_, LinkService>,
+    gate: State<'_, GateService>,
+    snapshots: State<'_, Snapshots>,
+    id: u64,
+) -> Result<GroupView, LinkServiceError> {
+    main_store::check_main(window.label())?;
+    let facts = member_facts(&manager, &gate).await?;
+    let keys = snapshots.keys();
+    let view = links.apply_offer(
+        id,
+        &manager.list(),
+        &|key| session_of_key(&keys, key),
+        &facts,
+        work_log::now_ms(),
+    )?;
+    remember_links(&app).await;
+    Ok(view)
+}
+
+/// The person declined offer `id`: it is forgotten.
+#[tauri::command]
+pub async fn discard_link_offer(
+    window: tauri::Window,
+    app: tauri::AppHandle,
+    links: State<'_, LinkService>,
+    id: u64,
+) -> Result<(), LinkServiceError> {
+    main_store::check_main(window.label())?;
+    links.discard_offer(id)?;
+    remember_links(&app).await;
+    Ok(())
+}
+
+/// Merges the link groups `groups` into group `into` in one step, with the sessions `ids` (in
+/// no group yet, `names` naming them) joining too. What waits in the absorbed groups stays
+/// deliverable, their history moves along; only the newcomers get an introduction, the members
+/// one only when the lead changed.
+#[tauri::command]
+#[allow(clippy::too_many_arguments)] // One Tauri command: its states and one argument per field.
+pub async fn merge_link_groups(
+    window: tauri::Window,
+    app: tauri::AppHandle,
+    manager: Manager<'_>,
+    links: State<'_, LinkService>,
+    gate: State<'_, GateService>,
+    into: GroupId,
+    groups: Vec<GroupId>,
+    ids: Option<Vec<SessionId>>,
+    names: Option<Vec<MemberName>>,
+) -> Result<GroupView, LinkServiceError> {
+    main_store::check_main(window.label())?;
+    let facts = member_facts(&manager, &gate).await?;
+    let view = links.merge(
+        into,
+        &groups,
+        &ids.unwrap_or_default(),
+        &names.unwrap_or_default(),
+        &manager.list(),
+        &facts,
+        work_log::now_ms(),
+    )?;
+    remember_links(&app).await;
+    Ok(view)
+}
+
+/// "Go on" on the brake's hint of link group `group`: the rate and the budget start again, and
+/// the messages the brake held go on their own again.
+#[tauri::command]
+pub fn resume_link_group(
+    window: tauri::Window,
+    links: State<'_, LinkService>,
+    group: GroupId,
+) -> Result<(), LinkServiceError> {
+    main_store::check_main(window.label())?;
+    links.resume(group)
 }
 
 /// Adds the sessions `ids` to link group `group`; each must be a running agent session that got
@@ -4351,6 +4482,7 @@ pub async fn link_sessions(
 #[allow(clippy::too_many_arguments)] // One Tauri command: its states and one argument per field.
 pub async fn add_to_link_group(
     window: tauri::Window,
+    app: tauri::AppHandle,
     manager: Manager<'_>,
     links: State<'_, LinkService>,
     gate: State<'_, GateService>,
@@ -4361,7 +4493,7 @@ pub async fn add_to_link_group(
 ) -> Result<GroupView, LinkServiceError> {
     main_store::check_main(window.label())?;
     let facts = member_facts(&manager, &gate).await?;
-    links.add(
+    let view = links.add(
         group,
         &ids,
         &names.unwrap_or_default(),
@@ -4369,18 +4501,23 @@ pub async fn add_to_link_group(
         &manager.list(),
         &facts,
         work_log::now_ms(),
-    )
+    )?;
+    remember_links(&app).await;
+    Ok(view)
 }
 
-/// Ends link group `group`; what still waits in it goes.
+/// Ends link group `group`; what still waits in it goes, and it is no longer remembered.
 #[tauri::command]
-pub fn unlink_group(
+pub async fn unlink_group(
     window: tauri::Window,
+    app: tauri::AppHandle,
     links: State<'_, LinkService>,
     group: GroupId,
 ) -> Result<(), LinkServiceError> {
     main_store::check_main(window.label())?;
-    links.unlink(group)
+    links.unlink(group)?;
+    remember_links(&app).await;
+    Ok(())
 }
 
 /// New member names, the "Ask before pasting" toggle and the lead (`null`: none) of link group
@@ -4389,6 +4526,7 @@ pub fn unlink_group(
 #[allow(clippy::too_many_arguments)] // One Tauri command: its states and one argument per field.
 pub async fn edit_link_group(
     window: tauri::Window,
+    app: tauri::AppHandle,
     manager: Manager<'_>,
     links: State<'_, LinkService>,
     gate: State<'_, GateService>,
@@ -4407,7 +4545,9 @@ pub async fn edit_link_group(
         &manager.list(),
         &facts,
         work_log::now_ms(),
-    )
+    )?;
+    remember_links(&app).await;
+    Ok(())
 }
 
 /// The history of link group `group`, newest first: the last messages delivered or discarded

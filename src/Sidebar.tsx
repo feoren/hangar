@@ -22,6 +22,7 @@ import {
 } from "./LinkMark";
 import { toggleSelection, type LinkMark } from "./links";
 import { LinkSelectionBar, type SelectionState } from "./LinkSelectionBar";
+import { RelinkOfferBar, type RelinkOfferView } from "./RelinkOfferBar";
 import { queuedPreview, type QueuedMessage } from "./messageQueue";
 import type { RecentSession } from "./recentlyOpened";
 import { RecentSessionList } from "./RecentSessionList";
@@ -341,6 +342,10 @@ interface Props {
    * merges the groups among them.
    */
   onLinkSessions: (ids: number[]) => void;
+  /** A link group of the last run the person may link again (RelinkOfferBar.tsx), `null`: none. */
+  relinkOffer: RelinkOfferView | null;
+  /** The answer to `relinkOffer`: link it again (`true`) or forget it. */
+  onRelink: (apply: boolean) => void;
   /** Link messages that wait for a click, per target row ("Ask before pasting", loop brake). */
   linkInbox: ReadonlyMap<number, readonly WaitingMessage[]>;
   /** Link messages whose send from their card runs right now (messageCard.ts). */
@@ -1293,6 +1298,10 @@ export function Sidebar(props: Props) {
         </ul>
         <WaitingEdge edge="below" hint={edgeHints.below} onReveal={revealRow} />
       </div>
+      {/* A link group of the last run: link it again, or forget it. */}
+      {props.relinkOffer !== null && (
+        <RelinkOfferBar offer={props.relinkOffer} onDecide={props.onRelink} />
+      )}
       {/* Rows selected with Ctrl or Cmd click: link them, or end the selection. */}
       {(linkPick.length > 0 || refused) && (
         <LinkSelectionBar
