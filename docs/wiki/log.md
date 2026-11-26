@@ -1755,3 +1755,9 @@ The window parses the new group fields and offers, "Allow to go on" calls `resum
 one `merge_link_groups`, and a bar below the session list offers the groups of the last run
 (`RelinkOfferBar.tsx`). The budget's answer to agents no longer speaks of the last minute; offers
 name missing members. Updated: [[0014-session-links]].
+
+## [2026-11-26] lint | Version scheme: the updater compares build metadata
+tauri-plugin-updater 2.14.1 compares with `semver::Version`'s derived `Ord`, which includes build
+metadata, so the reason "the updater ignores build metadata" was wrong; the rule that every release
+raises X, Y or Z stays, now justified by SemVer precedence. Found by the Hangar Drive project.
+Updated: [[0002-version-scheme]].

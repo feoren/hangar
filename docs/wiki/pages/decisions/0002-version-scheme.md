@@ -6,7 +6,7 @@ superseded_by:
 tags: [release, version, updater, windows]
 sources: ["[[version-number-wikipedia]]", "[[tauri-updater-and-nsis]]"]
 created: 2026-11-07
-updated: 2026-11-08
+updated: 2026-11-26
 ---
 
 # ADR 0002: Version scheme
@@ -39,8 +39,14 @@ Not recorded separately; the constraints above leave the split into an internal 
   fresh history; without it the numbers would have gone down. The commit for build `B` can be found with
   `git rev-list --reverse HEAD | sed -n <B minus base>p` (on `main`). `tools/release.py` and
   `vite.config.ts` both read the base.
-- **Every release increments X, Y or Z.** The updater ignores build metadata when comparing, so a
-  release that differs only in its build number would not be detected as an update. `tools/release.py` refuses that.
+- **Every release increments X, Y or Z.** `tools/release.py` refuses a release that differs only
+  in its build number. *Corrected 2026-11-26:* the reason given first ("the updater ignores build
+  metadata") was wrong. tauri-plugin-updater 2.14.1 compares `release.version > current_version`
+  (`src/updater.rs`, `update_from_release`), and `semver::Version` 1.0.28 derives `Ord` over all
+  fields, build metadata included; only `cmp_precedence` leaves it out. Such a release would be
+  offered as an update. The rule stays because SemVer precedence, which tools other than this
+  comparison follow, treats `X.Y.Z+B` and `X.Y.Z+B'` as the same version, and because the
+  displayed version must say what changed. Not yet tried with two real builds of one version.
 - **The code always carries the upcoming version** (added 2026-11-08). `tauri.conf.json`, `package.json` and
   `Cargo.toml` (with `Cargo.lock`) state the version that will be released next, not the last
   published one. It is also the highest version in `src/changelog.json`, where it has no date until the release
