@@ -4,9 +4,9 @@ type: decision
 status: accepted
 superseded_by:
 tags: [sessions, projects, agents, hooks, security, pty]
-sources: ["[[cross-project-paste-measurement]]", "[[paste-opencode-gemini-measurement]]", "[[hangar-send-bundles-reading]]"]
+sources: ["[[cross-project-paste-measurement]]", "[[paste-opencode-gemini-measurement]]", "[[hangar-send-bundles-reading]]", "[[codex-shell-environment-measurement]]"]
 created: 2026-11-17
-updated: 2026-11-22
+updated: 2026-11-26
 ---
 
 # ADR 0012: Messages between sessions of partner projects
@@ -127,6 +127,17 @@ because the person wrote it.
     `/usr/bin` on Linux) joins the `PATH`, every program of the user's stays in front, and
     `hangar-send` is a name no other program has. Endpoint and token come in
     `HANGAR_SEND=<port>:<token>`, a name without TOKEN or KEY, which Codex's shell policy drops.
+  - Amended 2026-11-26: the sentence above is not how Codex CLI 0.172.0 behaves. Its default
+    shell environment policy passes every variable (`inherit = "all"`, default excludes off), so
+    `HANGAR_SEND` arrives, and Hangar's tokens with it. A user policy `inherit = "core"` drops
+    `HANGAR_SEND`, which is how `hangar-send` failed in a Codex session. Per Codex start, from the
+    user config and the profile file named by `--profile`, Hangar now passes: without a policy an
+    `exclude` of its own token variables and the profile's `secret_env` names; with `inherit =
+    "all"` that keeps `HANGAR_SEND` the person's `exclude` plus those names; with `inherit =
+    "core"` `inherit=all` and an `include_only` of Codex's core list, `HANGAR_SEND` and the
+    person's `set` names. A policy that cannot carry `HANGAR_SEND` or cannot be evaluated means
+    the session is not offered sending. The overrides are never dropped for command line length
+    (`src-tauri/src/codex_shell_env.rs`, [[codex-shell-environment-measurement]]).
   - Tokens carry a scope (`TokenScope`: hooks or send); each route takes only its own. The send
     token is handed to every agent session whose project has partners at its start, private ones
     included, and the endpoint starts for it without the gate.

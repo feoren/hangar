@@ -86,6 +86,20 @@
         "ru": "Исправлено: заметка с переводами строк Windows (CRLF), например изменённая вне Hangar, открывалась пустой, и ввод её перезаписывал.",
         "tr": "Düzeltildi: Windows satır sonları (CRLF) içeren bir not, örneğin Hangar dışında düzenlenmiş olan, boş açılıyordu ve yazınca üzerine yazılıyordu.",
         "zh": "已修复：带有 Windows 换行符 (CRLF) 的笔记（例如在 Hangar 之外编辑过的）打开时为空，输入后会覆盖原内容。"
+      },
+      {
+        "de": "Behoben: hangar-send geht jetzt auch in Codex CLI, wenn deine Codex-Konfiguration Befehlen nur Grundvariablen gibt. Hangars Tokens bleiben draußen.",
+        "en": "Fixed: hangar-send now works in Codex CLI when your Codex config gives commands only core variables. Hangar's own tokens stay out of them.",
+        "el": "Διορθώθηκε: το hangar-send δουλεύει πια στο Codex CLI, όταν η ρύθμιση Codex δίνει στις εντολές μόνο βασικές μεταβλητές. Τα tokens του Hangar μένουν έξω.",
+        "es": "Corregido: hangar-send ya funciona en Codex CLI cuando tu configuración de Codex da a los comandos solo variables básicas. Los tokens de Hangar quedan fuera.",
+        "fr": "Corrigé : hangar-send marche aussi dans Codex CLI quand ta config Codex ne donne aux commandes que les variables de base. Les jetons de Hangar restent dehors.",
+        "it": "Corretto: hangar-send ora funziona in Codex CLI anche se la tua configurazione Codex dà ai comandi solo variabili di base. I token di Hangar restano fuori.",
+        "ja": "修正: Codex の設定がコマンドに基本の変数しか渡さない場合も、Codex CLI で hangar-send が使えるようになりました。Hangar のトークンは渡されません。",
+        "pl": "Naprawiono: hangar-send działa w Codex CLI także wtedy, gdy konfiguracja Codex daje poleceniom tylko podstawowe zmienne. Tokeny Hangara zostają poza nimi.",
+        "pt": "Corrigido: o hangar-send agora funciona no Codex CLI quando sua config do Codex dá aos comandos só variáveis básicas. Os tokens do Hangar ficam de fora.",
+        "ru": "Исправлено: hangar-send теперь работает в Codex CLI, даже если твоя настройка Codex даёт командам только базовые переменные. Токены Hangar не передаются.",
+        "tr": "Düzeltildi: Codex ayarın komutlara yalnızca temel değişkenleri verse de hangar-send artık Codex CLI'da çalışır. Hangar'ın tokenları dışarıda kalır.",
+        "zh": "已修复：即使你的 Codex 配置只给命令基础变量，hangar-send 现在也能在 Codex CLI 中使用。Hangar 自己的令牌不会传给这些命令。"
       }
     ]
   },

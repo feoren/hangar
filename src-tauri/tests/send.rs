@@ -9,6 +9,7 @@ use std::process::{Command, Output, Stdio};
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 
+use hangar_lib::agent_catalog::{self, Agent};
 use hangar_lib::gate_service::GateService;
 use hangar_lib::link_service::{self, LinkService};
 use hangar_lib::main_store::MainStore;
@@ -20,6 +21,16 @@ use hangar_lib::session::{SessionInfo, Status};
 const CLIENT: &str = env!("CARGO_BIN_EXE_hangar-send");
 /// The program of an agent session, as the launch sees it.
 const AGENT: &str = "claude";
+
+/// The catalog's agent for [`AGENT`].
+fn agent() -> Agent {
+    let catalog = agent_catalog::builtin()
+        .unwrap()
+        .into_iter()
+        .find(|agent| agent.id == AGENT)
+        .unwrap();
+    Agent::from_catalog(catalog)
+}
 
 /// Test folder under `<repo>/tests/.tmp/`, removed on drop.
 struct TempDir(PathBuf);
@@ -137,7 +148,9 @@ fn fixture(name: &str) -> Fixture {
 
 /// The value of [`SEND_ENV`] session `id` in `cwd` gets at its start.
 fn send_env(fixture: &Fixture, id: u64, cwd: &Path) -> String {
-    let launch = fixture.launch.prepare(id, cwd, Path::new(AGENT));
+    let launch = fixture
+        .launch
+        .prepare(id, cwd, &agent(), Path::new(AGENT), &[]);
     assert_eq!(launch.env.len(), 1);
     assert_eq!(launch.env[0].0, SEND_ENV);
     launch.env[0].1.to_string()
@@ -167,7 +180,9 @@ fn text(bytes: &[u8]) -> String {
 #[test]
 fn an_agent_sends_and_the_partner_answers_back() {
     let fixture = fixture("send-both-ways");
-    let launch = fixture.launch.prepare(1, &fixture.app, Path::new(AGENT));
+    let launch = fixture
+        .launch
+        .prepare(1, &fixture.app, &agent(), Path::new(AGENT), &[]);
     assert_eq!(
         launch.path_dir.as_deref(),
         Some(fixture.tmp.0.join("bin").as_path())
@@ -298,7 +313,9 @@ fn a_session_without_partners_or_group_gets_a_token_that_grants_nothing() {
     fixture.sessions.lock().unwrap().push(running(4, &other));
     // Every agent session gets the client, so it can be linked later (ADR 0014); the
     // instructions name partners only where there are some.
-    let launch = fixture.launch.prepare(4, &other, Path::new(AGENT));
+    let launch = fixture
+        .launch
+        .prepare(4, &other, &agent(), Path::new(AGENT), &[]);
     assert_eq!(launch.env.len(), 1);
     assert!(launch.path_dir.is_some() && launch.hint.is_none());
     let env = launch.env[0].1.to_string();
@@ -312,7 +329,7 @@ fn a_session_without_partners_or_group_gets_a_token_that_grants_nothing() {
     // Without the client next to Hangar, no session is offered sending.
     let bare = PartnerLaunch::new(fixture.gate.clone(), fixture.store.clone(), None);
     assert!(bare
-        .prepare(1, &fixture.app, Path::new(AGENT))
+        .prepare(1, &fixture.app, &agent(), Path::new(AGENT), &[])
         .env
         .is_empty());
 }
@@ -322,7 +339,9 @@ fn shell_sessions_do_not_send() {
     let fixture = fixture("send-shell");
     // A shell in a project with partners gets neither token nor client nor hint.
     for shell in ["pwsh.exe", "/bin/bash", "cmd"] {
-        let launch = fixture.launch.prepare(3, &fixture.app, Path::new(shell));
+        let launch = fixture
+            .launch
+            .prepare(3, &fixture.app, &agent(), Path::new(shell), &[]);
         assert!(
             launch.env.is_empty() && launch.path_dir.is_none() && launch.hint.is_none(),
             "{shell}"

@@ -2,9 +2,9 @@
 title: "Agent gate adapters: Codex, Gemini, Copilot, Qwen, Pi, Oh My Pi, OpenCode and Droid"
 type: synthesis
 tags: [gate, hooks, team, codex, gemini, copilot, qwen, pi, omp, opencode, droid, catalog, helper]
-sources: ["[[agent-hooks-per-session-research]]", "[[agent-hooks-remaining-agents-research]]", "[[gate-hook-helper-measurement]]", "[[codex-gate-live-measurement]]", "[[opencode-gate-live-measurement]]", "[[pi-gate-live-measurement]]", "[[copilot-gate-live-measurement]]", "[[opencode2-and-gemini-gate-findings]]", "[[opencode2-gate-live-measurement]]", "[[agent-hooks-cursor-cline-gemini-opencode2-research]]", "[[cursor-gate-live-measurement]]", "[[claude-http-hook-measurement]]", "[[mixed-team-live-measurement]]", "[[claude-repo-settings-hooks-measurement]]"]
+sources: ["[[agent-hooks-per-session-research]]", "[[agent-hooks-remaining-agents-research]]", "[[gate-hook-helper-measurement]]", "[[codex-gate-live-measurement]]", "[[opencode-gate-live-measurement]]", "[[pi-gate-live-measurement]]", "[[copilot-gate-live-measurement]]", "[[opencode2-and-gemini-gate-findings]]", "[[opencode2-gate-live-measurement]]", "[[agent-hooks-cursor-cline-gemini-opencode2-research]]", "[[cursor-gate-live-measurement]]", "[[claude-http-hook-measurement]]", "[[mixed-team-live-measurement]]", "[[claude-repo-settings-hooks-measurement]]", "[[codex-shell-environment-measurement]]"]
 created: 2026-11-12
-updated: 2026-11-24
+updated: 2026-11-26
 ---
 
 # Agent gate adapters: Codex, Gemini, Copilot, Qwen, Pi, Oh My Pi, OpenCode and Droid
@@ -67,8 +67,9 @@ in-process extension and plugin), `gate_service.rs` (install, folders, cleanup),
   and OpenCode run Hangar's extension inside the agent, which sends the same request itself.
 - **Token only in the environment.** `HANGAR_HOOK_TOKEN` for HTTP hooks (header interpolation),
   `HANGAR_GATE=<port>:<token>` for the helper and the in-process extensions (a neutral name:
-  Gemini CLI may strip names with TOKEN, KEY, AUTH, and Codex's shell environment policy drops
-  such names by default). No file, no argument holds it (unit tests per format read every file and
+  Gemini CLI may strip names with TOKEN, KEY, AUTH, and a Codex shell environment policy with
+  the default excludes on drops such names; Codex 0.172.0 has them off by default and hands hooks
+  the process environment, [[codex-shell-environment-measurement]]). No file, no argument holds it (unit tests per format read every file and
   argument); the extension file is the same text for every session.
 - **Session folders.** Formats that need files write them to
   `<app local data>/gate/sessions/<port>-<session>-<n>/`, one fresh folder per process start,
