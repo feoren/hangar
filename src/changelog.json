@@ -58,6 +58,20 @@
         "ru": "Спокойнее группы: ждущие сообщения в одной строке с «Отправить все», меню группы для ведущего и паузы, представления ждут агента.",
         "tr": "Daha sakin gruplar: bekleyen mesajlar “Tümünü gönder” ile tek satırda, lider ve duraklama için grup menüsü, tanıtımlar ajanı bekler.",
         "zh": "更安静的组：等待中的消息合为一行并带有“全部发送”，组菜单可设置负责人和暂停，介绍会等待智能体完成。"
+      },
+      {
+        "de": "Behoben: Eine Notiz mit Windows-Zeilenenden (CRLF), etwa außerhalb von Hangar bearbeitet, öffnete sich leer; wer dann tippte, überschrieb sie.",
+        "en": "Fixed: a note with Windows line endings (CRLF), such as one edited outside Hangar, opened empty, and typing then overwrote it.",
+        "el": "Διορθώθηκε: μια σημείωση με τέλη γραμμής Windows (CRLF), π.χ. επεξεργασμένη εκτός Hangar, άνοιγε κενή και η πληκτρολόγηση την αντικαθιστούσε.",
+        "es": "Corregido: una nota con finales de línea de Windows (CRLF), por ejemplo editada fuera de Hangar, se abría vacía y al escribir se sobrescribía.",
+        "fr": "Corrigé : une note avec des fins de ligne Windows (CRLF), par exemple modifiée hors de Hangar, s'ouvrait vide, et la saisie l'écrasait.",
+        "it": "Corretto: una nota con fine riga Windows (CRLF), ad esempio modificata fuori da Hangar, si apriva vuota e scrivendo veniva sovrascritta.",
+        "ja": "修正: Hangar の外で編集したものなど、Windows の改行 (CRLF) を含むメモが空で開き、入力すると上書きされていました。",
+        "pl": "Naprawiono: notatka z końcami linii Windows (CRLF), np. edytowana poza Hangarem, otwierała się pusta, a pisanie ją nadpisywało.",
+        "pt": "Corrigido: uma nota com quebras de linha do Windows (CRLF), como uma editada fora do Hangar, abria vazia e digitar a sobrescrevia.",
+        "ru": "Исправлено: заметка с переводами строк Windows (CRLF), например изменённая вне Hangar, открывалась пустой, и ввод её перезаписывал.",
+        "tr": "Düzeltildi: Windows satır sonları (CRLF) içeren bir not, örneğin Hangar dışında düzenlenmiş olan, boş açılıyordu ve yazınca üzerine yazılıyordu.",
+        "zh": "已修复：带有 Windows 换行符 (CRLF) 的笔记（例如在 Hangar 之外编辑过的）打开时为空，输入后会覆盖原内容。"
       }
     ]
   },

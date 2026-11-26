@@ -208,12 +208,22 @@ function indentList(more: boolean) {
   };
 }
 
+/**
+ * The text as CodeMirror holds it: every line break as LF. CodeMirror splits CRLF and CR itself,
+ * so a cursor placed by the raw length of a CRLF text pointed past the document's end and
+ * EditorState.create threw: the note opened empty, and typing then overwrote the file.
+ */
+export function editorText(text: string): string {
+  return text.replace(/\r\n?/g, "\n");
+}
+
 export function createMarkdownEditor(parent: HTMLElement, options: EditorOptions): MarkdownEditor {
   let selected = false;
   let readOnly = false;
   const lock = new Compartment();
-  const state = (text: string, label: string) =>
-    EditorState.create({
+  const state = (raw: string, label: string) => {
+    const text = editorText(raw);
+    return EditorState.create({
       doc: text,
       selection: EditorSelection.cursor(text.length),
       extensions: [
@@ -251,6 +261,7 @@ export function createMarkdownEditor(parent: HTMLElement, options: EditorOptions
         }),
       ],
     });
+  };
 
   const view = new EditorView({ state: state(options.text, options.label), parent });
   const reveal = () => {
@@ -272,7 +283,8 @@ export function createMarkdownEditor(parent: HTMLElement, options: EditorOptions
       const { from, to } = view.state.selection.main;
       return view.state.sliceDoc(from, to);
     },
-    setText: (next) => {
+    setText: (raw) => {
+      const next = editorText(raw);
       const end = view.state.doc.length;
       view.dispatch({
         changes: { from: 0, to: end, insert: next },
