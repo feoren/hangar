@@ -122,6 +122,34 @@ describe("buildWorkspace", () => {
     expect(parsed?.sessions.map((s) => s.subAgent)).toEqual(["tester", null, null]);
   });
 
+  it("keeps a valid model choice, and writes no field without one", () => {
+    const opus = { source: "provider", id: "opus" } as const;
+    const workspace = buildWorkspace(
+      [
+        { ...entry(A), model: opus },
+        { ...entry(B), model: { source: "ollama", id: "-rm" } },
+        { ...entry(C), model: null },
+      ],
+      null,
+    );
+    expect(workspace.sessions[0]?.model).toEqual(opus);
+    // The backend refuses fields it does not know: no choice means no field at all.
+    expect(workspace.sessions[1]).not.toHaveProperty("model");
+    expect(workspace.sessions[2]).not.toHaveProperty("model");
+    const parsed = parseWorkspace({
+      version: 1,
+      sessions: [
+        { ...entry(A), order: 0, model: { source: "lmstudio", id: "qwen/qwen3-8b" } },
+        { ...entry(B), order: 1, model: { source: "cloud", id: "x" } },
+      ],
+      activeKey: null,
+    });
+    expect(parsed?.sessions.map((s) => s.model ?? null)).toEqual([
+      { source: "lmstudio", id: "qwen/qwen3-8b" },
+      null,
+    ]);
+  });
+
   it("writes the queued message as it is queued, blank as null", () => {
     const workspace = buildWorkspace(
       [

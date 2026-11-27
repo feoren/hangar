@@ -83,6 +83,34 @@ export interface Profile {
    * subAgentLibrary.ts). Older backends send none.
    */
   takesAgent?: boolean;
+  /**
+   * The vendor's models the start menu offers, in the catalog's order (ADR 0022); empty or
+   * missing: none. Read them with `profileModels` (localLlm.ts).
+   */
+  models?: ProfileModel[];
+  /**
+   * The local servers the program can run against (ADR 0022); missing: none. Read them with
+   * `profileLocalSources` (localLlm.ts).
+   */
+  localSources?: LocalServerId[];
+}
+
+/** Rust `ModelView`: a vendor model of a program; `id` goes into the start, `label` is shown. */
+export interface ProfileModel {
+  id: string;
+  label: string;
+}
+
+/** A local model server Hangar watches (Rust `local_llm.rs`). */
+export type LocalServerId = "ollama" | "lmstudio";
+
+/** Where a chosen model comes from: the program's vendor or a local server. */
+export type ModelSource = "provider" | LocalServerId;
+
+/** Rust `ModelChoice`: the model a session starts with (`create_session`, ADR 0022). */
+export interface SessionModel {
+  source: ModelSource;
+  id: string;
 }
 
 /** Rust `LabelKey`: a command label Hangar translates (`agentCommand.<key>` in i18n.ts). */
@@ -161,6 +189,8 @@ export interface SessionInfo {
   mode?: SessionMode;
   /** The sub-agent definition the session runs as (`--agent`); kept across restarts. */
   subAgent?: string | null;
+  /** The model chosen at the start (ADR 0022), `null` for the program's own default. */
+  model?: SessionModel | null;
 }
 
 /**
@@ -236,6 +266,8 @@ export interface StartOptions {
   startPrompt: StartPrompt | null;
   /** Start as this sub-agent definition; only for profiles with `takesAgent`. */
   subAgent?: string | null;
+  /** Start with this model instead of the program's default (ADR 0022). */
+  model?: SessionModel | null;
 }
 
 export const NO_START_OPTIONS: StartOptions = { instructions: false, startPrompt: null };
@@ -270,6 +302,7 @@ export const api = {
       instructions: options.instructions,
       startPrompt: options.startPrompt,
       subAgent: options.subAgent ?? null,
+      model: options.model ?? null,
     }),
   /** Opens HANGAR.md in the default editor; the backend creates it from a template if missing. */
   openHangarMd: () => invoke<null>("open_hangar_md"),
@@ -691,6 +724,10 @@ export const api = {
   systemUsage: () => invoke<unknown>("system_usage"),
   /** Battery or AC, read afresh (power.ts parses it). */
   powerState: () => invoke<unknown>("power_state"),
+  /** Whether Ollama and LM Studio run and their models; check with `parseLocalLlmState`. */
+  localLlmStatus: () => invoke<unknown>("local_llm_status"),
+  /** Probes both servers at once and answers with the new state, as `localLlmStatus`. */
+  localLlmRefresh: () => invoke<unknown>("local_llm_refresh"),
   /** Linux: the waiting sessions on the launcher icon; 0 hides the count (launcher_badge.rs). */
   setLauncherCount: (count: number) => invoke<unknown>("set_launcher_count", { count }),
   /** Push settings and which secrets are stored, never their values (phonePush.ts parses it). */
@@ -1071,6 +1108,8 @@ export const SUB_AGENT_COUNTS_CHANGED = "sub-agent-counts-changed";
 export const COST_USAGE_CHANGED = "cost-usage-changed";
 /** Event with the new power state, sent only on a change (`parsePowerState` in power.ts). */
 export const POWER_CHANGED = "power-changed";
+/** Event with the local servers' state, sent only on a change (`parseLocalLlmState`). */
+export const LOCAL_LLM_CHANGED = "local-llm-changed";
 /**
  * Signal without payload: the claims changed; the main window reads `claimsSnapshot` (any window
  * could listen to a payload).

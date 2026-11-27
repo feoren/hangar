@@ -1,6 +1,6 @@
 import { Fragment, useEffect, useId, useMemo, useRef, useState } from "react";
 
-import type { AgentCommand, Profile } from "./api";
+import type { AgentCommand, Profile, SessionModel } from "./api";
 import { AppMenu, type MenuGroup } from "./AppMenu";
 import type { AttentionReason, AttentionState } from "./attention";
 import { Badge } from "./Badge";
@@ -60,6 +60,8 @@ import type { BadgeLook } from "./programPrefs";
 import type { SessionView } from "./sessions";
 import { labelWithVersion, type ProgramVersions } from "./programs";
 import { offerShowsInstalled, runnableUpdate, type ProgramUpdates } from "./programUpdates";
+import { modelNote, modelSections, type LocalLlmState } from "./localLlm";
+import { ModelMenuButton } from "./ModelMenu";
 import { PopupMenu, type PopupItem } from "./PopupMenu";
 import { markerColorText } from "./SessionMarker";
 import { SessionPeek, useSessionPeek } from "./SessionPeek";
@@ -231,8 +233,13 @@ interface Props {
   onHome: () => void;
   onMenuClose: () => void;
   onActivate: (id: number) => void;
-  /** Starts a program in the target, as the switch says (private or team session). */
-  onStart: (profile: Profile) => void;
+  /**
+   * Starts a program in the target, as the switch says (private or team session); `model`: with
+   * that model instead of the program's default (ADR 0022).
+   */
+  onStart: (profile: Profile, model?: SessionModel) => void;
+  /** Ollama's and LM Studio's state for the rows' model menus; `null` while unknown. */
+  localLlm: LocalLlmState | null;
   /** Recently opened sessions not open now, most recent first (recentlyOpened.ts `shownRecent`). */
   recentSessions: readonly RecentSession[];
   /** Starts that session again: same program, folder, title and conversation. */
@@ -748,6 +755,7 @@ export function Sidebar(props: Props) {
           cost: costNote(peekCost, props.language, t),
           devServer: props.devServers.get(peekSession.id),
           program: programLine(profileById.get(peekSession.profileId), versions),
+          model: modelNote(peekSession.model, profileById.get(peekSession.profileId), t),
           cwd: peekSession.cwd,
         })}
         badge={
@@ -1518,6 +1526,7 @@ export function Sidebar(props: Props) {
             .map((profile) => {
               const version = versions.get(profile.id);
               const programUpdate = props.updates.get(profile.id);
+              const models = modelSections(profile, props.localLlm);
               return (
                 <li key={profile.id} className="profile-row">
                   <button
@@ -1540,6 +1549,16 @@ export function Sidebar(props: Props) {
                     )}
                     <PlusIcon />
                   </button>
+                  {models.length > 0 && (
+                    <ModelMenuButton
+                      program={profile.name}
+                      sections={models}
+                      onPick={(model) => {
+                        props.onStart(profile, model);
+                      }}
+                      onAction={props.onMenuClose}
+                    />
+                  )}
                   {programUpdate !== undefined && (
                     <ProgramUpdateOffer
                       className="in-sidebar"

@@ -2796,6 +2796,32 @@ h2 .beta-badge {
   min-width: 0;
 }
 
+/* "›" at a program row's end (ModelMenu.tsx): muted like the app menu's submenu arrow, lit
+   while its menu is open. */
+.profile-models {
+  flex: none;
+  margin-right: 2px;
+}
+
+.profile-models[aria-expanded="true"] {
+  color: var(--text);
+  background: var(--hover);
+}
+
+/* Local model ids run long (hf.co/org/repo:quant) and a server can hold many: the menu stays
+   inside the window and scrolls; a cut name is whole in the item's tooltip. */
+.model-menu {
+  max-width: min(380px, calc(100vw - 16px));
+  max-height: calc(100vh - 16px);
+  overflow-y: auto;
+}
+
+.model-menu .menu-label {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
 /* Recently opened: a group of its own right above New session, with the same header. It parts
    from what is above by one line, as New session does, and gives way first when the sidebar is
    short. Rows like the programs', on two lines: the folder, then the title (or program) and how
@@ -6519,6 +6545,44 @@ label.setting-line:hover {
 .main-bar-toggle[aria-pressed="true"] {
   color: var(--accent);
   background: color-mix(in srgb, var(--accent) 14%, transparent);
+}
+
+/* The local model servers (LocalLlmBadges.tsx): the mark in the muted color with a small dot on
+   its corner, green while the server runs. The words are in the tooltip and the accessible name. */
+.local-llm {
+  display: inline-flex;
+  flex: none;
+  gap: 2px;
+  align-items: center;
+}
+
+.local-llm-badge {
+  position: relative;
+  display: grid;
+  place-items: center;
+  width: 26px;
+  height: 26px;
+  color: var(--muted);
+  border-radius: 6px;
+}
+
+.local-llm-badge.running {
+  color: var(--text);
+}
+
+.local-llm-dot {
+  position: absolute;
+  right: 4px;
+  bottom: 4px;
+  width: 6px;
+  height: 6px;
+  background: color-mix(in srgb, var(--muted) 60%, var(--panel));
+  border-radius: 50%;
+  box-shadow: 0 0 0 1.5px var(--panel);
+}
+
+.local-llm-badge.running .local-llm-dot {
+  background: var(--ok);
 }
 
 .workspace {

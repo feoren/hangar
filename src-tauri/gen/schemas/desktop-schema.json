@@ -783,6 +783,18 @@
           "markdownDescription": "Enables the load_workspace command without any pre-configured scope."
         },
         {
+          "description": "Enables the local_llm_refresh command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-local-llm-refresh",
+          "markdownDescription": "Enables the local_llm_refresh command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the local_llm_status command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-local-llm-status",
+          "markdownDescription": "Enables the local_llm_status command without any pre-configured scope."
+        },
+        {
           "description": "Enables the log_work_phase command without any pre-configured scope.",
           "type": "string",
           "const": "allow-log-work-phase",
@@ -2101,6 +2113,18 @@
           "type": "string",
           "const": "deny-load-workspace",
           "markdownDescription": "Denies the load_workspace command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the local_llm_refresh command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-local-llm-refresh",
+          "markdownDescription": "Denies the local_llm_refresh command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the local_llm_status command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-local-llm-status",
+          "markdownDescription": "Denies the local_llm_status command without any pre-configured scope."
         },
         {
           "description": "Denies the log_work_phase command without any pre-configured scope.",

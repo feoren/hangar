@@ -17,6 +17,7 @@ use hangar_lib::manager::{
 use hangar_lib::profile::Profile;
 use hangar_lib::secrets::{self, SecretError, SecretStore};
 use hangar_lib::session::{GateStatus, SessionInfo, SessionKind, SessionMode, Status};
+use hangar_lib::start_model::{LocalLaunch, LocalSpecs, ModelOption, ModelSource, StartModel};
 use hangar_lib::updates::{CommandError, PlatformHint};
 use zeroize::Zeroizing;
 
@@ -45,6 +46,9 @@ fn profile(id: &str, command: &str, args: &[&str]) -> Profile {
         packages: None,
         self_update: None,
         agent_commands: Vec::new(),
+        models: None,
+        model_args: None,
+        local: None,
     }
 }
 
@@ -2292,4 +2296,159 @@ fn a_sub_agent_session_keeps_its_agent_across_a_restart() {
         |_| {},
     );
     assert!(matches!(refused, Err(ManagerError::NoSubAgentStart(_))));
+}
+
+// --- Model choice per start (ADR 0022, start_model.rs) ---
+
+fn model_profile() -> Profile {
+    let (command, args): (&str, &[&str]) = if cfg!(windows) {
+        (
+            "cmd",
+            &[
+                "/d",
+                "/c",
+                "echo",
+                "MODEL=[%M_URL%][%M_KEY%][%M_PROFILE%]",
+                "ARGS=",
+            ],
+        )
+    } else {
+        (
+            "sh",
+            &[
+                "-c",
+                "echo \"MODEL=[$M_URL][$M_KEY][$M_PROFILE]\" ARGS=\"$*\"",
+                "none",
+            ],
+        )
+    };
+    let mut p = profile("modeled", command, args);
+    p.env = [("M_PROFILE".to_owned(), "profile".to_owned())].into();
+    p.secret_env = vec!["M_KEY".into()];
+    p.models = Some(vec![ModelOption {
+        id: "opus".into(),
+        label: "Opus".into(),
+    }]);
+    p.model_args = Some(vec!["--model".into(), "{model}".into()]);
+    p.local = Some(LocalSpecs {
+        ollama: Some(LocalLaunch {
+            args: vec!["--local".into(), "ollama_chat/{model}".into()],
+            env: [
+                ("M_URL".to_owned(), "{base}".to_owned()),
+                ("M_KEY".to_owned(), "local".to_owned()),
+                ("M_PROFILE".to_owned(), "local".to_owned()),
+            ]
+            .into(),
+        }),
+        lmstudio: None,
+    });
+    p
+}
+
+#[test]
+fn a_chosen_model_reaches_the_program_and_survives_a_restart() {
+    let store = Arc::new(MemoryStore::default());
+    let manager = SessionManager::new(vec![model_profile()], Vec::new(), common::home())
+        .with_secret_store(store.clone());
+    let pick = |source, id: &str| StartRequest {
+        model: Some(StartModel {
+            source,
+            id: id.into(),
+        }),
+        ..StartRequest::default()
+    };
+
+    // A vendor model: its arguments after the start arguments, no variables.
+    let (info, rx) = start_requested(
+        &manager,
+        "modeled",
+        false,
+        pick(ModelSource::Provider, "opus"),
+    );
+    assert_eq!(
+        info.model,
+        Some(StartModel {
+            source: ModelSource::Provider,
+            id: "opus".into()
+        })
+    );
+    let (output, _) = collect_until_exit(&manager, info.id, &rx);
+    assert!(output.contains("--model opus"), "{output:?}");
+
+    // A local model: the server's variables win over the profile's, a secret over them both.
+    let (info, rx) = start_requested(
+        &manager,
+        "modeled",
+        false,
+        pick(ModelSource::Ollama, "qwen3:8b"),
+    );
+    let (output, _) = collect_until_exit(&manager, info.id, &rx);
+    assert!(
+        output.contains("MODEL=[http://127.0.0.1:11434][local][local]"),
+        "{output:?}"
+    );
+    assert!(
+        output.contains("--local ollama_chat/qwen3:8b"),
+        "{output:?}"
+    );
+    secrets::set(store.as_ref(), "modeled", "M_KEY", SECRET_VALUE).unwrap();
+    wait_for_status(&manager, info.id, Status::Exited);
+    let (tx, rx) = channel();
+    let restarted = manager
+        .restart(info.id, SIZE, move |e| tx.send(e).unwrap_or(()))
+        .unwrap();
+    assert_eq!(
+        restarted.model.as_ref().map(|m| m.id.as_str()),
+        Some("qwen3:8b")
+    );
+    let (output, _) = collect_until_exit(&manager, info.id, &rx);
+    assert!(
+        output.contains(&format!(
+            "MODEL=[http://127.0.0.1:11434][{SECRET_VALUE}][local]"
+        )),
+        "{output:?}"
+    );
+    assert!(output.contains("ollama_chat/qwen3:8b"), "{output:?}");
+
+    // Refused before anything starts: unknown vendor model, bad id, no LM Studio entry.
+    for request in [
+        pick(ModelSource::Provider, "sonnet"),
+        pick(ModelSource::Provider, "--dangerous"),
+        pick(ModelSource::Lmstudio, "qwen3:8b"),
+    ] {
+        let refused = manager.create_requested(
+            "modeled",
+            None,
+            SIZE,
+            false,
+            None,
+            SessionMode::Private,
+            request,
+            |_| {},
+        );
+        assert!(matches!(refused, Err(ManagerError::Model(_))));
+    }
+}
+
+#[test]
+fn a_restore_whose_stored_model_is_gone_starts_without_it() {
+    let manager = SessionManager::new(vec![model_profile()], Vec::new(), common::home());
+    for (source, id) in [
+        (ModelSource::Provider, "sonnet"),
+        (ModelSource::Lmstudio, "qwen3:8b"),
+    ] {
+        let request = StartRequest {
+            model: Some(StartModel {
+                source,
+                id: id.into(),
+            }),
+            ..StartRequest::default()
+        };
+        // `resume`: a restore, a restart of a placeholder or a reopened recent session.
+        let (info, rx) = start_requested(&manager, "modeled", true, request);
+        assert_eq!(info.model, None);
+        let (output, _) = collect_until_exit(&manager, info.id, &rx);
+        assert!(!output.contains("--model"), "{output:?}");
+        assert!(!output.contains("--local"), "{output:?}");
+    }
 }

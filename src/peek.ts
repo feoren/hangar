@@ -87,6 +87,8 @@ export interface PeekNoteSources {
   devServer?: string | null | undefined;
   /** The session's program and its version ("PowerShell 7 · 7.6.9"). */
   program?: string | null | undefined;
+  /** The model chosen at the start ("Model: Opus 5.5", localLlm.ts modelNote). */
+  model?: string | null | undefined;
   /** The session's working folder. */
   cwd?: string | null | undefined;
 }
@@ -94,7 +96,7 @@ export interface PeekNoteSources {
 /**
  * The muted lines under the peek's title: what needs action first (overlap, gate, exit code),
  * then the queued message, the outlier note, the load and context a compact row leaves out, the
- * tokens and estimated cost, the dev server and the program, then the working folder. Empty and
+ * tokens and estimated cost, the dev server, the program and its model, then the working folder. Empty and
  * repeated texts are left out.
  */
 export function peekNotes(sources: PeekNoteSources): string[] {
@@ -110,6 +112,7 @@ export function peekNotes(sources: PeekNoteSources): string[] {
     sources.cost,
     sources.devServer,
     sources.program,
+    sources.model,
     sources.cwd,
   ];
   for (const text of ordered) {

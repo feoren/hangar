@@ -4,6 +4,34 @@
     "date": null,
     "items": [
       {
+        "de": "Wähl beim Start ein Modell: „›“ neben Claude Code, Codex CLI und Co. Auch lokale Modelle aus Ollama und LM Studio, deren Status oben in der Leiste steht.",
+        "en": "Pick a model when you start: “›” next to Claude Code, Codex CLI and others. Local models from Ollama and LM Studio too, with their status in the top bar.",
+        "el": "Διάλεξε μοντέλο στην έναρξη: «›» δίπλα στο Claude Code, στο Codex CLI και σε άλλα. Και τοπικά μοντέλα από Ollama και LM Studio, με την κατάστασή τους επάνω.",
+        "es": "Elige un modelo al iniciar: «›» junto a Claude Code, Codex CLI y otros. También modelos locales de Ollama y LM Studio, con su estado en la barra superior.",
+        "fr": "Choisis un modèle au lancement : « › » à côté de Claude Code, Codex CLI et d'autres. Aussi des modèles locaux d'Ollama et LM Studio, état en haut.",
+        "it": "Scegli un modello all'avvio: «›» accanto a Claude Code, Codex CLI e altri. Anche modelli locali da Ollama e LM Studio, con lo stato nella barra in alto.",
+        "ja": "開始時にモデルを選べます。Claude Code や Codex CLI などの横の「›」から。Ollama と LM Studio のローカルモデルにも対応し、状態は上部バーに表示されます。",
+        "pl": "Wybierz model przy starcie: „›” obok Claude Code, Codex CLI i innych. Także lokalne modele z Ollama i LM Studio, ze stanem na górnym pasku.",
+        "pt": "Escolha um modelo ao iniciar: “›” ao lado do Claude Code, Codex CLI e outros. Também modelos locais do Ollama e LM Studio, com o status na barra superior.",
+        "ru": "Выбирай модель при запуске: «›» рядом с Claude Code, Codex CLI и другими. И локальные модели из Ollama и LM Studio, их статус виден в верхней панели.",
+        "tr": "Başlatırken model seç: Claude Code, Codex CLI ve diğerlerinin yanındaki “›”. Ollama ve LM Studio'daki yerel modeller de var, durumları üst çubukta.",
+        "zh": "启动时可选择模型：点 Claude Code、Codex CLI 等旁边的“›”。也支持 Ollama 和 LM Studio 的本地模型，其状态显示在顶部栏。"
+      },
+      {
+        "de": "Neu unter den Programmen: Hermes Agent von Nous Research und OpenClaw.",
+        "en": "New among the programs: Hermes Agent by Nous Research and OpenClaw.",
+        "el": "Νέα στα προγράμματα: το Hermes Agent της Nous Research και το OpenClaw.",
+        "es": "Nuevos entre los programas: Hermes Agent de Nous Research y OpenClaw.",
+        "fr": "Nouveaux parmi les programmes : Hermes Agent de Nous Research et OpenClaw.",
+        "it": "Nuovi tra i programmi: Hermes Agent di Nous Research e OpenClaw.",
+        "ja": "新しいプログラム: Nous Research の Hermes Agent と OpenClaw。",
+        "pl": "Nowe wśród programów: Hermes Agent od Nous Research i OpenClaw.",
+        "pt": "Novos entre os programas: Hermes Agent da Nous Research e OpenClaw.",
+        "ru": "Новое среди программ: Hermes Agent от Nous Research и OpenClaw.",
+        "tr": "Programlara yeni eklenenler: Nous Research'ün Hermes Agent'ı ve OpenClaw.",
+        "zh": "新增程序：Nous Research 的 Hermes Agent 和 OpenClaw。"
+      },
+      {
         "de": "Jede Session zeigt oben ihren Projektordner statt deines ersten Prompts. Eigene Namen bleiben und stehen darunter.",
         "en": "Every session shows its project folder at the top instead of your first prompt. Names you give stay and appear below it.",
         "el": "Κάθε session δείχνει επάνω τον φάκελο του έργου αντί για την πρώτη σου εντολή. Τα δικά σου ονόματα μένουν και εμφανίζονται από κάτω.",

@@ -39,6 +39,7 @@ use crate::secrets::{self, KeyringStore, SecretStore};
 use crate::session::{
     GateStatus, SessionId, SessionInfo, SessionKind, SessionMode, Status, TransitionError,
 };
+use crate::start_model::{self, ModelLaunch, StartModel};
 use crate::subagents;
 use crate::unattended;
 use crate::updates::{self, CommandError};
@@ -327,6 +328,8 @@ pub enum ManagerError {
     InvalidSubAgent(String),
     #[error("{0} cannot start as a sub-agent")]
     NoSubAgentStart(String),
+    #[error(transparent)]
+    Model(#[from] start_model::ModelError),
     #[error("The update of {0} is already running")]
     UpdateRunning(String),
     #[error("The update of {0} changed since it was shown; check for updates again")]
@@ -505,6 +508,8 @@ struct Entry {
     instructions: Option<PathBuf>,
     /// The sub-agent definition the session runs as; restarts and fallbacks keep it.
     sub_agent: Option<String>,
+    /// What the chosen model adds to every process of the session (ADR 0022).
+    model: Option<ModelLaunch>,
     /// The user ended the running process. Its exit code is then no sign of a
     /// failed resume.
     kill_requested: bool,
@@ -659,7 +664,11 @@ impl Shared {
                 (
                     plan,
                     entry.info.mode,
-                    (entry.instructions.clone(), entry.sub_agent.clone()),
+                    (
+                        entry.instructions.clone(),
+                        entry.sub_agent.clone(),
+                        entry.model.clone(),
+                    ),
                 ),
                 entry.info.sub_agents,
             )
@@ -794,13 +803,16 @@ struct Launch<'a> {
     extras: StartExtras,
 }
 
+/// What every process of a session gets again: `HANGAR.md`, the sub-agent and the model.
+type Kept = (Option<PathBuf>, Option<String>, Option<ModelLaunch>);
+
 impl<'a> Launch<'a> {
     /// A restart or a fallback: `HANGAR.md` and the sub-agent again, but no first prompt.
     fn normal(
         args: &'a [String],
         kind: SessionKind,
         mode: SessionMode,
-        (instructions, sub_agent): (Option<PathBuf>, Option<String>),
+        (instructions, sub_agent, model): Kept,
     ) -> Self {
         Self {
             args,
@@ -812,6 +824,7 @@ impl<'a> Launch<'a> {
                 prompt: None,
                 sub_agent,
                 hint: None,
+                model,
             },
         }
     }
@@ -828,6 +841,9 @@ pub struct StartRequest {
     /// Start as this sub-agent definition (`agent_args`); only programs that take one, and only
     /// a name [`crate::agent_defs::valid_name`] accepts.
     pub sub_agent: Option<String>,
+    /// Start with this model (ADR 0022): one of the program's vendor models or a model of a
+    /// local server it can run against. Checked before anything starts ([`start_model::launch`]).
+    pub model: Option<StartModel>,
 }
 
 /// [`StartRequest`] resolved by the manager: the file's path and the prompt's text.
@@ -842,6 +858,8 @@ pub struct StartExtras {
     /// A line of Hangar's own after `HANGAR.md` ([`instructions::with_hint`]); set per process
     /// start by [`LaunchSend`], never stored with the session.
     pub hint: Option<String>,
+    /// The chosen model's arguments and variables, every process of the session.
+    pub model: Option<ModelLaunch>,
 }
 
 /// Arguments `extras` adds for `agent` started as `program`: the instructions go before the start
@@ -883,6 +901,14 @@ pub fn extra_args(
         _ => Vec::new(),
     });
     (before, after)
+}
+
+/// The start arguments followed by the chosen model's (ADR 0022).
+fn with_model(mut start: Vec<String>, model: Option<&ModelLaunch>) -> Vec<String> {
+    if let Some(model) = model {
+        start.extend(model.args.iter().cloned());
+    }
+    start
 }
 
 /// `before` with the config overrides of the sub-agent model default in front: they go before a
@@ -1455,9 +1481,28 @@ impl SessionManager {
             }),
             sub_agent: request.sub_agent,
             hint: None,
+            model: None,
         };
         let stored = cli_session_id.map(cli_session::validate).transpose()?;
         let agent = self.agent(profile_id)?;
+        // A new start with a model that cannot start is an error, never the program's default.
+        // A restore, a restart or a reopened recent session (`resume`) brings a stored choice
+        // that may be gone since (the catalog or the profile changed): it starts without it.
+        let mut extras = extras;
+        extras.model = match request.model.as_ref() {
+            None => None,
+            Some(choice) => match start_model::launch(agent.profile.model_spec(), choice) {
+                Ok(launch) => Some(launch),
+                Err(error) if resume => {
+                    eprintln!(
+                        "hangar: starting {} without its stored model: {error}",
+                        agent.profile.name
+                    );
+                    None
+                }
+                Err(error) => return Err(error.into()),
+            },
+        };
         if let Some(name) = &extras.sub_agent {
             if !crate::agent_defs::valid_name(name) {
                 return Err(ManagerError::InvalidSubAgent(name.clone()));
@@ -1480,7 +1525,8 @@ impl SessionManager {
             kind: SessionKind::Agent,
             mode,
         };
-        self.start(agent, cwd, size, plan, kind, extras, title, sink)
+        let chosen = extras.model.as_ref().and(request.model);
+        self.start(agent, cwd, size, plan, kind, (extras, chosen), title, sink)
     }
 
     /// Like [`Self::create`]; with `resume` the program starts with `command` + `resume_args`
@@ -1554,7 +1600,7 @@ impl SessionManager {
         };
         // An installer, not the agent: no instructions, no prompt.
         let extras = StartExtras::default();
-        self.start(updater, None, size, plan, kind, extras, title, sink)
+        self.start(updater, None, size, plan, kind, (extras, None), title, sink)
     }
 
     fn agent(&self, profile_id: &str) -> Result<Agent, ManagerError> {
@@ -1578,7 +1624,7 @@ impl SessionManager {
         size: TermSize,
         plan: Plan,
         start: Start,
-        mut extras: StartExtras,
+        (mut extras, chosen): (StartExtras, Option<StartModel>),
         title: String,
         sink: impl EventSink,
     ) -> Result<SessionInfo, ManagerError> {
@@ -1618,6 +1664,7 @@ impl SessionManager {
             info.kind = kind;
             info.mode = mode;
             info.sub_agent.clone_from(&extras.sub_agent);
+            info.model = chosen;
             set_cli_session(&mut info, &agent, plan.cli_session_id.clone());
             sessions.insert(
                 id,
@@ -1629,6 +1676,7 @@ impl SessionManager {
                     size,
                     instructions: extras.instructions.clone(),
                     sub_agent: extras.sub_agent.clone(),
+                    model: extras.model.clone(),
                     kill_requested: false,
                     unattended: None,
                 },
@@ -1706,7 +1754,11 @@ impl SessionManager {
                 kind,
                 (
                     entry.info.mode,
-                    (entry.instructions.clone(), entry.sub_agent.clone()),
+                    (
+                        entry.instructions.clone(),
+                        entry.sub_agent.clone(),
+                        entry.model.clone(),
+                    ),
                 ),
                 plan,
             )
@@ -2084,8 +2136,16 @@ fn spawn(
     } else {
         (Vec::new(), Vec::new())
     };
+    // The model's arguments after the start arguments, before the sub-agent and the first
+    // prompt; never dropped for length, like the start arguments.
+    let model = launch
+        .extras
+        .model
+        .as_ref()
+        .filter(|_| launch.kind == SessionKind::Agent);
+    let start = with_model(args, model);
     let parts = ArgParts {
-        start: args,
+        start,
         gate: gate.as_ref(),
         send: &send.prepend,
         cwd_flag: agent
@@ -2110,6 +2170,11 @@ fn spawn(
     let no_cwd_lookup = no_cwd_lookup(launch.kind, agent.source, batch, &program);
     crate::child_env::apply(&mut command, &profile.env, no_cwd_lookup);
     for (name, value) in &models.env {
+        command.env(name, value);
+    }
+    // The chosen local server's variables: after the profile's, before its secrets, so a user's
+    // own secret still wins (ADR 0022).
+    for (name, value) in model.iter().flat_map(|model| &model.env) {
         command.env(name, value);
     }
     // Straight into the child's environment; the values are not kept anywhere else.
@@ -2382,6 +2447,7 @@ mod tests {
             size: TermSize { cols: 80, rows: 24 },
             instructions: None,
             sub_agent: None,
+            model: None,
             kill_requested: false,
             unattended: None,
         };
@@ -2433,6 +2499,7 @@ mod tests {
             prompt: Some("Check upstream.".into()),
             sub_agent: None,
             hint: None,
+            model: None,
         };
         let both = prompted_agent(
             "instruction_args = ['--append-system-prompt', '{text}']\nprompt_args = ['{prompt}']\n",
@@ -2550,6 +2617,7 @@ mod tests {
             prompt: Some("Go.".into()),
             sub_agent: Some("backend".into()),
             hint: None,
+            model: None,
         };
         assert_eq!(
             extra_args(&agent, program, &extras),
@@ -3023,6 +3091,7 @@ mod tests {
                 size: TermSize { cols: 80, rows: 24 },
                 instructions: None,
                 sub_agent: None,
+                model: None,
                 kill_requested: false,
                 unattended: None,
             },
