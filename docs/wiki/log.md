@@ -1793,3 +1793,9 @@ A `shell_environment_policy` in a project's `.codex/config.toml` between the wor
 the repository root (top level or in a profile table), or such a file that cannot be read as TOML,
 now means the Codex session is not offered sending; project layering is not measured. Updated:
 [[codex-shell-environment-measurement]] (and its raw record).
+
+## [2026-11-27] ingest | Model choice per start and local LLM servers
+New decision [[0022-models-and-local-llm-servers]]: the vendor models of Claude Code, Codex CLI and
+Gemini CLI and the models of a running Ollama or LM Studio can be picked per start; Hermes Agent
+and OpenClaw join the catalog. Facts from the official docs of Ollama, LM Studio, Claude Code,
+Codex CLI, Gemini CLI, Aider, Hermes Agent and OpenClaw (URLs in the decision).
