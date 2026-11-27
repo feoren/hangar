@@ -4,6 +4,20 @@
     "date": null,
     "items": [
       {
+        "de": "Jede Session zeigt oben ihren Projektordner statt deines ersten Prompts. Eigene Namen bleiben und stehen darunter.",
+        "en": "Every session shows its project folder at the top instead of your first prompt. Names you give stay and appear below it.",
+        "el": "Κάθε session δείχνει επάνω τον φάκελο του έργου αντί για την πρώτη σου εντολή. Τα δικά σου ονόματα μένουν και εμφανίζονται από κάτω.",
+        "es": "Cada sesión muestra arriba su carpeta de proyecto en lugar de tu primer prompt. Los nombres que pongas se mantienen y aparecen debajo.",
+        "fr": "Chaque session affiche en haut son dossier de projet au lieu de ton premier prompt. Les noms que tu donnes restent et s'affichent dessous.",
+        "it": "Ogni sessione mostra in alto la cartella del progetto invece del tuo primo prompt. I nomi che dai restano e compaiono sotto.",
+        "ja": "各セッションの上部には、最初のプロンプトではなくプロジェクトフォルダーが表示されます。付けた名前は残り、その下に表示されます。",
+        "pl": "Każda sesja pokazuje u góry folder projektu zamiast twojego pierwszego promptu. Nadane nazwy zostają i są widoczne pod spodem.",
+        "pt": "Cada sessão mostra no topo a pasta do projeto em vez do seu primeiro prompt. Os nomes que você der ficam e aparecem abaixo.",
+        "ru": "Каждая сессия показывает сверху папку проекта вместо твоего первого промпта. Свои имена остаются и видны ниже.",
+        "tr": "Her oturum, ilk istemin yerine en üstte proje klasörünü gösterir. Verdiğin adlar kalır ve altında görünür.",
+        "zh": "每个会话顶部显示项目文件夹，而不是你的第一条提示。你起的名字会保留并显示在下方。"
+      },
+      {
         "de": "Die Karte zur Verknüpfung eines Verbunds ist jetzt klein und ruhig: eine Zeile mit den Mitgliedern.",
         "en": "The card for a new link group is now small and quiet: one line with its members.",
         "el": "Η κάρτα για ένα νέο δίκτυο είναι τώρα μικρή και διακριτική: μία γραμμή με τα μέλη.",

@@ -291,7 +291,6 @@ import {
   type ShellKind,
   type TreePath,
 } from "./pathQuote";
-import { promptVerdict } from "./promptTitle";
 import { pushEventFor, PushScheduler, PUSH_TEXTS } from "./phonePush";
 import { isQuietTime, noticesAt } from "./quietHours";
 import {
@@ -2672,33 +2671,6 @@ export function App() {
         if (groupOf(linkStateRef.current, id) !== undefined) {
           api.linkPersonTyped(id).catch(() => undefined);
         }
-      };
-      // An agent session is named after its first task, unless the user named it (promptTitle.ts).
-      terminal.onPromptLine = (line) => {
-        const session = stateRef.current.sessions.find((s) => s.id === id);
-        const profile = profilesRef.current.find((p) => p.id === session?.profileId);
-        // Placeholders and unknown programs wait: the shell kind decides, and it needs the profile.
-        if (session === undefined || profile === undefined || isPlaceholder(id)) return;
-        const verdict = promptVerdict(
-          {
-            title: session.title,
-            cwd: session.cwd,
-            kind: session.kind,
-            programNames: [profile.name, profile.id],
-            shell: shellKind(profile.command),
-          },
-          line,
-        );
-        if (verdict.kind === "wait") return;
-        terminal.onPromptLine = null;
-        if (verdict.kind === "stop") return;
-        api
-          .rename(id, verdict.title)
-          .then((info) => {
-            dispatch({ type: "updated", session: info });
-          })
-          // Not worth an error: the session keeps its name, the user can still rename it.
-          .catch(() => undefined);
       };
       terminal.onDevServer = (url) => {
         setDevServers((current) => {

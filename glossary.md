@@ -241,7 +241,6 @@ UI texts in `src/i18n.ts` are translated per language and are not bound by this 
 | Letzter Prompt (Leiste)                         | last prompt bar                   | the user's last prompt above an agent's terminal; click jumps there; `lastPrompt.ts` |
 | Zeilenkommentar (Diff)                          | line comment                      | `@path:line: text` from a diff line into the agent's prompt; `lineComment`           |
 | Fertig-Hinweis                                  | done notice                       | changed files after an agent session stops working; `doneNotice.ts`                  |
-| Name aus dem ersten Prompt                      | prompt title                      | an agent session named after its first task; `promptTitle.ts`                        |
 | Dev-Server (lokal)                              | dev server                        | local address found in a session's output; `devServer.ts`, globe on the row          |
 | Upstream (Branch)                               | upstream                          | the branch's tracking branch, e.g. `origin/main`                                     |
 | Nicht gepusht                                   | unpushed                          | on HEAD but not on the upstream; `CommitSummary.pushed`                              |

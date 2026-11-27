@@ -1,16 +1,16 @@
-// Main and second line of a session row in the Sessions group. A session still called after its
-// program ("Claude Code", "Claude Code (2)") is named after its project folder instead, and the
-// program moves to the second line, as it does for a name that only repeats the folder; any other
-// name the person gave keeps its place. Pure.
+// Main and second line of a session row in the Sessions group. Every session leads with its
+// project folder, so the person always sees which project a row is; a name the person gave moves
+// to the second place (the status line, the row inside a project group), and a session still
+// called after its program ("Claude Code", "Claude Code (2)") shows the program there. Pure.
 
 import { folderName } from "./folders";
 
 export interface SessionLabel {
-  /** Main line: the project folder, or the session's own name. */
+  /** Main line: the project folder, or the session's own name where it has no folder. */
   primary: string;
-  /** Second line: the program when the folder leads, otherwise the folder. */
+  /** Second place: the session's own name, or the program; the folder where no folder leads. */
   secondary: string;
-  /** The folder leads (the program name is on the second line). */
+  /** The folder leads (the name or program is in the second place). */
   byFolder: boolean;
 }
 
@@ -23,9 +23,9 @@ export interface LabelInput {
 }
 
 /**
- * Who the status line names as its subject ("Claude Code is working"): the program, or for a
- * numbered twin its numbered title, so two Claude Codes in one folder stay apart. Without a
- * known program, the session's title.
+ * Who the status line names as its subject ("Claude Code is working"): the program, the name the
+ * person gave the session, or for a numbered twin its numbered title, so two Claude Codes in one
+ * folder stay apart. Without a known program, the session's title.
  */
 export function statusSubject(
   label: SessionLabel | null,
@@ -86,16 +86,15 @@ export function sessionLabels(
   // would not say, so the program takes the second line there as well.
   const repeatsFolder = (session: LabelInput) =>
     session.title.trim().toLocaleLowerCase() === projectFolder(session.cwd).toLocaleLowerCase();
+  const programTitled = (session: LabelInput) =>
+    repeatsFolder(session) || isProgramTitle(session.title, [program(session), session.profileId]);
   const leadsByFolder = (session: LabelInput) =>
-    session.kind !== "update" &&
-    projectFolder(session.cwd) !== "" &&
-    (repeatsFolder(session) ||
-      isProgramTitle(session.title, [program(session), session.profileId]));
+    session.kind !== "update" && projectFolder(session.cwd) !== "";
   const twins = new Map<string, number>();
   const twinKey = (session: LabelInput) =>
     `${projectFolder(session.cwd).toLocaleLowerCase()}\u0000${program(session).toLocaleLowerCase()}`;
   for (const session of sessions) {
-    if (!leadsByFolder(session)) continue;
+    if (!leadsByFolder(session) || !programTitled(session)) continue;
     const key = twinKey(session);
     twins.set(key, (twins.get(key) ?? 0) + 1);
   }
@@ -105,8 +104,12 @@ export function sessionLabels(
       labels.set(session.id, { primary: session.title, secondary: folder, byFolder: false });
       continue;
     }
-    const shared = (twins.get(twinKey(session)) ?? 0) > 1;
     const title = session.title.trim();
+    if (!programTitled(session)) {
+      labels.set(session.id, { primary: folder, secondary: title, byFolder: true });
+      continue;
+    }
+    const shared = (twins.get(twinKey(session)) ?? 0) > 1;
     labels.set(session.id, {
       primary: folder,
       secondary: shared && title !== "" && !repeatsFolder(session) ? title : program(session),
