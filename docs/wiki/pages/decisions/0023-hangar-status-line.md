@@ -71,12 +71,17 @@ Facts this decision rests on (docs read 2026-11-27, measurements of the same day
    plan, cache, rate, session name, repository, ... last model, context and cost), a glued
    segment with the one it belongs to. Every text from the input or from git passes `clean`:
    controls (C0, DEL, C1) and direction or zero width characters become `?`. Links (OSC 8) only
-   for Claude Code and only for `https` URLs of printable ASCII. Glyphs are text symbols of one
-   column, no emoji.
+   for Claude Code and only for `https` URLs of printable ASCII. The look follows the owner's own
+   Claude Code status line (amended 2026-11-27): `[model]`, emoji labels (folder, branch, link,
+   cost, time, limits), ` | ` between segments; model, context, cost and time always show for
+   Claude Code. A cold prompt cache reads "cold" in the user's interface language
+   (`GetUserDefaultUILanguage` on Windows, `LC_ALL`, `LC_MESSAGES` or `LANG` elsewhere), and a
+   cache miss shows its causes for 10 minutes.
 2. **Data beyond stdin.** `git status --porcelain=v2 --branch` through `git::Git` (no hooks, filter
    drivers neutralized, no network, 2 s for all calls, folder checks of `check_folder`) and, for
    Claude Code, the display name and plan from `oauthAccount` in `~/.claude.json` (or
-   `CLAUDE_CONFIG_DIR`); never the e-mail or any key, nothing logged. Both are cached per session
+   `CLAUDE_CONFIG_DIR`), with the e-mail as the owner's line shows it (amended 2026-11-27: the
+   first version left it out); never any key, nothing logged. Both are cached per session
    id for 5 s in `<local data>/status-line/`, named by `HANGAR_STATUS_DIR`; files untouched for 24
    hours are removed on a cache miss. Measured on the debug build: 385 ms with a fresh git
    reading, 26 ms from the cache.

@@ -2,7 +2,8 @@
 //! (`statusLine` in `--settings`) and Qwen Code (`ui.statusLine` in the session's system
 //! settings) run `hangar status-line <claude|qwen>`, which reads the program's JSON on stdin and
 //! prints two lines: where the session works (model, account, folder, branch, repository, pull
-//! request) and how it is doing (context, cache, changed lines, cost, time, limits). Codex CLI
+//! request) and how it is doing (context, cache, changed lines, cost, time, limits), in the look
+//! of the owner's own Claude Code status line: emoji labels, `|` between segments. Codex CLI
 //! has no command line of its own; it gets its built-in items in Hangar's order
 //! ([`codex_args`]).
 //!
@@ -13,7 +14,7 @@
 //!
 //! Data that is not in the input comes from `git status` (through [`crate::git::Git`]: no hooks,
 //! no filters, no network, a time limit) and, for Claude Code, the display name and plan of the
-//! signed-in account from `~/.claude.json` (never the e-mail, never any key). Both are cached per
+//! signed-in account from `~/.claude.json` (name, e-mail and plan, never any key). Both are cached per
 //! session for [`CACHE_MAX_AGE`] in the folder named by [`CACHE_ENV`], which Hangar sets to a
 //! folder of its own; files older than [`CACHE_PRUNE`] are removed. Nothing is ever logged.
 
@@ -69,6 +70,10 @@ const MAX_ACCOUNT_BYTES: usize = 32 * 1024 * 1024;
 const MAX_CACHE_BYTES: usize = 64 * 1024;
 /// The cost rate is noise in the first minutes.
 const RATE_AFTER_MS: u64 = 10 * 60 * 1000;
+/// How long a prompt cache miss and its cause stay visible, in seconds.
+const MISS_SHOW_FOR: f64 = 600.0;
+/// Miss causes kept at most.
+const MAX_MISS_CAUSES: usize = 8;
 /// Columns Claude Code and Qwen Code keep around the line.
 const EDGE_COLUMNS: usize = 4;
 
@@ -78,8 +83,8 @@ const GREY: &str = "\x1b[90m";
 const GREEN: &str = "\x1b[32m";
 const YELLOW: &str = "\x1b[33m";
 const RED: &str = "\x1b[31m";
-const BOLD: &str = "\x1b[1m";
 const BLINK: &str = "\x1b[5m";
+const NOBLINK: &str = "\x1b[25m";
 const RESET: &str = "\x1b[0m";
 
 /// Which program's input the renderer reads.
@@ -130,6 +135,9 @@ pub struct Cache {
     pub ratio: Option<f64>,
     pub warm: bool,
     pub expires_at: Option<f64>,
+    /// Unix time in seconds of the last miss, and Claude Code's names for its causes.
+    pub miss_at: Option<f64>,
+    pub miss_causes: Vec<String>,
 }
 
 /// Everything one rendering shows, normalized from either program's input. `None` or zero
@@ -165,10 +173,12 @@ pub struct Facts {
     pub spend: Option<Limit>,
 }
 
-/// The signed-in account's display name and plan.
+/// The signed-in account's display name, e-mail and plan.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Account {
     pub name: String,
+    #[serde(default)]
+    pub email: Option<String>,
     pub plan: Option<String>,
 }
 
@@ -241,6 +251,13 @@ pub fn facts_from(source: Source, input: &Value) -> Facts {
 }
 
 fn claude_facts(input: &Value, facts: &mut Facts) {
+    // Model, context, cost and time always show, as in the owner's line.
+    if facts.model.is_none() {
+        facts.model = Some("Claude".to_owned());
+    }
+    if facts.context_percent.is_none() {
+        facts.context_percent = Some(0.0);
+    }
     facts.agent = text_at(input, &["agent", "name"]);
     facts.effort = text_at(input, &["effort", "level"]);
     facts.fast = at(input, &["fast_mode"]).and_then(Value::as_bool) == Some(true);
@@ -265,12 +282,24 @@ fn claude_facts(input: &Value, facts: &mut Facts) {
             ratio: number_at(input, &["prompt_cache", "hit_ratio"]).map(|r| r.min(1.0)),
             warm: at(input, &["prompt_cache", "warm"]).and_then(Value::as_bool) == Some(true),
             expires_at: number_at(input, &["prompt_cache", "expires_at"]),
+            miss_at: number_at(input, &["prompt_cache", "last_miss_at"]),
+            miss_causes: at(input, &["prompt_cache", "last_miss_cause", "causes"])
+                .and_then(Value::as_array)
+                .map(|causes| {
+                    causes
+                        .iter()
+                        .filter_map(Value::as_str)
+                        .take(MAX_MISS_CAUSES)
+                        .map(str::to_owned)
+                        .collect()
+                })
+                .unwrap_or_default(),
         });
     }
     facts.lines_added = count_at(input, &["cost", "total_lines_added"]).unwrap_or(0);
     facts.lines_removed = count_at(input, &["cost", "total_lines_removed"]).unwrap_or(0);
-    facts.cost_usd = number_at(input, &["cost", "total_cost_usd"]);
-    facts.duration_ms = count_at(input, &["cost", "total_duration_ms"]);
+    facts.cost_usd = number_at(input, &["cost", "total_cost_usd"]).or(Some(0.0));
+    facts.duration_ms = count_at(input, &["cost", "total_duration_ms"]).or(Some(0));
     facts.api_ms = count_at(input, &["cost", "total_api_duration_ms"]);
     facts.five_hour = limit_at(input, &["rate_limits", "five_hour"]);
     facts.seven_day = limit_at(input, &["rate_limits", "seven_day"]);
@@ -305,7 +334,7 @@ fn qwen_facts(input: &Value, facts: &mut Facts) {
         facts.cache = Some(Cache {
             ratio: Some((cached as f64 / prompt as f64).min(1.0)),
             warm: true,
-            expires_at: None,
+            ..Cache::default()
         });
     }
 }
@@ -419,15 +448,24 @@ fn plan_name(tier: &str) -> Option<String> {
     (!words.is_empty()).then(|| words.join(" "))
 }
 
-/// Display name and plan from Claude Code's `oauthAccount`; no e-mail, no key, nothing else.
+/// Display name, e-mail and plan from Claude Code's `oauthAccount`; no key, nothing else.
 pub fn parse_account(bytes: &[u8]) -> Option<Account> {
     let value: Value = serde_json::from_slice(bytes).ok()?;
     let account = value.get("oauthAccount")?;
-    let name = text_at(account, &["displayName"]).or_else(|| text_at(account, &["fullName"]))?;
+    let email = text_at(account, &["emailAddress"]);
+    let name = text_at(account, &["displayName"])
+        .or_else(|| text_at(account, &["fullName"]))
+        .or_else(|| {
+            email
+                .as_deref()
+                .and_then(|email| email.split('@').next())
+                .filter(|local| !local.trim().is_empty())
+                .map(str::to_owned)
+        })?;
     let plan = text_at(account, &["organizationRateLimitTier"])
         .or_else(|| text_at(account, &["organizationType"]))
         .and_then(|tier| plan_name(&tier));
-    Some(Account { name, plan })
+    Some(Account { name, email, plan })
 }
 
 /// Claude Code's global file: `CLAUDE_CONFIG_DIR/.claude.json` or `~/.claude.json`.
@@ -579,9 +617,32 @@ fn char_width(c: char) -> usize {
         | 0x1DC0..=0x1DFF
         | 0x200B..=0x200F
         | 0x20D0..=0x20FF
-        | 0xFE00..=0xFE0F
+        | 0xFE00..=0xFE0E
         | 0xFE20..=0xFE2F => 0,
+        // Emoji presentation widens the character before it.
+        0xFE0F => 1,
         0x1100..=0x115F
+        | 0x231A..=0x231B
+        | 0x23E9..=0x23EC
+        | 0x23F0
+        | 0x23F3
+        | 0x25FD..=0x25FE
+        | 0x2614..=0x2615
+        | 0x26A1
+        | 0x26AA..=0x26AB
+        | 0x26BD..=0x26BE
+        | 0x26C4..=0x26C5
+        | 0x26D4
+        | 0x2705
+        | 0x270A..=0x270B
+        | 0x2728
+        | 0x274C
+        | 0x2753..=0x2755
+        | 0x2757
+        | 0x2795..=0x2797
+        | 0x2B1B..=0x2B1C
+        | 0x2B50
+        | 0x2B55
         | 0x2E80..=0x303E
         | 0x3041..=0x33FF
         | 0x3400..=0x4DBF
@@ -593,6 +654,7 @@ fn char_width(c: char) -> usize {
         | 0xFF00..=0xFF60
         | 0xFFE0..=0xFFE6
         | 0x1F300..=0x1F64F
+        | 0x1F680..=0x1F6FF
         | 0x1F900..=0x1F9FF
         | 0x1FA70..=0x1FAFF
         | 0x20000..=0x3FFFD => 2,
@@ -699,11 +761,7 @@ impl Line {
         let mut out = String::new();
         for (index, (_, text, glue)) in self.items.iter().enumerate() {
             if index > 0 {
-                out.push_str(if *glue {
-                    " "
-                } else {
-                    concat!(" ", "\x1b[90m", "\u{2502}", "\x1b[0m", " ")
-                });
+                out.push_str(if *glue { " " } else { " | " });
             }
             out.push_str(text);
         }
@@ -748,7 +806,7 @@ fn effort_color(level: &str) -> &'static str {
 fn where_line(facts: &Facts, links: bool) -> Line {
     let mut line = Line::default();
     if let Some(model) = &facts.model {
-        line.add(0, format!("{CYAN}{BOLD}{}{RESET}", clean(model, 32)));
+        line.add(0, format!("{CYAN}[{}]{RESET}", clean(model, 32)));
     }
     // Mode, agent, effort and version belong to the model; without one they lead the line.
     let glue = |line: &mut Line, prio: u8, text: String| {
@@ -772,7 +830,7 @@ fn where_line(facts: &Facts, links: bool) -> Line {
         glue(
             &mut line,
             2,
-            format!("{MAGENTA}{}{RESET}", clean(agent, 20)),
+            format!("{MAGENTA}\u{1f916} {}{RESET}", clean(agent, 20)),
         );
     }
     if let Some(effort) = &facts.effort {
@@ -784,7 +842,7 @@ fn where_line(facts: &Facts, links: bool) -> Line {
         );
     }
     if facts.fast {
-        glue(&mut line, 4, format!("{MAGENTA}\u{21af}{RESET}"));
+        glue(&mut line, 4, format!("{MAGENTA}\u{21af}fast{RESET}"));
     }
     if let Some(version) = &facts.version {
         glue(
@@ -794,13 +852,16 @@ fn where_line(facts: &Facts, links: bool) -> Line {
         );
     }
     if let Some(account) = &facts.account {
-        line.add(5, clean(&account.name, 20));
+        line.add(5, format!("\u{1f464} {}", clean(&account.name, 20)));
+        if let Some(email) = &account.email {
+            line.glue(5, format!("{GREY}<{}>{RESET}", clean(email, 40)));
+        }
         if let Some(plan) = &account.plan {
             line.glue(8, format!("{GREY}{}{RESET}", clean(plan, 16)));
         }
     }
     if let Some(name) = &facts.session_name {
-        line.add(6, format!("{GREY}\u{00bb}{RESET} {}", clean(name, 28)));
+        line.add(6, format!("\u{1f3f7}\u{fe0f} {}", clean(name, 28)));
     }
     if let Some(dir) = &facts.dir {
         let trimmed = dir.trim_end_matches(['/', '\\']);
@@ -810,10 +871,10 @@ fn where_line(facts: &Facts, links: bool) -> Line {
             .filter(|base| !base.is_empty())
             .unwrap_or(trimmed);
         let base = clean(base, 32);
-        line.add(1, format!("{BOLD}{base}{RESET}"));
+        line.add(1, format!("\u{1f4c1} {base}"));
         if let Some(worktree) = facts.worktree.as_deref().map(|w| clean(w, 24)) {
             if worktree != base {
-                line.glue(5, format!("{GREY}\u{21b3} {worktree}{RESET}"));
+                line.glue(5, format!("{GREY}\u{2387} {worktree}{RESET}"));
             }
         }
     }
@@ -824,7 +885,7 @@ fn where_line(facts: &Facts, links: bool) -> Line {
             (None, None) => None,
         };
         if let Some(head) = head {
-            let mut text = format!("\u{2387} {head}");
+            let mut text = format!("\u{1f33f} {head}");
             for (count, color, mark) in [
                 (git.ahead, CYAN, '\u{2191}'),
                 (git.behind, CYAN, '\u{2193}'),
@@ -841,7 +902,7 @@ fn where_line(facts: &Facts, links: bool) -> Line {
         }
     }
     if let Some((url, name)) = &facts.repo {
-        let text = format!("\u{2302} {}", clean(name, 32));
+        let text = format!("\u{1f517} {}", clean(name, 32));
         line.add(7, if links { link(url, &text) } else { text });
     }
     if let Some(pr) = &facts.pr {
@@ -853,7 +914,7 @@ fn where_line(facts: &Facts, links: bool) -> Line {
             _ => (GREY, ""),
         };
         let sign = if pr.merge_request { '!' } else { '#' };
-        let text = format!("{color}{sign}{}{mark}{RESET}", pr.number);
+        let text = format!("{color}\u{21c4} {sign}{}{mark}{RESET}", pr.number);
         line.add(
             4,
             match (&pr.url, links) {
@@ -865,7 +926,82 @@ fn where_line(facts: &Facts, links: bool) -> Line {
     line
 }
 
-fn how_line(facts: &Facts, now: f64) -> Line {
+/// Claude Code's names for the causes of a cache miss, shortened as in the owner's line.
+fn miss_names(causes: &[String]) -> String {
+    let mut names: Vec<String> = Vec::new();
+    for cause in causes {
+        let name = match cause.as_str() {
+            "tools_changed" => "Tools".to_owned(),
+            "system_prompt_changed" => "Prompt".to_owned(),
+            "ttl_expired_5m" | "ttl_expired_1h" => "TTL".to_owned(),
+            "likely_server_side" => "Server".to_owned(),
+            other => clean(other, 24),
+        };
+        if !names.contains(&name) {
+            names.push(name);
+        }
+    }
+    names.join("+")
+}
+
+/// The word for a cold prompt cache in the window's language (two letter code); English for
+/// any other.
+pub fn cold_word(language: &str) -> &'static str {
+    match language {
+        "de" => "kalt",
+        "el" => "\u{03ba}\u{03c1}\u{03cd}\u{03b1}",
+        "es" => "fr\u{ed}a",
+        "fr" => "froid",
+        "it" => "freddo",
+        "ja" | "zh" => "\u{51b7}",
+        "pl" => "zimny",
+        "pt" => "frio",
+        "ru" => "\u{0445}\u{043e}\u{043b}\u{043e}\u{0434}",
+        "tr" => "so\u{11f}uk",
+        _ => "cold",
+    }
+}
+
+/// The user's interface language as a two letter code; Hangar's window starts in it too.
+fn ui_language() -> String {
+    #[cfg(windows)]
+    {
+        // SAFETY: takes no arguments and only returns the language id.
+        let id = unsafe { windows_sys::Win32::Globalization::GetUserDefaultUILanguage() };
+        let code = match id & 0x3ff {
+            0x04 => "zh",
+            0x07 => "de",
+            0x08 => "el",
+            0x0a => "es",
+            0x0c => "fr",
+            0x10 => "it",
+            0x11 => "ja",
+            0x15 => "pl",
+            0x16 => "pt",
+            0x19 => "ru",
+            0x1f => "tr",
+            _ => "en",
+        };
+        code.to_owned()
+    }
+    #[cfg(not(windows))]
+    {
+        ["LC_ALL", "LC_MESSAGES", "LANG"]
+            .iter()
+            .filter_map(|name| std::env::var(name).ok())
+            .find(|value| !value.is_empty())
+            .map(|value| {
+                value
+                    .chars()
+                    .take(2)
+                    .collect::<String>()
+                    .to_ascii_lowercase()
+            })
+            .unwrap_or_else(|| "en".to_owned())
+    }
+}
+
+fn how_line(facts: &Facts, now: f64, cold: &str) -> Line {
     let mut line = Line::default();
     if let Some(percent) = facts.context_percent {
         let percent = percent.min(100.0);
@@ -892,30 +1028,35 @@ fn how_line(facts: &Facts, now: f64) -> Line {
             }
         }
         if percent >= COMPACT_AT {
-            line.glue(0, format!("{RED}{BLINK}\u{26a0} /compact{RESET}"));
+            line.glue(0, format!("{RED}{BLINK}\u{26a0} /compact{NOBLINK}{RESET}"));
         }
     }
     if let Some(cache) = &facts.cache {
-        match (cache.ratio, cache.warm) {
-            (Some(ratio), true) => line.add(4, format!("\u{2301} {:.0}%", ratio * 100.0)),
-            (Some(ratio), false) => {
-                line.add(4, format!("\u{2301} {RED}{:.0}%{RESET}", ratio * 100.0))
-            }
-            (None, _) => line.add(4, "\u{2301}".to_owned()),
+        match cache.ratio {
+            Some(ratio) => line.add(4, format!("\u{26a1} {:.0}%", ratio * 100.0)),
+            None => line.add(4, "\u{26a1}".to_owned()),
         }
-        if let Some(left) = cache
-            .expires_at
-            .filter(|_| cache.warm)
-            .and_then(|at| until(at, now))
-        {
+        if !cache.warm {
+            line.glue(4, format!("{RED}{cold}{RESET}"));
+        } else if let Some(left) = cache.expires_at.and_then(|at| until(at, now)) {
             line.glue(8, format!("{GREY}{left}{RESET}"));
+        }
+        let recent = cache.miss_at.is_some_and(|at| now - at < MISS_SHOW_FOR);
+        if recent && !cache.miss_causes.is_empty() {
+            line.glue(
+                7,
+                format!(
+                    "{YELLOW}\u{26a0} Miss: {}{RESET}",
+                    miss_names(&cache.miss_causes)
+                ),
+            );
         }
     }
     if facts.lines_added > 0 || facts.lines_removed > 0 {
         line.add(
             6,
             format!(
-                "{GREEN}+{}{RESET} {RED}-{}{RESET}",
+                "\u{270f}\u{fe0f} {GREEN}+{}{RESET} {RED}-{}{RESET}",
                 facts.lines_added, facts.lines_removed
             ),
         );
@@ -924,7 +1065,7 @@ fn how_line(facts: &Facts, now: f64) -> Line {
         line.add(5, format!("\u{03a3} {}", short_tokens(tokens)));
     }
     if let Some(cost) = facts.cost_usd {
-        line.add(1, format!("{YELLOW}${cost:.2}{RESET}"));
+        line.add(1, format!("{YELLOW}\u{1f4b0} ${cost:.2}{RESET}"));
         if let Some(ms) = facts
             .duration_ms
             .filter(|ms| *ms >= RATE_AFTER_MS && cost > 0.0)
@@ -939,9 +1080,9 @@ fn how_line(facts: &Facts, now: f64) -> Line {
         line.add(
             3,
             if hours > 0 {
-                format!("\u{25f7} {hours}h {mins:02}m")
+                format!("\u{23f1}\u{fe0f} {hours}h {mins:02}m")
             } else {
-                format!("\u{25f7} {mins}m {rest:02}s")
+                format!("\u{23f1}\u{fe0f} {mins}m {rest:02}s")
             },
         );
         if let Some(api) = facts.api_ms.filter(|api| *api > 0 && ms >= 60_000) {
@@ -950,9 +1091,9 @@ fn how_line(facts: &Facts, now: f64) -> Line {
         }
     }
     for (prio, label, limit) in [
-        (1, "5h", &facts.five_hour),
-        (2, "7d", &facts.seven_day),
-        (2, "\u{00a4}", &facts.spend),
+        (1, "\u{1f50b} 5h", &facts.five_hour),
+        (2, "\u{1f4c5} 7d", &facts.seven_day),
+        (2, "\u{1f4b3}", &facts.spend),
     ] {
         let Some(limit) = limit else {
             continue;
@@ -972,7 +1113,12 @@ fn how_line(facts: &Facts, now: f64) -> Line {
 /// The two lines; `width` (the terminal's columns) makes them fit, `links` turns the repository
 /// and the pull request into OSC 8 links. A line without any segment is left out.
 pub fn render(facts: &Facts, now: f64, width: Option<usize>, links: bool) -> String {
-    let lines = [where_line(facts, links), how_line(facts, now)];
+    render_in(facts, now, width, links, cold_word("en"))
+}
+
+/// [`render`] with the word for a cold cache in the window's language.
+pub fn render_in(facts: &Facts, now: f64, width: Option<usize>, links: bool, cold: &str) -> String {
+    let lines = [where_line(facts, links), how_line(facts, now, cold)];
     let max = width.map(|w| w.saturating_sub(EDGE_COLUMNS).max(10));
     let rendered: Vec<String> = lines
         .into_iter()
@@ -1030,7 +1176,13 @@ pub fn run(
     let mut facts = facts_from(source, &value);
     let session = text_at(&value, &["session_id"]);
     enrich_with(&mut facts, source, session.as_deref(), cache_dir, read);
-    Some(render(&facts, now_secs(), width, source == Source::Claude))
+    Some(render_in(
+        &facts,
+        now_secs(),
+        width,
+        source == Source::Claude,
+        cold_word(&ui_language()),
+    ))
 }
 
 /// Entry from `main.rs`: `hangar status-line <claude|qwen>`. Always exits 0; a failure prints
@@ -1315,6 +1467,7 @@ mod tests {
         facts.git = Some(git_state());
         facts.account = Some(Account {
             name: "Ann".into(),
+            email: Some("ann@example.invalid".into()),
             plan: Some("Max 5x".into()),
         });
         let text = render(&facts, 3_999_990_000.0, None, true);
@@ -1323,17 +1476,17 @@ mod tests {
         assert_eq!(lines.len(), 2, "{plain}");
         assert_eq!(
             lines[0],
-            "Opus 4.7 INS high v2.1.332 \u{2502} Ann Max 5x \u{2502} hangar \u{21b3} feature-x \
-             \u{2502} \u{2387} main \u{2191}1 \u{2193}2 +3 ~4 ?5 \u{2502} \u{2302} hangar \u{2502} #42 \u{2713}"
+            "[Opus 4.7] INS high v2.1.332 | 👤 Ann <ann@example.invalid> Max 5x | 📁 hangar \
+             ⎇ feature-x | 🌿 main ↑1 ↓2 +3 ~4 ?5 | 🔗 hangar | ⇄ #42 ✓"
         );
         assert!(lines[1].starts_with("\u{2588}\u{2588}\u{2588}\u{2588}\u{2588}\u{2588}\u{2588}\u{2588}\u{2588}\u{2591} 85% (170k/200k) \u{26a0} /compact"), "{}", lines[1]);
         for part in [
-            "\u{2301} 92% 2h46m",
-            "+120 -30",
-            "$2.50 ($2.50/h)",
-            "\u{25f7} 1h 00m (API 50%)",
-            "5h 30% \u{21bb} 2h46m",
-            "7d 12%",
+            " | ⚡ 92% 2h46m",
+            " | ✏️ +120 -30",
+            " | 💰 $2.50 ($2.50/h)",
+            " | ⏱️ 1h 00m (API 50%)",
+            " | 🔋 5h 30% ↻ 2h46m",
+            " | 📅 7d 12%",
         ] {
             assert!(lines[1].contains(part), "{part} missing in {}", lines[1]);
         }
@@ -1349,15 +1502,21 @@ mod tests {
             Source::Claude,
             &serde_json::json!({ "model": { "display_name": "Sonnet" } }),
         );
-        assert_eq!(strip(&render(&facts, 0.0, None, true)), "Sonnet\n");
+        // Model, context, cost and time always show for Claude Code.
+        assert_eq!(
+            strip(&render(&facts, 0.0, None, true)),
+            "[Sonnet]\n░░░░░░░░░░ 0% | 💰 $0.00 | ⏱️ 0m 00s\n"
+        );
         // Nothing at all: no line.
         assert_eq!(render(&Facts::default(), 0.0, None, true), "");
-        // Only the second line.
         let facts = facts_from(
             Source::Claude,
             &serde_json::json!({ "cost": { "total_cost_usd": 0.5 } }),
         );
-        assert_eq!(strip(&render(&facts, 0.0, None, true)), "$0.50\n");
+        assert_eq!(
+            strip(&render(&facts, 0.0, None, true)),
+            "[Claude]\n░░░░░░░░░░ 0% | 💰 $0.50 | ⏱️ 0m 00s\n"
+        );
         // No rate before ten minutes, no API share before one, no countdown once passed.
         let facts = facts_from(
             Source::Claude,
@@ -1367,7 +1526,7 @@ mod tests {
         );
         assert_eq!(
             strip(&render(&facts, 200.0, None, true)),
-            "$1.00 \u{2502} \u{25f7} 0m 30s \u{2502} 5h 5%\n"
+            "[Claude]\n░░░░░░░░░░ 0% | 💰 $1.00 | ⏱️ 0m 30s | 🔋 5h 5%\n"
         );
     }
 
@@ -1383,19 +1542,19 @@ mod tests {
         let narrower = strip(&render(&facts, 3_999_990_000.0, Some(width), true));
         let first = narrower.lines().next().unwrap();
         assert!(!first.contains("v2.1.332"), "{first}");
-        assert!(first.contains("\u{2302} hangar"), "{first}");
+        assert!(first.contains("🔗 hangar"), "{first}");
         // Very narrow: the most important ones stay, every line fits.
         let narrow = render(&facts, 3_999_990_000.0, Some(30), true);
         for line in narrow.lines() {
             assert!(
-                display_width(line) <= 26 || !line.contains('\u{2502}'),
+                display_width(line) <= 26 || !line.contains(" | "),
                 "{}",
                 strip(line)
             );
         }
         let plain = strip(&narrow);
         let mut lines = plain.lines();
-        assert!(lines.next().unwrap().starts_with("Opus 4.7"));
+        assert!(lines.next().unwrap().starts_with("[Opus 4.7]"));
         assert!(lines.next().unwrap().contains("85%"));
     }
 
@@ -1499,18 +1658,18 @@ mod tests {
         );
         let plain = strip(&render(&facts, 0.0, None, false));
         assert!(
-            plain.starts_with("qwen3-coder NOR v0.30.0 \u{2502} app \u{2502} \u{2387} dev\n"),
+            plain.starts_with("[qwen3-coder] NOR v0.30.0 | 📁 app | 🌿 dev\n"),
             "{plain}"
         );
         assert!(plain.contains("40% (40k/100k)"));
-        assert!(plain.contains("\u{2301} 40%"));
+        assert!(plain.contains("⚡ 40%"));
         assert!(plain.contains("+7 -2"));
         assert!(plain.contains("\u{03a3} 2k"));
         assert!(!plain.contains('$'));
     }
 
     #[test]
-    fn the_account_shows_name_and_plan_only() {
+    fn the_account_shows_name_email_and_plan_only() {
         let file = br#"{"oauthAccount":{"emailAddress":"a@example.invalid","displayName":"Ann",
             "organizationRateLimitTier":"default_claude_max_5x"},"primaryApiKey":"HANGAR-MARKER"}"#;
         let account = parse_account(file).unwrap();
@@ -1518,16 +1677,43 @@ mod tests {
             account,
             Account {
                 name: "Ann".into(),
+                email: Some("a@example.invalid".into()),
                 plan: Some("Max 5x".into())
             }
         );
+        assert!(!format!("{account:?}").contains("HANGAR-MARKER"));
         assert_eq!(plan_name("claude_pro").as_deref(), Some("Pro"));
         assert_eq!(plan_name("enterprise"), None);
+        // Without a name the e-mail's local part stands in, as in the owner's line.
         assert_eq!(
-            parse_account(br#"{"oauthAccount":{"emailAddress":"x"}}"#),
-            None
+            parse_account(br#"{"oauthAccount":{"emailAddress":"x@example.invalid"}}"#)
+                .map(|account| account.name),
+            Some("x".to_owned())
         );
+        assert_eq!(parse_account(br#"{"oauthAccount":{}}"#), None);
         assert_eq!(parse_account(b"{}"), None);
+    }
+
+    #[test]
+    fn a_cold_cache_and_a_recent_miss_show_with_their_cause() {
+        let now = 1_000_000.0;
+        let value = serde_json::json!({
+            "prompt_cache": { "caching_observed": true, "hit_ratio": 0.5, "warm": false,
+                "last_miss_at": now - 60.0,
+                "last_miss_cause": { "causes": ["tools_changed", "ttl_expired_5m",
+                                                "ttl_expired_1h", "odd\u{7}cause"] } }
+        });
+        let facts = facts_from(Source::Claude, &value);
+        let plain = strip(&render_in(&facts, now, None, true, cold_word("de")));
+        assert!(
+            plain.contains(" | ⚡ 50% kalt ⚠ Miss: Tools+TTL+odd?cause"),
+            "{plain}"
+        );
+        // Ten minutes later the miss is gone; English stands in for other languages.
+        let later = strip(&render_in(&facts, now + 600.0, None, true, cold_word("xx")));
+        assert!(later.contains("⚡ 50% cold"), "{later}");
+        assert!(!later.contains("Miss"), "{later}");
+        assert_eq!(cold_word("fr"), "froid");
     }
 
     #[test]
@@ -1549,7 +1735,7 @@ mod tests {
         };
         for _ in 0..3 {
             let text = run(Source::Claude, input.as_bytes(), None, Some(&cache), &read).unwrap();
-            assert!(strip(&text).contains("\u{2387} main"));
+            assert!(strip(&text).contains("🌿 main"));
         }
         assert_eq!(calls.get(), 1);
         // The file name keeps only safe characters.
