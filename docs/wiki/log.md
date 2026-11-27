@@ -1812,3 +1812,23 @@ Own measurement [[output-rate-measurement]] (raw `2026-11-27-output-rate-measure
 `output_tokens` on every record of a response, `user` records as the start of a response,
 response times and output rates of three main transcripts. [[context-window-measurement]] notes
 the poll that now runs every second while a transcript grows.
+
+## [2026-11-27] query | Local models per agent
+Checked every catalog agent without a `local` entry, and Hermes against Ollama, in the official
+docs and source: which interactive sessions start against Ollama or LM Studio from argv and env
+alone. Offered now: Hermes Agent (Ollama as its custom endpoint), Qwen Code and Oh My Pi (both
+servers), Copilot CLI (Ollama). New: [[local-models-per-agent]]. Updated: [[catalog]],
+[[0022-models-and-local-llm-servers]], index.
+
+## [2026-11-27] query | Local models: {model} in env, Goose
+The `local` rule now accepts `{model}` in the args or in at least one env value. Goose joins
+against Ollama (`GOOSE_PROVIDER`, `GOOSE_MODEL`, `OLLAMA_HOST`, no args); Goose with LM Studio and
+Kimi Code CLI stay out (provider id undocumented; first-launch `/login` not ruled out). Updated:
+[[0022-models-and-local-llm-servers]], [[local-models-per-agent]], [[catalog]], index.
+
+## [2026-11-27] query | Local models: review of the new entries
+Re-read the cited sources for Hermes, Copilot CLI, Qwen Code, Oh My Pi and Goose; every entry
+holds. Added from source: Hermes' TUI refusal of `--base-url` and its first-run prompt when no
+provider is configured, Qwen Code's startup auth dialog only without a resolved auth type, and
+Goose keeping the saved provider and model on a resume (its source has `--provider` and
+`--model` on `goose session`, its docs do not). Updated: [[local-models-per-agent]].
