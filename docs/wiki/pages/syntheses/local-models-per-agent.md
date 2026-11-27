@@ -34,16 +34,16 @@ Args are what Hangar appends after the catalog's `args`; env is set for the sess
 | Codex CLI (`codex`) | offered: `--oss --local-provider ollama -m {model}` | offered: `--oss --local-provider lmstudio -m {model}` | [[0022-models-and-local-llm-servers]] |
 | Aider (`aider`) | offered: `--model ollama_chat/{model}`; `OLLAMA_API_BASE={base}` | offered: `--model lm_studio/{model}`; `LM_STUDIO_API_BASE={base}/v1`, `LM_STUDIO_API_KEY=dummy-api-key` | [[0022-models-and-local-llm-servers]] |
 | Hermes Agent (`hermes`) | offered: `chat --cli --provider custom --base-url {base}/v1 -m {model}` | offered: `chat --provider lmstudio -m {model}` | 1, 2 |
-| GitHub Copilot CLI (`copilot`) | offered: `--model {model}`; `COPILOT_PROVIDER_BASE_URL={base}/v1`, `COPILOT_PROVIDER_API_KEY=` (empty), `COPILOT_PROVIDER_WIRE_API=responses` | not offered: neither GitHub nor LM Studio documents this route; it would only be derived from the generic OpenAI-compatible provider | 3, 4, 5 |
+| GitHub Copilot CLI (`copilot`) | offered: `--model {model}`; `COPILOT_PROVIDER_BASE_URL={base}/v1`, `COPILOT_PROVIDER_API_KEY=` (empty), `COPILOT_PROVIDER_WIRE_API=responses` | offered: the same; GitHub takes any OpenAI-compatible server with its `/v1` URL, LM Studio serves `/v1/responses` (no page names both together) | 3, 4, 5, 25 |
 | Qwen Code (`qwen`) | offered: `--auth-type openai --model {model}`; `OPENAI_BASE_URL={base}/v1`, `OPENAI_API_KEY=ollama`, `OPENAI_MODEL={model}` | offered: same args; `OPENAI_BASE_URL={base}/v1`, `OPENAI_API_KEY=lm-studio`, `OPENAI_MODEL={model}` | 6 |
 | Oh My Pi (`omp`) | offered: `--model ollama/{model}`; `OLLAMA_BASE_URL={base}`, `OMP_SKIP_SETUP=1` | offered: `--model lm-studio/{model}`; `LM_STUDIO_BASE_URL={base}/v1`, `OMP_SKIP_SETUP=1` | 7 |
 | Gemini CLI (`gemini`) | not offered: `GOOGLE_GEMINI_BASE_URL` only speaks the Gemini API, which neither server serves | not offered: same | 8 |
 | Antigravity CLI (`agy`) | not offered: Gemini API only, an API key needs `modelProvider` in its settings file, local servers only in the SDK | not offered: same | 9 |
 | Cursor CLI (`cursor-agent`) | not offered: no base URL option, sign-in required, requests go through Cursor's servers | not offered: same | 10 |
-| Kimi Code CLI (`kimi`) | not offered: the `KIMI_MODEL_*` variables could carry it, but the getting started guide says the first launch needs `/login` to configure an API source, and no doc says `KIMI_MODEL_*` skips that; no local server is named either | not offered: same | 11 |
+| Kimi Code CLI (`kimi`) | offered: no args; `KIMI_MODEL_NAME={model}`, `KIMI_MODEL_API_KEY=ollama`, `KIMI_MODEL_PROVIDER_TYPE=openai`, `KIMI_MODEL_BASE_URL={base}/v1` | offered: the same with `KIMI_MODEL_API_KEY=lm-studio` | 11, 26 |
 | Kiro CLI (`kiro-cli`) | not offered: hosted models only, sign-in required | not offered: same | 12 |
 | OpenCode (`opencode`) | not offered: 2.x has no `--model` on the full TUI (only `opencode run` and `opencode mini`); 1.x would work with `OPENCODE_CONFIG_CONTENT`, but one catalog entry serves both lines | not offered: same | 13 |
-| Goose (`goose session`) | offered: no args; `GOOSE_PROVIDER=ollama`, `GOOSE_MODEL={model}`, `OLLAMA_HOST={base}` | not offered: the docs name the provider only as "LM Studio" in `goose configure`; its id (`lmstudio`) and `LMSTUDIO_HOST` appear only in the source | 14 |
+| Goose (`goose session`) | offered: no args; `GOOSE_PROVIDER=ollama`, `GOOSE_MODEL={model}`, `OLLAMA_HOST={base}` | offered: no args; `GOOSE_PROVIDER=lmstudio`, `GOOSE_MODEL={model}`, `LMSTUDIO_HOST={base}` (the provider id and host variable from the source at v1.61.1) | 14 |
 | Crush (`crush`) | not offered: local providers only through its config file, no base URL variable, no model flag | not offered: same | 15 |
 | Pi (`pi`) | not offered: Ollama and LM Studio only through `~/.pi/agent/models.json` | not offered: same | 16 |
 | ForgeCode (`forge`) | not offered: a provider needs an entry in its credentials file; env variables are migrated into that file once | not offered: same | 17 |
@@ -92,10 +92,22 @@ Args are what Hangar appends after the catalog's `args`; env is set for the sess
 > No entry was run live. In particular: whether Oh My Pi resolves `--model ollama/...` before
 > discovery ends; the lowest Ollama version with `/v1/responses` (Copilot, Oh My Pi).
 
+- **Kimi Code CLI:** `KIMI_MODEL_*` build a provider in memory that wins over `default_model`
+  and writes nothing (env-vars.md). The TUI asks for `/login` only while no model is resolved
+  (`welcome.ts`), and the env overlay sets one (`envOverlay.ts`), so the first launch needs no
+  login; this is read from the code, the docs do not say it. The defaults for capabilities and
+  context size (`image_in,thinking`, 262144) rarely fit a local model.
+- **Goose, LM Studio:** the declarative provider definition names `lmstudio`, reads
+  `LMSTUDIO_HOST` (without `/v1`, it appends `/v1/chat/completions`) and needs no key; the
+  environment wins over the config file.
+
 ## Open
-- Goose with LM Studio once its docs name the provider id; Kimi Code CLI once its docs say that
-  `KIMI_MODEL_*` replaces the first-launch `/login`.
-- OpenCode 1.x could be offered once Hangar can tell 1.x and 2.x apart per start.
+- OpenCode 2.x could be offered with `--standalone` and `OPENCODE_CONFIG_CONTENT` (in the source
+  at v2.4.2, not in the docs); it needs a version switch (1.x has another schema) and must be
+  merged with the JSON Hangar's gate already sets for OpenCode.
+- Mistral Vibe could take `VIBE_PROVIDERS`, `VIBE_MODELS` and `VIBE_ACTIVE_MODEL` as JSON in the
+  environment (tests and source at v3.1.5); whether the environment reaches its app server is not
+  verified.
 
 ## Sources
 1. Hermes Agent at `28ef6e4e7d1df3015bf786dea6b0d355baf5c211`:
@@ -158,3 +170,8 @@ Args are what Hangar appends after the catalog's `args`; env is set for the sess
 23. Amp: https://ampcode.com/manual, https://ampcode.com/models
 24. OpenClaw: https://docs.openclaw.ai/cli/tui, https://docs.openclaw.ai/providers/ollama,
     https://docs.openclaw.ai/providers/lmstudio, https://lmstudio.ai/docs/integrations/openclaw
+25. LM Studio, OpenAI compatible endpoints: https://lmstudio.ai/docs/developer/openai-compat
+26. Kimi Code at `62402f173c5a838a1c1f8fa263b637a22486fa39`:
+    https://github.com/MoonshotAI/kimi-code/blob/62402f173c5a838a1c1f8fa263b637a22486fa39/docs/en/configuration/env-vars.md,
+    https://github.com/MoonshotAI/kimi-code/blob/62402f173c5a838a1c1f8fa263b637a22486fa39/packages/agent-core-v2/src/app/kosongConfig/envOverlay.ts,
+    https://github.com/MoonshotAI/kimi-code/blob/62402f173c5a838a1c1f8fa263b637a22486fa39/apps/kimi-code/src/tui/components/chrome/welcome.ts

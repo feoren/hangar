@@ -339,7 +339,10 @@ agent_program = "copilot"
 # required with an own provider: https://docs.github.com/en/copilot/how-tos/copilot-cli/set-up-copilot-cli/authenticate-copilot-cli.
 # No LM Studio: neither GitHub nor LM Studio documents that route
 # (docs/wiki/pages/syntheses/local-models-per-agent.md).
-local = { ollama = { args = ["--model", "{model}"], env = { COPILOT_PROVIDER_BASE_URL = "{base}/v1", COPILOT_PROVIDER_API_KEY = "", COPILOT_PROVIDER_WIRE_API = "responses" } } }
+# LM Studio the same way: GitHub's BYOK page takes any OpenAI-compatible server with its /v1 URL,
+# and LM Studio serves POST /v1/responses (lmstudio.ai/docs/developer/openai-compat); only the
+# value "responses" is documented for COPILOT_PROVIDER_WIRE_API.
+local = { ollama = { args = ["--model", "{model}"], env = { COPILOT_PROVIDER_BASE_URL = "{base}/v1", COPILOT_PROVIDER_API_KEY = "", COPILOT_PROVIDER_WIRE_API = "responses" } }, lmstudio = { args = ["--model", "{model}"], env = { COPILOT_PROVIDER_BASE_URL = "{base}/v1", COPILOT_PROVIDER_API_KEY = "", COPILOT_PROVIDER_WIRE_API = "responses" } } }
 icon = "Co"
 homepage = "https://github.com/github/copilot-cli"
 install_windows = "winget install GitHub.Copilot"
@@ -371,6 +374,11 @@ id = "kimi"
 name = "Kimi Code CLI"
 commands = ["kimi"]
 resume_args = ["--continue"]
+# A model from the environment alone: KIMI_MODEL_* define a provider in memory that wins over
+# default_model and writes nothing (docs/en/configuration/env-vars.md); with it the TUI counts as
+# signed in, so no /login (envOverlay.ts, tui welcome.ts at 62402f17). The key is required, a
+# placeholder serves a local server; the OpenAI provider type takes any /v1 base.
+local = { ollama = { env = { KIMI_MODEL_NAME = "{model}", KIMI_MODEL_API_KEY = "ollama", KIMI_MODEL_PROVIDER_TYPE = "openai", KIMI_MODEL_BASE_URL = "{base}/v1" } }, lmstudio = { env = { KIMI_MODEL_NAME = "{model}", KIMI_MODEL_API_KEY = "lm-studio", KIMI_MODEL_PROVIDER_TYPE = "openai", KIMI_MODEL_BASE_URL = "{base}/v1" } } }
 icon = "K"
 homepage = "https://github.com/MoonshotAI/kimi-code"
 install_windows = "irm https://code.kimi.com/kimi-code/install.ps1 | iex"
@@ -497,7 +505,10 @@ self_update = { args = ["update"], aware = true }
 # resume the session's saved provider and model win (same file). No LM Studio: the docs name the
 # provider only as "LM Studio" in `goose configure`, not its id
 # (docs/wiki/pages/syntheses/local-models-per-agent.md).
-local = { ollama = { env = { GOOSE_PROVIDER = "ollama", GOOSE_MODEL = "{model}", OLLAMA_HOST = "{base}" } } }
+# LM Studio: the declarative provider `lmstudio` reads its host from LMSTUDIO_HOST and appends
+# /v1/chat/completions itself, without a key (crates/oi-kit-providers/src/declarative/definitions/
+# lmstudio.json and declarative.rs at v1.61.1).
+local = { ollama = { env = { GOOSE_PROVIDER = "ollama", GOOSE_MODEL = "{model}", OLLAMA_HOST = "{base}" } }, lmstudio = { env = { GOOSE_PROVIDER = "lmstudio", GOOSE_MODEL = "{model}", LMSTUDIO_HOST = "{base}" } } }
 
 [[agent]]
 id = "crush"
