@@ -52,7 +52,7 @@ import {
   StopIcon,
   TeamIcon,
 } from "./icons";
-import { ProgramRow } from "./ProgramRow";
+import { ProgramList, ProgramRow } from "./ProgramRow";
 import { ProgramUpdateOffer } from "./ProgramUpdateOffer";
 import { targetTooltip, type StartTarget, type WorktreeChance } from "./startTarget";
 import { isTeamSession, listedFor, teamPossible, type StartMode } from "./startMode";
@@ -1527,7 +1527,7 @@ export function Sidebar(props: Props) {
           !startable.some((profile) => listedFor(mode, profile)) && (
             <p className="hint group-hint">{t("start.noTeamAgents")}</p>
           )}
-        <ul className="profile-list">
+        <ProgramList>
           {startable
             .filter((profile) => !teamPlanShown && listedFor(mode, profile))
             .map((profile) => {
@@ -1536,6 +1536,7 @@ export function Sidebar(props: Props) {
               return (
                 <ProgramRow
                   key={profile.id}
+                  id={profile.id}
                   name={profile.name}
                   commandLine={[profile.command, ...profile.args].join(" ")}
                   badge={badgeFor(profile.id)}
@@ -1566,7 +1567,7 @@ export function Sidebar(props: Props) {
                 </ProgramRow>
               );
             })}
-        </ul>
+        </ProgramList>
         {mode === "team" && !teamPlanShown && <TeamUnavailable profiles={startable} />}
       </GroupSection>
 

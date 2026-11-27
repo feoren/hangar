@@ -1030,7 +1030,6 @@ const de = {
   "model.menuNamed": "{name} mit Modell starten",
   "model.startWith": "{program} mit {model} starten",
   "model.loaded": "geladen",
-  "model.pill": "Modell",
   "model.note": "Modell: {model}",
 
   "menu.find": "Im Verlauf suchen …",
@@ -3500,7 +3499,6 @@ const en: Record<MessageKey, string> = {
   "model.menuNamed": "Start {name} with a model",
   "model.startWith": "Start {program} with {model}",
   "model.loaded": "loaded",
-  "model.pill": "Model",
   "model.note": "Model: {model}",
 
   "menu.find": "Find in scrollback …",
@@ -5970,7 +5968,6 @@ const el: Record<MessageKey, string> = {
   "model.menuNamed": "Έναρξη {name} με μοντέλο",
   "model.startWith": "Έναρξη {program} με {model}",
   "model.loaded": "φορτωμένο",
-  "model.pill": "Μοντέλο",
   "model.note": "Μοντέλο: {model}",
 
   "menu.find": "Αναζήτηση στο ιστορικό…",
@@ -8471,7 +8468,6 @@ const es: Record<MessageKey, string> = {
   "model.menuNamed": "Iniciar {name} con un modelo",
   "model.startWith": "Iniciar {program} con {model}",
   "model.loaded": "cargado",
-  "model.pill": "Modelo",
   "model.note": "Modelo: {model}",
 
   "menu.find": "Buscar en el historial…",
@@ -10962,7 +10958,6 @@ const fr: Record<MessageKey, string> = {
   "model.menuNamed": "Lancer {name} avec un modèle",
   "model.startWith": "Lancer {program} avec {model}",
   "model.loaded": "chargé",
-  "model.pill": "Modèle",
   "model.note": "Modèle : {model}",
 
   "menu.find": "Rechercher dans l'historique…",
@@ -13465,7 +13460,6 @@ const it: Record<MessageKey, string> = {
   "model.menuNamed": "Avvia {name} con un modello",
   "model.startWith": "Avvia {program} con {model}",
   "model.loaded": "caricato",
-  "model.pill": "Modello",
   "model.note": "Modello: {model}",
 
   "menu.find": "Cerca nella cronologia…",
@@ -15954,7 +15948,6 @@ const ja: Record<MessageKey, string> = {
   "model.menuNamed": "モデルを選んで {name} を開始",
   "model.startWith": "{model} で {program} を開始",
   "model.loaded": "読み込み済み",
-  "model.pill": "モデル",
   "model.note": "モデル: {model}",
 
   "menu.find": "履歴を検索…",
@@ -18426,7 +18419,6 @@ const pl: Record<MessageKey, string> = {
   "model.menuNamed": "Uruchom {name} z modelem",
   "model.startWith": "Uruchom {program} z {model}",
   "model.loaded": "załadowany",
-  "model.pill": "Model",
   "model.note": "Model: {model}",
 
   "menu.find": "Szukaj w historii…",
@@ -20890,7 +20882,6 @@ const pt: Record<MessageKey, string> = {
   "model.menuNamed": "Iniciar {name} com um modelo",
   "model.startWith": "Iniciar {program} com {model}",
   "model.loaded": "carregado",
-  "model.pill": "Modelo",
   "model.note": "Modelo: {model}",
 
   "menu.find": "Pesquisar no histórico…",
@@ -23353,7 +23344,6 @@ const ru: Record<MessageKey, string> = {
   "model.menuNamed": "Запустить {name}, выбрав модель",
   "model.startWith": "Запустить {program} с {model}",
   "model.loaded": "загружена",
-  "model.pill": "Модель",
   "model.note": "Модель: {model}",
 
   "menu.find": "Поиск в истории…",
@@ -25799,7 +25789,6 @@ const tr: Record<MessageKey, string> = {
   "model.menuNamed": "{name} programını bir modelle başlat",
   "model.startWith": "{program} programını {model} ile başlat",
   "model.loaded": "yüklü",
-  "model.pill": "Model",
   "model.note": "Model: {model}",
 
   "menu.find": "Geçmişte ara…",
@@ -28189,7 +28178,6 @@ const zh: Record<MessageKey, string> = {
   "model.menuNamed": "选择模型启动 {name}",
   "model.startWith": "用 {model} 启动 {program}",
   "model.loaded": "已加载",
-  "model.pill": "模型",
   "model.note": "模型：{model}",
 
   "menu.find": "在历史记录中搜索…",

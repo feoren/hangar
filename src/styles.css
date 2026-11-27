@@ -2778,8 +2778,10 @@ h2 .beta-badge {
   border-radius: 6px;
 }
 
+/* A row keeps its hover look while its model flyout is open (ProgramRow.tsx): the quiet sign of
+   where the flyout belongs, with no extra glyph. */
 .profile-row:hover,
-.profile-row:has(.profile-models[aria-expanded="true"]) {
+.profile-row:has(> .profile[aria-expanded="true"]) {
   background: var(--hover);
 }
 
@@ -2799,85 +2801,9 @@ h2 .beta-badge {
   min-width: 0;
 }
 
-/* "Model" at a program row's end (ModelMenu.tsx): a quiet word in a hairline pill, shown on row
-   hover, on keyboard focus within the row and while its menu is open. Hidden, it takes no room
-   (yet stays reachable by Tab), so a long name keeps all the width; shown, it joins the row and
-   the version, then the name, give way with an ellipsis. The button spans the row's height for an
-   easy hit; only the pill inside is drawn. */
-.profile-models {
-  position: absolute;
-  top: 0;
-  right: 0;
-  display: flex;
-  flex: none;
-  align-items: center;
-  height: 100%;
-  padding: 0 6px 0 2px;
-  border-radius: 6px;
-  color: var(--muted);
-  opacity: 0;
-  pointer-events: none;
-}
-
-.profile-row:hover .profile-models,
-.profile-row:focus-within .profile-models,
-.profile-models[aria-expanded="true"] {
-  position: static;
-  align-self: stretch;
-  height: auto;
-  opacity: 1;
-  pointer-events: auto;
-}
-
-/* Touch screens have no hover: the word stays in sight. */
-@media (hover: none) {
-  .profile-models {
-    position: static;
-    align-self: stretch;
-    height: auto;
-    opacity: 1;
-    pointer-events: auto;
-  }
-}
-
-.profile-models-pill {
-  padding: 0 8px;
-  border: var(--hairline) solid var(--border);
-  border-radius: 999px;
-  font-size: 11px;
-  line-height: 18px;
-  white-space: nowrap;
-  transition:
-    color 120ms ease,
-    border-color 120ms ease,
-    background-color 120ms ease;
-}
-
-.profile-models:hover .profile-models-pill,
-.profile-models[aria-expanded="true"] .profile-models-pill {
-  border-color: var(--muted);
-  color: var(--text);
-  background: var(--panel);
-}
-
-.profile-models:focus-visible {
-  outline: none;
-}
-
-.profile-models:focus-visible .profile-models-pill {
-  outline: 2px solid var(--accent);
-  outline-offset: 1px;
-  color: var(--text);
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .profile-models-pill {
-    transition: none;
-  }
-}
-
-/* Local model ids run long (hf.co/org/repo:quant) and a server can hold many: the menu stays
-   inside the window and scrolls; a cut name is whole in the item's tooltip. */
+/* A program's model flyout beside its row. Local model ids run long (hf.co/org/repo:quant) and a
+   server can hold many: the flyout stays inside the window and scrolls; a cut name is whole in
+   the item's tooltip. */
 .model-menu {
   max-width: min(380px, calc(100vw - 16px));
   max-height: calc(100vh - 16px);
