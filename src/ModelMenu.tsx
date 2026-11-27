@@ -1,13 +1,14 @@
-// The quiet "›" at the end of a program row in "New session" (ADR 0022): it opens a menu next to
-// the row with the program's own models and the models of the local servers that run. A click
-// starts the session with that model; the row itself keeps starting with the program's default.
-// The menu is fixed to the window (PopupMenu), since the group's body scrolls.
+// The quiet "Model" pill at the end of a program row in "New session" (ADR 0022): it opens a menu
+// next to the row with the program's own models and the models of the local servers that run. A
+// click starts the session with that model; the row itself keeps starting with the program's
+// default. A word instead of a symbol, so nobody has to guess what it does. It is a button of its
+// own beside the row's button (no button in a button). The menu is fixed to the window
+// (PopupMenu), since the group's body scrolls.
 
 import { useRef, useState } from "react";
 
 import type { SessionModel } from "./api";
 import { useT, type Translate } from "./i18n";
-import { ChevronIcon } from "./icons";
 import type { ModelSection } from "./localLlm";
 import { PopupMenu, type PopupItem } from "./PopupMenu";
 
@@ -57,7 +58,7 @@ export function ModelMenuButton(props: {
       <button
         ref={button}
         type="button"
-        className="icon-button profile-models"
+        className="profile-models"
         aria-label={label}
         title={label}
         aria-haspopup="menu"
@@ -73,7 +74,7 @@ export function ModelMenuButton(props: {
           }
         }}
       >
-        <ChevronIcon size={12} />
+        <span className="profile-models-pill">{t("model.pill")}</span>
       </button>
       {menu !== null && (
         <PopupMenu
