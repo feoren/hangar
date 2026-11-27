@@ -2889,6 +2889,45 @@ h2 .beta-badge {
   font-weight: 600;
 }
 
+/* Folder and model on one line: the folder gives way first, the model keeps its short name. */
+.recent-head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+
+.recent-head .recent-folder {
+  flex: 0 1 auto;
+  min-width: 0;
+}
+
+/* The model a session runs on: a quiet text badge in the recent rows, a pill in the session
+   row. */
+.recent-model,
+.session-model {
+  flex: none;
+  max-width: 16ch;
+  overflow: hidden;
+  padding: 0 5px;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  font-size: 10.5px;
+  font-weight: 500;
+  line-height: 15px;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  color: var(--muted);
+}
+
+.session-model {
+  padding: 0 7px;
+  border-color: color-mix(in srgb, var(--accent) 35%, transparent);
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--accent) 12%, transparent);
+  color: var(--text);
+}
+
 .recent-detail {
   font-size: 11.5px;
   color: var(--muted);

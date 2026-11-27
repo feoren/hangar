@@ -277,6 +277,29 @@ export function modelNote(
   return t("model.note", { model: `${model.id} · ${SERVER_NAMES[model.source]}` });
 }
 
+/** Longest model name a badge shows; a longer one is cut at its end. */
+const BADGE_CHARS = 22;
+
+/**
+ * The short text of a session's model badge: a vendor model's label ("Opus 5.5"), a local
+ * model's own name without the folders before it ("hf.co/org/Qwen3-Coder:Q4" reads
+ * "Qwen3-Coder:Q4"), cut to [`BADGE_CHARS`]. The full name stays in the tooltip (`modelNote`).
+ * `null` without a choice.
+ */
+export function modelBadge(
+  model: SessionModel | null | undefined,
+  profile: Pick<Profile, "models"> | undefined,
+): string | null {
+  if (model === null || model === undefined) return null;
+  const text =
+    model.source === "provider"
+      ? ((profile === undefined ? undefined : profileModels(profile).find((m) => m.id === model.id))
+          ?.label ?? model.id)
+      : (model.id.split("/").pop() ?? model.id);
+  // Model ids are ASCII by their rule (`validModelId`), labels come from the catalog.
+  return text.length <= BADGE_CHARS ? text : `${text.slice(0, BADGE_CHARS - 1)}…`;
+}
+
 /**
  * The session as the backend answered, with the model it really started with. The backend's
  * answer wins, `null` included: a restore whose stored model is gone starts without it, and the

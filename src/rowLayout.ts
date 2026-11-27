@@ -5,7 +5,8 @@
 // stay the same whatever the layout; it changes only the inside of a row (SessionRow.tsx,
 // styles.css "Row layout"). The fourteen fixed row styles of earlier versions are presets now, and
 // a stored style becomes its layout once (`parseRowLayout`); a layout stored before the output
-// rate existed gets it once, where the state is (`withSpeed`). Pure.
+// rate existed gets it once, where the state is (`withSpeed`), and one stored before the model
+// badge existed gets that once, right after the title (`withModelBadge`). Pure.
 
 import type { ResourceParts } from "./resources";
 
@@ -23,6 +24,7 @@ export const ROW_ELEMENTS = [
   "tokens",
   "cost",
   "speed",
+  "model",
 ] as const;
 export type RowElement = (typeof ROW_ELEMENTS)[number];
 
@@ -124,10 +126,11 @@ export interface RowLayout {
 }
 
 /**
- * Revision 2 brought the output rate ("speed"). A layout stored before it gets the rate once
- * where the state is; one stored since keeps the user's choice, a hidden rate included.
+ * Revision 2 brought the output rate ("speed"), revision 3 the model badge ("model"). A layout
+ * stored before one of them gets it once (the rate where the state is, the model right after the
+ * title); one stored since keeps the user's choice, a hidden element included.
  */
-export const ROW_LAYOUT_REVISION = 2;
+export const ROW_LAYOUT_REVISION = 3;
 
 const DEFAULT_FORMS: RowForms = {
   state: "word",
@@ -154,7 +157,18 @@ function layout(
     density: "normal",
     revision: ROW_LAYOUT_REVISION,
   };
-  return withSpeed(value);
+  return withModelBadge(withSpeed(value));
+}
+
+/**
+ * The model badge right after the title, on the title's line: it names what the session runs
+ * on next to what it is about. A layout that already places it stays as it is.
+ */
+export function withModelBadge(value: RowLayout): RowLayout {
+  if (isPlaced(value, "model")) return value;
+  const title = findElement(value, "title");
+  if (title === null) return placeElement(value, "model", { line: 0, side: "left", index: 0 });
+  return placeElement(value, "model", { ...title, index: title.index + 1 });
 }
 
 /**
@@ -324,7 +338,7 @@ export function parseRowLayout(value: unknown, legacyStyle?: unknown): RowLayout
     return isRowPreset(legacyStyle) ? presetLayout(legacyStyle) : DEFAULT_ROW_LAYOUT;
   }
   const revision = field(value, "revision");
-  const current = typeof revision === "number" && revision >= ROW_LAYOUT_REVISION;
+  const knew = typeof revision === "number" ? revision : 0;
   const seen = new Set<RowElement>();
   const slot = (entries: unknown): RowElement[] => {
     if (!Array.isArray(entries)) return [];
@@ -363,7 +377,8 @@ export function parseRowLayout(value: unknown, legacyStyle?: unknown): RowLayout
     density: pick(ROW_DENSITIES, field(value, "density"), "normal"),
     revision: ROW_LAYOUT_REVISION,
   };
-  return current ? parsed : withSpeed(parsed);
+  const rated = knew >= 2 ? parsed : withSpeed(parsed);
+  return knew >= 3 ? rated : withModelBadge(rated);
 }
 
 /** Where an element sits: its line, the line's part and its place in that part. */
@@ -429,11 +444,13 @@ export function hideElement(value: RowLayout, element: RowElement): RowLayout {
 
 /**
  * Shows a hidden element where the standard row has it, at the end of that part; the output rate
- * comes back just before the state (`withSpeed`).
+ * comes back just before the state (`withSpeed`), the model right after the title
+ * (`withModelBadge`).
  */
 export function showElement(value: RowLayout, element: RowElement): RowLayout {
   if (isPlaced(value, element)) return value;
   if (element === "speed") return withSpeed(value);
+  if (element === "model") return withModelBadge(value);
   const home = findElement(DEFAULT_ROW_LAYOUT, element) ??
     EXTRA_HOMES[element] ?? { line: 0, side: "left" };
   const length = value.lines[home.line]?.[home.side].length ?? 0;

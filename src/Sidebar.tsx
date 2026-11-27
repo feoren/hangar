@@ -61,7 +61,7 @@ import type { BadgeLook } from "./programPrefs";
 import type { SessionView } from "./sessions";
 import { labelWithVersion, type ProgramVersions } from "./programs";
 import { offerShowsInstalled, runnableUpdate, type ProgramUpdates } from "./programUpdates";
-import { modelNote, modelSections, type LocalLlmState } from "./localLlm";
+import { modelBadge, modelNote, modelSections, type LocalLlmState } from "./localLlm";
 import { PopupMenu, type PopupItem } from "./PopupMenu";
 import { markerColorText } from "./SessionMarker";
 import { SessionPeek, useSessionPeek } from "./SessionPeek";
@@ -1399,6 +1399,7 @@ export function Sidebar(props: Props) {
             entries={props.recentSessions}
             badgeFor={badgeFor}
             programName={(id) => profileById.get(id)?.name ?? id}
+            profileFor={(id) => profileById.get(id)}
             language={props.language}
             now={now}
             onReopen={props.onReopenRecent}
@@ -1989,8 +1990,8 @@ function SessionItem({
   const gateOff = gateHint(session.gate, t);
   const devServer = devServers.get(session.id);
   const queued = queuedMessages.has(session.id);
-  const programName =
-    profiles.find((profile) => profile.id === session.profileId)?.name ?? session.profileId;
+  const profile = profiles.find((each) => each.id === session.profileId);
+  const programName = profile?.name ?? session.profileId;
   // Only while the setting is on and the window visible; the third line shows the numbers, the
   // title line a mark for an outlier, the peek says why.
   const resources = useSessionResources(session.id);
@@ -2006,6 +2007,11 @@ function SessionItem({
   const cost = useSessionCostText(isPlaced(plan.layout, "cost") ? session.id : -1, language);
   // Always once measured: live while responses end, then the last one, quieter (RowSpeed).
   const speed = useSessionOutputRate(isPlaced(plan.layout, "speed") ? session.id : -1) ?? null;
+  const modelText = modelBadge(session.model, profile);
+  const modelFact =
+    modelText === null
+      ? null
+      : { text: modelText, title: modelNote(session.model, profile, t) ?? modelText };
   const className = [
     "session",
     active ? "active" : "",
@@ -2107,6 +2113,7 @@ function SessionItem({
             context={context}
             cost={cost}
             speed={speed}
+            model={modelFact}
             language={language}
             badgeCount={
               subAgents > 0 ? <SubAgentCountMark running={subAgents} place="badge" /> : null
