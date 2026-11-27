@@ -1,6 +1,7 @@
 // The programs in "New session". Each row is one start button: a click starts a session with the
 // program's default. A row with models to choose from (ADR 0022) opens them in a flyout beside
-// it once the pointer rests on it, or with Right arrow; a click there starts with that model. No
+// it once the pointer rests on it, or with Right arrow; a click there starts with that model.
+// Dragging a row with the mouse (or Alt+Up and Alt+Down on it) changes the order. No
 // pill: a small quiet arrow at the row's end says that it has models, and the row keeps its hover
 // look while its flyout is open. Touch screens have
 // no hover, so there a tap simply starts. Anything below a row (an update offer) comes in as
@@ -13,6 +14,7 @@ import {
   useMemo,
   useRef,
   useState,
+  type PointerEvent as ReactPointerEvent,
   type ReactNode,
 } from "react";
 
@@ -22,6 +24,7 @@ import { useT } from "./i18n";
 import { ChevronIcon } from "./icons";
 import type { ModelSection } from "./localLlm";
 import { headingFor, type PointerPoint } from "./menuNav";
+import { rowMoveStep } from "./shortcuts";
 import { flyoutPlace, ModelFlyout, type FlyoutPlace } from "./ModelMenu";
 import type { BadgeLook } from "./programPrefs";
 
@@ -32,6 +35,21 @@ export const FLYOUT_OPEN_DELAY_MS = 150;
  * how long another row waits while the pointer crosses it heading for the flyout.
  */
 export const FLYOUT_GRACE_MS = 300;
+/** How far the pointer moves with the button down before a press becomes a drag. */
+export const DRAG_THRESHOLD_PX = 5;
+
+/** A row being dragged: where it came from, where it would land, how far it moved. */
+interface Drag {
+  key: string;
+  /** The row ids in their shown order when the drag began. */
+  ids: readonly string[];
+  from: number;
+  to: number;
+  /** Pointer movement since the press, in pixels. */
+  dy: number;
+  /** Height of the dragged row: how far the others step aside. */
+  height: number;
+}
 
 interface OpenFlyout {
   key: string;
@@ -68,6 +86,13 @@ interface FlyoutControl {
   /** Right arrow on a row. */
   show: (key: string, place: FlyoutPlace) => void;
   close: (focus: FocusAfter) => void;
+  /** The primary button went down on a row: perhaps the start of a drag. */
+  press: (key: string, event: ReactPointerEvent<HTMLElement>) => void;
+  /** A click that ended a drag must not start the program. */
+  swallowClick: (key: string) => boolean;
+  /** Alt+Up or Alt+Down on a row. */
+  step: (key: string, delta: -1 | 1) => void;
+  drag: Drag | null;
 }
 
 const FlyoutContext = createContext<FlyoutControl | null>(null);
@@ -76,8 +101,24 @@ const FlyoutContext = createContext<FlyoutControl | null>(null);
  * The list of program rows. It owns which flyout is open, so there is only ever one, and the
  * pointer can move from one row's flyout to the next row's without waiting again.
  */
-export function ProgramList(props: { children: ReactNode }) {
+export function ProgramList(props: {
+  children: ReactNode;
+  /** A row was moved to `toIndex` among `shown` (the ids in their shown order). */
+  onMove?: (id: string, toIndex: number, shown: readonly string[]) => void;
+}) {
+  const t = useT();
   const [open, setOpen] = useState<OpenFlyout | null>(null);
+  const [drag, setDrag] = useState<Drag | null>(null);
+  const [announcement, setAnnouncement] = useState("");
+  const onMove = useRef(props.onMove);
+  const translate = useRef(t);
+  useEffect(() => {
+    onMove.current = props.onMove;
+    translate.current = t;
+  });
+  const dragRef = useRef<Drag | null>(null);
+  /** The row whose next click is the end of a drag. */
+  const swallow = useRef<string | null>(null);
   const openRef = useRef<OpenFlyout | null>(null);
   const rows = useRef(new Map<string, HTMLLIElement>());
   const pending = useRef<Pending | null>(null);
@@ -85,7 +126,7 @@ export function ProgramList(props: { children: ReactNode }) {
   /** Where the focus was when the first flyout opened. */
   const returnTo = useRef<HTMLElement | null>(null);
 
-  const control = useMemo((): Omit<FlyoutControl, "open"> => {
+  const control = useMemo((): Omit<FlyoutControl, "open" | "drag"> => {
     const flyoutOf = (key: string) => rows.current.get(key)?.querySelector(".model-menu") ?? null;
 
     const apply = (next: OpenFlyout | null, focus: FocusAfter = "restore") => {
@@ -102,6 +143,20 @@ export function ProgramList(props: { children: ReactNode }) {
       }
       openRef.current = next;
       setOpen(next);
+    };
+
+    /** The rows in their shown order. */
+    const shownRows = () => [
+      ...(list.current?.querySelectorAll<HTMLLIElement>(":scope > li[data-program]") ?? []),
+    ];
+    const nameOf = (row: HTMLLIElement | undefined, key: string) =>
+      row?.querySelector(".profile-name")?.textContent ?? key;
+    /** Saves the move and says it for screen readers. */
+    const moved = (key: string, name: string, to: number, ids: readonly string[]) => {
+      onMove.current?.(key, to, ids);
+      setAnnouncement(
+        translate.current("settings.moved", { name, position: to + 1, count: ids.length }),
+      );
     };
 
     const cancel = () => {
@@ -138,6 +193,8 @@ export function ProgramList(props: { children: ReactNode }) {
         else rows.current.delete(key);
       },
       move: (key, hasModels, onRow, point, place) => {
+        // While a row is dragged no flyout opens or switches.
+        if (dragRef.current !== null) return;
         const from = lastPoint.current;
         lastPoint.current = point;
         const current = openRef.current;
@@ -182,6 +239,89 @@ export function ProgramList(props: { children: ReactNode }) {
         cancel();
         apply(null, focus);
       },
+      press: (key, event) => {
+        if (event.button !== 0 || event.pointerType === "touch" || onMove.current === undefined) {
+          return;
+        }
+        const rows = shownRows();
+        const ids = rows.map((li) => li.dataset.program ?? "");
+        const from = ids.indexOf(key);
+        if (from < 0) return;
+        const mids = rows.map((li) => {
+          const rect = li.getBoundingClientRect();
+          return rect.top + rect.height / 2;
+        });
+        const height = rows[from]?.getBoundingClientRect().height ?? 0;
+        const name = nameOf(rows[from], key);
+        const startY = event.clientY;
+        const pointer = event.pointerId;
+        let started = false;
+        const end = (commit: boolean) => {
+          document.removeEventListener("pointermove", onPointerMove, true);
+          document.removeEventListener("pointerup", onPointerUp, true);
+          document.removeEventListener("pointercancel", onPointerCancel, true);
+          document.removeEventListener("keydown", onKeyDown, true);
+          const done = dragRef.current;
+          dragRef.current = null;
+          setDrag(null);
+          if (done === null) return;
+          // The click that follows the release belongs to the drag; it is dropped once.
+          swallow.current = key;
+          window.setTimeout(() => {
+            if (swallow.current === key) swallow.current = null;
+          }, 0);
+          if (commit && done.to !== done.from) moved(key, name, done.to, done.ids);
+        };
+        const onPointerMove = (move: PointerEvent) => {
+          if (move.pointerId !== pointer) return;
+          const dy = move.clientY - startY;
+          if (!started) {
+            if (Math.abs(dy) < DRAG_THRESHOLD_PX) return;
+            started = true;
+            cancel();
+            apply(null, "none");
+          }
+          move.preventDefault();
+          // Where the row would land: after every other row whose middle lies above the pointer.
+          const to = mids.filter((mid, index) => index !== from && mid < move.clientY).length;
+          const next = { key, ids, from, to, dy, height };
+          dragRef.current = next;
+          setDrag(next);
+        };
+        const onPointerUp = (up: PointerEvent) => {
+          if (up.pointerId === pointer) end(true);
+        };
+        const onPointerCancel = (gone: PointerEvent) => {
+          if (gone.pointerId === pointer) end(false);
+        };
+        const onKeyDown = (down: KeyboardEvent) => {
+          if (down.key === "Escape" && dragRef.current !== null) {
+            down.preventDefault();
+            down.stopPropagation();
+            end(false);
+          }
+        };
+        document.addEventListener("pointermove", onPointerMove, true);
+        document.addEventListener("pointerup", onPointerUp, true);
+        document.addEventListener("pointercancel", onPointerCancel, true);
+        document.addEventListener("keydown", onKeyDown, true);
+      },
+      swallowClick: (key) => {
+        if (swallow.current !== key) return false;
+        swallow.current = null;
+        return true;
+      },
+      step: (key, delta) => {
+        if (onMove.current === undefined) return;
+        const rows = shownRows();
+        const ids = rows.map((li) => li.dataset.program ?? "");
+        const from = ids.indexOf(key);
+        const to = from + delta;
+        if (from < 0 || to < 0 || to >= ids.length) return;
+        cancel();
+        apply(null, "none");
+        moved(key, nameOf(rows[from], key), to, ids);
+      },
     };
   }, []);
 
@@ -212,12 +352,15 @@ export function ProgramList(props: { children: ReactNode }) {
     };
   }, [isOpen, control]);
 
-  const value = useMemo(() => ({ ...control, open }), [control, open]);
+  const value = useMemo(() => ({ ...control, open, drag }), [control, open, drag]);
   return (
     <FlyoutContext.Provider value={value}>
-      <ul ref={list} className="profile-list">
+      <ul ref={list} className={drag === null ? "profile-list" : "profile-list sorting"}>
         {props.children}
       </ul>
+      <span className="sr-only" role="status">
+        {announcement}
+      </span>
     </FlyoutContext.Provider>
   );
 }
@@ -244,6 +387,17 @@ export function ProgramRow(props: {
   const row = useRef<HTMLLIElement>(null);
   const button = useRef<HTMLButtonElement>(null);
   const label = t("sidebar.startProgram", { program: props.name });
+  const drag = control?.drag ?? null;
+  const dragged = drag?.key === props.id;
+  // While another row is dragged, the rows between its old and new place step aside.
+  const shift = (() => {
+    if (drag === null) return 0;
+    if (dragged) return drag.dy;
+    const index = drag.ids.indexOf(props.id);
+    if (drag.from < drag.to && index > drag.from && index <= drag.to) return -drag.height;
+    if (drag.to < drag.from && index >= drag.to && index < drag.from) return drag.height;
+    return 0;
+  })();
   const hasModels = control !== null && props.models.length > 0;
   const open = hasModels && control.open?.key === props.id ? control.open : null;
 
@@ -266,7 +420,9 @@ export function ProgramRow(props: {
   return (
     <li
       ref={row}
-      className="profile-row"
+      className={dragged ? "profile-row dragging" : "profile-row"}
+      data-program={props.id}
+      style={shift === 0 ? undefined : { transform: `translateY(${String(shift)}px)` }}
       onPointerMove={(event) => {
         if (control === null || event.pointerType === "touch") return;
         const onRow = event.target instanceof Node && button.current?.contains(event.target);
@@ -288,14 +444,24 @@ export function ProgramRow(props: {
         type="button"
         className="profile"
         aria-label={label}
-        title={`${label}\n${props.commandLine}`}
+        title={`${label}\n${props.commandLine}\n${t("sidebar.dragToSort")}`}
         aria-haspopup={hasModels ? "menu" : undefined}
         aria-expanded={hasModels ? open !== null : undefined}
+        onPointerDown={(event) => {
+          control?.press(props.id, event);
+        }}
         onClick={() => {
+          if (control?.swallowClick(props.id) === true) return;
           if (open !== null) control?.close("none");
           props.onStart();
         }}
         onKeyDown={(event) => {
+          const step = rowMoveStep(event);
+          if (step !== null && control !== null) {
+            event.preventDefault();
+            control.step(props.id, step);
+            return;
+          }
           if (event.key === "ArrowRight" && hasModels) {
             event.preventDefault();
             control.show(props.id, place());

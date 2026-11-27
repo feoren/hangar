@@ -145,6 +145,33 @@ export function moveTo(
   return [...arranged, ...order.filter((other) => !shown.includes(other))];
 }
 
+/**
+ * New saved order after `id` was moved to `toIndex` among the entries `shown` (the sidebar's
+ * "New session" list) out of all entries in their current order (`arranged`, hidden ones
+ * included). Entries not shown keep their place: `id` goes right before the shown entry that now
+ * follows it, or right after the last shown one.
+ */
+export function moveAmong(
+  arranged: readonly string[],
+  shown: readonly string[],
+  id: string,
+  toIndex: number,
+): string[] {
+  if (!shown.includes(id) || !arranged.includes(id)) return [...arranged];
+  const others = shown.filter((other) => other !== id);
+  const target = Math.min(Math.max(Math.round(toIndex), 0), others.length);
+  const rest = arranged.filter((other) => other !== id);
+  const next = others[target];
+  const last = others[others.length - 1];
+  const at =
+    next !== undefined
+      ? rest.indexOf(next)
+      : last !== undefined
+        ? rest.indexOf(last) + 1
+        : rest.length;
+  return [...rest.slice(0, at), id, ...rest.slice(at)];
+}
+
 export function isHidden(prefs: ProgramPrefs, id: string): boolean {
   return prefs.hidden.includes(id);
 }

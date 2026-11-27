@@ -77,7 +77,7 @@ export function matchShortcut(event: KeyInfo): AppAction | null {
 }
 
 /**
- * Alt+Up and Alt+Down on a focused session row in the sidebar move that session one place. The row
+ * Alt+Up and Alt+Down on a focused session or program row in the sidebar move it one place. The row
  * handles this itself instead of going through `matchShortcut`: in the terminal, Alt+arrow
  * belongs to shells and agent CLIs (history, word motion), so the keys only count while a row has
  * the focus. Without Alt, the arrows stay with the list.

@@ -62,10 +62,11 @@ describe("ProgramRow", () => {
   function render(rows: readonly RowSpec[] = ROWS) {
     const onStart = vi.fn<(id: string, model?: SessionModel) => void>();
     const onMenuClose = vi.fn();
+    const onMove = vi.fn<(id: string, toIndex: number, shown: readonly string[]) => void>();
     act(() => {
       root.render(
         <I18nContext.Provider value={t}>
-          <ProgramList>
+          <ProgramList onMove={onMove}>
             {rows.map((row) => (
               <ProgramRow
                 key={row.id}
@@ -87,7 +88,45 @@ describe("ProgramRow", () => {
         </I18nContext.Provider>,
       );
     });
-    return { onStart, onMenuClose };
+    return { onStart, onMenuClose, onMove };
+  }
+
+  /** Rows 30 px high, one below the other, as the sidebar lays them out. */
+  function layOut() {
+    host.querySelectorAll<HTMLLIElement>("li[data-program]").forEach((li, index) => {
+      li.getBoundingClientRect = () => new DOMRect(0, index * 30, 200, 30);
+    });
+  }
+
+  function press(on: Element | null, y: number, init: PointerEventInit = {}) {
+    act(() => {
+      on?.dispatchEvent(
+        new PointerEvent("pointerdown", {
+          bubbles: true,
+          button: 0,
+          pointerId: 1,
+          pointerType: "mouse",
+          clientY: y,
+          ...init,
+        }),
+      );
+    });
+  }
+
+  function moveTo(y: number) {
+    act(() => {
+      document.dispatchEvent(
+        new PointerEvent("pointermove", { bubbles: true, pointerId: 1, clientY: y }),
+      );
+    });
+  }
+
+  function release(y: number) {
+    act(() => {
+      document.dispatchEvent(
+        new PointerEvent("pointerup", { bubbles: true, pointerId: 1, clientY: y }),
+      );
+    });
   }
 
   const row = (name: string) =>
@@ -125,7 +164,9 @@ describe("ProgramRow", () => {
   it("starts with the default from the whole row, named for what it does", () => {
     const { onStart } = render();
     const claude = row("Claude Code");
-    expect(claude?.title).toBe("Start a new session with Claude Code\nclaude --verbose");
+    expect(claude?.title).toBe(
+      "Start a new session with Claude Code\nclaude --verbose\nDrag to change the order (Alt+↑/↓)",
+    );
     expect(claude?.textContent).toContain("2.1.0");
     act(() => {
       claude?.click();
@@ -326,6 +367,83 @@ describe("ProgramRow", () => {
     expect(onStart).toHaveBeenCalledExactlyOnceWith("claude", { source: "provider", id: "opus" });
     expect(onMenuClose).toHaveBeenCalledOnce();
     expect(flyout()).toBeNull();
+  });
+
+  it("moves a row dragged with the mouse, and its release starts nothing", () => {
+    const { onStart, onMove } = render();
+    layOut();
+    const shell = row("PowerShell");
+    press(shell, 75);
+    moveTo(40);
+    // Dragged above Codex's middle: the row follows, Codex steps aside.
+    expect(host.querySelector("li.dragging")?.getAttribute("data-program")).toBe("shell");
+    expect(host.querySelector<HTMLElement>('li[data-program="codex"]')?.style.transform).toBe(
+      "translateY(30px)",
+    );
+    release(40);
+    act(() => {
+      shell?.click();
+    });
+    expect(onMove).toHaveBeenCalledExactlyOnceWith("shell", 1, ["claude", "codex", "shell"]);
+    expect(onStart).not.toHaveBeenCalled();
+    expect(host.querySelector("li.dragging")).toBeNull();
+    expect(document.querySelector('[role="status"]')?.textContent).toContain("position 2 of 3");
+    // The next click starts again.
+    act(() => {
+      shell?.click();
+    });
+    expect(onStart).toHaveBeenCalledExactlyOnceWith("shell");
+  });
+
+  it("treats a press without movement as a click, and Escape ends a drag unsaved", () => {
+    const { onStart, onMove } = render();
+    layOut();
+    const claude = row("Claude Code");
+    press(claude, 15);
+    moveTo(17);
+    release(17);
+    act(() => {
+      claude?.click();
+    });
+    expect(onStart).toHaveBeenCalledExactlyOnceWith("claude");
+    press(claude, 15);
+    moveTo(80);
+    act(() => {
+      document.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
+    });
+    release(80);
+    expect(onMove).not.toHaveBeenCalled();
+    expect(host.querySelector("li.dragging")).toBeNull();
+  });
+
+  it("does not drag with touch or a right press", () => {
+    const { onMove } = render();
+    layOut();
+    press(row("Codex"), 45, { pointerType: "touch" });
+    moveTo(5);
+    release(5);
+    press(row("Codex"), 45, { button: 2 });
+    moveTo(5);
+    release(5);
+    expect(onMove).not.toHaveBeenCalled();
+  });
+
+  it("moves a row one place with Alt+Up and Alt+Down", () => {
+    const { onMove } = render();
+    const codex = row("Codex");
+    const key = (name: string, altKey = true) => {
+      act(() => {
+        codex?.dispatchEvent(new KeyboardEvent("keydown", { key: name, altKey, bubbles: true }));
+      });
+    };
+    key("ArrowUp");
+    key("ArrowDown");
+    key("ArrowDown", false);
+    expect(onMove.mock.calls).toEqual([
+      ["codex", 0, ["claude", "codex", "shell"]],
+      ["codex", 2, ["claude", "codex", "shell"]],
+    ]);
+    expect(codex?.title).toContain("Drag to change the order");
   });
 
   it("starts with the default from the row while its flyout is open", () => {

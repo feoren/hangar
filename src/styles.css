@@ -2793,6 +2793,30 @@ h2 .beta-badge {
   background: var(--hover);
 }
 
+/* Sorting by drag (ProgramRow.tsx): the dragged row follows the pointer above the others, which
+   glide aside to show where it lands. */
+.profile-list.sorting .profile-row {
+  transition: transform 150ms ease;
+}
+
+.profile-list.sorting .profile-row.dragging {
+  z-index: 2;
+  background: var(--hover);
+  box-shadow: 0 4px 14px rgb(0 0 0 / 22%);
+  cursor: grabbing;
+  transition: none;
+}
+
+.profile-list.sorting .profile-row:not(.dragging):hover {
+  background: transparent;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .profile-list.sorting .profile-row {
+    transition: none;
+  }
+}
+
 .profile {
   display: flex;
   flex: 1 1 0;

@@ -238,6 +238,8 @@ interface Props {
    * that model instead of the program's default (ADR 0022).
    */
   onStart: (profile: Profile, model?: SessionModel) => void;
+  /** A program row of "New session" was moved to `toIndex` among the shown ids. */
+  onMoveProgram: (id: string, toIndex: number, shown: readonly string[]) => void;
   /** Ollama's and LM Studio's state for the rows' model menus; `null` while unknown. */
   localLlm: LocalLlmState | null;
   /** Recently opened sessions not open now, most recent first (recentlyOpened.ts `shownRecent`). */
@@ -1523,7 +1525,7 @@ export function Sidebar(props: Props) {
           !startable.some((profile) => listedFor(mode, profile)) && (
             <p className="hint group-hint">{t("start.noTeamAgents")}</p>
           )}
-        <ProgramList>
+        <ProgramList onMove={props.onMoveProgram}>
           {startable
             .filter((profile) => !teamPlanShown && listedFor(mode, profile))
             .map((profile) => {
