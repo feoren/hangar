@@ -79,6 +79,20 @@ describe("peekNotes", () => {
     ).toEqual(["Uses a lot", "CPU 12% · RAM 476 MB", "Context 22% full", "Claude"]);
   });
 
+  it("says the output rate after the context, before the cost", () => {
+    expect(
+      peekNotes({
+        cost: "Tokens 123k · ~$0.42",
+        speed: "Claude Code is writing 84 tokens per second",
+        context: "Context 22% full",
+      }),
+    ).toEqual([
+      "Context 22% full",
+      "Claude Code is writing 84 tokens per second",
+      "Tokens 123k · ~$0.42",
+    ]);
+  });
+
   it("leaves out missing, blank and repeated texts", () => {
     expect(peekNotes({})).toEqual([]);
     expect(peekNotes({ overlap: null, gateOff: "  ", cwd: "/home/me" })).toEqual(["/home/me"]);

@@ -7,7 +7,7 @@ raw: raw/2026-11-11-context-window-measurement.md
 url: ""
 retrieved: 2026-11-11
 created: 2026-11-11
-updated: 2026-11-11
+updated: 2026-11-27
 ---
 
 # Context use and window size of a Claude Code session
@@ -45,8 +45,10 @@ in one folder, so the meter shows for Claude Code sessions only.
 > the thread id).
 
 ## Significance for Hangar
-- One thread polls every Claude session's main transcript every 2 s (only the end of the file on
-  the first read, then what was appended) and emits a snapshot only when a number changed.
+- One thread polls every Claude session's main transcript (only the end of the file on the first
+  read, then what was appended) and emits a snapshot only when a number changed. Every 2 s until
+  2026-11-27; since then every second while the transcript grew in the last 30 s and every 2 s
+  otherwise, for the output rate in the same snapshot ([[output-rate-measurement]]).
 - After `/clear` Claude Code continues in a new transcript under a new id; the meter keeps the
   last numbers of the old one until the session restarts.
 > [!question] Unverified

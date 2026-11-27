@@ -319,8 +319,8 @@ describe("the builder", () => {
   });
 
   it("gives every element a chip with its form and a way to hide it, the title none", () => {
-    // Ten placed elements and the cost, which no template shows, among the hidden ones.
-    expect(count(html, "row-chip")).toBe(11);
+    // Eleven placed elements and the cost, which no template shows, among the hidden ones.
+    expect(count(html, "row-chip")).toBe(12);
     expect(html).toContain('aria-label="Form of Context"');
     expect(html).toContain('aria-label="Hide State"');
     expect(html).not.toContain('aria-label="Hide Title"');
@@ -423,6 +423,33 @@ describe("the cost on the row", () => {
     const html = render(<RowLayoutPreview plan={planRow(withCost)} language="en" />);
     expect(count(html, "session-cost")).toBe(2);
     expect(html).toContain("~$3.42");
+  });
+});
+
+describe("the output rate on the row", () => {
+  it("shows tokens per second on the title line, the sentence for screen readers", () => {
+    const html = row(DEFAULT_ROW_LAYOUT, { speed: 1234 });
+    expect(count(html, "session-speed")).toBe(1);
+    expect(html).toContain(">1,234 tok/s<");
+    expect(html).toContain("Claude Code is writing 1,234 tokens per second");
+    // On the title's line, just before the state.
+    const title = /class="row-line session-title-row">([\s\S]*?)<\/span><span class="row-line/.exec(
+      html,
+    );
+    expect(title?.[1]).toMatch(/session-speed[\s\S]*session-state/);
+  });
+
+  it("shows nothing without a rate, and nothing while it is hidden", () => {
+    expect(count(row(DEFAULT_ROW_LAYOUT, { speed: null }), "session-speed")).toBe(0);
+    expect(count(row(DEFAULT_ROW_LAYOUT), "session-speed")).toBe(0);
+    const hidden = hideElement(DEFAULT_ROW_LAYOUT, "speed");
+    expect(count(row(hidden, { speed: 84 }), "session-speed")).toBe(0);
+  });
+
+  it("shows in the settings' preview for the working session only", () => {
+    const html = render(<RowLayoutPreview plan={planRow(DEFAULT_ROW_LAYOUT)} language="en" />);
+    expect(count(html, "session-speed")).toBe(1);
+    expect(html).toContain(">84 tok/s<");
   });
 });
 

@@ -4,7 +4,8 @@
 // bar or a ring, ...). An element on no line is hidden. Groups, tree guides and sub-agent rows
 // stay the same whatever the layout; it changes only the inside of a row (SessionRow.tsx,
 // styles.css "Row layout"). The fourteen fixed row styles of earlier versions are presets now, and
-// a stored style becomes its layout once (`parseRowLayout`). Pure.
+// a stored style becomes its layout once (`parseRowLayout`); a layout stored before the output
+// rate existed gets it once, where the state is (`withSpeed`). Pure.
 
 import type { ResourceParts } from "./resources";
 
@@ -21,6 +22,7 @@ export const ROW_ELEMENTS = [
   "context",
   "tokens",
   "cost",
+  "speed",
 ] as const;
 export type RowElement = (typeof ROW_ELEMENTS)[number];
 
@@ -117,7 +119,15 @@ export interface RowLayout {
   forms: RowForms;
   frame: RowFrame;
   density: RowDensity;
+  /** `ROW_LAYOUT_REVISION` of the layout: which elements it already knew about. */
+  revision: number;
 }
+
+/**
+ * Revision 2 brought the output rate ("speed"). A layout stored before it gets the rate once
+ * where the state is; one stored since keeps the user's choice, a hidden rate included.
+ */
+export const ROW_LAYOUT_REVISION = 2;
 
 const DEFAULT_FORMS: RowForms = {
   state: "word",
@@ -137,15 +147,40 @@ function layout(
     const line = lines[index];
     return { left: line?.[0] ?? [], right: line?.[1] ?? [] };
   });
-  return { lines: filled, forms: { ...DEFAULT_FORMS, ...forms }, frame, density: "normal" };
+  const value: RowLayout = {
+    lines: filled,
+    forms: { ...DEFAULT_FORMS, ...forms },
+    frame,
+    density: "normal",
+    revision: ROW_LAYOUT_REVISION,
+  };
+  return withSpeed(value);
+}
+
+/**
+ * The output rate where it reads best: just before the state when the state sits in a right
+ * part, else at the right end of the title's line (before an avatar or ring that spans the
+ * lines there). A layout that already places it stays as it is.
+ */
+export function withSpeed(value: RowLayout): RowLayout {
+  if (isPlaced(value, "speed")) return value;
+  const state = findElement(value, "state");
+  if (state?.side === "right") return placeElement(value, "speed", state);
+  const title = findElement(value, "title");
+  const line = title === null ? 0 : title.line;
+  const right = value.lines[line]?.right ?? [];
+  const last = right[right.length - 1];
+  const trailing = line === 0 && spanning(value, last) !== null;
+  const index = trailing ? right.length - 1 : right.length;
+  return placeElement(value, "speed", { line, side: "right", index });
 }
 
 const TITLE_LINE = ["program", "signs", "title"] as const;
 const WHERE_LINE = [["folder"], ["branch"]] as const;
 
 /**
- * The long-standing row: title and state; folder and branch; the load; run time, context bar
- * and tokens.
+ * The long-standing row: title, output rate and state; folder and branch; the load; run time,
+ * context bar and tokens.
  */
 export const DEFAULT_ROW_LAYOUT: RowLayout = layout([
   [TITLE_LINE, ["state"]],
@@ -288,6 +323,8 @@ export function parseRowLayout(value: unknown, legacyStyle?: unknown): RowLayout
   if (typeof value !== "object" || value === null || Array.isArray(value)) {
     return isRowPreset(legacyStyle) ? presetLayout(legacyStyle) : DEFAULT_ROW_LAYOUT;
   }
+  const revision = field(value, "revision");
+  const current = typeof revision === "number" && revision >= ROW_LAYOUT_REVISION;
   const seen = new Set<RowElement>();
   const slot = (entries: unknown): RowElement[] => {
     if (!Array.isArray(entries)) return [];
@@ -312,7 +349,7 @@ export function parseRowLayout(value: unknown, legacyStyle?: unknown): RowLayout
   }
   const rawForms = field(value, "forms");
   const forms: object = typeof rawForms === "object" && rawForms !== null ? rawForms : {};
-  return {
+  const parsed: RowLayout = {
     lines,
     forms: {
       state: pick(STATE_FORMS, field(forms, "state"), DEFAULT_FORMS.state),
@@ -324,7 +361,9 @@ export function parseRowLayout(value: unknown, legacyStyle?: unknown): RowLayout
     },
     frame: pick(ROW_FRAMES, field(value, "frame"), "flat"),
     density: pick(ROW_DENSITIES, field(value, "density"), "normal"),
+    revision: ROW_LAYOUT_REVISION,
   };
+  return current ? parsed : withSpeed(parsed);
 }
 
 /** Where an element sits: its line, the line's part and its place in that part. */
@@ -388,9 +427,13 @@ export function hideElement(value: RowLayout, element: RowElement): RowLayout {
   return { ...value, lines: withoutElement(value, element) };
 }
 
-/** Shows a hidden element where the standard row has it, at the end of that part. */
+/**
+ * Shows a hidden element where the standard row has it, at the end of that part; the output rate
+ * comes back just before the state (`withSpeed`).
+ */
 export function showElement(value: RowLayout, element: RowElement): RowLayout {
   if (isPlaced(value, element)) return value;
+  if (element === "speed") return withSpeed(value);
   const home = findElement(DEFAULT_ROW_LAYOUT, element) ??
     EXTRA_HOMES[element] ?? { line: 0, side: "left" };
   const length = value.lines[home.line]?.[home.side].length ?? 0;

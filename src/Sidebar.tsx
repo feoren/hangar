@@ -117,7 +117,7 @@ import { useClock } from "./useClock";
 import type { UpdateState } from "./useUpdater";
 import { useWaitingEdges } from "./useWaitingEdges";
 import { resourceParts } from "./resources";
-import { contextHint } from "./contextUsage";
+import { contextHint, formatOutputRate } from "./contextUsage";
 import { isOneLine, oneLineLabelKey } from "./oneLineRows";
 import {
   isPlaced,
@@ -135,7 +135,7 @@ import {
   SubAgentCountMark,
   useRunningSubAgents,
 } from "./SubAgentCount";
-import { useSessionContext } from "./useContextUsage";
+import { useSessionContext, useSessionOutputRate } from "./useContextUsage";
 import { CompactAction } from "./CompactAction";
 import { commandBusy, sessionCommands } from "./agentCommands";
 import { useSessionCost, useSessionCostText } from "./useCosts";
@@ -688,6 +688,9 @@ export function Sidebar(props: Props) {
       props.reasons.get(session.id) ?? null,
       runsAgent(profileById.get(session.profileId)?.command, session.kind),
     );
+  // The peek says the output rate in words while the session works (rows have no tooltip).
+  const peekWorking = peekSession !== undefined && chipOf(peekSession) === "working";
+  const peekSpeed = useSessionOutputRate(peekWorking ? peekSession.id : -1);
   const toggleLabel = collapsed ? t("sidebar.expand") : t("sidebar.collapse");
   /** Round button on the sidebar's right edge; the same place collapsed and expanded. */
   const edgeToggle = (
@@ -752,6 +755,10 @@ export function Sidebar(props: Props) {
                   peekContext === undefined ? null : contextHint(peekContext, props.language, t),
               }
             : {}),
+          speed:
+            peekSpeed === undefined
+              ? null
+              : t("speed.hint", { value: formatOutputRate(peekSpeed, props.language) }),
           cost: costNote(peekCost, props.language, t),
           devServer: props.devServers.get(peekSession.id),
           program: programLine(profileById.get(peekSession.profileId), versions),
@@ -2017,6 +2024,9 @@ function SessionItem({
   const link = links.get(session.id);
   // Read only where the row shows it, so other rows never re-render for a new cost.
   const cost = useSessionCostText(isPlaced(plan.layout, "cost") ? session.id : -1, language);
+  // Only while the session works: the last rate of a finished turn would read as still running.
+  const speedShown = isPlaced(plan.layout, "speed") && chip === "working";
+  const speed = useSessionOutputRate(speedShown ? session.id : -1) ?? null;
   const className = [
     "session",
     active ? "active" : "",
@@ -2117,6 +2127,7 @@ function SessionItem({
             runtime={where.runtime}
             context={context}
             cost={cost}
+            speed={speedShown ? speed : null}
             language={language}
             badgeCount={
               subAgents > 0 ? <SubAgentCountMark running={subAgents} place="badge" /> : null

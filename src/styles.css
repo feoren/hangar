@@ -164,6 +164,9 @@
   --fact-memory: 3.5em;
   --fact-runtime: 3.9em;
   --fact-tokens: 6.3em;
+  /* The output rate on the title line, "999 tok/s": about 4em in the UI font, plus room
+     (estimated from the glyph widths, not measured in Edge like the cells above). */
+  --fact-speed: 4.6em;
   /* The context bar takes the line's free width, down to this. */
   --fact-bar-min: 24px;
   /* A session title keeps at least this much (of its 13 px text). */
@@ -2634,7 +2637,7 @@ h2 .beta-badge {
   color: var(--tree-flow-b);
 }
 
-/* A narrow title line gives up the rate first and then the context's bar, so the title keeps
+/* A narrow title line gives up the rates first and then the context's bar, so the title keeps
    room to be read and nothing runs past the row's edge; the share and the state stay. Only the
    title line does this; the lines below never drop a fact (sessionFactsCss.test.ts). */
 .session-title-row {
@@ -2643,6 +2646,15 @@ h2 .beta-badge {
 
 @container title-line (max-width: 330px) {
   .tree-flow-rate {
+    display: none;
+  }
+}
+
+/* The output rate (it shows while the session works) steps back where it would squeeze the
+   title below about six letters or push the state past the row's edge: measured in Chromium, a
+   title line of 239 px (sidebar 320 px) left the title 52 px and the state 15 px outside. */
+@container title-line (max-width: 260px) {
+  .session-speed {
     display: none;
   }
 }
@@ -13858,6 +13870,29 @@ body.session-dragging .session-actions {
   flex: none;
   font-variant-numeric: tabular-nums;
   white-space: nowrap;
+}
+
+/* --- Output rate on the row (SessionRow.tsx RowSpeed) ---
+   Only while Claude Code works: a quiet fact in a cell of fixed width with right-aligned tabular
+   digits, so the state beside it stays put when "8 tok/s" becomes "120 tok/s". It fades in
+   when the first response of a turn lands instead of popping up. */
+.session-speed {
+  flex: none;
+  min-width: var(--fact-speed);
+  text-align: end;
+  animation: speed-in 240ms var(--ease-out);
+}
+
+@keyframes speed-in {
+  from {
+    opacity: 0;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .session-speed {
+    animation: none;
+  }
 }
 
 .link-cost {

@@ -1,6 +1,6 @@
-// Context meter of a session row: how full the agent's context window is (backend:
-// src-tauri/src/context_usage.rs). Checks the backend's snapshot and formats it. Pure, so it is
-// tested without React; numbers only, nothing here is persisted.
+// Context meter of a session row: how full the agent's context window is, and how fast the agent
+// writes (backend: src-tauri/src/context_usage.rs). Checks the backend's snapshot and formats it.
+// Pure, so it is tested without React; numbers only, nothing here is persisted.
 
 import type { Translate } from "./i18n";
 import { formatTokens } from "./subAgents";
@@ -71,4 +71,30 @@ export function contextHint(context: SessionContext, language: string, t: Transl
       window: exact.format(context.window),
     }),
   ].join("\n");
+}
+
+/**
+ * The output rates of a `context-usage-changed` payload or the answer of `context_usage`:
+ * session id to output tokens per second (Rust: `SessionContext.output_rate`). A session without
+ * a rate (none of its responses ended in the last 30 s, or no Claude Code transcript) is missing;
+ * anything else yields `null`.
+ */
+export function parseOutputRates(value: unknown): Map<number, number> | null {
+  if (typeof value !== "object" || value === null || Array.isArray(value)) return null;
+  const list: unknown = Reflect.get(value, "sessions");
+  if (!Array.isArray(list)) return null;
+  const rates = new Map<number, number>();
+  for (const item of list) {
+    if (typeof item !== "object" || item === null) continue;
+    const id = count(Reflect.get(item, "sessionId"));
+    const rate = count(Reflect.get(item, "outputRate"));
+    if (id === null || rate === null || rate === 0) continue;
+    rates.set(id, rate);
+  }
+  return rates;
+}
+
+/** "84", "1,250", "1.250": output tokens per second as a whole number in the UI language. */
+export function formatOutputRate(rate: number, language: string): string {
+  return new Intl.NumberFormat(language, { maximumFractionDigits: 0 }).format(rate);
 }

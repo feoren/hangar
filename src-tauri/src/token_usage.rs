@@ -158,6 +158,11 @@ pub fn utc_parts(secs: i64) -> (Day, u32, u32, u32) {
 /// Seconds since the epoch of an RFC 3339 time as Claude Code writes it
 /// (`2026-11-12T10:00:00.000Z`); an offset instead of `Z` is honored.
 pub fn parse_utc(text: &str) -> Option<i64> {
+    parse_utc_ms(text).map(|ms| ms.div_euclid(1000))
+}
+
+/// [`parse_utc`] in milliseconds; digits past the third of the fraction are dropped.
+pub fn parse_utc_ms(text: &str) -> Option<i64> {
     let text = text.trim();
     let date = Day::parse(text.get(..10)?)?;
     let rest = text.get(10..)?;
@@ -173,8 +178,16 @@ pub fn parse_utc(text: &str) -> Option<i64> {
         return None;
     }
     let mut zone = rest.get(8..)?;
+    let mut millis = 0;
     if let Some(fraction) = zone.strip_prefix('.') {
         let digits = fraction.bytes().take_while(u8::is_ascii_digit).count();
+        // "5" is 500 ms, "05" 50 ms, "050123" 50 ms.
+        millis = fraction
+            .bytes()
+            .take(digits)
+            .chain(std::iter::repeat(b'0'))
+            .take(3)
+            .fold(0, |sum, digit| sum * 10 + i64::from(digit - b'0'));
         zone = fraction.get(digits..)?;
     }
     let offset = match zone {
@@ -193,7 +206,8 @@ pub fn parse_utc(text: &str) -> Option<i64> {
             sign * (hours * 3600 + minutes * 60)
         }
     };
-    Some(date.index() * SECONDS_PER_DAY + hour * 3600 + minute * 60 + second - offset)
+    let secs = date.index() * SECONDS_PER_DAY + hour * 3600 + minute * 60 + second - offset;
+    Some(secs * 1000 + millis)
 }
 
 /// Turns seconds since the epoch into the local day; the operating system's zone in the app
@@ -562,6 +576,12 @@ pub(crate) mod tests {
         assert_eq!(parse_utc("1970-01-02T01:02:03Z"), Some(86_400 + 3723));
         assert_eq!(parse_utc("1970-01-01T02:00:00.5+02:00"), Some(0));
         assert_eq!(parse_utc("1970-01-01T00:00:00-01:30"), Some(5400));
+        assert_eq!(parse_utc("1969-12-31T23:59:59.900Z"), Some(-1));
+        assert_eq!(parse_utc_ms("1970-01-01T00:00:01.234Z"), Some(1234));
+        assert_eq!(parse_utc_ms("1970-01-01T00:00:01.5Z"), Some(1500));
+        assert_eq!(parse_utc_ms("1970-01-01T00:00:01.050123Z"), Some(1050));
+        assert_eq!(parse_utc_ms("1970-01-01T00:00:01Z"), Some(1000));
+        assert_eq!(parse_utc_ms("1970-01-01T02:00:00.25+02:00"), Some(250));
         for bad in [
             "1970-01-01 00:00:00Z",
             "1970-01-01T24:00:00Z",

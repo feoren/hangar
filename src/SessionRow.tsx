@@ -8,7 +8,7 @@ import { Fragment, type ReactNode } from "react";
 
 import { Badge } from "./Badge";
 import { ContextFact, ContextRing, ContextTokens, RuntimeCell } from "./ContextLine";
-import { contextHint, type SessionContext } from "./contextUsage";
+import { contextHint, formatOutputRate, type SessionContext } from "./contextUsage";
 import { useT } from "./i18n";
 import { BranchIcon, FolderIcon, TeamIcon } from "./icons";
 import { revealInvisible } from "./invisible";
@@ -51,6 +51,11 @@ export interface RowBodyProps {
   context: SessionContext | undefined;
   /** The estimated cost so far ("~$0.42", costs.ts `costText`); missing or `null`: none. */
   cost?: string | null;
+  /**
+   * Output tokens per second while Claude Code writes (useContextUsage.ts); missing or `null`:
+   * none, also whenever the session does not work.
+   */
+  speed?: number | null;
   language: string;
   /**
    * What decides a sub-agent session's figure (SessionLook.tsx): with `subAgent` the figure
@@ -133,6 +138,8 @@ function present(element: RowElement, props: RowBodyProps): boolean {
       return props.context !== undefined;
     case "cost":
       return props.cost !== undefined && props.cost !== null;
+    case "speed":
+      return props.speed !== undefined && props.speed !== null;
   }
 }
 
@@ -289,7 +296,23 @@ function RowElementView({ element, ...props }: { element: RowElement } & RowBody
       return <ContextTokens context={props.context} />;
     case "cost":
       return props.cost === undefined || props.cost === null ? null : <RowCost cost={props.cost} />;
+    case "speed":
+      return props.speed === undefined || props.speed === null ? null : (
+        <RowSpeed rate={props.speed} language={props.language} />
+      );
   }
+}
+
+/** The output rate on screen ("84 tok/s"), the sentence for screen readers. */
+function RowSpeed({ rate, language }: { rate: number; language: string }) {
+  const t = useT();
+  const value = formatOutputRate(rate, language);
+  return (
+    <span className="session-speed row-fact">
+      <span className="sr-only">{t("speed.hint", { value })}</span>
+      <span aria-hidden="true">{t("speed.value", { value })}</span>
+    </span>
+  );
 }
 
 /** The estimated cost, with its name for screen readers ("Cost ~$0.42"). */
