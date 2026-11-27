@@ -12,6 +12,7 @@ import {
   iconMode,
   MAX_ICON_DATA_URL,
   MAX_ICON_FILE_BYTES,
+  moveAmong,
   moveTo,
   normalizeLetters,
   parseProgramPrefs,
@@ -114,6 +115,19 @@ describe("order", () => {
   it("sorts by the saved order, new ones at the end", () => {
     expect(sortByOrder(items, ["c", "x", "a"]).map((i) => i.id)).toEqual(["c", "a", "b", "d"]);
     expect(sortByOrder(items, []).map((i) => i.id)).toEqual(["a", "b", "c", "d"]);
+  });
+
+  it("moves among the shown entries and leaves hidden ones in place", () => {
+    // h is hidden: it stays between a and b whatever moves around it.
+    const all = ["a", "h", "b", "c"];
+    const shown = ["a", "b", "c"];
+    expect(moveAmong(all, shown, "c", 0)).toEqual(["c", "a", "h", "b"]);
+    expect(moveAmong(all, shown, "a", 2)).toEqual(["h", "b", "c", "a"]);
+    expect(moveAmong(all, shown, "a", 1)).toEqual(["h", "b", "a", "c"]);
+    expect(moveAmong(all, shown, "b", 99)).toEqual(["a", "h", "c", "b"]);
+    expect(moveAmong(all, shown, "b", -3)).toEqual(["b", "a", "h", "c"]);
+    // An id that is not shown changes nothing.
+    expect(moveAmong(all, shown, "h", 0)).toEqual(all);
   });
 
   it("moves and keeps IDs that are not shown", () => {

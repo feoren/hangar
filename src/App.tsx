@@ -337,7 +337,7 @@ import {
 } from "./doneNotice";
 import { profileErrorText, shouldReportReloadError } from "./profileFile";
 import { installedKey, sameProfiles } from "./profiles";
-import { arrangedProfiles, resolveBadge, startableProfiles } from "./programPrefs";
+import { arrangedProfiles, moveAmong, resolveBadge, startableProfiles } from "./programPrefs";
 import {
   availableVersion,
   isPlanChanged,
@@ -7266,6 +7266,15 @@ export function App() {
             dispatch({ type: "activated", id });
           }}
           onStart={startHere}
+          onMoveProgram={(id, toIndex, shown) => {
+            const all = arrangedProfiles(profiles, settings.programs).map((p) => p.id);
+            updateSettings({
+              programs: {
+                ...settings.programs,
+                order: moveAmong(all, shown, id, toIndex),
+              },
+            });
+          }}
           localLlm={localLlm}
           recentSessions={recentShown}
           onReopenRecent={reopenRecent}

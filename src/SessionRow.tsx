@@ -62,6 +62,11 @@ export interface RowBodyProps {
    * missing or `null`: none measured yet.
    */
   speed?: OutputRate | null;
+  /**
+   * The model the session started with: the badge's short text and the full name for its
+   * tooltip (localLlm.ts `modelBadge`, `modelNote`); missing or `null`: the program's default.
+   */
+  model?: { text: string; title: string } | null;
   language: string;
   /**
    * What decides a sub-agent session's figure (SessionLook.tsx): with `subAgent` the figure
@@ -146,6 +151,8 @@ function present(element: RowElement, props: RowBodyProps): boolean {
       return props.cost !== undefined && props.cost !== null;
     case "speed":
       return props.speed !== undefined && props.speed !== null;
+    case "model":
+      return props.model !== undefined && props.model !== null;
   }
 }
 
@@ -305,6 +312,13 @@ function RowElementView({ element, ...props }: { element: RowElement } & RowBody
     case "speed":
       return props.speed === undefined || props.speed === null ? null : (
         <RowSpeed rate={props.speed} language={props.language} />
+      );
+    case "model":
+      return props.model === undefined || props.model === null ? null : (
+        <span className="session-model row-fact" title={props.model.title}>
+          <span className="sr-only">{props.model.title}</span>
+          <span aria-hidden="true">{props.model.text}</span>
+        </span>
       );
   }
 }

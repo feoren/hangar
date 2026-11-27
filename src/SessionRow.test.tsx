@@ -319,8 +319,8 @@ describe("the builder", () => {
   });
 
   it("gives every element a chip with its form and a way to hide it, the title none", () => {
-    // Eleven placed elements and the cost, which no template shows, among the hidden ones.
-    expect(count(html, "row-chip")).toBe(12);
+    // Twelve placed elements and the cost, which no template shows, among the hidden ones.
+    expect(count(html, "row-chip")).toBe(13);
     expect(html).toContain('aria-label="Form of Context"');
     expect(html).toContain('aria-label="Hide State"');
     expect(html).not.toContain('aria-label="Hide Title"');

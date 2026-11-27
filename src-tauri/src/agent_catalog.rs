@@ -2138,16 +2138,15 @@ commands=['x']
         assert_eq!(servers("hermes"), both);
         assert_eq!(servers("qwen"), both);
         assert_eq!(servers("omp"), both);
-        // Goose takes the model only from GOOSE_MODEL; LM Studio's provider id is undocumented.
-        assert_eq!(servers("goose"), [LocalServer::Ollama]);
-        // Copilot CLI: only Ollama documents the route.
-        assert_eq!(servers("copilot"), [LocalServer::Ollama]);
+        // Goose takes the model only from GOOSE_MODEL; Kimi from KIMI_MODEL_*.
+        assert_eq!(servers("goose"), both);
+        assert_eq!(servers("copilot"), both);
+        assert_eq!(servers("kimi"), both);
         // Evidenced as not startable against a local server from argv and env alone
         // (docs/wiki/pages/syntheses/local-models-per-agent.md).
         for id in [
             "antigravity",
             "cursor",
-            "kimi",
             "kiro",
             "opencode",
             "crush",
