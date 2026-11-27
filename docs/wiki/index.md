@@ -109,6 +109,7 @@ Catalog of all wiki pages. Updated on every ingest.
 - [[subagent-transcripts]]: research and measurement: where Claude Code, Codex, OpenCode and Gemini keep sub-agent transcripts, session id flags, hooks, tailing rules (updated: 2026-11-11)
 - [[subagent-activity-measurement]]: measurement: Claude Code 2.1.322 sub-agent tokens (context size of the newest response), tool use count, `toolUseResult` shapes per tool; the live activity line is not stored (updated: 2026-11-11)
 - [[context-window-measurement]]: measurement: Claude Code 2.1.322 main transcripts carry the context use but no window size; model id table, 1M evidence, Codex rollouts not linkable (updated: 2026-11-11)
+- [[output-rate-measurement]]: measurement: Claude Code 2.1.319 to 2.1.332 write every record of a response with its final `output_tokens`; `user` records, not attachments, start a response; responses take a median of 4.5 to 5.9 s at 85 to 97 output tokens per second; the rule of the rows' output rate (sources: 0, updated: 2026-11-27)
 - [[wsl-list-measurement]]: measurement: `wsl.exe --list --quiet` writes UTF-16LE into a pipe, Docker Desktop distribution, keychain round trip through keyring 4.2 (updated: 2026-11-08)
 - [[webgl-measurement]]: measurement: xterm.js 6 DOM vs WebGL renderer in Edge 157 (WebView2 engine), no gain, 4x slower on color-heavy output; WebGL stays off (updated: 2026-11-08)
 - [[windows-toast-notifications]]: app id rule of tauri-plugin-notification, missing toast tag in tauri-winrt-notification, implicit MTA (sources: 0, updated: 2026-11-18)

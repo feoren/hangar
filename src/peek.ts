@@ -81,6 +81,8 @@ export interface PeekNoteSources {
   load?: string | null | undefined;
   /** The context window's use, for a row layout that leaves the context or tokens off the row. */
   context?: string | null | undefined;
+  /** How fast Claude Code writes while it works ("Claude Code is writing 84 tokens per second"). */
+  speed?: string | null | undefined;
   /** Tokens and estimated cost so far: "Tokens 123k · ~$0.42" (costs.ts costNote). */
   cost?: string | null | undefined;
   /** Address of the dev server the session runs. */
@@ -96,7 +98,7 @@ export interface PeekNoteSources {
 /**
  * The muted lines under the peek's title: what needs action first (overlap, gate, exit code),
  * then the queued message, the outlier note, the load and context a compact row leaves out, the
- * tokens and estimated cost, the dev server, the program and its model, then the working folder. Empty and
+ * output rate, the tokens and estimated cost, the dev server, the program and its model, then the working folder. Empty and
  * repeated texts are left out.
  */
 export function peekNotes(sources: PeekNoteSources): string[] {
@@ -109,6 +111,7 @@ export function peekNotes(sources: PeekNoteSources): string[] {
     sources.outlier,
     sources.load,
     sources.context,
+    sources.speed,
     sources.cost,
     sources.devServer,
     sources.program,

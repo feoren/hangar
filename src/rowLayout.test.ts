@@ -14,6 +14,7 @@ import {
   presetLayout,
   ROW_ELEMENTS,
   ROW_LINES,
+  ROW_LAYOUT_REVISION,
   ROW_PRESETS,
   rowAttributes,
   setFormByName,
@@ -36,7 +37,7 @@ function placed(value: RowLayout): RowElement[] {
 describe("the standard row", () => {
   it("is today's four lines with every element in its long-standing form", () => {
     expect(lines(DEFAULT_ROW_LAYOUT)).toEqual([
-      "program signs title | state",
+      "program signs title | speed state",
       "folder | branch",
       "load |",
       "runtime context | tokens",
@@ -77,6 +78,7 @@ describe("parsing a stored layout", () => {
         { left: ["title", "price", 7, null, "state"], right: ["state", "branch"] },
         { left: ["branch", "folder"], right: "load" },
       ],
+      revision: ROW_LAYOUT_REVISION,
     });
     expect(lines(value)).toEqual(["title state | branch", "folder |", "|", "|"]);
     expect(new Set(placed(value)).size).toBe(placed(value).length);
@@ -87,7 +89,7 @@ describe("parsing a stored layout", () => {
       left: [ROW_ELEMENTS[index] ?? "title"],
       right: [],
     }));
-    const value = parseRowLayout({ lines: many });
+    const value = parseRowLayout({ lines: many, revision: ROW_LAYOUT_REVISION });
     expect(value.lines).toHaveLength(ROW_LINES);
     expect(placed(value)).toEqual(["title", "state", "program", "signs"]);
     expect(parseRowLayout({ lines: [{ left: ["title"] }] }).lines).toHaveLength(ROW_LINES);
@@ -95,9 +97,8 @@ describe("parsing a stored layout", () => {
   });
 
   it("always shows the title", () => {
-    expect(lines(parseRowLayout({ lines: [{ left: ["state"], right: [] }] }))[0]).toBe(
-      "state title |",
-    );
+    const stored = { lines: [{ left: ["state"], right: [] }], revision: ROW_LAYOUT_REVISION };
+    expect(lines(parseRowLayout(stored))[0]).toBe("state title |");
     expect(isTitled(parseRowLayout({ lines: [] }))).toBe(true);
     expect(isTitled(parseRowLayout({}))).toBe(true);
   });
@@ -150,26 +151,28 @@ describe("moving a stored row style to its layout once", () => {
 
   it("builds every preset as the old style showed it, as close as elements allow", () => {
     expect(lines(presetLayout("ring"))).toEqual([
-      "context program signs title | state",
+      "context program signs title | speed state",
       "folder | branch",
       "load | runtime",
       "|",
     ]);
     expect(presetLayout("ring").forms.context).toBe("ring");
     expect(lines(presetLayout("compact"))).toEqual([
-      "program signs title | state",
+      "program signs title | speed state",
       "folder | branch context",
       "|",
       "|",
     ]);
     expect(lines(presetLayout("accordion"))).toEqual([
-      "program signs title | context state",
+      "program signs title | context speed state",
       "|",
       "|",
       "|",
     ]);
-    expect(lines(presetLayout("counters"))[0]).toBe("program signs state title | runtime");
-    expect(lines(presetLayout("columns"))[0]).toBe("program signs state title | context runtime");
+    expect(lines(presetLayout("counters"))[0]).toBe("program signs state title | runtime speed");
+    expect(lines(presetLayout("columns"))[0]).toBe(
+      "program signs state title | context runtime speed",
+    );
     expect(presetLayout("columns").forms).toMatchObject({ state: "symbol", context: "number" });
     expect(presetLayout("card")).toMatchObject({
       frame: "card",
@@ -197,12 +200,12 @@ describe("moving a stored row style to its layout once", () => {
     const hangar = presetLayout("hangar");
     expect(ROW_PRESETS[0]).toBe("hangar");
     expect(lines(hangar)).toEqual([
-      "title signs | state",
+      "title signs | speed state",
       "folder | branch runtime",
       "load | tokens",
       "context |",
     ]);
-    // Exactly what Hangar 0.8.0 stored for the row the owner built.
+    // Exactly what Hangar 0.8.0 stored for the row the owner built: the output rate joins it.
     const stored = {
       lines: [
         { left: ["title", "signs"], right: ["state"] },
@@ -242,16 +245,16 @@ describe("moving a stored row style to its layout once", () => {
 describe("moving elements", () => {
   it("puts an element before the one at a place, also within its own part", () => {
     const moved = placeElement(DEFAULT_ROW_LAYOUT, "title", { line: 0, side: "left", index: 0 });
-    expect(lines(moved)[0]).toBe("title program signs | state");
+    expect(lines(moved)[0]).toBe("title program signs | speed state");
     // At the part's end: back where it was.
     const back = placeElement(moved, "title", { line: 0, side: "left", index: 3 });
-    expect(lines(back)[0]).toBe("program signs title | state");
+    expect(lines(back)[0]).toBe("program signs title | speed state");
   });
 
   it("moves an element to another line and part", () => {
     const moved = placeElement(DEFAULT_ROW_LAYOUT, "tokens", { line: 1, side: "left", index: 1 });
     expect(lines(moved)).toEqual([
-      "program signs title | state",
+      "program signs title | speed state",
       "folder tokens | branch",
       "load |",
       "runtime context |",
@@ -263,7 +266,7 @@ describe("moving elements", () => {
     const moved = placeElement(hidden, "load", { line: 9, side: "right", index: 99 });
     expect(lines(moved)[3]).toBe("runtime context | tokens load");
     expect(lines(placeElement(hidden, "load", { line: -2, side: "left", index: -1 }))[0]).toBe(
-      "load program signs title | state",
+      "load program signs title | speed state",
     );
   });
 
@@ -277,26 +280,33 @@ describe("moving elements", () => {
 
   it("shows a hidden element where the standard row has it, at the end of that part", () => {
     const value = hideElement(hideElement(DEFAULT_ROW_LAYOUT, "signs"), "state");
-    expect(lines(showElement(value, "signs"))[0]).toBe("program title signs |");
-    expect(lines(showElement(value, "state"))[0]).toBe("program title | state");
+    expect(lines(showElement(value, "signs"))[0]).toBe("program title signs | speed");
+    expect(lines(showElement(value, "state"))[0]).toBe("program title | speed state");
     expect(showElement(DEFAULT_ROW_LAYOUT, "state")).toBe(DEFAULT_ROW_LAYOUT);
   });
 
   it("steps left and right through the line, across from one part into the other", () => {
     const right = stepElement(DEFAULT_ROW_LAYOUT, "signs", "right");
-    expect(lines(right)[0]).toBe("program title signs | state");
+    expect(lines(right)[0]).toBe("program title signs | speed state");
     const across = stepElement(right, "signs", "right");
-    expect(lines(across)[0]).toBe("program title | signs state");
-    expect(lines(stepElement(across, "signs", "right"))[0]).toBe("program title | state signs");
-    const end = stepElement(stepElement(across, "signs", "right"), "signs", "right");
-    expect(lines(end)[0]).toBe("program title | state signs");
-    expect(lines(stepElement(across, "signs", "left"))[0]).toBe("program title signs | state");
+    expect(lines(across)[0]).toBe("program title | signs speed state");
+    const further = stepElement(across, "signs", "right");
+    expect(lines(further)[0]).toBe("program title | speed signs state");
+    const last = stepElement(further, "signs", "right");
+    expect(lines(last)[0]).toBe("program title | speed state signs");
+    expect(lines(stepElement(last, "signs", "right"))[0]).toBe("program title | speed state signs");
+    expect(lines(stepElement(across, "signs", "left"))[0]).toBe(
+      "program title signs | speed state",
+    );
     expect(stepElement(DEFAULT_ROW_LAYOUT, "program", "left")).toBe(DEFAULT_ROW_LAYOUT);
   });
 
   it("steps up and down to the same part, at the same place where there is one", () => {
     const down = stepElement(DEFAULT_ROW_LAYOUT, "state", "down");
-    expect(lines(down).slice(0, 2)).toEqual(["program signs title |", "folder | state branch"]);
+    expect(lines(down).slice(0, 2)).toEqual([
+      "program signs title | speed",
+      "folder | branch state",
+    ]);
     const up = stepElement(DEFAULT_ROW_LAYOUT, "context", "up");
     expect(lines(up).slice(2)).toEqual(["load context |", "runtime | tokens"]);
     expect(stepElement(DEFAULT_ROW_LAYOUT, "title", "up")).toBe(DEFAULT_ROW_LAYOUT);
@@ -337,7 +347,7 @@ describe("the plan for drawing", () => {
     expect(ring.lines.map((line) => line.beside)).toEqual([1, 2, null]);
     const card = planRow(presetLayout("card"));
     expect(card).toMatchObject({ lead: "avatar", trail: "ring", avatar: true, state: "pill" });
-    expect(card.lines[0]?.right).toEqual(["state"]);
+    expect(card.lines[0]?.right).toEqual(["speed", "state"]);
     // A ring in the middle of a line stays where it is.
     const middle = planRow(setFormByName(DEFAULT_ROW_LAYOUT, "context", "ring"));
     expect(middle.lead).toBeNull();
@@ -397,7 +407,7 @@ describe("the cost element", () => {
     const stored = parseRowLayout(JSON.parse(JSON.stringify(shown)));
     expect(sameLayout(stored, shown)).toBe(true);
     const moved = placeElement(shown, "cost", { line: 0, side: "right", index: 0 });
-    expect(lines(moved)[0]).toBe("program signs title | cost state");
+    expect(lines(moved)[0]).toBe("program signs title | cost speed state");
     expect(isPlacedOnce(moved, "cost")).toBe(true);
     expect(findElement(hideElement(moved, "cost"), "cost")).toBeNull();
   });
@@ -406,3 +416,65 @@ describe("the cost element", () => {
 function isPlacedOnce(value: RowLayout, element: RowElement): boolean {
   return placed(value).filter((entry) => entry === element).length === 1;
 }
+
+describe("the output rate element", () => {
+  it("shows in the standard row and every template, just before a state at the right", () => {
+    expect(findElement(DEFAULT_ROW_LAYOUT, "speed")).toEqual({ line: 0, side: "right", index: 0 });
+    for (const preset of ROW_PRESETS) {
+      expect(findElement(presetLayout(preset), "speed"), preset).not.toBeNull();
+    }
+  });
+
+  it("joins a layout stored before it once, and stays hidden once the user hid it", () => {
+    const old = { lines: [{ left: ["title"], right: ["state"] }] };
+    expect(lines(parseRowLayout(old))[0]).toBe("title | speed state");
+    // The state on the left: the rate goes to the right end of the title's line.
+    const left = { lines: [{ left: ["state", "title"], right: ["runtime"] }] };
+    expect(lines(parseRowLayout(left))[0]).toBe("state title | runtime speed");
+    // A ring at the title line's end keeps spanning the first two lines.
+    const ring = {
+      lines: [{ left: ["title"], right: ["context"] }],
+      forms: { context: "ring" },
+    };
+    const parsed = parseRowLayout(ring);
+    expect(lines(parsed)[0]).toBe("title | speed context");
+    expect(planRow(parsed).trail).toBe("ring");
+    // Stored since: what the user chose stays, a hidden rate included.
+    const hidden = hideElement(DEFAULT_ROW_LAYOUT, "speed");
+    expect(parseRowLayout(JSON.parse(JSON.stringify(hidden)))).toEqual(hidden);
+    expect(hiddenElements(hidden)).toEqual(["cost", "speed"]);
+  });
+
+  it("joins the owner's own layout once, just before the state pill", () => {
+    // What an earlier Hangar stored for the owner's row: no revision yet.
+    const stored = {
+      lines: [
+        { left: ["program", "title", "signs"], right: ["state"] },
+        { left: ["folder"], right: ["runtime", "branch"] },
+        { left: ["load"], right: [] },
+        { left: ["context"], right: ["tokens", "cost"] },
+      ],
+      forms: { state: "pill", folder: "text", branch: "text", load: "pills", context: "bar" },
+    };
+    const migrated = parseRowLayout(stored);
+    expect(lines(migrated)).toEqual([
+      "program title signs | speed state",
+      "folder | runtime branch",
+      "load |",
+      "context | tokens cost",
+    ]);
+    expect(migrated.forms).toMatchObject(stored.forms);
+    expect(migrated.revision).toBe(ROW_LAYOUT_REVISION);
+    // Saved again and read back: the migration does not run a second time.
+    const moved = placeElement(migrated, "speed", { line: 3, side: "right", index: 0 });
+    const again = parseRowLayout(JSON.parse(JSON.stringify(moved)));
+    expect(lines(again)[0]).toBe("program title signs | state");
+    expect(lines(again)[3]).toBe("context | speed tokens cost");
+  });
+
+  it("comes back before the state when shown again", () => {
+    const hidden = hideElement(DEFAULT_ROW_LAYOUT, "speed");
+    expect(lines(showElement(hidden, "speed"))[0]).toBe("program signs title | speed state");
+    expect(lines(hidden)[0]).toBe("program signs title | state");
+  });
+});

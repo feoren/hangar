@@ -1806,3 +1806,9 @@ OpenClaw. [[0022-models-and-local-llm-servers]] now says that a stored model a f
 costs only the model, that a restore whose model is gone starts with the program's default, and
 that `codex resume` takes `-m`, `--oss` and `--local-provider` (source read in the Codex
 repository).
+
+## [2026-11-27] ingest | Output rate of a Claude Code session
+Own measurement [[output-rate-measurement]] (raw `2026-11-27-output-rate-measurement.md`): final
+`output_tokens` on every record of a response, `user` records as the start of a response,
+response times and output rates of three main transcripts. [[context-window-measurement]] notes
+the poll that now runs every second while a transcript grows.

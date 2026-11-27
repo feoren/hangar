@@ -83,6 +83,7 @@ export const ROW_ELEMENT_NAMES: Record<RowElement, MessageKey> = {
   context: "rowElement.context",
   tokens: "rowElement.tokens",
   cost: "rowElement.cost",
+  speed: "rowElement.speed",
 };
 
 type FormName = RowForms[keyof RowForms];
@@ -700,6 +701,8 @@ interface PreviewRow {
   context: SessionContext;
   /** Estimated dollars so far. */
   cost: number;
+  /** Output tokens per second; only a working session shows it. */
+  speed: number | null;
 }
 
 const PREVIEW_ROWS: readonly PreviewRow[] = [
@@ -715,6 +718,7 @@ const PREVIEW_ROWS: readonly PreviewRow[] = [
     minutes: 64,
     context: { used: 215_500, window: 1_000_000 },
     cost: 3.42,
+    speed: 84,
   },
   {
     id: 2,
@@ -728,6 +732,7 @@ const PREVIEW_ROWS: readonly PreviewRow[] = [
     minutes: 14,
     context: { used: 168_000, window: 200_000 },
     cost: 0.38,
+    speed: null,
   },
 ];
 
@@ -798,6 +803,7 @@ export function RowLayoutPreview({ plan, language }: { plan: RowPlan; language: 
                     runtime={formatDuration(row.minutes * 60_000, language)}
                     context={row.context}
                     cost={`~${formatUsd(row.cost, language)}`}
+                    speed={row.speed}
                     language={language}
                   />
                 </span>

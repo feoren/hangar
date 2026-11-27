@@ -223,15 +223,16 @@ describe("the second line: folder at the start, branch at the right", () => {
 });
 
 describe("the title line", () => {
-  // In a narrow row the rate and then the context's bar step back, so the title stays readable
+  // In a narrow row the rates and then the context's bar step back, so the title stays readable
   // and nothing runs past the row's edge.
-  it("gives up the rate, then the context's bar, never the title or the state", () => {
+  it("gives up the rates, then the context's bar, never the title or the state", () => {
     expect(declarations(".session-title-row").get("container")).toBe("title-line / inline-size");
     const steps = [...CSS.matchAll(/@container title-line \(max-width: (\d+)px\) \{([^}]*)\}/g)];
     expect(
       steps.map((step) => [Number(step[1]), (step[2] ?? "").trim().split(/\s*\{/)[0]]),
     ).toEqual([
       [330, ".tree-flow-rate"],
+      [260, ".session-speed"],
       [230, ".session-context-mini .session-context-bar"],
     ]);
   });

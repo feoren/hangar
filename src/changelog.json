@@ -4,6 +4,20 @@
     "date": null,
     "items": [
       {
+        "de": "Arbeitet Claude Code, zeigt die Zeile in der Seitenleiste live, wie viele Token pro Sekunde es gerade schreibt, zum Beispiel „84 tok/s“.",
+        "en": "While Claude Code works, its sidebar row shows live how many tokens per second it writes, for example “84 tok/s”.",
+        "el": "Όσο δουλεύει το Claude Code, η γραμμή του στην πλαϊνή μπάρα δείχνει ζωντανά πόσα tokens ανά δευτερόλεπτο γράφει, π.χ. «84 tok/s».",
+        "es": "Mientras Claude Code trabaja, su fila en la barra lateral muestra en vivo cuántos tokens por segundo escribe, por ejemplo «84 tok/s».",
+        "fr": "Pendant que Claude Code travaille, sa ligne dans la barre latérale montre en direct combien de tokens par seconde il écrit, par ex. « 84 tok/s ».",
+        "it": "Mentre Claude Code lavora, la sua riga nella barra laterale mostra dal vivo quanti token al secondo scrive, per esempio «84 tok/s».",
+        "ja": "Claude Code の作業中は、サイドバーの行に毎秒いくつのトークンを書いているかをライブで表示します（例: 「84 tok/s」）。",
+        "pl": "Gdy Claude Code pracuje, jego wiersz na pasku bocznym pokazuje na żywo, ile tokenów na sekundę pisze, na przykład „84 tok/s”.",
+        "pt": "Enquanto o Claude Code trabalha, a linha dele na barra lateral mostra ao vivo quantos tokens por segundo ele escreve, por exemplo “84 tok/s”.",
+        "ru": "Пока Claude Code работает, его строка на боковой панели в реальном времени показывает, сколько токенов в секунду он пишет, например «84 tok/s».",
+        "tr": "Claude Code çalışırken kenar çubuğundaki satırı saniyede kaç token yazdığını canlı gösterir, örneğin “84 tok/s”.",
+        "zh": "Claude Code 工作时，它在侧边栏中的行会实时显示每秒写出多少个 token，例如“84 tok/s”。"
+      },
+      {
         "de": "Wähl beim Start ein Modell: „›“ neben Claude Code, Codex CLI und Co. Auch lokale Modelle aus Ollama und LM Studio, deren Status oben in der Leiste steht.",
         "en": "Pick a model when you start: “›” next to Claude Code, Codex CLI and others. Local models from Ollama and LM Studio too, with their status in the top bar.",
         "el": "Διάλεξε μοντέλο στην έναρξη: «›» δίπλα στο Claude Code, στο Codex CLI και σε άλλα. Και τοπικά μοντέλα από Ollama και LM Studio, με την κατάστασή τους επάνω.",

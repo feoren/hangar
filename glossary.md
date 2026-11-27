@@ -43,6 +43,7 @@ UI texts in `src/i18n.ts` are translated per language and are not bound by this 
 | Sockel (Crew)                                   | plinth                            | block under a figure, its color shows the state; `CrewState`                         |
 | Sprechblase (Crew)                              | speech bubble                     | short text of what a figure does; `crewText.ts`                                      |
 | Kontextanzeige                                  | context meter                     | context window use of an agent session on its row, `ContextLine.tsx`                 |
+| Ausgaberate (Token pro Sekunde)                 | output rate                       | output tokens per second of a working Claude Code session; `OutputRate`, `RowSpeed`  |
 | Kostenübersicht                                 | cost overview                     | tokens and estimated cost per session and day, `cost_service.rs`, `CostDialog.tsx`   |
 | Preistabelle                                    | price table                       | dollars per million tokens per model, `model_prices.toml`, user `model-prices.toml`  |
 | Kostenbuch                                      | cost ledger                       | per conversation id and local day, `cost-ledger.json`                                |
