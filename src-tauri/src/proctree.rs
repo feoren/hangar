@@ -2,6 +2,9 @@
 //!
 //! Windows: the process goes into a Job Object with `KILL_ON_JOB_CLOSE`. When the handle is
 //! closed (session over, app exited, app crashed), Windows terminates every process in the job.
+//! The job also allows `BREAKAWAY_OK`: a program that starts a daemon with
+//! `CREATE_BREAKAWAY_FROM_JOB` on purpose (Hermes Agent's gateway) gets it outside the job instead
+//! of a refused start; children started without that flag stay in the job as before.
 //! Unix: portable-pty starts the child as session leader; its PID is the process group.
 //!
 //! [`usages`] reads what a whole tree uses right now (CPU time, resident memory and the ids of its
@@ -96,7 +99,7 @@ mod windows {
         JobObjectExtendedLimitInformation, QueryInformationJobObject, SetInformationJobObject,
         TerminateJobObject, JOBOBJECT_BASIC_ACCOUNTING_INFORMATION,
         JOBOBJECT_BASIC_PROCESS_ID_LIST, JOBOBJECT_EXTENDED_LIMIT_INFORMATION,
-        JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE,
+        JOB_OBJECT_LIMIT_BREAKAWAY_OK, JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE,
     };
     use windows_sys::Win32::System::ProcessStatus::{
         K32GetProcessMemoryInfo, PROCESS_MEMORY_COUNTERS,
@@ -132,7 +135,8 @@ mod windows {
 
             // SAFETY: The struct is POD; an all-zero bit pattern is a valid initial value.
             let mut info: JOBOBJECT_EXTENDED_LIMIT_INFORMATION = unsafe { std::mem::zeroed() };
-            info.BasicLimitInformation.LimitFlags = JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE;
+            info.BasicLimitInformation.LimitFlags =
+                JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE | JOB_OBJECT_LIMIT_BREAKAWAY_OK;
             // SAFETY: Pointer and size describe exactly `info`, which lives for the whole call.
             let ok = unsafe {
                 SetInformationJobObject(
@@ -295,6 +299,46 @@ mod windows {
         // SAFETY: `process` comes from OpenProcess and is closed exactly once.
         unsafe { CloseHandle(process) };
         (ok != 0).then_some(counters.WorkingSetSize as u64)
+    }
+
+    #[cfg(test)]
+    mod tests {
+        use super::*;
+
+        fn limit_flags(tree: &ProcTree) -> u32 {
+            let mut info: JOBOBJECT_EXTENDED_LIMIT_INFORMATION = unsafe { std::mem::zeroed() };
+            // SAFETY: Pointer and size describe exactly `info`, which outlives the call.
+            let ok = unsafe {
+                QueryInformationJobObject(
+                    tree.job,
+                    JobObjectExtendedLimitInformation,
+                    (&mut info as *mut JOBOBJECT_EXTENDED_LIMIT_INFORMATION).cast::<c_void>(),
+                    std::mem::size_of::<JOBOBJECT_EXTENDED_LIMIT_INFORMATION>() as u32,
+                    ptr::null_mut(),
+                )
+            };
+            assert_ne!(ok, 0, "query job limits: {}", io::Error::last_os_error());
+            info.BasicLimitInformation.LimitFlags
+        }
+
+        /// Hermes Agent starts its gateway with CREATE_BREAKAWAY_FROM_JOB and stops with
+        /// `windows_breakaway_unavailable` when the job forbids that; everything else in the
+        /// job still ends with it.
+        #[test]
+        fn the_job_kills_its_tree_on_close_and_allows_explicit_breakaway() {
+            let mut child = std::process::Command::new("cmd")
+                .args(["/c", "ping", "-n", "30", "127.0.0.1"])
+                .stdout(std::process::Stdio::null())
+                .spawn()
+                .expect("start cmd");
+            let tree = ProcTree::attach(child.id()).expect("attach job");
+            let flags = limit_flags(&tree);
+            drop(tree);
+            let _ = child.kill();
+            let _ = child.wait();
+            assert_ne!(flags & JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE, 0);
+            assert_ne!(flags & JOB_OBJECT_LIMIT_BREAKAWAY_OK, 0);
+        }
     }
 }
 
