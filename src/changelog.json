@@ -4,6 +4,20 @@
     "date": null,
     "items": [
       {
+        "de": "Die Karte zur Verknüpfung eines Verbunds ist jetzt klein und ruhig: eine Zeile mit den Mitgliedern.",
+        "en": "The card for a new link group is now small and quiet: one line with its members.",
+        "el": "Η κάρτα για ένα νέο δίκτυο είναι τώρα μικρή και διακριτική: μία γραμμή με τα μέλη.",
+        "es": "La tarjeta de una red nueva ahora es pequeña y discreta: una línea con sus miembros.",
+        "fr": "La carte d'un nouveau réseau est désormais petite et discrète : une ligne avec ses membres.",
+        "it": "La scheda di una nuova rete ora è piccola e discreta: una riga con i membri.",
+        "ja": "新しい連携のカードは小さく控えめになり、メンバーを1行で表示します。",
+        "pl": "Karta nowej sieci jest teraz mała i dyskretna: jeden wiersz z członkami.",
+        "pt": "O cartão de uma nova rede agora é pequeno e discreto: uma linha com os membros.",
+        "ru": "Карточка новой связки теперь маленькая и спокойная: одна строка с участниками.",
+        "tr": "Yeni bir ağın kartı artık küçük ve sade: üyeleriyle tek satır.",
+        "zh": "新关联的卡片现在小巧低调：一行显示成员。"
+      },
+      {
         "de": "Verbünde kommen nach dem Neustart wieder, wenn du zustimmst. Größere Verbünde senden mehr von selbst, und „Weiter erlauben“ löst die Bremse ganz.",
         "en": "Link groups come back after a restart once you agree. Larger link groups send more on their own, and “Allow to go on” releases the brake fully.",
         "el": "Τα δίκτυα επιστρέφουν μετά την επανεκκίνηση, αν συμφωνήσεις. Τα μεγάλα δίκτυα στέλνουν περισσότερα μόνα τους, και το «Να συνεχίσει» λύνει όλο το φρένο.",

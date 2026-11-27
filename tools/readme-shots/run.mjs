@@ -267,7 +267,7 @@ const SCENES = [
       {
         // The cards take no click for a moment after they appear (useArmDelay.ts).
         ready: `(document.querySelectorAll(".waiting-message-send:not([aria-disabled])").length === 2 &&
-          document.querySelectorAll(".link-intro-member").length === 2)`,
+          document.querySelectorAll(".link-intro-name").length === 2)`,
       },
       {
         run: `(() => {

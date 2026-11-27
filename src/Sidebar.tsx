@@ -1212,7 +1212,6 @@ export function Sidebar(props: Props) {
                       generation={props.cardsKey}
                       language={props.language}
                       session={session.id}
-                      badgeFor={badgeFor}
                       pasteOnly={false}
                       stack={{
                         onSendAll: (messageIds) => {

@@ -15305,72 +15305,39 @@ button.sub-agent-card:focus-visible {
   border-left: 2px solid var(--border);
 }
 
-/* Hangar's introduction of a link group, for people: one line, then the other members as chips
-   with their program's icon. */
-.link-intro {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
+/* Hangar's introduction of a link group, for people: a small quiet card, its members in one
+   muted line cut with an ellipsis (details in the tooltip). Nobody needs more of it. */
+.waiting-message[data-intro="true"] {
+  gap: 2px;
+  padding: 3px 8px;
+  font-size: 11px;
+  background: transparent;
+  border-color: var(--border);
 }
 
-.link-intro-lede {
+.waiting-message[data-intro="true"] .waiting-message-from {
+  font-weight: 500;
   color: var(--muted);
 }
 
-.link-intro-members {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 4px;
-  margin: 0;
-  padding: 0;
-  list-style: none;
+.waiting-message[data-intro="true"] .waiting-message-actions {
+  margin-top: 0;
 }
 
-.link-intro-member {
-  display: inline-flex;
-  align-items: center;
-  gap: 5px;
-  min-width: 0;
-  max-width: 100%;
-  padding: 2px 8px;
-  background: var(--count-chip-bg);
-  border-radius: 999px;
+.waiting-message[data-intro="true"] .waiting-message-actions .primary-button {
+  padding: 1px 10px;
+  font-size: 11px;
 }
 
-.link-intro-badge {
-  display: inline-flex;
-  flex: none;
-}
-
-.link-intro-member .badge {
-  width: 16px;
-  height: 16px;
-  margin-left: -4px;
-  border-radius: 4px;
-  font-size: 8px;
-}
-
-.link-intro-member .badge.wide {
-  font-size: 6px;
-}
-
-.link-intro-member .badge-icon img {
-  width: 16px;
-  height: 16px;
-}
-
-.link-intro-name {
-  min-width: 0;
+.link-intro {
   overflow: hidden;
+  color: var(--muted);
   white-space: nowrap;
   text-overflow: ellipsis;
 }
 
-.link-intro-lead {
-  flex: none;
-  color: var(--accent);
-  font-size: 11px;
-  font-weight: 600;
+.link-intro-name {
+  color: var(--text);
 }
 
 /* For a moment after a message appears its buttons take no click (useArmDelay.ts). */
