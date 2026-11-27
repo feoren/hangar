@@ -1832,3 +1832,10 @@ holds. Added from source: Hermes' TUI refusal of `--base-url` and its first-run 
 provider is configured, Qwen Code's startup auth dialog only without a resolved auth type, and
 Goose keeping the saved provider and model on a resume (its source has `--provider` and
 `--model` on `goose session`, its docs do not). Updated: [[local-models-per-agent]].
+
+## [2026-11-27] update | Output rate stays on the row
+The row's output rate no longer fades: once a session had a measured response, the rate of the
+last window with one stays, flagged as not live (dimmed on the row, "Last response" in the peek),
+in every state; it survives a fresh read and another conversation id. Below a 260 px title line
+the state word gives up its fixed cell before the rate steps back (225 px), so the rate shows at
+the default sidebar width. Updated: [[output-rate-measurement]].

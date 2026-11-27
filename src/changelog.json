@@ -4,18 +4,18 @@
     "date": null,
     "items": [
       {
-        "de": "Arbeitet Claude Code, zeigt die Zeile in der Seitenleiste live, wie viele Token pro Sekunde es gerade schreibt, zum Beispiel „84 tok/s“.",
-        "en": "While Claude Code works, its sidebar row shows live how many tokens per second it writes, for example “84 tok/s”.",
-        "el": "Όσο δουλεύει το Claude Code, η γραμμή του στην πλαϊνή μπάρα δείχνει ζωντανά πόσα tokens ανά δευτερόλεπτο γράφει, π.χ. «84 tok/s».",
-        "es": "Mientras Claude Code trabaja, su fila en la barra lateral muestra en vivo cuántos tokens por segundo escribe, por ejemplo «84 tok/s».",
-        "fr": "Pendant que Claude Code travaille, sa ligne dans la barre latérale montre en direct combien de tokens par seconde il écrit, par ex. « 84 tok/s ».",
-        "it": "Mentre Claude Code lavora, la sua riga nella barra laterale mostra dal vivo quanti token al secondo scrive, per esempio «84 tok/s».",
-        "ja": "Claude Code の作業中は、サイドバーの行に毎秒いくつのトークンを書いているかをライブで表示します（例: 「84 tok/s」）。",
-        "pl": "Gdy Claude Code pracuje, jego wiersz na pasku bocznym pokazuje na żywo, ile tokenów na sekundę pisze, na przykład „84 tok/s”.",
-        "pt": "Enquanto o Claude Code trabalha, a linha dele na barra lateral mostra ao vivo quantos tokens por segundo ele escreve, por exemplo “84 tok/s”.",
-        "ru": "Пока Claude Code работает, его строка на боковой панели в реальном времени показывает, сколько токенов в секунду он пишет, например «84 tok/s».",
-        "tr": "Claude Code çalışırken kenar çubuğundaki satırı saniyede kaç token yazdığını canlı gösterir, örneğin “84 tok/s”.",
-        "zh": "Claude Code 工作时，它在侧边栏中的行会实时显示每秒写出多少个 token，例如“84 tok/s”。"
+        "de": "Claude-Code-Zeilen zeigen Token pro Sekunde, etwa „84 tok/s“: live während der Arbeit, danach bleibt der letzte Wert blasser stehen.",
+        "en": "Claude Code rows show how many tokens per second Claude Code writes, for example “84 tok/s”: live while it works, then the last value stays, slightly dimmed.",
+        "el": "Οι γραμμές του Claude Code δείχνουν πόσα tokens ανά δευτερόλεπτο γράφει, π.χ. «84 tok/s»: ζωντανά όσο δουλεύει, μετά μένει η τελευταία τιμή, λίγο αχνή.",
+        "es": "Las filas de Claude Code muestran tokens por segundo, p. ej. «84 tok/s»: en vivo mientras trabaja, luego queda el último valor, atenuado.",
+        "fr": "Les lignes de Claude Code montrent les tokens par seconde, par ex. « 84 tok/s » : en direct pendant le travail, puis la dernière valeur reste, estompée.",
+        "it": "Le righe di Claude Code mostrano quanti token al secondo scrive, per esempio «84 tok/s»: dal vivo mentre lavora, poi resta l’ultimo valore, un po’ attenuato.",
+        "ja": "Claude Code の行に毎秒のトークン数（例: 「84 tok/s」）を表示します。作業中はライブで更新され、その後は最後の値が少し淡く残ります。",
+        "pl": "Wiersze Claude Code pokazują, ile tokenów na sekundę pisze, na przykład „84 tok/s”: na żywo podczas pracy, potem zostaje ostatnia wartość, lekko przygaszona.",
+        "pt": "As linhas do Claude Code mostram tokens por segundo, por exemplo “84 tok/s”: ao vivo enquanto trabalha, depois o último valor fica, esmaecido.",
+        "ru": "Строки Claude Code показывают токены в секунду, например «84 tok/s»: вживую во время работы, потом остаётся последнее значение, бледнее.",
+        "tr": "Claude Code satırları saniyede kaç token yazdığını gösterir, örneğin “84 tok/s”: çalışırken canlı, sonra son değer biraz soluk olarak kalır.",
+        "zh": "Claude Code 的行会显示它每秒写出多少个 token，例如“84 tok/s”：工作时实时更新，之后保留最后的值，略微变淡。"
       },
       {
         "de": "Wähl beim Start ein Modell: „›“ neben Claude Code, Codex CLI und Co. Auch lokale Modelle aus Ollama und LM Studio, deren Status oben in der Leiste steht.",

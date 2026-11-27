@@ -12,7 +12,9 @@
 //! can lie at or after the response's first record. Every record of a response carries its final
 //! `usage`, so the records land once the response is complete and the rate is known per finished
 //! response, never during one (measured with 2.1.319 to 2.1.332,
-//! docs/wiki/pages/sources/output-rate-measurement.md).
+//! docs/wiki/pages/sources/output-rate-measurement.md). Once no response ended in the window, the
+//! rate of the last window with one stays, marked as not live ([`Rate`]), so a row never loses its
+//! number between turns.
 //!
 //! One thread polls every session's transcript every [`POLL_INTERVAL`] (a transcript that has not
 //! grown for [`RATE_WINDOW_MS`] only every [`IDLE_EVERY`] polls) and emits a full
@@ -47,9 +49,9 @@ pub const EVENT: &str = "context-usage-changed";
 pub const POLL_INTERVAL: Duration = Duration::from_secs(1);
 /// Every how many polls a quiet transcript is looked at.
 pub const IDLE_EVERY: u64 = 2;
-/// Responses that ended this long ago or less make up the output rate. 95 % of the measured
-/// responses took 26 s or less, so a shorter span would let the number blink out between two of
-/// them; with no response in it the rate is gone.
+/// Responses that ended this long ago or less make up the live output rate. 95 % of the measured
+/// responses took 26 s or less, so a shorter span would let the number flip to "not live" between
+/// two of them; with no response in it the last window's rate stays, no longer live.
 pub const RATE_WINDOW_MS: i64 = 30_000;
 /// A response counts as at least this long, so a clock step cannot make a huge rate.
 const MIN_SPAN_MS: i64 = 500;
@@ -72,9 +74,19 @@ pub struct SessionContext {
     pub used: u64,
     /// Size of the model's context window.
     pub window: u64,
-    /// Output tokens per second of the latest responses ([`OutputRate`]); `None` once none ended
-    /// within [`RATE_WINDOW_MS`].
-    pub output_rate: Option<u32>,
+    /// Output tokens per second of the latest responses ([`OutputRate`]); `None` until one could
+    /// be measured.
+    pub output_rate: Option<Rate>,
+}
+
+/// An output rate and whether it is current.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+pub struct Rate {
+    /// Output tokens per second, rounded.
+    pub value: u32,
+    /// A response ended within [`RATE_WINDOW_MS`]; otherwise `value` is the rate of the last
+    /// window with one.
+    pub live: bool,
 }
 
 /// Every session with a known context use, by id.
@@ -227,6 +239,9 @@ pub struct OutputRate {
     last: Option<i64>,
     /// Newest last.
     responses: VecDeque<Timed>,
+    /// The last rate from records read before a fresh read or another conversation: it stays
+    /// until the new records give one.
+    kept: Option<u32>,
 }
 
 impl OutputRate {
@@ -267,15 +282,26 @@ impl OutputRate {
         }
     }
 
+    /// The rate at `now`: live from the responses that ended within [`RATE_WINDOW_MS`] before
+    /// it, else the one of the window up to the newest measured response before it, else the
+    /// kept one. `None` before any response could be measured.
+    pub fn per_second(&self, now: i64) -> Option<Rate> {
+        if let Some(value) = self.window_ending(now) {
+            return Some(Rate { value, live: true });
+        }
+        self.last_before(now)
+            .map(|value| Rate { value, live: false })
+    }
+
     /// Output tokens per second, rounded, of the responses that ended within [`RATE_WINDOW_MS`]
-    /// before `now`: their output over the time they took together, so a long response weighs
+    /// before `end`: their output over the time they took together, so a long response weighs
     /// more than a short one. `None` without such a response or without output.
-    pub fn per_second(&self, now: i64) -> Option<u32> {
-        let since = now.saturating_sub(RATE_WINDOW_MS);
+    fn window_ending(&self, end: i64) -> Option<u32> {
+        let since = end.saturating_sub(RATE_WINDOW_MS);
         let (output, span) = self
             .responses
             .iter()
-            .filter(|response| (since..=now).contains(&response.end))
+            .filter(|response| (since..=end).contains(&response.end))
             .filter_map(|response| Some((response.output, response.end - response.start?)))
             .fold((0u64, 0i64), |(output, span), (tokens, took)| {
                 let took = took.max(MIN_SPAN_MS);
@@ -289,9 +315,25 @@ impl OutputRate {
         (rate >= 1.0).then(|| rate.min(f64::from(u32::MAX)) as u32)
     }
 
-    /// The file was read again from its start: what was read before is gone.
-    fn clear(&mut self) {
-        *self = Self::default();
+    /// The rate of the window up to the newest measured response that ended by `now`, else the
+    /// kept one.
+    fn last_before(&self, now: i64) -> Option<u32> {
+        self.responses
+            .iter()
+            .filter(|response| response.start.is_some() && response.output > 0)
+            .map(|response| response.end)
+            .filter(|end| *end <= now)
+            .max()
+            .and_then(|end| self.window_ending(end))
+            .or(self.kept)
+    }
+
+    /// Starts over for records read anew or another conversation, keeping the last rate.
+    fn fresh(&self) -> Self {
+        Self {
+            kept: self.last_before(i64::MAX),
+            ..Self::default()
+        }
     }
 }
 
@@ -363,7 +405,7 @@ impl Tracker {
                 self.stamp = stamp.filter(|_| !self.tail.behind());
                 if self.tail.generation() != self.generation {
                     self.generation = self.tail.generation();
-                    self.rate.clear();
+                    self.rate = self.rate.fresh();
                 }
                 if !lines.is_empty() {
                     self.grew = Some(now);
@@ -414,7 +456,11 @@ impl Poller {
                 .entry(*id)
                 .and_modify(|tracker| {
                     if tracker.conversation != target.session {
+                        // The row stays the same session: its last rate stays until the new
+                        // conversation gives one (it shows again with the new context use).
+                        let rate = tracker.rate.fresh();
                         *tracker = Tracker::new(target);
+                        tracker.rate = rate;
                     }
                 })
                 .or_insert_with(|| Tracker::new(target));
@@ -518,6 +564,14 @@ mod tests {
             "{day}T{hour:02}:{minute:02}:{second:02}.{:03}Z",
             at.rem_euclid(1000)
         )
+    }
+
+    fn live(value: u32) -> Option<Rate> {
+        Some(Rate { value, live: true })
+    }
+
+    fn settled(value: u32) -> Option<Rate> {
+        Some(Rate { value, live: false })
     }
 
     fn user_at(ms: i64) -> String {
@@ -730,30 +784,54 @@ mod tests {
         rate.record(Some(NOW + 2_000), Some((Some("msg_a"), 300)));
         rate.record(Some(NOW + 2_500), Some((Some("msg_a"), 300)));
         rate.record(Some(NOW + 3_000), Some((Some("msg_a"), 300)));
-        assert_eq!(rate.per_second(NOW + 3_000), Some(100));
+        assert_eq!(rate.per_second(NOW + 3_000), live(100));
         // The tool result, then the next response: 400 tokens in 3 s plus 2 s.
         rate.record(Some(NOW + 3_100), None);
         rate.record(Some(NOW + 5_100), Some((Some("msg_b"), 100)));
-        assert_eq!(rate.per_second(NOW + 5_100), Some(80));
+        assert_eq!(rate.per_second(NOW + 5_100), live(80));
         // A repeated record of an earlier response still counts once.
         rate.record(Some(NOW + 5_200), Some((Some("msg_a"), 300)));
-        assert_eq!(rate.per_second(NOW + 5_200), Some(56));
+        assert_eq!(rate.per_second(NOW + 5_200), live(56));
     }
 
     #[test]
-    fn a_rate_fades_when_no_response_ends_for_the_window() {
+    fn a_rate_stays_once_no_response_ends_for_the_window() {
         let mut rate = OutputRate::default();
         rate.record(Some(NOW), None);
         rate.record(Some(NOW + 4_000), Some((Some("msg_a"), 200)));
         rate.record(Some(NOW + 4_100), None);
         rate.record(Some(NOW + 14_100), Some((Some("msg_b"), 600)));
-        assert_eq!(rate.per_second(NOW + 14_100), Some(57));
+        assert_eq!(rate.per_second(NOW + 14_100), live(57));
         // msg_a leaves the window first, then msg_b.
-        assert_eq!(rate.per_second(NOW + 4_000 + RATE_WINDOW_MS), Some(57));
-        assert_eq!(rate.per_second(NOW + 4_001 + RATE_WINDOW_MS), Some(60));
-        assert_eq!(rate.per_second(NOW + 14_101 + RATE_WINDOW_MS), None);
+        assert_eq!(rate.per_second(NOW + 4_000 + RATE_WINDOW_MS), live(57));
+        assert_eq!(rate.per_second(NOW + 4_001 + RATE_WINDOW_MS), live(60));
+        // Then the rate of the window up to msg_b stays, no longer live, however long it waits.
+        assert_eq!(rate.per_second(NOW + 14_101 + RATE_WINDOW_MS), settled(57));
+        assert_eq!(rate.per_second(NOW + 3_600_000), settled(57));
         // A response "from the future" (the clock stepped back) does not count yet.
-        assert_eq!(rate.per_second(NOW + 14_000), Some(50));
+        assert_eq!(rate.per_second(NOW + 14_000), live(50));
+        assert_eq!(rate.per_second(NOW - 1), None);
+        // The next response is live again.
+        rate.record(Some(NOW + 3_600_000), None);
+        rate.record(Some(NOW + 3_602_000), Some((Some("msg_c"), 240)));
+        assert_eq!(rate.per_second(NOW + 3_602_000), live(120));
+    }
+
+    #[test]
+    fn a_fresh_read_keeps_the_last_rate_until_it_gives_one() {
+        let mut rate = OutputRate::default();
+        assert_eq!(rate.fresh().per_second(NOW), None);
+        rate.record(Some(NOW), None);
+        rate.record(Some(NOW + 2_000), Some((Some("msg_a"), 160)));
+        let mut fresh = rate.fresh();
+        assert_eq!(fresh.per_second(NOW + 2_000), settled(80));
+        // A read that begins with a response measures nothing: the kept rate stays.
+        fresh.record(Some(NOW + 5_000), Some((Some("msg_b"), 900)));
+        assert_eq!(fresh.per_second(NOW + 5_000), settled(80));
+        assert_eq!(fresh.fresh().per_second(NOW + 5_000), settled(80));
+        fresh.record(Some(NOW + 6_000), None);
+        fresh.record(Some(NOW + 7_000), Some((Some("msg_c"), 30)));
+        assert_eq!(fresh.per_second(NOW + 7_000), live(30));
     }
 
     #[test]
@@ -772,11 +850,11 @@ mod tests {
         rate.record(Some(NOW + 2_500), None);
         rate.record(Some(NOW + 2_600), Some((Some("msg_d"), 100)));
         rate.record(Some(NOW + 2_700), Some((Some("msg_e"), 100)));
-        assert_eq!(rate.per_second(NOW + 2_700), Some(200));
+        assert_eq!(rate.per_second(NOW + 2_700), live(200));
         // A very short response counts as half a second.
         rate.record(Some(NOW + 3_000), None);
         rate.record(Some(NOW + 3_010), Some((Some("msg_c"), 40)));
-        assert_eq!(rate.per_second(NOW + 3_010), Some(240 * 1000 / 1500));
+        assert_eq!(rate.per_second(NOW + 3_010), live(240 * 1000 / 1500));
         // No output, no rate.
         let mut quiet = OutputRate::default();
         quiet.record(Some(NOW), None);
@@ -798,10 +876,10 @@ mod tests {
         let targets = vec![(7, target(&dir, SESSION))];
         let mut poller = Poller::default();
         let first = poller.poll(&targets, NOW + 3_200);
-        assert_eq!(first.sessions[0].output_rate, Some(50));
+        assert_eq!(first.sessions[0].output_rate, live(50));
         assert_eq!(
             serde_json::to_value(&first).unwrap()["sessions"][0]["outputRate"],
-            serde_json::json!(50)
+            serde_json::json!({ "value": 50, "live": true })
         );
         assert!(!serde_json::to_string(&first).unwrap().contains("MARKER"));
         // The next response raises it: 450 tokens in 3 s plus 2 s.
@@ -809,12 +887,16 @@ mod tests {
         append(&transcript, &response_at(5_100, "msg_b", 300));
         assert_eq!(
             poller.poll(&targets, NOW + 5_300).sessions[0].output_rate,
-            Some(90)
+            live(90)
         );
-        // Without new responses it fades, while the context use stays.
-        let faded = poller.poll(&targets, NOW + 5_101 + RATE_WINDOW_MS);
-        assert_eq!(faded.sessions[0].output_rate, None);
-        assert_eq!(faded.sessions[0].used, 50_303);
+        // Without new responses it stays, no longer live, and the context use with it.
+        let settled_rate = poller.poll(&targets, NOW + 5_101 + RATE_WINDOW_MS);
+        assert_eq!(settled_rate.sessions[0].output_rate, settled(90));
+        assert_eq!(settled_rate.sessions[0].used, 50_303);
+        assert_eq!(
+            serde_json::to_value(&settled_rate).unwrap()["sessions"][0]["outputRate"],
+            serde_json::json!({ "value": 90, "live": false })
+        );
         // Quiet for longer than the window: looked at only every second poll.
         let later = NOW + 5_300 + RATE_WINDOW_MS + 1;
         append(&transcript, &user_at(40_000));
@@ -830,5 +912,36 @@ mod tests {
             append(&transcript, &user_at(42_000));
         }
         assert_eq!(poller.trackers[&7].reads, reads + 4);
+    }
+
+    #[test]
+    fn another_conversation_keeps_the_rate_until_it_gives_one() {
+        let dir = TempDir::new("context-rate-switch");
+        let project = dir.path().join("config").join("projects").join("p");
+        fs::create_dir_all(&project).unwrap();
+        let transcript = project.join(format!("{SESSION}.jsonl"));
+        append(&transcript, &user_at(0));
+        append(&transcript, &response_at(2_000, "msg_a", 100));
+        let mut poller = Poller::default();
+        let first = poller.poll(&[(7, target(&dir, SESSION))], NOW + 2_000);
+        assert_eq!(first.sessions[0].output_rate, live(50));
+        // The session goes on in another conversation (a resume fallback): nothing until its
+        // transcript has a response, then that context with the kept rate, no longer live.
+        let other = "7c9e6679-7425-40de-944b-e07fc1f90ae7";
+        let targets = vec![(7, target(&dir, other))];
+        assert_eq!(
+            poller.poll(&targets, NOW + 3_000),
+            ContextSnapshot::default()
+        );
+        let next = project.join(format!("{other}.jsonl"));
+        append(&next, &response_at(4_000, "msg_b", 900));
+        let kept = poller.poll(&targets, NOW + 4_000);
+        assert_eq!(kept.sessions[0].output_rate, settled(50));
+        append(&next, &user_at(5_000));
+        append(&next, &response_at(6_000, "msg_c", 70));
+        assert_eq!(
+            poller.poll(&targets, NOW + 6_000).sessions[0].output_rate,
+            live(70)
+        );
     }
 }
