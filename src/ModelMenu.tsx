@@ -1,11 +1,10 @@
-// The quiet "Model" pill at the end of a program row in "New session" (ADR 0022): it opens a menu
-// next to the row with the program's own models and the models of the local servers that run. A
-// click starts the session with that model; the row itself keeps starting with the program's
-// default. A word instead of a symbol, so nobody has to guess what it does. It is a button of its
-// own beside the row's button (no button in a button). The menu is fixed to the window
-// (PopupMenu), since the group's body scrolls.
+// The models of a program row in "New session" (ADR 0022): a flyout beside the row with the
+// program's own models and the models of the local servers that run. It opens when the pointer
+// rests on the row or with Right arrow (ProgramRow.tsx); a click starts the session with that
+// model, while the row itself keeps starting with the program's default. The flyout is fixed to the
+// window (PopupMenu), since the group's body scrolls.
 
-import { useRef, useState } from "react";
+import type { RefObject } from "react";
 
 import type { SessionModel } from "./api";
 import { useT, type Translate } from "./i18n";
@@ -34,63 +33,50 @@ export function modelMenuItems(
   ]);
 }
 
-export function ModelMenuButton(props: {
+/** Gap between a row and its flyout. */
+const FLYOUT_GAP = 4;
+
+/** A flyout's top left corner, and the y its bottom goes to when it does not fit below. */
+export interface FlyoutPlace {
+  x: number;
+  y: number;
+  flipAbove: number;
+}
+
+/**
+ * Where a flyout beside a row goes: right of it and level with its top; where the window ends
+ * below, it ends at the row's bottom instead (PopupMenu then keeps it inside the window).
+ */
+export function flyoutPlace(row: { right: number; top: number; bottom: number }): FlyoutPlace {
+  return { x: row.right + FLYOUT_GAP, y: row.top, flipAbove: row.bottom };
+}
+
+export function ModelFlyout(props: {
   program: string;
   sections: readonly ModelSection[];
+  place: FlyoutPlace;
+  /** Opened with the keyboard: the first model takes the focus. */
+  autoFocus: boolean;
+  /** The row: clicking it does not count as a click outside. */
+  anchor: RefObject<HTMLElement | null>;
   onPick: (model: SessionModel) => void;
-  /** A model was picked: the caller decides where the focus goes. */
-  onAction: () => void;
+  /** Left arrow or Escape: back to the row. */
+  onBack: () => void;
+  /** A model was picked (`action`) or the flyout was dismissed (Tab, click outside, ...). */
+  onClose: (reason: "action" | "dismiss") => void;
 }) {
   const t = useT();
-  const button = useRef<HTMLButtonElement>(null);
-  const [menu, setMenu] = useState<{ x: number; y: number; flipAbove: number } | null>(null);
-  const label = t("model.menuNamed", { name: props.program });
-
-  const open = (target: HTMLElement) => {
-    // Beside the whole row, level with its top, like a submenu.
-    const row = target.closest(".profile-row") ?? target;
-    const rect = row.getBoundingClientRect();
-    setMenu({ x: rect.right + 4, y: rect.top, flipAbove: rect.bottom });
-  };
-
   return (
-    <>
-      <button
-        ref={button}
-        type="button"
-        className="profile-models"
-        aria-label={label}
-        title={label}
-        aria-haspopup="menu"
-        aria-expanded={menu !== null}
-        onClick={(event) => {
-          if (menu !== null) setMenu(null);
-          else open(event.currentTarget);
-        }}
-        onKeyDown={(event) => {
-          if (event.key === "ArrowRight" && menu === null) {
-            event.preventDefault();
-            open(event.currentTarget);
-          }
-        }}
-      >
-        <span className="profile-models-pill">{t("model.pill")}</span>
-      </button>
-      {menu !== null && (
-        <PopupMenu
-          items={modelMenuItems(props.program, props.sections, props.onPick, t)}
-          label={label}
-          position={menu}
-          flipAbove={menu.flipAbove}
-          anchor={button}
-          className="model-menu"
-          onClose={(reason) => {
-            setMenu(null);
-            if (reason === "dismiss") button.current?.focus();
-            else props.onAction();
-          }}
-        />
-      )}
-    </>
+    <PopupMenu
+      items={modelMenuItems(props.program, props.sections, props.onPick, t)}
+      label={t("model.menuNamed", { name: props.program })}
+      position={props.place}
+      flipAbove={props.place.flipAbove}
+      anchor={props.anchor}
+      className="model-menu"
+      autoFocus={props.autoFocus}
+      onBack={props.onBack}
+      onClose={props.onClose}
+    />
   );
 }

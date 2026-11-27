@@ -218,3 +218,28 @@ export function reorderDrop(
   if (last === undefined || from === rows.length - 1) return null;
   return { key: last.key, after: true };
 }
+
+/**
+ * Whether a pointer that moved from `from` to `to` is heading for a flyout whose near edge runs
+ * from (`edge.x`, `edge.top`) to (`edge.x`, `edge.bottom`): `to` lies in the triangle between
+ * `from` and that edge. On the way from a row to its flyout the pointer may cross other rows;
+ * while it heads for the flyout, they wait instead of taking over at once.
+ */
+export function headingFor(
+  from: PointerPoint,
+  to: PointerPoint,
+  edge: { x: number; top: number; bottom: number },
+): boolean {
+  // Moving away from the edge, or not at all, is no approach.
+  if (Math.sign(edge.x - from.x) !== Math.sign(to.x - from.x) || to.x === from.x) return false;
+  const cross = (a: PointerPoint, b: PointerPoint, c: PointerPoint) =>
+    (b.x - a.x) * (c.y - a.y) - (b.y - a.y) * (c.x - a.x);
+  const top = { x: edge.x, y: edge.top };
+  const bottom = { x: edge.x, y: edge.bottom };
+  const d1 = cross(from, top, to);
+  const d2 = cross(top, bottom, to);
+  const d3 = cross(bottom, from, to);
+  const negative = d1 < 0 || d2 < 0 || d3 < 0;
+  const positive = d1 > 0 || d2 > 0 || d3 > 0;
+  return !(negative && positive);
+}

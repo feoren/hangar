@@ -90,6 +90,17 @@ interface Props {
   /** Button that opens the menu: clicking it toggles instead of closing and reopening. */
   anchor?: React.RefObject<HTMLElement | null>;
   /**
+   * Focus the first entry on open (default). False for a menu the pointer opened by resting on
+   * something (a flyout): it must not take the focus from the terminal; an entry takes it once
+   * the pointer reaches it.
+   */
+  autoFocus?: boolean;
+  /**
+   * The menu is a submenu of something outside it (a flyout beside a row): Left arrow and Escape
+   * call this instead of closing as a dismissal. The caller closes it and returns the focus.
+   */
+  onBack?: () => void;
+  /**
    * Closed after an action (`action`) or via Escape, Tab, a click outside, a window switch
    * (`dismiss`). The caller returns focus.
    */
@@ -125,6 +136,8 @@ export function PopupMenu({
   flipAbove,
   className,
   anchor,
+  autoFocus = true,
+  onBack,
   onClose,
 }: Props) {
   const entries: NavEntry[] = items.map((item) =>
@@ -182,9 +195,11 @@ export function PopupMenu({
         ),
       );
     }
-    const first = buttons.current.get(current);
-    if (first) first.focus();
-    else element?.focus();
+    if (autoFocus) {
+      const first = buttons.current.get(current);
+      if (first) first.focus();
+      else element?.focus();
+    }
     // Only on open.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -227,6 +242,10 @@ export function PopupMenu({
     const index = items.findIndex((item) => item.key === focusKey.current);
     if (index < 0) return;
     const active = document.activeElement;
+    // A menu that has not taken the focus yet leaves it where it is.
+    if (!autoFocus && !(active instanceof Node && panel.current?.contains(active) === true)) {
+      return;
+    }
     const lost = active === null || active === document.body || active === panel.current;
     if (index !== current || lost) focusAt(index, secondaryAt);
     // Only when the items change.
@@ -357,7 +376,7 @@ export function PopupMenu({
       else runSecondary(current, second.at);
       return;
     }
-    const command = menuCommand(event, entries, current, false);
+    const command = menuCommand(event, entries, current, onBack !== undefined);
     switch (command.kind) {
       case "none":
         return;
@@ -368,8 +387,10 @@ export function PopupMenu({
         activate(current);
         break;
       case "openSubmenu":
-      case "closeSubmenu":
         return;
+      case "closeSubmenu":
+        onBack?.();
+        break;
       case "closeAll":
         onClose("dismiss");
         break;

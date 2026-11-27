@@ -116,14 +116,18 @@ Both with icon SVG, NOTICE row and `agent.<id>.description` in 12 languages, lik
 - **Top bar**, before the coffee button: one small badge per server with its icon and a dot,
   green (`--ok`) while it runs, grey while not; the tooltip and the accessible name say it in
   words ("Ollama runs, 4 models" / "Ollama is off"). Never color alone.
-- **Sidebar, "New session"**: a program row whose agent has `models` or a `local` entry for a
-  running server gets a quiet text pill "Model" at its right end (shown on hover, keyboard focus
-  and while its menu is open; amended 2026-11-27: the owner found a plus and an arrow unclear,
-  so the row itself is the start button and the choice is a word). It opens a
-  fixed-position menu next to the row: the vendor's models first (heading: the program's
-  name), then "Ollama" and "LM Studio" with their models (loaded ones marked), each section only
-  when it has entries. A click starts the session with that model; the row's own click keeps
-  starting with the CLI's default.
+- **Sidebar, "New session"**: each program row is one start button (its click starts the
+  session with the CLI's default). A row whose agent has `models` or a `local` entry for a
+  running server opens a flyout directly to its right once the pointer rests on it (about
+  150 ms), or with Right arrow (Left arrow and Escape go back to the row). The pointer may cross
+  the gap and other rows on its way into the flyout (a short grace period and a safe triangle);
+  leaving both closes it, and over another row it hands over at once. No pill, plus or arrow:
+  the row keeps its hover look while its flyout is open (amended 2026-11-27, twice: the owner
+  found a plus and an arrow unclear, then the "Model" pill too, and asked for a flyout on
+  hover). Touch screens have no hover: there a tap starts with the default. The flyout is
+  fixed to the window: the vendor's models first (heading: the program's name), then "Ollama"
+  and "LM Studio" with their models (loaded ones marked), each section only when it has
+  entries. A click starts the session with that model.
 - A session row's tooltip names the chosen model.
 
 ## Consequences
