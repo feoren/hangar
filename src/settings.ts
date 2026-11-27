@@ -2,7 +2,7 @@
 // Layout and font size live separately in layout.ts. Stored per machine in localStorage; if storage
 // is missing or its content is invalid, the defaults apply. The security switches (claims, gate,
 // command guard), the protected settings (paste warning, automatic updates, HANGAR.md,
-// snippets), the notice settings (session restore, attention, taskbar flash, desktop
+// Hangar's status line, snippets), the notice settings (session restore, attention, taskbar flash, desktop
 // notifications, chime, quiet hours, daily budget) and whether the dictation key is on are the exception: the panel and file viewer windows share
 // this localStorage, so the backend keeps them for the main window alone (mainStore.ts); they are
 // neither read from nor written to localStorage here.
@@ -53,7 +53,13 @@ export type SecuritySwitches = Record<SecuritySwitchKey, boolean>;
  * a viewer that could write them could switch the paste warning or updates off, or plant a
  * snippet that is later pasted into an agent session.
  */
-export const PROTECTED_KEYS = ["warnMultilinePaste", "autoUpdate", "hangarMd", "snippets"] as const;
+export const PROTECTED_KEYS = [
+  "warnMultilinePaste",
+  "autoUpdate",
+  "hangarMd",
+  "statusLine",
+  "snippets",
+] as const;
 
 export type ProtectedKey = (typeof PROTECTED_KEYS)[number];
 
@@ -208,6 +214,18 @@ export interface Settings {
    */
   hangarMd: boolean;
   /**
+   * Claude Code and Qwen Code sessions started from Hangar show Hangar's status line instead of
+   * their own, and Codex CLI shows its built-in fields in Hangar's order (backend). The user's own
+   * settings files stay untouched; applies from the next start of a session. Protected: it decides
+   * what command an agent runs to draw its status line.
+   */
+  statusLine: boolean;
+  /**
+   * Hangar's own bar above the terminal (HangarBar.tsx) for agent sessions whose program does not
+   * show Hangar's status line itself. Display only, so it lives in localStorage.
+   */
+  hangarBar: boolean;
+  /**
    * An agent started in a fresh worktree first checks whether the base branch has new commits
    * upstream and asks before pulling them, where its program takes a first prompt.
    */
@@ -273,6 +291,8 @@ type Flag =
   | "gateEnabled"
   | "commandGuardEnabled"
   | "hangarMd"
+  | "statusLine"
+  | "hangarBar"
   | "worktreeUpstreamCheck"
   | "warnMultilinePaste"
   | "cursorBlink";
@@ -311,6 +331,8 @@ export function defaultSettings(language: Language): Settings {
     gateEnabled: true,
     commandGuardEnabled: true,
     hangarMd: true,
+    statusLine: true,
+    hangarBar: true,
     worktreeUpstreamCheck: true,
     warnMultilinePaste: true,
     programs: DEFAULT_PROGRAM_PREFS,
@@ -429,6 +451,8 @@ export function parseSettings(text: string | null, fallbackLanguage: Language): 
     gateEnabled: defaults.gateEnabled,
     commandGuardEnabled: defaults.commandGuardEnabled,
     hangarMd: defaults.hangarMd,
+    statusLine: defaults.statusLine,
+    hangarBar: flag("hangarBar"),
     worktreeUpstreamCheck: flag("worktreeUpstreamCheck"),
     warnMultilinePaste: defaults.warnMultilinePaste,
     programs: parseProgramPrefs(get("programs")),
@@ -492,6 +516,7 @@ export function protectedOf(settings: ProtectedSettings): ProtectedSettings {
     warnMultilinePaste: settings.warnMultilinePaste,
     autoUpdate: settings.autoUpdate,
     hangarMd: settings.hangarMd,
+    statusLine: settings.statusLine,
     snippets: settings.snippets,
   };
 }
@@ -519,6 +544,8 @@ export function legacyProtected(text: string | null, language: Language): Protec
     warnMultilinePaste: flag("warnMultilinePaste"),
     autoUpdate: flag("autoUpdate"),
     hangarMd: flag("hangarMd"),
+    // Came after the move to the backend: no older version kept it here.
+    statusLine: defaults.statusLine,
     snippets: parseSnippets(
       "snippets" in raw ? Reflect.get(raw, "snippets") : undefined,
       isLanguage(storedLanguage) ? storedLanguage : language,

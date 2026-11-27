@@ -197,6 +197,12 @@ export interface SessionInfo {
   subAgent?: string | null;
   /** The model chosen at the start (ADR 0022), `null` for the program's own default. */
   model?: SessionModel | null;
+  /**
+   * The running process shows Hangar's status line inside the program itself (Claude Code, Qwen
+   * Code, Codex CLI, depending on the setting and the launcher). Older backends send none: read
+   * a missing field as `false`.
+   */
+  statusLine?: boolean;
 }
 
 /**

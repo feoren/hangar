@@ -216,6 +216,14 @@ pub struct ProtectedSettings {
     /// Every agent start hands the agent HANGAR.md.
     pub hangar_md: bool,
     pub snippets: Vec<Snippet>,
+    /// Claude Code, Qwen Code and Codex CLI started from Hangar show Hangar's status line in
+    /// place of their own (ADR 0023). Missing in files from before: on.
+    #[serde(default = "on")]
+    pub status_line: bool,
+}
+
+fn on() -> bool {
+    true
 }
 
 impl Default for ProtectedSettings {
@@ -225,6 +233,7 @@ impl Default for ProtectedSettings {
             auto_update: true,
             hangar_md: true,
             snippets: Vec::new(),
+            status_line: true,
         }
     }
 }
@@ -1159,14 +1168,25 @@ mod tests {
             auto_update: false,
             hangar_md: false,
             snippets: vec![snippet("default-1", "Review the diff")],
+            status_line: false,
         };
         store.save_settings(settings.clone()).unwrap();
         assert_eq!(store.load_settings(), Some(settings.clone()));
         assert_eq!(
             serde_json::to_value(&settings).unwrap(),
             serde_json::json!({ "warnMultilinePaste": false, "autoUpdate": false,
-                "hangarMd": false, "snippets": [{ "id": "default-1", "text": "Review the diff" }] })
+                "hangarMd": false, "snippets": [{ "id": "default-1", "text": "Review the diff" }],
+                "statusLine": false })
         );
+        // A file from before the status line: on.
+        std::fs::write(
+            tmp.path().join(SETTINGS_FILE),
+            r#"{"warnMultilinePaste":false,"autoUpdate":true,"hangarMd":true,"snippets":[]}"#,
+        )
+        .unwrap();
+        let older = store.load_settings().unwrap();
+        assert!(older.status_line);
+        assert!(!older.warn_multiline_paste);
         // Damaged or foreign content: stored, but the safe defaults.
         for foreign in [
             r#"{"warnMultilinePaste":"no"}"#,
@@ -1182,6 +1202,7 @@ mod tests {
         }
         assert!(ProtectedSettings::default().warn_multiline_paste);
         assert!(ProtectedSettings::default().auto_update);
+        assert!(ProtectedSettings::default().status_line);
     }
 
     #[test]

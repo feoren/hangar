@@ -740,6 +740,16 @@ const de = {
   "settings.hangarMdReach": "Gilt für: {names}.",
   "settings.openHangarMd": "HANGAR.md öffnen",
   "settings.hangarMdUnavailable": "Nicht verfügbar für: {names} (npm-Starter)",
+  "settings.statusLineGroup": "Statuszeile",
+  "settings.statusLine": "Statuszeile von Hangar",
+  "settings.statusLineHelp":
+    "Claude Code und Qwen Code zeigen in Sessions aus Hangar Hangars Statuszeile statt ihrer eigenen; deine Einstellungsdatei bleibt unverändert. Codex CLI zeigt seine eingebauten Felder in Hangars Reihenfolge. Gilt ab dem nächsten Start einer Session.",
+  "settings.hangarBar": "Hangar-Leiste über dem Terminal",
+  "settings.hangarBarHelp":
+    "Für alle anderen Agenten: Modell, Ordner, Branch, Kontext und Kosten in einer schmalen Zeile über dem Terminal.",
+  "hangarBar.label": "Hangar-Leiste",
+  "hangarBar.worktree": "Worktree",
+  "hangarBar.changed": "{count} geändert",
   "settings.worktreeUpstreamCheck": "In neuen Worktrees nach neuen Upstream-Commits fragen",
   "settings.worktreeUpstreamCheckHelp":
     "Ein Agent in einem frisch angelegten Worktree prüft zuerst, ob der Basis-Branch neue Commits hat, und fragt dich, ob er sie holen soll.",
@@ -3228,6 +3238,16 @@ const en: Record<MessageKey, string> = {
   "settings.hangarMdReach": "Applies to: {names}.",
   "settings.openHangarMd": "Open HANGAR.md",
   "settings.hangarMdUnavailable": "Not available for: {names} (npm launcher)",
+  "settings.statusLineGroup": "Status line",
+  "settings.statusLine": "Hangar's status line",
+  "settings.statusLineHelp":
+    "In sessions started from Hangar, Claude Code and Qwen Code show Hangar's status line instead of their own; your settings file stays unchanged. Codex CLI shows its built-in fields in Hangar's order. Applies from the next start of a session.",
+  "settings.hangarBar": "Hangar bar above the terminal",
+  "settings.hangarBarHelp":
+    "For all other agents: model, folder, branch, context and cost in one slim line above the terminal.",
+  "hangarBar.label": "Hangar bar",
+  "hangarBar.worktree": "Worktree",
+  "hangarBar.changed": "{count} changed",
   "settings.worktreeUpstreamCheck": "Ask about new upstream commits in new worktrees",
   "settings.worktreeUpstreamCheckHelp":
     "An agent in a freshly created worktree first checks whether the base branch has new commits and asks you whether to pull them.",
@@ -5691,6 +5711,16 @@ const el: Record<MessageKey, string> = {
   "settings.hangarMdReach": "Ισχύει για: {names}.",
   "settings.openHangarMd": "Άνοιγμα HANGAR.md",
   "settings.hangarMdUnavailable": "Μη διαθέσιμο για: {names} (εκκινητής npm)",
+  "settings.statusLineGroup": "Γραμμή κατάστασης",
+  "settings.statusLine": "Γραμμή κατάστασης του Hangar",
+  "settings.statusLineHelp":
+    "Σε συνεδρίες από το Hangar, το Claude Code και το Qwen Code δείχνουν τη γραμμή κατάστασης του Hangar αντί για τη δική τους· το αρχείο ρυθμίσεών σου μένει ως έχει. Το Codex CLI δείχνει τα ενσωματωμένα του πεδία με τη σειρά του Hangar. Ισχύει από την επόμενη εκκίνηση μιας συνεδρίας.",
+  "settings.hangarBar": "Γραμμή Hangar πάνω από το τερματικό",
+  "settings.hangarBarHelp":
+    "Για όλους τους άλλους πράκτορες: μοντέλο, φάκελος, κλάδος, πλαίσιο και κόστος σε μια λεπτή γραμμή πάνω από το τερματικό.",
+  "hangarBar.label": "Γραμμή Hangar",
+  "hangarBar.worktree": "Worktree",
+  "hangarBar.changed": "{count} αλλαγμένα",
   "settings.worktreeUpstreamCheck": "Ερώτηση για νέα upstream commits σε νέα worktrees",
   "settings.worktreeUpstreamCheckHelp":
     "Ένας πράκτορας σε ένα νέο worktree ελέγχει πρώτα αν ο βασικός κλάδος έχει νέα commits και σε ρωτά αν θα τα φέρει.",
@@ -8210,6 +8240,16 @@ const es: Record<MessageKey, string> = {
   "settings.hangarMdReach": "Se aplica a: {names}.",
   "settings.openHangarMd": "Abrir HANGAR.md",
   "settings.hangarMdUnavailable": "No disponible para: {names} (lanzador de npm)",
+  "settings.statusLineGroup": "Línea de estado",
+  "settings.statusLine": "Línea de estado de Hangar",
+  "settings.statusLineHelp":
+    "En las sesiones abiertas desde Hangar, Claude Code y Qwen Code muestran la línea de estado de Hangar en lugar de la suya; tu archivo de configuración no cambia. Codex CLI muestra sus campos integrados en el orden de Hangar. Se aplica desde el próximo inicio de una sesión.",
+  "settings.hangarBar": "Barra de Hangar sobre el terminal",
+  "settings.hangarBarHelp":
+    "Para todos los demás agentes: modelo, carpeta, rama, contexto y coste en una línea fina sobre el terminal.",
+  "hangarBar.label": "Barra de Hangar",
+  "hangarBar.worktree": "Worktree",
+  "hangarBar.changed": "{count} cambiados",
   "settings.worktreeUpstreamCheck": "Preguntar por nuevos commits upstream en worktrees nuevos",
   "settings.worktreeUpstreamCheckHelp":
     "Un agente en un worktree recién creado comprueba primero si la rama base tiene commits nuevos y te pregunta si debe traerlos.",
@@ -10710,6 +10750,16 @@ const fr: Record<MessageKey, string> = {
   "settings.hangarMdReach": "S’applique à : {names}.",
   "settings.openHangarMd": "Ouvrir HANGAR.md",
   "settings.hangarMdUnavailable": "Non disponible pour : {names} (lanceur npm)",
+  "settings.statusLineGroup": "Ligne d’état",
+  "settings.statusLine": "Ligne d’état de Hangar",
+  "settings.statusLineHelp":
+    "Dans les sessions lancées depuis Hangar, Claude Code et Qwen Code affichent la ligne d’état de Hangar à la place de la leur ; ton fichier de réglages reste inchangé. Codex CLI affiche ses champs intégrés dans l’ordre de Hangar. S’applique au prochain démarrage d’une session.",
+  "settings.hangarBar": "Barre Hangar au-dessus du terminal",
+  "settings.hangarBarHelp":
+    "Pour tous les autres agents : modèle, dossier, branche, contexte et coût sur une fine ligne au-dessus du terminal.",
+  "hangarBar.label": "Barre Hangar",
+  "hangarBar.worktree": "Worktree",
+  "hangarBar.changed": "{count} modifiés",
   "settings.worktreeUpstreamCheck":
     "Signaler les nouveaux commits upstream dans les nouveaux worktrees",
   "settings.worktreeUpstreamCheckHelp":
@@ -13225,6 +13275,16 @@ const it: Record<MessageKey, string> = {
   "settings.hangarMdReach": "Vale per: {names}.",
   "settings.openHangarMd": "Apri HANGAR.md",
   "settings.hangarMdUnavailable": "Non disponibile per: {names} (launcher npm)",
+  "settings.statusLineGroup": "Riga di stato",
+  "settings.statusLine": "Riga di stato di Hangar",
+  "settings.statusLineHelp":
+    "Nelle sessioni avviate da Hangar, Claude Code e Qwen Code mostrano la riga di stato di Hangar al posto della propria; il tuo file di impostazioni resta invariato. Codex CLI mostra i suoi campi integrati nell’ordine di Hangar. Vale dal prossimo avvio di una sessione.",
+  "settings.hangarBar": "Barra di Hangar sopra il terminale",
+  "settings.hangarBarHelp":
+    "Per tutti gli altri agenti: modello, cartella, branch, contesto e costo in una riga sottile sopra il terminale.",
+  "hangarBar.label": "Barra di Hangar",
+  "hangarBar.worktree": "Worktree",
+  "hangarBar.changed": "{count} modificati",
   "settings.worktreeUpstreamCheck": "Chiedi dei nuovi commit upstream nei nuovi worktree",
   "settings.worktreeUpstreamCheckHelp":
     "Un agente in un worktree appena creato controlla prima se il branch di base ha nuovi commit e ti chiede se scaricarli.",
@@ -15728,6 +15788,16 @@ const ja: Record<MessageKey, string> = {
   "settings.hangarMdReach": "適用先: {names}。",
   "settings.openHangarMd": "HANGAR.md を開く",
   "settings.hangarMdUnavailable": "利用できないプログラム: {names}（npm ランチャー）",
+  "settings.statusLineGroup": "ステータスライン",
+  "settings.statusLine": "Hangar のステータスライン",
+  "settings.statusLineHelp":
+    "Hangar から開始したセッションでは、Claude Code と Qwen Code が自身のものの代わりに Hangar のステータスラインを表示します。設定ファイルは変更されません。Codex CLI は組み込みの項目を Hangar の順序で表示します。次にセッションを開始したときから有効です。",
+  "settings.hangarBar": "ターミナル上の Hangar バー",
+  "settings.hangarBarHelp":
+    "その他すべてのエージェント向け: モデル、フォルダー、ブランチ、コンテキスト、コストをターミナル上の細い 1 行に表示します。",
+  "hangarBar.label": "Hangar バー",
+  "hangarBar.worktree": "Worktree",
+  "hangarBar.changed": "{count} 件変更",
   "settings.worktreeUpstreamCheck": "新しい worktree で upstream の新しいコミットを確認する",
   "settings.worktreeUpstreamCheckHelp":
     "新しく作成した worktree のエージェントは、まずベースブランチに新しいコミットがあるか確認し、取り込むかどうかを尋ねます。",
@@ -18211,6 +18281,16 @@ const pl: Record<MessageKey, string> = {
   "settings.hangarMdReach": "Dotyczy: {names}.",
   "settings.openHangarMd": "Otwórz HANGAR.md",
   "settings.hangarMdUnavailable": "Niedostępne dla: {names} (program uruchamiający npm)",
+  "settings.statusLineGroup": "Pasek stanu",
+  "settings.statusLine": "Pasek stanu Hangara",
+  "settings.statusLineHelp":
+    "W sesjach uruchomionych z Hangara Claude Code i Qwen Code pokazują pasek stanu Hangara zamiast własnego; twój plik ustawień pozostaje bez zmian. Codex CLI pokazuje swoje wbudowane pola w kolejności Hangara. Działa od następnego uruchomienia sesji.",
+  "settings.hangarBar": "Pasek Hangara nad terminalem",
+  "settings.hangarBarHelp":
+    "Dla wszystkich pozostałych agentów: model, folder, gałąź, kontekst i koszt w jednym wąskim wierszu nad terminalem.",
+  "hangarBar.label": "Pasek Hangara",
+  "hangarBar.worktree": "Worktree",
+  "hangarBar.changed": "zmienione: {count}",
   "settings.worktreeUpstreamCheck": "Pytaj o nowe commity upstream w nowych worktree",
   "settings.worktreeUpstreamCheckHelp":
     "Agent w świeżo utworzonym worktree najpierw sprawdza, czy gałąź bazowa ma nowe commity, i pyta cię, czy je pobrać.",
@@ -20686,6 +20766,16 @@ const pt: Record<MessageKey, string> = {
   "settings.hangarMdReach": "Vale para: {names}.",
   "settings.openHangarMd": "Abrir HANGAR.md",
   "settings.hangarMdUnavailable": "Indisponível para: {names} (inicializador do npm)",
+  "settings.statusLineGroup": "Linha de status",
+  "settings.statusLine": "Linha de status do Hangar",
+  "settings.statusLineHelp":
+    "Nas sessões iniciadas pelo Hangar, o Claude Code e o Qwen Code mostram a linha de status do Hangar no lugar da própria; seu arquivo de configurações não muda. O Codex CLI mostra seus campos embutidos na ordem do Hangar. Vale a partir do próximo início de uma sessão.",
+  "settings.hangarBar": "Barra do Hangar acima do terminal",
+  "settings.hangarBarHelp":
+    "Para todos os outros agentes: modelo, pasta, branch, contexto e custo em uma linha fina acima do terminal.",
+  "hangarBar.label": "Barra do Hangar",
+  "hangarBar.worktree": "Worktree",
+  "hangarBar.changed": "{count} alterados",
   "settings.worktreeUpstreamCheck": "Perguntar sobre novos commits upstream em worktrees novos",
   "settings.worktreeUpstreamCheckHelp":
     "Um agente em um worktree recém-criado verifica primeiro se o branch base tem commits novos e pergunta se deve trazê-los.",
@@ -23164,6 +23254,16 @@ const ru: Record<MessageKey, string> = {
   "settings.hangarMdReach": "Действует для: {names}.",
   "settings.openHangarMd": "Открыть HANGAR.md",
   "settings.hangarMdUnavailable": "Недоступно для: {names} (запуск через npm)",
+  "settings.statusLineGroup": "Строка состояния",
+  "settings.statusLine": "Строка состояния Hangar",
+  "settings.statusLineHelp":
+    "В сессиях, запущенных из Hangar, Claude Code и Qwen Code показывают строку состояния Hangar вместо своей; твой файл настроек остаётся без изменений. Codex CLI показывает свои встроенные поля в порядке Hangar. Действует со следующего запуска сессии.",
+  "settings.hangarBar": "Панель Hangar над терминалом",
+  "settings.hangarBarHelp":
+    "Для всех остальных агентов: модель, папка, ветка, контекст и стоимость в одной узкой строке над терминалом.",
+  "hangarBar.label": "Панель Hangar",
+  "hangarBar.worktree": "Worktree",
+  "hangarBar.changed": "изменено: {count}",
   "settings.worktreeUpstreamCheck": "Спрашивать о новых коммитах upstream в новых worktree",
   "settings.worktreeUpstreamCheckHelp":
     "Агент в только что созданном worktree сначала проверяет, есть ли в базовой ветке новые коммиты, и спрашивает, подтянуть ли их.",
@@ -25624,6 +25724,16 @@ const tr: Record<MessageKey, string> = {
   "settings.hangarMdReach": "Geçerli olduğu programlar: {names}.",
   "settings.openHangarMd": "HANGAR.md dosyasını aç",
   "settings.hangarMdUnavailable": "Şunlar için kullanılamaz: {names} (npm başlatıcısı)",
+  "settings.statusLineGroup": "Durum satırı",
+  "settings.statusLine": "Hangar durum satırı",
+  "settings.statusLineHelp":
+    "Hangar'dan başlatılan oturumlarda Claude Code ve Qwen Code kendi durum satırları yerine Hangar'ın durum satırını gösterir; ayar dosyan değişmez. Codex CLI yerleşik alanlarını Hangar'ın sırasıyla gösterir. Bir oturumun bir sonraki başlatılışından itibaren geçerlidir.",
+  "settings.hangarBar": "Terminalin üstünde Hangar çubuğu",
+  "settings.hangarBarHelp":
+    "Diğer tüm ajanlar için: model, klasör, dal, bağlam ve maliyet terminalin üstünde ince bir satırda.",
+  "hangarBar.label": "Hangar çubuğu",
+  "hangarBar.worktree": "Worktree",
+  "hangarBar.changed": "{count} değişti",
   "settings.worktreeUpstreamCheck": "Yeni worktree'lerde yeni upstream commit'lerini sor",
   "settings.worktreeUpstreamCheckHelp":
     "Yeni oluşturulmuş bir worktree'deki ajan önce temel dalda yeni commit olup olmadığını kontrol eder ve bunları çekip çekmeyeceğini sana sorar.",
@@ -28047,6 +28157,16 @@ const zh: Record<MessageKey, string> = {
   "settings.hangarMdReach": "适用于：{names}。",
   "settings.openHangarMd": "打开 HANGAR.md",
   "settings.hangarMdUnavailable": "不可用于：{names}（npm 启动器）",
+  "settings.statusLineGroup": "状态栏",
+  "settings.statusLine": "Hangar 状态栏",
+  "settings.statusLineHelp":
+    "在从 Hangar 启动的会话中，Claude Code 和 Qwen Code 显示 Hangar 的状态栏而不是它们自己的；您的设置文件保持不变。Codex CLI 按 Hangar 的顺序显示其内置字段。从下次启动会话时生效。",
+  "settings.hangarBar": "终端上方的 Hangar 栏",
+  "settings.hangarBarHelp":
+    "适用于所有其他智能体：在终端上方的一行细栏中显示模型、文件夹、分支、上下文和费用。",
+  "hangarBar.label": "Hangar 栏",
+  "hangarBar.worktree": "Worktree",
+  "hangarBar.changed": "已更改 {count} 个",
   "settings.worktreeUpstreamCheck": "在新 worktree 中询问上游的新提交",
   "settings.worktreeUpstreamCheckHelp":
     "新建 worktree 中的智能体会先检查基础分支是否有新提交，并询问您是否要拉取。",

@@ -230,7 +230,8 @@ export async function migrateQueuedMessages(
 
 /**
  * The protected settings the backend answered; `null` for "nothing stored yet" and for anything
- * malformed. Snippets are read as the settings always read them (`parseSnippets`).
+ * malformed. Snippets are read as the settings always read them (`parseSnippets`). `statusLine`
+ * came later: a file stored before it has no such field and reads as on, its default.
  */
 export function parseProtected(value: unknown, language: Language): ProtectedSettings | null {
   if (typeof value !== "object" || value === null || Array.isArray(value)) return null;
@@ -241,10 +242,17 @@ export function parseProtected(value: unknown, language: Language): ProtectedSet
   const warnMultilinePaste = read("warnMultilinePaste");
   const autoUpdate = read("autoUpdate");
   const hangarMd = read("hangarMd");
+  const statusLine: unknown = Reflect.get(value, "statusLine");
   const snippets: unknown = Reflect.get(value, "snippets");
   if (warnMultilinePaste === null || autoUpdate === null || hangarMd === null) return null;
   if (!Array.isArray(snippets)) return null;
-  return { warnMultilinePaste, autoUpdate, hangarMd, snippets: parseSnippets(snippets, language) };
+  return {
+    warnMultilinePaste,
+    autoUpdate,
+    hangarMd,
+    statusLine: typeof statusLine === "boolean" ? statusLine : true,
+    snippets: parseSnippets(snippets, language),
+  };
 }
 
 /** What the backend takes: snippets without blank ones (a snippet being written), bounded. */

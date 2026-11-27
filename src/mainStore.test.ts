@@ -254,6 +254,7 @@ const PROTECTED: ProtectedSettings = {
   warnMultilinePaste: true,
   autoUpdate: true,
   hangarMd: true,
+  statusLine: true,
   snippets: [{ id: "mine", text: "Fix the build" }],
 };
 
@@ -263,6 +264,18 @@ describe("protected settings", () => {
     expect(parseProtected(null, "en")).toBeNull();
     expect(parseProtected({ ...PROTECTED, autoUpdate: "no" }, "en")).toBeNull();
     expect(parseProtected({ ...PROTECTED, snippets: undefined }, "en")).toBeNull();
+  });
+
+  it("reads a file stored before the status line setting with it on", () => {
+    const older = {
+      warnMultilinePaste: PROTECTED.warnMultilinePaste,
+      autoUpdate: PROTECTED.autoUpdate,
+      hangarMd: PROTECTED.hangarMd,
+      snippets: PROTECTED.snippets,
+    };
+    expect(parseProtected(older, "en")).toEqual(PROTECTED);
+    expect(parseProtected({ ...older, statusLine: "no" }, "en")?.statusLine).toBe(true);
+    expect(parseProtected({ ...PROTECTED, statusLine: false }, "en")?.statusLine).toBe(false);
   });
 
   it("migrates the old values once and removes them from localStorage", async () => {
@@ -276,7 +289,13 @@ describe("protected settings", () => {
       }),
     });
     const { fake, saved } = backend(null, null);
-    const legacy = { warnMultilinePaste: false, autoUpdate: false, hangarMd: false, snippets: [] };
+    const legacy = {
+      warnMultilinePaste: false,
+      autoUpdate: false,
+      hangarMd: false,
+      statusLine: true,
+      snippets: [],
+    };
     expect(await loadProtectedSettings(legacy, "de", fake, storage)).toEqual(legacy);
     expect(saved.settings).toEqual([legacy]);
     expect(JSON.parse(storage.store.get(SETTINGS_STORAGE_KEY) ?? "")).toEqual({ language: "de" });
@@ -306,7 +325,13 @@ describe("protected settings", () => {
       ...backend(null, null).fake,
       protectedSettings: () => Promise.reject(new Error("no backend")),
     };
-    const off = { warnMultilinePaste: false, autoUpdate: false, hangarMd: false, snippets: [] };
+    const off = {
+      warnMultilinePaste: false,
+      autoUpdate: false,
+      hangarMd: false,
+      statusLine: false,
+      snippets: [],
+    };
     const settings = await loadProtectedSettings(off, "en", fake, null);
     expect(settings.warnMultilinePaste).toBe(true);
     expect(settings.autoUpdate).toBe(true);

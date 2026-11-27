@@ -394,7 +394,7 @@ impl HookFormat {
 }
 
 /// The values of Codex's `-c <key=value>`, `--config <key=value>` and `--config=<key=value>`.
-fn codex_overrides(args: &[String]) -> impl Iterator<Item = &str> {
+pub(crate) fn codex_overrides(args: &[String]) -> impl Iterator<Item = &str> {
     args.iter().enumerate().filter_map(|(index, arg)| {
         if arg == "-c" || arg == "--config" {
             args.get(index + 1).map(String::as_str)
@@ -405,7 +405,7 @@ fn codex_overrides(args: &[String]) -> impl Iterator<Item = &str> {
 }
 
 /// The dotted key of a `key=value` override, without surrounding blanks.
-fn config_key(value: &str) -> Option<&str> {
+pub(crate) fn config_key(value: &str) -> Option<&str> {
     value.split_once('=').map(|(key, _)| key.trim())
 }
 

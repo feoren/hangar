@@ -3092,6 +3092,190 @@ button.last-prompt:focus-visible {
   text-overflow: ellipsis;
 }
 
+/* --- Hangar bar (HangarBar.tsx): the facts of an agent session above its terminal ---
+   One quiet line in two groups, where on the left and how on the right. As the pane narrows, the
+   facts give way in the fixed order of hangarBarFacts.ts `DROP_ORDER` (drop-1 first); the context
+   stays to the end. Text in the muted color, the context bar in the accent, from 80 % in the
+   warning color, like the session row's meter. No motion. */
+.hangar-bar {
+  flex: none;
+  min-width: 0;
+  margin: 0 8px 6px 0;
+  container: hangar-bar / inline-size;
+}
+
+.hangar-bar-inner {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  min-width: 0;
+  height: 24px;
+  padding: 0 10px;
+  overflow: hidden;
+  font-size: 11.5px;
+  line-height: 1;
+  color: var(--muted);
+  white-space: nowrap;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  font-variant-numeric: tabular-nums;
+}
+
+.hangar-bar-group {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-width: 0;
+}
+
+.hangar-bar-group.where {
+  flex: 1 1 auto;
+}
+
+.hangar-bar-group.how {
+  flex: none;
+  margin-left: auto;
+}
+
+.hangar-bar-seg {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  gap: 4px;
+  min-width: 0;
+}
+
+/* Folder and branch give up letters before whole facts go. */
+.hangar-bar-seg.seg-folder,
+.hangar-bar-seg.seg-branch {
+  flex: 0 1 auto;
+}
+
+.hangar-bar-seg svg {
+  flex: none;
+}
+
+.hangar-bar-text {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.hangar-bar-seg.seg-folder {
+  color: var(--text);
+}
+
+.hangar-bar-model {
+  max-width: 18ch;
+  overflow: hidden;
+  padding: 2px 6px;
+  color: var(--text);
+  text-overflow: ellipsis;
+  border-radius: 999px;
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--muted) 45%, transparent);
+}
+
+.hangar-bar-tag {
+  padding: 2px 5px;
+  color: var(--worktree);
+  border-radius: 4px;
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--worktree) 55%, transparent);
+}
+
+.hangar-bar-seg.seg-branch svg {
+  color: var(--muted);
+}
+
+.hangar-bar-seg .settled {
+  opacity: 0.7;
+}
+
+.hangar-bar-context {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.hangar-bar-meter {
+  position: relative;
+  width: 56px;
+  height: 6px;
+  overflow: hidden;
+  background: color-mix(in srgb, var(--muted) 30%, transparent);
+  border-radius: 999px;
+}
+
+.hangar-bar-meter-fill {
+  position: absolute;
+  inset: 0 auto 0 0;
+  min-width: 2px;
+  background: var(--accent);
+  border-radius: inherit;
+}
+
+.hangar-bar-context.high {
+  color: var(--warn);
+}
+
+.hangar-bar-context.high .hangar-bar-meter-fill {
+  background: var(--warn);
+}
+
+.pane.split .hangar-bar {
+  margin: 4px 6px 2px;
+}
+
+/* The facts give way in DROP_ORDER as the bar narrows; the context stays. */
+@container hangar-bar (max-width: 760px) {
+  .hangar-bar-seg.drop-1 {
+    display: none;
+  }
+}
+
+@container hangar-bar (max-width: 680px) {
+  .hangar-bar-seg.drop-2 {
+    display: none;
+  }
+}
+
+@container hangar-bar (max-width: 620px) {
+  .hangar-bar-seg.drop-3,
+  .hangar-bar-tokens {
+    display: none;
+  }
+}
+
+@container hangar-bar (max-width: 560px) {
+  .hangar-bar-seg.drop-4 {
+    display: none;
+  }
+}
+
+@container hangar-bar (max-width: 500px) {
+  .hangar-bar-seg.drop-5 {
+    display: none;
+  }
+}
+
+@container hangar-bar (max-width: 430px) {
+  .hangar-bar-seg.drop-6 {
+    display: none;
+  }
+}
+
+@container hangar-bar (max-width: 340px) {
+  .hangar-bar-seg.drop-7 {
+    display: none;
+  }
+}
+
+@container hangar-bar (max-width: 250px) {
+  .hangar-bar-seg.drop-8 {
+    display: none;
+  }
+}
+
 /* Split panes have their own header; the bar sits inside the frame there. */
 .pane.split .last-prompt {
   margin: 4px 6px 2px;

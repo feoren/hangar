@@ -1846,3 +1846,9 @@ with `{effort}`. Claude Code offers `--effort` low to max for Fable, Opus and So
 not documented), Codex CLI the levels and default of its own model list through `-c
 model_reasoning_effort=<level>`. The flyout opens a model's levels in a submenu; the badge names
 the level. Updated: [[0022-models-and-local-llm-servers]].
+
+## [2026-11-27] ingest | Hangar status line
+ADR 0023: Claude Code, Qwen Code and Codex CLI started from Hangar show Hangar's status line
+(`hangar status-line`, Codex's built-in items in Hangar's order), every other agent a Hangar bar
+above the terminal. Measured Codex's `tui.status_line` override, its item ids and the renderer's
+timing. New: [[0023-hangar-status-line]], [[status-line-measurement]].

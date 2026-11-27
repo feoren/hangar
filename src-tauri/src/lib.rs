@@ -96,6 +96,7 @@ pub mod server_check;
 pub mod session;
 pub mod single_instance;
 pub mod start_model;
+pub mod status_line;
 pub mod subagent_counts;
 pub mod subagents;
 pub mod system_usage;
@@ -456,6 +457,7 @@ pub fn run() -> tauri::Result<()> {
                 });
             // Hook settings for cmd.exe launchers of gated agents; they hold no secret.
             let gate_dir = local_dir.join("gate");
+            let status_dir = local_dir.join(status_line::CACHE_DIR);
             // The person's gate rules: local, they name this machine's
             // repositories.
             let gate_rules_file = local_dir.join(gate_rules::FILE_NAME);
@@ -572,6 +574,15 @@ pub fn run() -> tauri::Result<()> {
                 let _ =
                     events.emit_to(panel_window::MAIN_LABEL, gate_service::PERMISSION_EVENT, ());
             });
+            // Hangar's status line in Claude Code, Qwen Code and Codex CLI (ADR 0023): the stored
+            // setting, on by default; its cache sits in the local data folder.
+            gate.set_status_line(
+                app.state::<main_store::MainStore>()
+                    .load_settings()
+                    .unwrap_or_default()
+                    .status_line,
+            );
+            gate.set_status_dir(status_dir);
             gate.load_rules(gate_rules_file);
             gate.load_command_guard(guard_file);
             app.state::<SessionManager>()

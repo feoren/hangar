@@ -105,6 +105,9 @@ pub struct SessionInfo {
     /// in the workspace and the recent sessions to start with it again. `null`: the program's
     /// own default.
     pub model: Option<crate::start_model::StartModel>,
+    /// Hangar's status line runs inside the current process's program (ADR 0023); the window
+    /// then shows no Hangar bar of its own above the terminal.
+    pub status_line: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
@@ -138,6 +141,7 @@ impl SessionInfo {
             gate: GateStatus::None,
             sub_agent: None,
             model: None,
+            status_line: false,
         }
     }
 
