@@ -57,4 +57,14 @@ describe("startOptions", () => {
     });
     expect(startOptions(on, false, null)).not.toHaveProperty("subAgent");
   });
+
+  it("passes the chosen model, and none without a choice", () => {
+    const model = { source: "ollama", id: "qwen3:8b" } as const;
+    expect(startOptions(on, false, null, model)).toEqual({
+      instructions: true,
+      startPrompt: null,
+      model,
+    });
+    expect(startOptions(on, false, null, null)).not.toHaveProperty("model");
+  });
 });

@@ -1,11 +1,14 @@
 import { api } from "./api";
 import { useT } from "./i18n";
 import { CoffeeIcon, SidePanelIcon } from "./icons";
+import { LocalLlmBadges } from "./LocalLlmBadges";
+import type { LocalLlmState } from "./localLlm";
 
 /**
  * The bar above the work area, as tall as the sidebar's header so the line below both runs through
- * at one height: the active session's name on the left and, on the right above it, the support
- * link and, outermost, the switch for the right panel (which has its own tabs).
+ * at one height: the active session's name on the left and, on the right above it, whether the
+ * local model servers run, the support link and, outermost, the switch for the right panel (which
+ * has its own tabs).
  */
 export function MainBar(props: {
   /** The active session's name, `null` without one (the home screen). */
@@ -16,6 +19,8 @@ export function MainBar(props: {
   onToggleSide: () => void;
   /** Whether the support link shows: not for people on a paid plan (teamPlan.ts). */
   support?: boolean;
+  /** Ollama's and LM Studio's state (useLocalLlm.ts); `null` or missing: no badges. */
+  localLlm?: LocalLlmState | null;
 }) {
   const t = useT();
   const label = t("side.label");
@@ -25,6 +30,7 @@ export function MainBar(props: {
       <span className="main-bar-title" title={props.title ?? undefined}>
         {props.title}
       </span>
+      <LocalLlmBadges state={props.localLlm ?? null} />
       {props.support !== false && (
         <button
           type="button"
