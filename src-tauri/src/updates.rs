@@ -1314,6 +1314,7 @@ mod tests {
             prompt_args: None,
             agent_args: None,
             agent_program: None,
+            job_breakaway: false,
             agent_commands: Vec::new(),
             models: None,
             model_args: None,

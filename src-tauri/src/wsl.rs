@@ -111,6 +111,7 @@ pub fn agent(distro: &str) -> Agent {
         install_hint: None,
         cwd_flag: Some("--cd"),
         capabilities: crate::agent_catalog::Capabilities::default(),
+        job_breakaway: false,
         prompting: crate::agent_catalog::Prompting::default(),
         npm_variants: Vec::new(),
     }
