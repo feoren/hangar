@@ -6552,37 +6552,49 @@ label.setting-line:hover {
 .local-llm {
   display: inline-flex;
   flex: none;
-  gap: 2px;
+  gap: 4px;
   align-items: center;
 }
 
+/* Dot, mark and number of models in one quiet pill. */
 .local-llm-badge {
-  position: relative;
-  display: grid;
-  place-items: center;
-  width: 26px;
-  height: 26px;
+  display: inline-flex;
+  gap: 5px;
+  align-items: center;
+  height: 22px;
+  padding: 0 8px;
   color: var(--muted);
-  border-radius: 6px;
+  background: color-mix(in srgb, var(--text) 5%, transparent);
+  border: 1px solid var(--border);
+  border-radius: 999px;
 }
 
 .local-llm-badge.running {
   color: var(--text);
 }
 
+.local-llm-badge svg {
+  flex: none;
+}
+
 .local-llm-dot {
-  position: absolute;
-  right: 4px;
-  bottom: 4px;
+  flex: none;
   width: 6px;
   height: 6px;
   background: color-mix(in srgb, var(--muted) 60%, var(--panel));
   border-radius: 50%;
-  box-shadow: 0 0 0 1.5px var(--panel);
 }
 
 .local-llm-badge.running .local-llm-dot {
   background: var(--ok);
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--ok) 22%, transparent);
+}
+
+.local-llm-count {
+  font-size: 11px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  line-height: 1;
 }
 
 .workspace {

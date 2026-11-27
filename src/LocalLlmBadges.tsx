@@ -1,6 +1,7 @@
-// One small badge per local model server in the top bar (ADR 0022): the server's mark and a dot,
-// green while it runs and grey while it does not. The tooltip and the accessible name say it in
-// words, so the color is never the only sign. Nothing shows until the backend first answered.
+// One small pill per local model server in the top bar (ADR 0022): a dot, green while the server
+// runs and grey while it does not, the server's mark and, while it runs, how many models it
+// offers. The tooltip and the accessible name say it in words, so the color is never the only
+// sign. Nothing shows until the backend first answered.
 
 import lmstudioSvg from "./assets/local-llm/lmstudio.svg?raw";
 import ollamaSvg from "./assets/local-llm/ollama.svg?raw";
@@ -35,10 +36,15 @@ export function LocalLlmBadges({ state }: { state: LocalLlmState | null }) {
             title={text}
             data-server={id}
           >
+            <span className="local-llm-dot" aria-hidden="true" />
             <svg viewBox="0 0 24 24" width="13" height="13" fill="currentColor" aria-hidden="true">
               <path d={MARKS[id]} />
             </svg>
-            <span className="local-llm-dot" aria-hidden="true" />
+            {server.running && (
+              <span className="local-llm-count" aria-hidden="true">
+                {server.models.length}
+              </span>
+            )}
           </span>
         );
       })}

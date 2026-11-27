@@ -158,6 +158,10 @@ describe("MainBar local servers", () => {
     // The marks are the bundled paths, drawn in the text color.
     expect(badges()[0]?.querySelector("path")?.getAttribute("d")?.length).toBeGreaterThan(100);
     expect(badges()[0]?.querySelector("svg")?.getAttribute("fill")).toBe("currentColor");
+    // Dot, mark and the number of models in one pill; a server that is off shows no number.
+    expect(badges()[0]?.firstElementChild?.className).toBe("local-llm-dot");
+    expect(badges()[0]?.querySelector(".local-llm-count")?.textContent).toBe("2");
+    expect(badges()[1]?.querySelector(".local-llm-count")).toBeNull();
   });
 
   it("shows no badge while the state is unknown", () => {
