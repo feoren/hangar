@@ -48,6 +48,7 @@ fn profile(id: &str, command: &str, args: &[&str]) -> Profile {
         agent_commands: Vec::new(),
         models: None,
         model_args: None,
+        effort_args: None,
         local: None,
     }
 }
@@ -2328,8 +2329,11 @@ fn model_profile() -> Profile {
     p.models = Some(vec![ModelOption {
         id: "opus".into(),
         label: "Opus".into(),
+        efforts: vec!["low".into(), "high".into()],
+        default_effort: None,
     }]);
     p.model_args = Some(vec!["--model".into(), "{model}".into()]);
+    p.effort_args = Some(vec!["--effort".into(), "{effort}".into()]);
     p.local = Some(LocalSpecs {
         ollama: Some(LocalLaunch {
             args: vec!["--local".into(), "ollama_chat/{model}".into()],
@@ -2354,6 +2358,7 @@ fn a_chosen_model_reaches_the_program_and_survives_a_restart() {
         model: Some(StartModel {
             source,
             id: id.into(),
+            effort: None,
         }),
         ..StartRequest::default()
     };
@@ -2369,7 +2374,8 @@ fn a_chosen_model_reaches_the_program_and_survives_a_restart() {
         info.model,
         Some(StartModel {
             source: ModelSource::Provider,
-            id: "opus".into()
+            id: "opus".into(),
+            effort: None
         })
     );
     let (output, _) = collect_until_exit(&manager, info.id, &rx);
@@ -2441,6 +2447,7 @@ fn a_restore_whose_stored_model_is_gone_starts_without_it() {
             model: Some(StartModel {
                 source,
                 id: id.into(),
+                effort: None,
             }),
             ..StartRequest::default()
         };
@@ -2451,4 +2458,70 @@ fn a_restore_whose_stored_model_is_gone_starts_without_it() {
         assert!(!output.contains("--model"), "{output:?}");
         assert!(!output.contains("--local"), "{output:?}");
     }
+}
+
+fn pick_effort(effort: &str) -> StartRequest {
+    StartRequest {
+        model: Some(StartModel {
+            source: ModelSource::Provider,
+            id: "opus".into(),
+            effort: Some(effort.into()),
+        }),
+        ..StartRequest::default()
+    }
+}
+
+#[test]
+fn a_chosen_effort_follows_the_model_and_survives_a_restart() {
+    let manager = SessionManager::new(vec![model_profile()], Vec::new(), common::home());
+    let (info, rx) = start_requested(&manager, "modeled", false, pick_effort("high"));
+    assert_eq!(
+        info.model.as_ref().and_then(|m| m.effort.as_deref()),
+        Some("high")
+    );
+    let (output, _) = collect_until_exit(&manager, info.id, &rx);
+    assert!(output.contains("--model opus --effort high"), "{output:?}");
+    wait_for_status(&manager, info.id, Status::Exited);
+    let (tx, rx) = channel();
+    let restarted = manager
+        .restart(info.id, SIZE, move |e| tx.send(e).unwrap_or(()))
+        .unwrap();
+    assert_eq!(
+        restarted.model.as_ref().and_then(|m| m.effort.as_deref()),
+        Some("high")
+    );
+    let (output, _) = collect_until_exit(&manager, info.id, &rx);
+    assert!(output.contains("--model opus --effort high"), "{output:?}");
+
+    // A new start with an effort the model does not list, or a bad one, is refused.
+    for effort in ["max", "&x"] {
+        let refused = manager.create_requested(
+            "modeled",
+            None,
+            SIZE,
+            false,
+            None,
+            SessionMode::Private,
+            pick_effort(effort),
+            |_| {},
+        );
+        assert!(matches!(refused, Err(ManagerError::Model(_))), "{effort}");
+    }
+}
+
+#[test]
+fn a_restore_whose_stored_effort_is_gone_keeps_the_model() {
+    let manager = SessionManager::new(vec![model_profile()], Vec::new(), common::home());
+    let (info, rx) = start_requested(&manager, "modeled", true, pick_effort("max"));
+    assert_eq!(
+        info.model,
+        Some(StartModel {
+            source: ModelSource::Provider,
+            id: "opus".into(),
+            effort: None,
+        })
+    );
+    let (output, _) = collect_until_exit(&manager, info.id, &rx);
+    assert!(output.contains("--model opus"), "{output:?}");
+    assert!(!output.contains("--effort"), "{output:?}");
 }

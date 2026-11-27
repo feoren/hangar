@@ -1839,3 +1839,10 @@ last window with one stays, flagged as not live (dimmed on the row, "Last respon
 in every state; it survives a fresh read and another conversation id. Below a 260 px title line
 the state word gives up its fixed cell before the rate steps back (225 px), so the rate shows at
 the default sidebar width. Updated: [[output-rate-measurement]].
+
+## [2026-11-27] update | Reasoning effort per start
+ADR 0022 amended: a vendor model may carry `efforts` and `default_effort`, a program `effort_args`
+with `{effort}`. Claude Code offers `--effort` low to max for Fable, Opus and Sonnet (not Haiku,
+not documented), Codex CLI the levels and default of its own model list through `-c
+model_reasoning_effort=<level>`. The flyout opens a model's levels in a submenu; the badge names
+the level. Updated: [[0022-models-and-local-llm-servers]].

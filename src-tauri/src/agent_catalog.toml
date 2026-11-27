@@ -145,9 +145,19 @@
 #                    this order: [{ id = "opus", label = "Opus 5.5" }, ...]. id: 1 to 160
 #                    characters from A-Z a-z 0-9 . _ : / @ + - [ ], no leading -; it goes into
 #                    {model}. label: 1 to 80 characters, shown as is. Requires model_args.
+#                    efforts: optional, the reasoning efforts a start can pick for this model,
+#                    in menu order (at most 12, each 1 to 32 characters from a-z 0-9 -, no
+#                    leading -); only levels the program documents for exactly this model.
+#                    Requires effort_args. default_effort: optional, one of efforts, only where
+#                    the program says which one it uses on its own; the menu marks it.
 #   model_args       Optional. How a vendor model goes into the start, with exactly the
 #                    placeholder {model}: ["--model", "{model}"]. Placed after the start
 #                    arguments, before agent_args and prompt_args.
+#   effort_args      Optional. How a chosen effort goes into the start, with exactly the
+#                    placeholder {effort}: ["--effort", "{effort}"]. Placed right after
+#                    model_args, only when the person picked an effort; without one the
+#                    program keeps its own default. Codex CLI's efforts per model come from its
+#                    own model list (src-tauri/src/codex_models.rs) when that file is readable.
 #   local            Optional. How the program runs against a local LLM server on this machine:
 #                    { ollama = { args = [...], env = { NAME = "value" } }, lmstudio = { ... } }.
 #                    {model} must appear in args or in an env value (for a program that takes
@@ -157,9 +167,9 @@
 #                    Placeholders in args and env values: {model} and {base} (the server's base
 #                    URL, http://127.0.0.1:11434 for Ollama, http://127.0.0.1:1234 for LM
 #                    Studio), nothing else. An empty env value sets the variable empty.
-#                    A user profile with the same id and program inherits models, model_args and
-#                    local, each one it does not set itself; its own value replaces the
-#                    catalog's. Only flags and variables from the vendor docs:
+#                    A user profile with the same id and program inherits models, model_args,
+#                    effort_args and local, each one it does not set itself; its own value
+#                    replaces the catalog's. Only flags and variables from the vendor docs:
 #                    docs/wiki/pages/decisions/0022-models-and-local-llm-servers.md.
 #
 # Source of all entries: official vendor docs, as of 2026-11-07
@@ -201,14 +211,18 @@ agent_commands = [
 # `--model <alias|id>` with the aliases fable, opus, sonnet, haiku. An alias always starts the
 # newest model of its family, so the labels name the family without a version number and never
 # go stale. Ollama and LM Studio speak the Anthropic Messages API; the variables are the ones
-# their docs give for Claude Code (ADR 0022).
+# their docs give for Claude Code (ADR 0022). `claude --help` 2.1.332: `--effort <level>  Effort
+# level for the current session (low, medium, high, xhigh, max)`. Whether Haiku takes an effort is
+# not documented, so it offers none; which level is the default is not documented either, so no
+# model names one.
 models = [
-  { id = "fable", label = "Fable" },
-  { id = "opus", label = "Opus" },
-  { id = "sonnet", label = "Sonnet" },
+  { id = "fable", label = "Fable", efforts = ["low", "medium", "high", "xhigh", "max"] },
+  { id = "opus", label = "Opus", efforts = ["low", "medium", "high", "xhigh", "max"] },
+  { id = "sonnet", label = "Sonnet", efforts = ["low", "medium", "high", "xhigh", "max"] },
   { id = "haiku", label = "Haiku" },
 ]
 model_args = ["--model", "{model}"]
+effort_args = ["--effort", "{effort}"]
 local = { ollama = { args = ["--model", "{model}"], env = { ANTHROPIC_BASE_URL = "{base}", ANTHROPIC_AUTH_TOKEN = "ollama", ANTHROPIC_API_KEY = "" } }, lmstudio = { args = ["--model", "{model}"], env = { ANTHROPIC_BASE_URL = "{base}", ANTHROPIC_AUTH_TOKEN = "lmstudio", ANTHROPIC_API_KEY = "", CLAUDE_CODE_ATTRIBUTION_HEADER = "0" } } }
 icon = "C"
 homepage = "https://github.com/anthropics/claude-code"
@@ -252,7 +266,11 @@ agent_commands = [
   { label_key = "new", text = "/new", confirm = true },
 ]
 # `-m <model>` (gpt-6.1-terra needs CLI 0.159.0+); local models through `--oss --local-provider`
-# (ADR 0022).
+# (ADR 0022). The fallback list names no efforts: which ones a model takes comes from Codex's own
+# model list (`supported_reasoning_levels`), read in codex_models.rs. `-c
+# model_reasoning_effort=<level>` sets the session's effort (measured with 0.171.0:
+# docs/wiki/pages/sources/codex-subagent-model-measurement.md); `codex resume --help` 0.172.0
+# lists `-c` too.
 models = [
   { id = "gpt-6.2-sol", label = "GPT-6.2 Sol" },
   { id = "gpt-6.2-astra", label = "GPT-6.2 Astra" },
@@ -260,6 +278,7 @@ models = [
   { id = "gpt-6-luna", label = "GPT-6 Luna" },
 ]
 model_args = ["-m", "{model}"]
+effort_args = ["-c", "model_reasoning_effort={effort}"]
 local = { ollama = { args = ["--oss", "--local-provider", "ollama", "-m", "{model}"] }, lmstudio = { args = ["--oss", "--local-provider", "lmstudio", "-m", "{model}"] } }
 icon = "Cx"
 homepage = "https://github.com/openai/codex"

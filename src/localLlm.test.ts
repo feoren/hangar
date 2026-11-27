@@ -3,7 +3,9 @@ import { describe, expect, it, vi } from "vitest";
 import type { Profile, SessionInfo } from "./api";
 import { createTranslator } from "./i18n";
 import {
+  effortLabel,
   LocalLlmStore,
+  modelBadge,
   modelNote,
   modelSections,
   parseLocalLlmState,
@@ -64,6 +66,16 @@ describe("parseSessionModel", () => {
     expect(parseSessionModel({ source: "ollama", id: "qwen3:8b" })?.source).toBe("ollama");
     expect(parseSessionModel({ source: "cloud", id: "opus" })).toBeNull();
     expect(parseSessionModel({ source: "lmstudio", id: "--rm" })).toBeNull();
+    expect(parseSessionModel({ source: "provider", id: "opus", effort: "high" })).toEqual({
+      source: "provider",
+      id: "opus",
+      effort: "high",
+    });
+    // A bad effort costs only the effort.
+    expect(parseSessionModel({ source: "provider", id: "opus", effort: "a b" })).toEqual({
+      source: "provider",
+      id: "opus",
+    });
     expect(parseSessionModel(null)).toBeNull();
     expect(parseSessionModel(["provider", "opus"])).toBeNull();
   });
@@ -177,6 +189,24 @@ describe("profile fields", () => {
       { id: "opus", label: "Opus 5.5" },
       { id: "haiku", label: "haiku" },
     ]);
+    expect(
+      profileModels({
+        models: [
+          {
+            id: "opus",
+            label: "Opus",
+            efforts: ["low", "low", "High", "-x", "a b", "max"],
+            defaultEffort: "max",
+          },
+          { id: "sonnet", label: "Sonnet", efforts: ["low"], defaultEffort: "ultra" },
+          { id: "haiku", label: "Haiku", efforts: [] },
+        ],
+      }),
+    ).toEqual([
+      { id: "opus", label: "Opus", efforts: ["low", "max"], defaultEffort: "max" },
+      { id: "sonnet", label: "Sonnet", efforts: ["low"] },
+      { id: "haiku", label: "Haiku" },
+    ]);
     expect(profileLocalSources({})).toEqual([]);
     expect(profileLocalSources({ localSources: ["lmstudio", "ollama"] })).toEqual([
       "ollama",
@@ -232,6 +262,39 @@ describe("modelNote", () => {
     );
     expect(modelNote(null, CLAUDE, en)).toBeNull();
     expect(modelNote(undefined, CLAUDE, en)).toBeNull();
+  });
+
+  it("names a chosen effort after the model", () => {
+    expect(modelNote({ source: "provider", id: "opus", effort: "high" }, CLAUDE, de)).toBe(
+      "Modell: Opus 5.5 · Hoch",
+    );
+    expect(modelNote({ source: "provider", id: "opus", effort: "xhigh" }, CLAUDE, en)).toBe(
+      "Model: Opus 5.5 · Extra high",
+    );
+  });
+});
+
+describe("modelBadge", () => {
+  it("shows the model and, when chosen, its effort", () => {
+    expect(modelBadge({ source: "provider", id: "opus" }, CLAUDE, de)).toBe("Opus 5.5");
+    expect(modelBadge({ source: "provider", id: "opus", effort: "high" }, CLAUDE, de)).toBe(
+      "Opus 5.5 · Hoch",
+    );
+    // A long name is cut, the effort still shows.
+    const long = { source: "provider", id: "x".repeat(40), effort: "max" } as const;
+    expect(modelBadge(long, undefined, de)).toBe(`${"x".repeat(21)}… · Maximal`);
+    expect(modelBadge({ source: "ollama", id: "hf.co/org/Qwen3:Q4" }, CLAUDE, de)).toBe("Qwen3:Q4");
+    expect(modelBadge(null, CLAUDE, de)).toBeNull();
+  });
+});
+
+describe("effortLabel", () => {
+  it("names the known levels in the language and any other as the program does", () => {
+    expect(
+      ["low", "medium", "high", "xhigh", "max", "ultra"].map((effort) => effortLabel(effort, de)),
+    ).toEqual(["Niedrig", "Mittel", "Hoch", "Extra hoch", "Maximal", "Ultra"]);
+    expect(effortLabel("turbo", de)).toBe("turbo");
+    expect(effortLabel("constructor", en)).toBe("constructor");
   });
 });
 

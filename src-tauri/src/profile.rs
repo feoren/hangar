@@ -83,6 +83,10 @@ pub struct Profile {
     /// How a vendor model goes into the start, with `{model}`; replaces the catalog's.
     #[serde(default, rename = "model_args")]
     pub model_args: Option<Vec<String>>,
+    /// How a model's reasoning effort goes into the start, with `{effort}`; replaces the
+    /// catalog's.
+    #[serde(default, rename = "effort_args")]
+    pub effort_args: Option<Vec<String>>,
     /// How the program runs against a local LLM server; replaces the catalog's.
     #[serde(default)]
     pub local: Option<LocalSpecs>,
@@ -95,6 +99,7 @@ impl Profile {
             program: &self.name,
             models: self.models.as_deref().unwrap_or_default(),
             model_args: self.model_args.as_deref(),
+            effort_args: self.effort_args.as_deref(),
             local: self.local.as_ref(),
         }
     }
@@ -233,11 +238,14 @@ pub fn parse(source: &str) -> Result<Vec<Profile>, ProfileError> {
                 problem,
             });
         }
-        // `model_args` may come from the catalog entry the profile replaces.
+        // `model_args` and `effort_args` may come from the catalog entry the profile replaces.
         if let Err(problem) = crate::start_model::check(
-            profile.models.as_deref(),
-            profile.model_args.as_deref(),
-            profile.local.as_ref(),
+            crate::start_model::ModelFields {
+                models: profile.models.as_deref(),
+                model_args: profile.model_args.as_deref(),
+                effort_args: profile.effort_args.as_deref(),
+                local: profile.local.as_ref(),
+            },
             false,
         ) {
             return Err(ProfileError::Invalid {

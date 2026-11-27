@@ -1318,6 +1318,7 @@ mod tests {
             agent_commands: Vec::new(),
             models: None,
             model_args: None,
+            effort_args: None,
             local: None,
         });
         agent

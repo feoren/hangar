@@ -100,6 +100,9 @@ pub struct CatalogAgent {
     /// How a vendor model goes into the start (see [`Profile::model_args`]).
     #[serde(default)]
     pub model_args: Option<Vec<String>>,
+    /// How a model's reasoning effort goes into the start (see [`Profile::effort_args`]).
+    #[serde(default)]
+    pub effort_args: Option<Vec<String>>,
     /// How the program runs against a local LLM server (see [`Profile::local`]).
     #[serde(default)]
     pub local: Option<LocalSpecs>,
@@ -498,9 +501,12 @@ pub fn parse(source: &str) -> Result<Vec<CatalogAgent>, CatalogError> {
             return Err(invalid(problem));
         }
         if let Err(problem) = crate::start_model::check(
-            agent.models.as_deref(),
-            agent.model_args.as_deref(),
-            agent.local.as_ref(),
+            crate::start_model::ModelFields {
+                models: agent.models.as_deref(),
+                model_args: agent.model_args.as_deref(),
+                effort_args: agent.effort_args.as_deref(),
+                local: agent.local.as_ref(),
+            },
             true,
         ) {
             return Err(invalid(problem));
@@ -627,6 +633,7 @@ impl Agent {
                 agent_commands: agent.agent_commands,
                 models: agent.models,
                 model_args: agent.model_args,
+                effort_args: agent.effort_args,
                 local: agent.local,
             },
             source: Source::Catalog,
@@ -703,7 +710,7 @@ impl Agent {
             agent_commands: self.profile.agent_commands.clone(),
             takes_agent: self.prompting.agent_args.is_some(),
             agent_program: self.prompting.agent_program,
-            models: self.profile.model_spec().offered().to_vec(),
+            models: self.profile.model_spec().menu(),
             local_sources: self
                 .profile
                 .local
@@ -907,6 +914,9 @@ fn inherit_model_options(profile: &mut Profile, catalog: &Profile) {
     if profile.model_args.is_none() {
         profile.model_args.clone_from(&catalog.model_args);
     }
+    if profile.effort_args.is_none() {
+        profile.effort_args.clone_from(&catalog.effort_args);
+    }
     if profile.local.is_none() {
         profile.local.clone_from(&catalog.local);
     }
@@ -940,6 +950,7 @@ mod tests {
             agent_commands: Vec::new(),
             models: None,
             model_args: None,
+            effort_args: None,
             local: None,
         }
     }
@@ -973,6 +984,7 @@ mod tests {
             agent_commands: Vec::new(),
             models: None,
             model_args: None,
+            effort_args: None,
             local: None,
         }
     }
@@ -2173,6 +2185,51 @@ commands=['x']
             }
         }
 
+        // Efforts: Claude Code's `--effort` levels for every model but Haiku (not documented
+        // there); Codex CLI's fallback list names none, its own model list does.
+        let efforts = |id: &str| -> Vec<(String, Vec<String>)> {
+            get(id)
+                .models
+                .iter()
+                .flatten()
+                .map(|model| (model.id.clone(), model.efforts.clone()))
+                .collect()
+        };
+        let all = strings(&["low", "medium", "high", "xhigh", "max"]);
+        assert_eq!(
+            efforts("claude"),
+            [
+                ("fable".to_owned(), all.clone()),
+                ("opus".to_owned(), all.clone()),
+                ("sonnet".to_owned(), all),
+                ("haiku".to_owned(), Vec::new()),
+            ]
+        );
+        assert!(get("claude")
+            .models
+            .iter()
+            .flatten()
+            .all(|model| model.default_effort.is_none()));
+        assert!(efforts("codex").iter().all(|(_, list)| list.is_empty()));
+        assert_eq!(
+            get("codex").effort_args.as_deref(),
+            Some(&strings(&["-c", "model_reasoning_effort={effort}"])[..])
+        );
+        let claude = Agent::from_catalog(get("claude").clone());
+        let launch = crate::start_model::launch(
+            claude.profile.model_spec(),
+            &crate::start_model::StartModel {
+                source: crate::start_model::ModelSource::Provider,
+                id: "opus".into(),
+                effort: Some("xhigh".into()),
+            },
+        )
+        .unwrap();
+        assert_eq!(
+            launch.args,
+            strings(&["--model", "opus", "--effort", "xhigh"])
+        );
+
         // Claude Code against LM Studio: the documented variables, the base filled in.
         let claude = Agent::from_catalog(get("claude").clone());
         let launch = crate::start_model::launch(
@@ -2180,6 +2237,7 @@ commands=['x']
             &crate::start_model::StartModel {
                 source: crate::start_model::ModelSource::Lmstudio,
                 id: "qwen/qwen3-8b".into(),
+                effort: None,
             },
         )
         .unwrap();
@@ -2204,6 +2262,7 @@ commands=['x']
             &crate::start_model::StartModel {
                 source: crate::start_model::ModelSource::Lmstudio,
                 id: "m".into(),
+                effort: None,
             },
         )
         .unwrap();
@@ -2219,6 +2278,7 @@ commands=['x']
                 &crate::start_model::StartModel {
                     source: crate::start_model::ModelSource::Ollama,
                     id: model.into(),
+                    effort: None,
                 },
             )
             .unwrap()
@@ -2265,6 +2325,10 @@ commands=['x']
             "{base}models=[{{id='m',label='M'}}]\nmodel_args=['-m','{{model}}']\n"
         ))
         .is_ok());
+        assert!(parse(&format!(
+            "{base}models=[{{id='m',label='M',efforts=['low','max'],default_effort='low'}}]\nmodel_args=['-m','{{model}}']\neffort_args=['--effort={{effort}}']\n"
+        ))
+        .is_ok());
         // {model} only in an env value is enough.
         assert!(parse(&format!(
             "{base}local={{ollama={{env={{MODEL='{{model}}',HOST='{{base}}'}}}}}}\n"
@@ -2280,6 +2344,11 @@ commands=['x']
             "local={ollama={args=['-m'],env={HOST='{base}'}}}\n",
             "local={ollama={args=['{model}'],env={'1X'='a'}}}\n",
             "local={ollama={args=['{model}','{other}']}}\n",
+            // Efforts without effort_args, bad efforts, a default outside the list.
+            "models=[{id='m',label='M',efforts=['low']}]\nmodel_args=['-m','{model}']\n",
+            "models=[{id='m',label='M',efforts=['Low']}]\nmodel_args=['-m','{model}']\neffort_args=['{effort}']\n",
+            "models=[{id='m',label='M',efforts=['low'],default_effort='max'}]\nmodel_args=['-m','{model}']\neffort_args=['{effort}']\n",
+            "models=[{id='m',label='M',efforts=['low']}]\nmodel_args=['-m','{model}']\neffort_args=['--effort']\n",
         ] {
             assert!(
                 matches!(
@@ -2301,8 +2370,11 @@ commands=['x']
         entry.models = Some(vec![ModelOption {
             id: "opus".into(),
             label: "Opus".into(),
+            efforts: strings(&["low", "high"]),
+            default_effort: None,
         }]);
         entry.model_args = Some(strings(&["--model", "{model}"]));
+        entry.effort_args = Some(strings(&["--effort", "{effort}"]));
         entry.local = Some(LocalSpecs {
             ollama: Some(crate::start_model::LocalLaunch {
                 args: strings(&["--model", "{model}"]),
@@ -2318,17 +2390,26 @@ commands=['x']
         let json = serde_json::to_value(&view).unwrap();
         assert_eq!(
             json["models"],
-            serde_json::json!([{ "id": "opus", "label": "Opus" }])
+            serde_json::json!([{ "id": "opus", "label": "Opus", "efforts": ["low", "high"] }])
         );
         assert_eq!(json["localSources"], serde_json::json!(["ollama"]));
-        // The profile's own list replaces the catalog's.
+        // The profile's own list replaces the catalog's; effort_args still come from the catalog.
         let mut own = user("claude", "claude");
         own.models = Some(vec![ModelOption {
             id: "sonnet".into(),
             label: "Sonnet".into(),
+            efforts: strings(&["max"]),
+            default_effort: None,
         }]);
         let merged = merge(vec![own], vec![entry.clone()]);
-        assert_eq!(merged[0].view(None, None).models[0].id, "sonnet");
+        let view = merged[0].view(None, None);
+        assert_eq!(view.models[0].id, "sonnet");
+        assert_eq!(view.models[0].efforts, ["max"]);
+        // A profile that turns effort_args off offers no efforts.
+        let mut off = user("claude", "claude");
+        off.effort_args = Some(Vec::new());
+        let merged = merge(vec![off], vec![entry.clone()]);
+        assert!(merged[0].view(None, None).models[0].efforts.is_empty());
         // Another program inherits nothing.
         let merged = merge(vec![user("claude", "my-wrapper")], vec![entry]);
         let view = merged[0].view(None, None);

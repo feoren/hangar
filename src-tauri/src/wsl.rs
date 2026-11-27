@@ -103,6 +103,7 @@ pub fn agent(distro: &str) -> Agent {
             agent_commands: Vec::new(),
             models: None,
             model_args: None,
+            effort_args: None,
             local: None,
         },
         source: Source::Catalog,

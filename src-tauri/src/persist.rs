@@ -883,6 +883,7 @@ mod tests {
         workspace.sessions[0].model = Some(StartModel {
             source: ModelSource::Ollama,
             id: "qwen3:8b".into(),
+            effort: None,
         });
         store.0.save_workspace(&workspace).unwrap();
         assert_eq!(store.0.load_workspace(), Some(workspace.clone()));
@@ -895,6 +896,22 @@ mod tests {
         );
         // Without a model the field is left out, so an older Hangar still reads the file.
         assert!(json["sessions"][1].get("model").is_none());
+        // A reasoning effort is kept with the model; without one the field is left out.
+        workspace.sessions[1].model = Some(StartModel {
+            source: ModelSource::Provider,
+            id: "opus".into(),
+            effort: Some("high".into()),
+        });
+        store.0.save_workspace(&workspace).unwrap();
+        assert_eq!(store.0.load_workspace(), Some(workspace.clone()));
+        let json: serde_json::Value =
+            serde_json::from_slice(&std::fs::read(store.0.dir().join(WORKSPACE_FILE)).unwrap())
+                .unwrap();
+        assert_eq!(
+            json["sessions"][1]["model"],
+            serde_json::json!({ "source": "provider", "id": "opus", "effort": "high" })
+        );
+        assert!(json["sessions"][0]["model"].get("effort").is_none());
     }
 
     #[test]
@@ -904,6 +921,7 @@ mod tests {
         workspace.sessions[0].model = Some(crate::start_model::StartModel {
             source: crate::start_model::ModelSource::Ollama,
             id: "qwen3:8b".into(),
+            effort: None,
         });
         store.0.save_workspace(&workspace).unwrap();
         let path = store.0.dir().join(WORKSPACE_FILE);

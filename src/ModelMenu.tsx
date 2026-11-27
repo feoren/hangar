@@ -1,15 +1,42 @@
 // The models of a program row in "New session" (ADR 0022): a flyout beside the row with the
 // program's own models and the models of the local servers that run. It opens when the pointer
 // rests on the row or with Right arrow (ProgramRow.tsx); a click starts the session with that
-// model, while the row itself keeps starting with the program's default. The flyout is fixed to the
-// window (PopupMenu), since the group's body scrolls.
+// model, while the row itself keeps starting with the program's default. A model that takes
+// reasoning efforts opens them in a submenu beside it the same way (resting pointer, Right arrow);
+// a click on the model starts with the program's own effort, a click on a level with that one.
+// The flyout is fixed to the window (PopupMenu), since the group's body scrolls.
 
 import type { RefObject } from "react";
 
 import type { SessionModel } from "./api";
 import { useT, type Translate } from "./i18n";
-import type { ModelSection } from "./localLlm";
+import { effortLabel, type ModelEntry, type ModelSection } from "./localLlm";
 import { PopupMenu, type PopupItem } from "./PopupMenu";
+
+/**
+ * A model's efforts as submenu rows; the program's own one says "Default" quietly. Without
+ * efforts, no submenu.
+ */
+function effortItems(
+  program: string,
+  entry: ModelEntry,
+  onPick: (model: SessionModel) => void,
+  t: Translate,
+): PopupItem[] {
+  return entry.efforts.map((effort): PopupItem => {
+    const label = effortLabel(effort, t);
+    return {
+      type: "action",
+      key: `effort:${effort}`,
+      label,
+      ...(effort === entry.defaultEffort ? { detail: t("model.effortDefault") } : {}),
+      title: t("model.startWithEffort", { program, model: entry.label, effort: label }),
+      run: () => {
+        onPick({ ...entry.model, effort });
+      },
+    };
+  });
+}
 
 /** The menu's rows: a heading per section, then its models; loaded local models say so quietly. */
 export function modelMenuItems(
@@ -20,16 +47,22 @@ export function modelMenuItems(
 ): PopupItem[] {
   return sections.flatMap((section): PopupItem[] => [
     { type: "heading", key: `heading:${section.source}`, label: section.heading },
-    ...section.entries.map((entry): PopupItem => ({
-      type: "action",
-      key: `${section.source}:${entry.model.id}`,
-      label: entry.label,
-      ...(entry.loaded ? { detail: t("model.loaded") } : {}),
-      title: t("model.startWith", { program, model: entry.label }),
-      run: () => {
-        onPick(entry.model);
-      },
-    })),
+    ...section.entries.map((entry): PopupItem => {
+      const efforts = effortItems(program, entry, onPick, t);
+      return {
+        type: "action",
+        key: `${section.source}:${entry.model.id}`,
+        label: entry.label,
+        ...(entry.loaded ? { detail: t("model.loaded") } : {}),
+        title: t("model.startWith", { program, model: entry.label }),
+        ...(efforts.length > 0
+          ? { submenu: { label: t("model.effortMenu", { model: entry.label }), items: efforts } }
+          : {}),
+        run: () => {
+          onPick(entry.model);
+        },
+      };
+    }),
   ]);
 }
 

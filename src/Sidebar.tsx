@@ -2008,7 +2008,7 @@ function SessionItem({
   const cost = useSessionCostText(isPlaced(plan.layout, "cost") ? session.id : -1, language);
   // Always once measured: live while responses end, then the last one, quieter (RowSpeed).
   const speed = useSessionOutputRate(isPlaced(plan.layout, "speed") ? session.id : -1) ?? null;
-  const modelText = modelBadge(session.model, profile);
+  const modelText = modelBadge(session.model, profile, t);
   const modelFact =
     modelText === null
       ? null

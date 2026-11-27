@@ -1,9 +1,13 @@
 //! The model a session starts with (ADR 0022): one of the vendor's models from the catalog
 //! (`models`, `model_args`) or a model of a local LLM server (`local`, Ollama or LM Studio).
 //!
-//! The window names only the source and the model id; the arguments and variables come from the
-//! catalog or the user's profile, never from the window. The id is checked here before anything
-//! starts, and everything it is placed into must pass a cmd.exe launcher ([`crate::batch`]).
+//! A vendor model may also take a reasoning effort (`efforts`, `effort_args`): only the levels the
+//! catalog, the profile or the program's own model list name for that model are offered.
+//!
+//! The window names only the source, the model id and the effort; the arguments and variables
+//! come from the catalog or the user's profile, never from the window. Id and effort are checked
+//! here before anything starts, and everything they are placed into must pass a cmd.exe launcher
+//! ([`crate::batch`]).
 
 use std::collections::{BTreeMap, HashSet};
 
@@ -17,13 +21,31 @@ pub const BASE: &str = "{base}";
 pub const MAX_ID_CHARS: usize = 160;
 /// Longest label of a vendor model in the catalog, in characters.
 pub const MAX_LABEL_CHARS: usize = 80;
+/// The placeholder for the reasoning effort, in `effort_args`.
+pub const EFFORT: &str = "{effort}";
+/// Longest effort id, in characters.
+pub const MAX_EFFORT_CHARS: usize = 32;
+/// Efforts per model at most; the submenu stays short.
+pub const MAX_EFFORTS: usize = 12;
 
 /// A vendor model the menu offers: `id` goes into `{model}`, `label` is shown.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct ModelOption {
     pub id: String,
     pub label: String,
+    /// The reasoning efforts a start can pick for this model, in menu order; each goes into
+    /// `{effort}` of `effort_args`. Empty: the model takes none Hangar knows of.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub efforts: Vec<String>,
+    /// The effort the program uses on its own for this model, one of `efforts`; only where the
+    /// program says so (Codex CLI's model list). The menu marks it, a start never passes it.
+    #[serde(
+        default,
+        rename(serialize = "defaultEffort", deserialize = "default_effort"),
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub default_effort: Option<String>,
 }
 
 /// How a program runs against one local server.
@@ -121,6 +143,9 @@ impl ModelSource {
 pub struct StartModel {
     pub source: ModelSource,
     pub id: String,
+    /// The reasoning effort, one of the model's `efforts`; `None` leaves the program's default.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub effort: Option<String>,
 }
 
 /// What a model adds to one process start.
@@ -148,6 +173,17 @@ pub enum ModelError {
     },
     #[error("The model's arguments for {0} would not pass its cmd.exe launcher")]
     UnsafeArgument(String),
+    #[error(
+        "The reasoning effort must be 1 to 32 characters from a-z 0-9 - and start with a letter or \
+         digit"
+    )]
+    InvalidEffort,
+    #[error("{program} offers no reasoning effort '{effort}' for '{id}'")]
+    EffortNotOffered {
+        program: String,
+        id: String,
+        effort: String,
+    },
 }
 
 /// A model id Hangar passes on: 1 to [`MAX_ID_CHARS`] characters from
@@ -159,6 +195,19 @@ pub fn valid_id(id: &str) -> bool {
         && id
             .chars()
             .all(|c| c.is_ascii_alphanumeric() || "._:/@+-[]".contains(c))
+}
+
+/// A reasoning effort Hangar passes on: 1 to [`MAX_EFFORT_CHARS`] characters from `a-z 0-9 -`,
+/// starting with a letter or digit. Such a value needs no quoting in an argument, a TOML value
+/// (Codex CLI reads a bare word that is no TOML value as a string) or a cmd.exe launcher.
+pub fn valid_effort(effort: &str) -> bool {
+    let bytes = effort.as_bytes();
+    !bytes.is_empty()
+        && bytes.len() <= MAX_EFFORT_CHARS
+        && bytes[0].is_ascii_alphanumeric()
+        && bytes
+            .iter()
+            .all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || *b == b'-')
 }
 
 /// Does `text` hold only the placeholders in `allowed`? Any other `{...}`, or a `{` without its
@@ -178,15 +227,49 @@ fn placeholders_ok(text: &str, allowed: &[&str]) -> bool {
     true
 }
 
-/// Checks `models`, `model_args` and `local` of a catalog entry or profile at load.
-/// `need_model_args`: `models` without `model_args` is an error (the catalog); a user profile may
-/// leave `model_args` to the catalog entry it replaces.
-pub fn check(
-    models: Option<&[ModelOption]>,
-    model_args: Option<&[String]>,
-    local: Option<&LocalSpecs>,
-    need_model_args: bool,
-) -> Result<(), &'static str> {
+/// The model fields of a catalog entry or profile, for [`check`].
+#[derive(Debug, Clone, Copy, Default)]
+pub struct ModelFields<'a> {
+    pub models: Option<&'a [ModelOption]>,
+    pub model_args: Option<&'a [String]>,
+    pub effort_args: Option<&'a [String]>,
+    pub local: Option<&'a LocalSpecs>,
+}
+
+/// Checks a model's `efforts` and `default_effort`.
+fn check_efforts(model: &ModelOption) -> Result<(), &'static str> {
+    if model.efforts.len() > MAX_EFFORTS {
+        return Err("models: at most 12 efforts per model");
+    }
+    let mut seen = HashSet::new();
+    for effort in &model.efforts {
+        if !valid_effort(effort) {
+            return Err(
+                "models: an effort must be 1 to 32 characters from a-z 0-9 - without a leading -",
+            );
+        }
+        if !seen.insert(effort.as_str()) {
+            return Err("models: an effort appears more than once");
+        }
+    }
+    match &model.default_effort {
+        Some(effort) if !seen.contains(effort.as_str()) => {
+            Err("models: default_effort must be one of the model's efforts")
+        }
+        _ => Ok(()),
+    }
+}
+
+/// Checks `models`, `model_args`, `effort_args` and `local` of a catalog entry or profile at
+/// load. `need_args`: `models` without `model_args`, or efforts without `effort_args`, is an
+/// error (the catalog); a user profile may leave both to the catalog entry it replaces.
+pub fn check(fields: ModelFields<'_>, need_args: bool) -> Result<(), &'static str> {
+    let ModelFields {
+        models,
+        model_args,
+        effort_args,
+        local,
+    } = fields;
     let models = models.unwrap_or_default();
     let mut seen = HashSet::new();
     for model in models {
@@ -203,9 +286,10 @@ pub fn check(
         {
             return Err("models: a label must be 1 to 80 characters without control characters");
         }
+        check_efforts(model)?;
     }
     let model_args = model_args.filter(|args| !args.is_empty());
-    if need_model_args && !models.is_empty() && model_args.is_none() {
+    if need_args && !models.is_empty() && model_args.is_none() {
         return Err("model_args is required when models is set");
     }
     if let Some(args) = model_args {
@@ -214,6 +298,18 @@ pub fn check(
         }
         if !args.iter().all(|arg| placeholders_ok(arg, &[MODEL])) {
             return Err("model_args may only use the placeholder {model}");
+        }
+    }
+    let effort_args = effort_args.filter(|args| !args.is_empty());
+    if need_args && effort_args.is_none() && models.iter().any(|m| !m.efforts.is_empty()) {
+        return Err("effort_args is required when a model has efforts");
+    }
+    if let Some(args) = effort_args {
+        if !args.iter().any(|arg| arg.contains(EFFORT)) {
+            return Err("effort_args needs the placeholder {effort}");
+        }
+        if !args.iter().all(|arg| placeholders_ok(arg, &[EFFORT])) {
+            return Err("effort_args may only use the placeholder {effort}");
         }
     }
     let Some(local) = local else {
@@ -257,6 +353,7 @@ pub struct ModelSpec<'a> {
     pub program: &'a str,
     pub models: &'a [ModelOption],
     pub model_args: Option<&'a [String]>,
+    pub effort_args: Option<&'a [String]>,
     pub local: Option<&'a LocalSpecs>,
 }
 
@@ -267,6 +364,23 @@ impl ModelSpec<'_> {
             Some(args) if !args.is_empty() => self.models,
             _ => &[],
         }
+    }
+
+    fn effort_args(&self) -> Option<&[String]> {
+        self.effort_args.filter(|args| !args.is_empty())
+    }
+
+    /// [`Self::offered`] as the menu shows it: without `effort_args` no effort could start, so
+    /// the models carry none.
+    pub fn menu(&self) -> Vec<ModelOption> {
+        let mut models = self.offered().to_vec();
+        if self.effort_args().is_none() {
+            for model in &mut models {
+                model.efforts.clear();
+                model.default_effort = None;
+            }
+        }
+        models
     }
 }
 
@@ -282,22 +396,42 @@ pub fn launch(spec: ModelSpec<'_>, choice: &StartModel) -> Result<ModelLaunch, M
     if !valid_id(&choice.id) {
         return Err(ModelError::InvalidId);
     }
-    let launch = match choice.source.server() {
-        None => {
-            let offered = spec.offered();
-            if !offered.iter().any(|model| model.id == choice.id) {
+    if choice
+        .effort
+        .as_deref()
+        .is_some_and(|effort| !valid_effort(effort))
+    {
+        return Err(ModelError::InvalidEffort);
+    }
+    let launch = match (choice.source.server(), choice.effort.as_deref()) {
+        (None, effort) => {
+            let Some(model) = spec.offered().iter().find(|model| model.id == choice.id) else {
                 return Err(ModelError::NotOffered {
                     program: spec.program.to_owned(),
                     id: choice.id.clone(),
                 });
+            };
+            let model_args = spec.model_args.unwrap_or_default();
+            let mut args: Vec<String> = model_args
+                .iter()
+                .map(|arg| expand(arg, &choice.id, ""))
+                .collect();
+            if let Some(effort) = effort {
+                let effort_args = spec
+                    .effort_args()
+                    .filter(|_| model.efforts.iter().any(|known| known == effort))
+                    .ok_or_else(|| not_offered(spec, choice, effort))?;
+                // The effort holds no `{`, so it never forms a new placeholder.
+                args.extend(effort_args.iter().map(|arg| arg.replace(EFFORT, effort)));
             }
-            let args = spec.model_args.unwrap_or_default();
             ModelLaunch {
-                args: args.iter().map(|arg| expand(arg, &choice.id, "")).collect(),
+                args,
                 env: Vec::new(),
             }
         }
-        Some(server) => {
+        // A local server's models take no effort from Hangar.
+        (Some(_), Some(effort)) => return Err(not_offered(spec, choice, effort)),
+        (Some(server), None) => {
             let local = spec
                 .local
                 .and_then(|local| local.get(server))
@@ -329,7 +463,15 @@ pub fn launch(spec: ModelSpec<'_>, choice: &StartModel) -> Result<ModelLaunch, M
 /// Checks a stored choice (workspace, recent sessions) for its shape only; whether the program
 /// still offers it is checked when the session starts again.
 pub fn stored_ok(choice: &StartModel) -> bool {
-    valid_id(&choice.id)
+    valid_id(&choice.id) && choice.effort.as_deref().is_none_or(valid_effort)
+}
+
+fn not_offered(spec: ModelSpec<'_>, choice: &StartModel, effort: &str) -> ModelError {
+    ModelError::EffortNotOffered {
+        program: spec.program.to_owned(),
+        id: choice.id.clone(),
+        effort: effort.to_owned(),
+    }
 }
 
 /// `deserialize_with` for a stored choice (`SavedSession.model`, `ClosedSession.model`): a value
@@ -344,6 +486,14 @@ pub fn lenient_stored<'de, D: Deserializer<'de>>(
     }
     match serde_json::from_value::<StartModel>(value) {
         Ok(choice) if stored_ok(&choice) => Ok(Some(choice)),
+        // A bad effort costs only the effort: the model still starts.
+        Ok(choice) if valid_id(&choice.id) => {
+            eprintln!("hangar: dropping a stored reasoning effort that is not valid");
+            Ok(Some(StartModel {
+                effort: None,
+                ..choice
+            }))
+        }
         _ => {
             eprintln!("hangar: dropping a stored model choice that is not valid");
             Ok(None)
@@ -363,7 +513,34 @@ mod tests {
         ModelOption {
             id: id.into(),
             label: id.to_uppercase(),
+            ..ModelOption::default()
         }
+    }
+
+    fn with_efforts(id: &str, efforts: &[&str], default: Option<&str>) -> ModelOption {
+        ModelOption {
+            efforts: strings(efforts),
+            default_effort: default.map(str::to_owned),
+            ..option(id)
+        }
+    }
+
+    /// [`check`] for the fields without efforts.
+    fn check_old(
+        models: Option<&[ModelOption]>,
+        model_args: Option<&[String]>,
+        local: Option<&LocalSpecs>,
+        need_args: bool,
+    ) -> Result<(), &'static str> {
+        check(
+            ModelFields {
+                models,
+                model_args,
+                effort_args: None,
+                local,
+            },
+            need_args,
+        )
     }
 
     fn local() -> LocalSpecs {
@@ -384,7 +561,174 @@ mod tests {
         StartModel {
             source,
             id: id.into(),
+            effort: None,
         }
+    }
+
+    fn with_effort(source: ModelSource, id: &str, effort: &str) -> StartModel {
+        StartModel {
+            effort: Some(effort.into()),
+            ..choice(source, id)
+        }
+    }
+
+    #[test]
+    fn efforts_follow_the_rule() {
+        for good in [
+            "low",
+            "xhigh",
+            "max",
+            "ultra",
+            "level-2",
+            "9",
+            &"a".repeat(32),
+        ] {
+            assert!(valid_effort(good), "{good}");
+        }
+        for bad in [
+            "",
+            "-x",
+            "High",
+            "a b",
+            "a_b",
+            "a=b",
+            "a{effort}",
+            "ä",
+            "a\n",
+            &"a".repeat(33),
+        ] {
+            assert!(!valid_effort(bad), "{bad:?}");
+        }
+    }
+
+    #[test]
+    fn efforts_in_the_catalog_are_checked() {
+        let model_args = strings(&["--model", "{model}"]);
+        let effort_args = strings(&["--effort", "{effort}"]);
+        let fields = |models: &[ModelOption], effort_args: Option<&[String]>| {
+            check(
+                ModelFields {
+                    models: Some(models),
+                    model_args: Some(&model_args),
+                    effort_args,
+                    local: None,
+                },
+                true,
+            )
+        };
+        let opus = with_efforts("opus", &["low", "high"], Some("high"));
+        assert_eq!(
+            fields(&[opus.clone(), option("haiku")], Some(&effort_args)),
+            Ok(())
+        );
+        // Efforts need effort_args in the catalog; a profile may take them from the catalog.
+        assert!(fields(std::slice::from_ref(&opus), None).is_err());
+        assert_eq!(
+            check(
+                ModelFields {
+                    models: Some(std::slice::from_ref(&opus)),
+                    ..ModelFields::default()
+                },
+                false
+            ),
+            Ok(())
+        );
+        // effort_args without {effort}, or with another placeholder.
+        assert!(fields(&[option("a")], Some(&strings(&["--effort"]))).is_err());
+        assert!(fields(&[option("a")], Some(&strings(&["{effort}", "{model}"]))).is_err());
+        // Bad, repeated or too many efforts; a default that is not among them.
+        for bad in [
+            with_efforts("a", &["Low"], None),
+            with_efforts("a", &["low", "low"], None),
+            with_efforts("a", &["low"], Some("high")),
+            with_efforts("a", &[], Some("low")),
+            ModelOption {
+                efforts: (0..=MAX_EFFORTS).map(|i| format!("e{i}")).collect(),
+                ..option("a")
+            },
+        ] {
+            assert!(
+                fields(std::slice::from_ref(&bad), Some(&effort_args)).is_err(),
+                "{bad:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn an_effort_goes_after_the_model_when_the_model_takes_it() {
+        let model_args = strings(&["--model", "{model}"]);
+        let effort_args = strings(&["-c", "model_reasoning_effort={effort}"]);
+        let models = [with_efforts("opus", &["low", "max"], None), option("haiku")];
+        let spec = ModelSpec {
+            effort_args: Some(&effort_args),
+            ..make_spec(&models, Some(&model_args), None)
+        };
+        let launch = launch(spec, &with_effort(ModelSource::Provider, "opus", "max")).unwrap();
+        assert_eq!(
+            launch.args,
+            strings(&["--model", "opus", "-c", "model_reasoning_effort=max"])
+        );
+        // A .cmd launcher takes the expanded arguments as they are.
+        assert!(crate::batch::check(std::path::Path::new(r"C:\x\codex.cmd"), &launch.args).is_ok());
+        // Without an effort the program's default stays: no effort argument.
+        let plain = super::launch(spec, &choice(ModelSource::Provider, "opus")).unwrap();
+        assert_eq!(plain.args, strings(&["--model", "opus"]));
+        // An effort the model does not list, a model without efforts, a bad effort.
+        for (id, effort) in [("opus", "high"), ("haiku", "low")] {
+            assert!(matches!(
+                super::launch(spec, &with_effort(ModelSource::Provider, id, effort)),
+                Err(ModelError::EffortNotOffered { .. })
+            ));
+        }
+        assert_eq!(
+            super::launch(spec, &with_effort(ModelSource::Provider, "opus", "-x")),
+            Err(ModelError::InvalidEffort)
+        );
+        // Without effort_args no effort starts, and the menu shows none.
+        let bare = make_spec(&models, Some(&model_args), None);
+        assert!(matches!(
+            super::launch(bare, &with_effort(ModelSource::Provider, "opus", "low")),
+            Err(ModelError::EffortNotOffered { .. })
+        ));
+        assert!(bare.menu().iter().all(|model| model.efforts.is_empty()));
+        assert_eq!(spec.menu()[0].efforts, strings(&["low", "max"]));
+        // A local model takes no effort.
+        let local = local();
+        let spec = ModelSpec {
+            effort_args: Some(&effort_args),
+            ..make_spec(&[], None, Some(&local))
+        };
+        assert!(matches!(
+            super::launch(spec, &with_effort(ModelSource::Ollama, "qwen3:8b", "low")),
+            Err(ModelError::EffortNotOffered { .. })
+        ));
+    }
+
+    #[test]
+    fn a_stored_effort_that_is_not_valid_costs_only_the_effort() {
+        #[derive(Deserialize)]
+        struct Stored {
+            #[serde(deserialize_with = "lenient_stored")]
+            model: Option<StartModel>,
+        }
+        let read = |json: &str| serde_json::from_str::<Stored>(json).unwrap().model;
+        assert_eq!(
+            read(r#"{"model":{"source":"provider","id":"opus","effort":"high"}}"#),
+            Some(with_effort(ModelSource::Provider, "opus", "high"))
+        );
+        assert_eq!(
+            read(r#"{"model":{"source":"provider","id":"opus","effort":"&x"}}"#),
+            Some(choice(ModelSource::Provider, "opus"))
+        );
+        // Stored before efforts existed.
+        assert_eq!(
+            read(r#"{"model":{"source":"provider","id":"opus"}}"#),
+            Some(choice(ModelSource::Provider, "opus"))
+        );
+        assert_eq!(
+            read(r#"{"model":{"source":"provider","id":"-x","effort":"low"}}"#),
+            None
+        );
     }
 
     #[test]
@@ -433,28 +777,29 @@ mod tests {
         let args = strings(&["--model", "{model}"]);
         let models = [option("opus"), option("sonnet")];
         assert_eq!(
-            check(Some(&models), Some(&args), Some(&local()), true),
+            check_old(Some(&models), Some(&args), Some(&local()), true),
             Ok(())
         );
-        assert_eq!(check(None, None, None, true), Ok(()));
+        assert_eq!(check_old(None, None, None, true), Ok(()));
         // models need model_args in the catalog, not in a profile.
-        assert!(check(Some(&models), None, None, true).is_err());
-        assert_eq!(check(Some(&models), None, None, false), Ok(()));
+        assert!(check_old(Some(&models), None, None, true).is_err());
+        assert_eq!(check_old(Some(&models), None, None, false), Ok(()));
         // model_args without {model}, or with another placeholder.
-        assert!(check(Some(&models), Some(&strings(&["--model"])), None, true).is_err());
-        assert!(check(None, Some(&strings(&["{model}", "{base}"])), None, true).is_err());
+        assert!(check_old(Some(&models), Some(&strings(&["--model"])), None, true).is_err());
+        assert!(check_old(None, Some(&strings(&["{model}", "{base}"])), None, true).is_err());
         // Bad ids, duplicates, bad labels.
-        assert!(check(Some(&[option("-x")]), Some(&args), None, true).is_err());
-        assert!(check(Some(&[option("a"), option("a")]), Some(&args), None, true).is_err());
+        assert!(check_old(Some(&[option("-x")]), Some(&args), None, true).is_err());
+        assert!(check_old(Some(&[option("a"), option("a")]), Some(&args), None, true).is_err());
         let blank = ModelOption {
             id: "a".into(),
             label: " ".into(),
+            ..ModelOption::default()
         };
-        assert!(check(Some(&[blank]), Some(&args), None, true).is_err());
+        assert!(check_old(Some(&[blank]), Some(&args), None, true).is_err());
         // local: {model} required in args or an env value, names valid, placeholders known.
         let mut bad = local();
         bad.ollama.as_mut().unwrap().args = strings(&["--oss"]);
-        assert!(check(None, None, Some(&bad), true).is_err());
+        assert!(check_old(None, None, Some(&bad), true).is_err());
         let env_only = LocalSpecs {
             ollama: Some(LocalLaunch {
                 args: Vec::new(),
@@ -462,7 +807,7 @@ mod tests {
             }),
             lmstudio: None,
         };
-        assert_eq!(check(None, None, Some(&env_only), true), Ok(()));
+        assert_eq!(check_old(None, None, Some(&env_only), true), Ok(()));
         let neither = LocalSpecs {
             ollama: Some(LocalLaunch {
                 args: strings(&["--oss"]),
@@ -470,28 +815,28 @@ mod tests {
             }),
             lmstudio: None,
         };
-        assert!(check(None, None, Some(&neither), true).is_err());
+        assert!(check_old(None, None, Some(&neither), true).is_err());
         let mut bad = local();
         bad.ollama
             .as_mut()
             .unwrap()
             .env
             .insert("BAD-NAME".into(), "x".into());
-        assert!(check(None, None, Some(&bad), true).is_err());
+        assert!(check_old(None, None, Some(&bad), true).is_err());
         let mut bad = local();
         bad.ollama
             .as_mut()
             .unwrap()
             .env
             .insert("URL".into(), "{host}".into());
-        assert!(check(None, None, Some(&bad), true).is_err());
+        assert!(check_old(None, None, Some(&bad), true).is_err());
         let mut bad = local();
         bad.ollama
             .as_mut()
             .unwrap()
             .env
             .insert("X".into(), "a\0b".into());
-        assert!(check(None, None, Some(&bad), true).is_err());
+        assert!(check_old(None, None, Some(&bad), true).is_err());
     }
 
     fn make_spec<'a>(
@@ -503,6 +848,7 @@ mod tests {
             program: "Claude Code",
             models,
             model_args: args,
+            effort_args: None,
             local,
         }
     }
@@ -583,6 +929,21 @@ mod tests {
         );
         let back: StartModel = serde_json::from_value(json).unwrap();
         assert_eq!(back, choice);
+        let picked = with_effort(ModelSource::Provider, "opus", "xhigh");
+        assert_eq!(
+            serde_json::to_value(&picked).unwrap(),
+            serde_json::json!({ "source": "provider", "id": "opus", "effort": "xhigh" })
+        );
+        // The window reads a model's efforts and default in camelCase.
+        let shown = serde_json::to_value(with_efforts("gpt", &["low"], Some("low"))).unwrap();
+        assert_eq!(
+            shown,
+            serde_json::json!({ "id": "gpt", "label": "GPT", "efforts": ["low"], "defaultEffort": "low" })
+        );
+        assert_eq!(
+            serde_json::to_value(option("haiku")).unwrap(),
+            serde_json::json!({ "id": "haiku", "label": "HAIKU" })
+        );
         assert!(serde_json::from_str::<StartModel>(r#"{"source":"cloud","id":"x"}"#).is_err());
         assert!(
             serde_json::from_str::<StartModel>(r#"{"source":"provider","id":"x","extra":1}"#)
