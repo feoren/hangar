@@ -70,7 +70,7 @@ Both with icon SVG, NOTICE row and `agent.<id>.description` in 12 languages, lik
 
 ### The start (`create_session`)
 - New optional argument `model: { source: "provider" | "ollama" | "lmstudio", id: string }`.
-- Validation in the backend, before anything starts (error, no fallback):
+- Validation in the backend, before anything starts (a new start: error, no fallback):
   - `id`: 1 to 160 characters from `A-Z a-z 0-9 . _ : / @ + - [ ]`, no leading `-`.
   - `provider`: the agent has `model_args` and `id` is one of its `models`.
   - `ollama` / `lmstudio`: the agent has that `local` entry. The server need not run; the agent
@@ -81,6 +81,16 @@ Both with icon SVG, NOTICE row and `agent.<id>.description` in 12 languages, lik
   profile's env and before secrets, so a user's own secret still wins.
 - The choice is stored with the session (`persist.rs`, like `sub_agent`) and used again on
   restore and resume. Recent sessions keep it too.
+- A stored choice never costs the session: a value this Hangar cannot read in `workspace.json`
+  or the recent sessions (bad id, unknown source, extra field) is dropped on reading with a line
+  in the log, and the session or entry stays (`start_model::lenient_stored`).
+- A restore, a restart of a placeholder or a reopened recent session (`create_session` with
+  `resume`) whose stored model no longer fits (the catalog or the profile dropped it, the
+  program lost its `local` entry) starts with the program's default and logs why; the session
+  then carries no model. Only a new start from the menu is refused.
+- On a resume the model's arguments follow `resume_args`. Codex CLI accepts them there:
+  `codex resume` flattens the full interactive option set (`SessionTuiCli(TuiCli)`), which holds
+  `-m`, `--oss` and `--local-provider`.
 - `ProfileView` gains `models: [{ id, label }]` (empty when none) and
   `localSources: ("ollama" | "lmstudio")[]`.
 
@@ -131,8 +141,11 @@ Read on 2026-11-27:
   Claude Code setup https://lmstudio.ai/docs/integrations/claude-code, Codex setup
   https://lmstudio.ai/docs/integrations/codex.
 - Claude Code models: https://code.claude.com/docs/en/model-config.
-- Codex CLI flags: `codex-rs/utils/cli/src/shared_options.rs` in https://github.com/openai/codex;
-  models: https://learn.chatgpt.com/docs/models.
+- Codex CLI flags: `codex-rs/utils/cli/src/shared_options.rs` in https://github.com/openai/codex
+  (`--model`/`-m`, `--oss`, `--local-provider`); models: https://learn.chatgpt.com/docs/models.
+  `codex resume` takes them too: `codex-rs/cli/src/main.rs`, `struct ResumeCommand` with
+  `#[clap(flatten)] config_overrides: SessionTuiCli` (a wrapper of `TuiCli`), merged by
+  `finalize_resume_interactive` (read on main at commit `afe555b9`).
 - Gemini CLI: https://geminicli.com/docs/cli/cli-reference/.
 - Aider: https://aider.chat/docs/llms/ollama.html, https://aider.chat/docs/llms/lm-studio.html.
 - Hermes Agent: https://github.com/NousResearch/hermes-agent,

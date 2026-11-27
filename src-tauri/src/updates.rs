@@ -1309,6 +1309,9 @@ mod tests {
             agent_args: None,
             agent_program: None,
             agent_commands: Vec::new(),
+            models: None,
+            model_args: None,
+            local: None,
         });
         agent
             .profile

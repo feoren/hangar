@@ -16,6 +16,7 @@ use crate::instructions::StartPrompts;
 use crate::profile::Profile;
 use crate::resolve::resolve_all;
 use crate::resolve::resolve_program;
+use crate::start_model::{LocalServer, LocalSpecs, ModelOption};
 use crate::updates::{builtin_for_command, Latest, NpmVariant, PlatformHint};
 
 pub const BUILTIN: &str = include_str!("agent_catalog.toml");
@@ -88,6 +89,15 @@ pub struct CatalogAgent {
     /// Verified commands of the program for the session menu (see [`crate::agent_commands`]).
     #[serde(default)]
     pub agent_commands: Vec<crate::agent_commands::AgentCommand>,
+    /// The vendor's models the start menu offers (see [`Profile::models`]).
+    #[serde(default)]
+    pub models: Option<Vec<ModelOption>>,
+    /// How a vendor model goes into the start (see [`Profile::model_args`]).
+    #[serde(default)]
+    pub model_args: Option<Vec<String>>,
+    /// How the program runs against a local LLM server (see [`Profile::local`]).
+    #[serde(default)]
+    pub local: Option<LocalSpecs>,
 }
 
 /// How Hangar hands a program its global instructions and a first prompt
@@ -482,6 +492,14 @@ pub fn parse(source: &str) -> Result<Vec<CatalogAgent>, CatalogError> {
         if let Err(problem) = crate::instructions::check_agent_args(agent.agent_args.as_deref()) {
             return Err(invalid(problem));
         }
+        if let Err(problem) = crate::start_model::check(
+            agent.models.as_deref(),
+            agent.model_args.as_deref(),
+            agent.local.as_ref(),
+            true,
+        ) {
+            return Err(invalid(problem));
+        }
     }
     Ok(file.agents)
 }
@@ -599,6 +617,9 @@ impl Agent {
                 packages: agent.packages,
                 self_update: agent.self_update,
                 agent_commands: agent.agent_commands,
+                models: agent.models,
+                model_args: agent.model_args,
+                local: agent.local,
             },
             source: Source::Catalog,
             candidates: agent.commands,
@@ -673,6 +694,13 @@ impl Agent {
             agent_commands: self.profile.agent_commands.clone(),
             takes_agent: self.prompting.agent_args.is_some(),
             agent_program: self.prompting.agent_program,
+            models: self.profile.model_spec().offered().to_vec(),
+            local_sources: self
+                .profile
+                .local
+                .as_ref()
+                .map(LocalSpecs::servers)
+                .unwrap_or_default(),
         }
     }
 }
@@ -726,6 +754,10 @@ pub struct ProfileView {
     pub takes_agent: bool,
     /// Whose sub-agent definitions the program reads ([`Prompting::agent_program`]).
     pub agent_program: Option<crate::agent_models::DefProgram>,
+    /// The vendor's models a start can pick (ADR 0022), in menu order; empty when none.
+    pub models: Vec<ModelOption>,
+    /// The local LLM servers the program can run against, in menu order.
+    pub local_sources: Vec<LocalServer>,
 }
 
 /// User profiles in file order, followed by the catalog agents and then the detected WSL
@@ -779,6 +811,7 @@ pub fn merge_all(user: Vec<Profile>, catalog: Vec<CatalogAgent>, found: Vec<Agen
                         &agent.profile.agent_commands,
                     );
                     agent.prompting.clone_from(&from_catalog.prompting);
+                    inherit_model_options(&mut agent.profile, &from_catalog.profile);
                 }
                 // Same program, same packages and self-updater.
                 if same_program {
@@ -855,6 +888,20 @@ fn inherit_session_options(profile: &mut Profile, catalog: &Profile) {
     }
 }
 
+/// The model fields belong to the program too: a profile that starts the catalog's program takes
+/// each one it does not set itself, and its own value replaces the catalog's (ADR 0022).
+fn inherit_model_options(profile: &mut Profile, catalog: &Profile) {
+    if profile.models.is_none() {
+        profile.models.clone_from(&catalog.models);
+    }
+    if profile.model_args.is_none() {
+        profile.model_args.clone_from(&catalog.model_args);
+    }
+    if profile.local.is_none() {
+        profile.local.clone_from(&catalog.local);
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use std::ffi::OsString;
@@ -881,6 +928,9 @@ mod tests {
             packages: None,
             self_update: None,
             agent_commands: Vec::new(),
+            models: None,
+            model_args: None,
+            local: None,
         }
     }
 
@@ -910,6 +960,9 @@ mod tests {
             agent_args: None,
             agent_program: None,
             agent_commands: Vec::new(),
+            models: None,
+            model_args: None,
+            local: None,
         }
     }
 
@@ -2011,6 +2064,170 @@ commands=['x']
         assert_eq!(json["homepage"], "https://example.org/c");
         assert!(json["installHint"].is_string());
         assert_eq!(json["teamCapable"], false);
+    }
+
+    fn model_ids(agent: &CatalogAgent) -> Vec<&str> {
+        agent
+            .models
+            .iter()
+            .flatten()
+            .map(|m| m.id.as_str())
+            .collect()
+    }
+
+    #[test]
+    fn models_and_local_servers_in_builtin_catalog() {
+        let agents = builtin().unwrap();
+        let get = |id: &str| agents.iter().find(|a| a.id == id).unwrap();
+        let servers = |id: &str| {
+            get(id)
+                .local
+                .as_ref()
+                .map(LocalSpecs::servers)
+                .unwrap_or_default()
+        };
+        let both = vec![LocalServer::Ollama, LocalServer::Lmstudio];
+        assert_eq!(
+            model_ids(get("claude")),
+            ["fable", "opus", "sonnet", "haiku"]
+        );
+        assert_eq!(
+            model_ids(get("codex")),
+            [
+                "gpt-6.2-sol",
+                "gpt-6.2-astra",
+                "gpt-6.1-terra",
+                "gpt-6-luna"
+            ]
+        );
+        assert_eq!(
+            model_ids(get("gemini")),
+            ["auto", "pro", "flash", "flash-lite"]
+        );
+        assert!(model_ids(get("aider")).is_empty());
+        assert_eq!(servers("claude"), both);
+        assert_eq!(servers("codex"), both);
+        assert_eq!(servers("aider"), both);
+        assert!(servers("gemini").is_empty());
+        assert_eq!(servers("hermes"), [LocalServer::Lmstudio]);
+        // OpenClaw has no start flag for a model: nothing is offered.
+        let openclaw = get("openclaw");
+        assert!(openclaw.models.is_none() && openclaw.local.is_none());
+        assert_eq!(openclaw.args, ["tui", "--local"]);
+        // Every program with vendor models says how they go into the start.
+        for agent in &agents {
+            if !model_ids(agent).is_empty() {
+                assert!(agent.model_args.is_some(), "{}", agent.id);
+            }
+        }
+
+        // Claude Code against LM Studio: the documented variables, the base filled in.
+        let claude = Agent::from_catalog(get("claude").clone());
+        let launch = crate::start_model::launch(
+            claude.profile.model_spec(),
+            &crate::start_model::StartModel {
+                source: crate::start_model::ModelSource::Lmstudio,
+                id: "qwen/qwen3-8b".into(),
+            },
+        )
+        .unwrap();
+        assert_eq!(launch.args, strings(&["--model", "qwen/qwen3-8b"]));
+        assert_eq!(
+            launch.env,
+            vec![
+                ("ANTHROPIC_AUTH_TOKEN".to_owned(), "lmstudio".to_owned()),
+                (
+                    "ANTHROPIC_BASE_URL".to_owned(),
+                    "http://127.0.0.1:1234".to_owned()
+                ),
+                ("CLAUDE_CODE_ATTRIBUTION_HEADER".to_owned(), "0".to_owned()),
+            ]
+        );
+        // Aider's LM Studio base carries /v1.
+        let aider = Agent::from_catalog(get("aider").clone());
+        let launch = crate::start_model::launch(
+            aider.profile.model_spec(),
+            &crate::start_model::StartModel {
+                source: crate::start_model::ModelSource::Lmstudio,
+                id: "m".into(),
+            },
+        )
+        .unwrap();
+        assert_eq!(launch.args, strings(&["--model", "lm_studio/m"]));
+        assert!(launch.env.contains(&(
+            "LM_STUDIO_API_BASE".into(),
+            "http://127.0.0.1:1234/v1".into()
+        )));
+    }
+
+    #[test]
+    fn invalid_model_fields_in_the_catalog_are_refused() {
+        let base = "[[agent]]\nid='a'\nname='A'\ncommands=['a']\n";
+        assert!(parse(&format!(
+            "{base}models=[{{id='m',label='M'}}]\nmodel_args=['-m','{{model}}']\n"
+        ))
+        .is_ok());
+        for bad in [
+            // models without model_args.
+            "models=[{id='m',label='M'}]\n",
+            "models=[{id='m',label='M'}]\nmodel_args=['-m']\n",
+            "models=[{id='m m',label='M'}]\nmodel_args=['-m','{model}']\n",
+            "local={ollama={args=['-m']}}\n",
+            "local={ollama={args=['{model}'],env={'1X'='a'}}}\n",
+            "local={ollama={args=['{model}','{other}']}}\n",
+        ] {
+            assert!(
+                matches!(
+                    parse(&format!("{base}{bad}")),
+                    Err(CatalogError::Invalid { .. })
+                ),
+                "{bad:?} should have been rejected"
+            );
+        }
+        assert!(matches!(
+            parse(&format!("{base}models=[{{id='m'}}]\n")),
+            Err(CatalogError::Parse(_))
+        ));
+    }
+
+    #[test]
+    fn model_fields_follow_the_program_and_a_profile_replaces_them() {
+        let mut entry = catalog("claude", &["claude"]);
+        entry.models = Some(vec![ModelOption {
+            id: "opus".into(),
+            label: "Opus".into(),
+        }]);
+        entry.model_args = Some(strings(&["--model", "{model}"]));
+        entry.local = Some(LocalSpecs {
+            ollama: Some(crate::start_model::LocalLaunch {
+                args: strings(&["--model", "{model}"]),
+                env: Default::default(),
+            }),
+            lmstudio: None,
+        });
+        // Same program, nothing of its own: the catalog's fields.
+        let merged = merge(vec![user("claude", "claude")], vec![entry.clone()]);
+        let view = merged[0].view(None, None);
+        assert_eq!(view.models.len(), 1);
+        assert_eq!(view.local_sources, [LocalServer::Ollama]);
+        let json = serde_json::to_value(&view).unwrap();
+        assert_eq!(
+            json["models"],
+            serde_json::json!([{ "id": "opus", "label": "Opus" }])
+        );
+        assert_eq!(json["localSources"], serde_json::json!(["ollama"]));
+        // The profile's own list replaces the catalog's.
+        let mut own = user("claude", "claude");
+        own.models = Some(vec![ModelOption {
+            id: "sonnet".into(),
+            label: "Sonnet".into(),
+        }]);
+        let merged = merge(vec![own], vec![entry.clone()]);
+        assert_eq!(merged[0].view(None, None).models[0].id, "sonnet");
+        // Another program inherits nothing.
+        let merged = merge(vec![user("claude", "my-wrapper")], vec![entry]);
+        let view = merged[0].view(None, None);
+        assert!(view.models.is_empty() && view.local_sources.is_empty());
     }
 
     #[test]

@@ -664,6 +664,15 @@ pub struct ClosedSession {
     #[serde(default)]
     pub cli_session_id: Option<String>,
     pub closed_at: u64,
+    /// The model the session started with (ADR 0022); left out when there is none, so the file
+    /// still reads in an older Hangar.
+    /// An invalid value is dropped on reading, the entry stays ([`crate::start_model::lenient_stored`]).
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "crate::start_model::lenient_stored"
+    )]
+    pub model: Option<crate::start_model::StartModel>,
 }
 
 /// The bounds the window keeps (`parseRecentSessions`): not too many entries, a program ID like
@@ -1691,6 +1700,39 @@ mod tests {
             emoji: Some("\u{1F680}".into()),
             cli_session_id: id.map(str::to_owned),
             closed_at: 1_700_000_000_000,
+            model: None,
+        }
+    }
+
+    #[test]
+    fn a_recent_session_keeps_its_model() {
+        use crate::start_model::{ModelSource, StartModel};
+        let tmp = TempDir::new("main-store-closed-model");
+        let store = MainStore::new(tmp.path().to_owned());
+        let entries = vec![ClosedSession {
+            model: Some(StartModel {
+                source: ModelSource::Provider,
+                id: "opus".into(),
+            }),
+            ..closed(r"C:\work\app", None)
+        }];
+        store.save_recently_closed(entries.clone()).unwrap();
+        assert_eq!(store.load_recently_closed(), entries);
+        // An invalid model in the file costs only the model, not the entry or the list.
+        let path = tmp.path().join(RECENTLY_CLOSED_FILE);
+        for bad in [
+            serde_json::json!({ "source": "lmstudio", "id": "a b" }),
+            serde_json::json!({ "source": "cloud", "id": "x" }),
+            serde_json::json!(7),
+        ] {
+            let mut json: serde_json::Value =
+                serde_json::from_slice(&std::fs::read(&path).unwrap()).unwrap();
+            json[0]["model"] = bad;
+            std::fs::write(&path, serde_json::to_vec(&json).unwrap()).unwrap();
+            let loaded = store.load_recently_closed();
+            assert_eq!(loaded.len(), 1);
+            assert_eq!(loaded[0].model, None);
+            assert_eq!(loaded[0].cwd, entries[0].cwd);
         }
     }
 

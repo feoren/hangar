@@ -87,6 +87,16 @@ pub struct SavedSession {
     /// there is none, so such a workspace still reads in an older Hangar.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub queued_message: Option<String>,
+    /// The model the session started with (`SessionInfo.model`, ADR 0022), started with it again
+    /// on restore. Absent in older files and left out when there is none, so such a workspace
+    /// still reads in an older Hangar.
+    /// An invalid value is dropped on reading, the session stays ([`crate::start_model::lenient_stored`]).
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "crate::start_model::lenient_stored"
+    )]
+    pub model: Option<crate::start_model::StartModel>,
 }
 
 #[derive(Debug, thiserror::Error)]
@@ -831,6 +841,7 @@ mod tests {
             cli_session_id: None,
             sub_agent: None,
             queued_message: None,
+            model: None,
         }
     }
 
@@ -861,6 +872,61 @@ mod tests {
             version: WORKSPACE_VERSION,
             sessions: vec![session(KEY, 0), session(KEY2, 1)],
             active_key: Some(KEY2.into()),
+        }
+    }
+
+    #[test]
+    fn the_model_round_trips_and_is_checked() {
+        use crate::start_model::{ModelSource, StartModel};
+        let store = TempStore::new("model");
+        let mut workspace = workspace();
+        workspace.sessions[0].model = Some(StartModel {
+            source: ModelSource::Ollama,
+            id: "qwen3:8b".into(),
+        });
+        store.0.save_workspace(&workspace).unwrap();
+        assert_eq!(store.0.load_workspace(), Some(workspace.clone()));
+        let json: serde_json::Value =
+            serde_json::from_slice(&std::fs::read(store.0.dir().join(WORKSPACE_FILE)).unwrap())
+                .unwrap();
+        assert_eq!(
+            json["sessions"][0]["model"],
+            serde_json::json!({ "source": "ollama", "id": "qwen3:8b" })
+        );
+        // Without a model the field is left out, so an older Hangar still reads the file.
+        assert!(json["sessions"][1].get("model").is_none());
+    }
+
+    #[test]
+    fn an_invalid_model_costs_only_the_model() {
+        let store = TempStore::new("model-invalid");
+        let mut workspace = workspace();
+        workspace.sessions[0].model = Some(crate::start_model::StartModel {
+            source: crate::start_model::ModelSource::Ollama,
+            id: "qwen3:8b".into(),
+        });
+        store.0.save_workspace(&workspace).unwrap();
+        let path = store.0.dir().join(WORKSPACE_FILE);
+        let mut json: serde_json::Value =
+            serde_json::from_slice(&std::fs::read(&path).unwrap()).unwrap();
+        // A bad id, a source this Hangar does not know, an extra field, a wrong type.
+        for bad in [
+            serde_json::json!({ "source": "provider", "id": "-rf" }),
+            serde_json::json!({ "source": "cloud", "id": "x" }),
+            serde_json::json!({ "source": "ollama", "id": "x", "extra": 1 }),
+            serde_json::json!("opus"),
+        ] {
+            json["sessions"][0]["model"] = bad;
+            json["sessions"][1]["model"] = serde_json::Value::Null;
+            std::fs::write(&path, serde_json::to_vec(&json).unwrap()).unwrap();
+            let loaded = store
+                .0
+                .load_workspace()
+                .expect("the workspace stays readable");
+            assert_eq!(loaded.sessions.len(), workspace.sessions.len());
+            assert_eq!(loaded.sessions[0].model, None);
+            assert_eq!(loaded.sessions[0].key, workspace.sessions[0].key);
+            assert_eq!(loaded.sessions[1].model, None);
         }
     }
 

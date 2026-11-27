@@ -39,7 +39,7 @@ Catalog of all wiki pages. Updated on every ingest.
 - [[gpu-readings]]: GPU load and memory per platform: Windows PDH, Linux DRM fdinfo per session process plus amdgpu sysfs and `nvidia-smi` per machine, macOS `ioreg` IOAccelerator statistics per machine only; rows keep a GPU column only with per-session figures (sources: 2, updated: 2026-11-20)
 
 ## Agent CLIs
-- [[catalog]]: built-in agent catalog: inclusion rules, name collision risks, verified agent commands per program, bundled icons and their precedence, the one pattern for agent descriptions, unverified points (sources: 4, updated: 2026-11-22)
+- [[catalog]]: built-in agent catalog: inclusion rules, name collision risks, verified agent commands per program, model fields (`models`, `model_args`, `local`), Hermes Agent and OpenClaw, bundled icons and their precedence, the one pattern for agent descriptions, unverified points (sources: 5, updated: 2026-11-27)
 - [[resume]]: resume_args per agent with evidence, behavior without a previous conversation, limits of --continue (sources: 2, updated: 2026-11-07)
 - [[agent-prompt-shapes]]: what questions and permission dialogs of Claude Code, Codex and Gemini look like on screen, which patterns the queue's question guard checks with their evidence, no bell from Claude Code's permission prompt in Hangar by default (sources: 1, updated: 2026-11-14)
 - [[updates]]: latest and update_hint per agent with evidence, update_hint is executed, OpenCode packages and npm_variants, comparison rules (sources: 2, updated: 2026-11-21)

@@ -1799,3 +1799,10 @@ New decision [[0022-models-and-local-llm-servers]]: the vendor models of Claude 
 Gemini CLI and the models of a running Ollama or LM Studio can be picked per start; Hermes Agent
 and OpenClaw join the catalog. Facts from the official docs of Ollama, LM Studio, Claude Code,
 Codex CLI, Gemini CLI, Aider, Hermes Agent and OpenClaw (URLs in the decision).
+
+## [2026-11-27] ingest | Models per start: catalog page, restore without a lost model
+[[catalog]] gains the fields `models`, `model_args` and `local` and the entries Hermes Agent and
+OpenClaw. [[0022-models-and-local-llm-servers]] now says that a stored model a file cannot use
+costs only the model, that a restore whose model is gone starts with the program's default, and
+that `codex resume` takes `-m`, `--oss` and `--local-provider` (source read in the Codex
+repository).
