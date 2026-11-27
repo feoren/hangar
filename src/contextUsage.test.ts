@@ -7,6 +7,7 @@ import {
   formatOutputRate,
   formatShare,
   HIGH_SHARE,
+  outputRateHint,
   parseContextSnapshot,
   parseOutputRates,
 } from "./contextUsage";
@@ -81,25 +82,37 @@ describe("formatting", () => {
 
 describe("the output rate", () => {
   it("reads the rates by session id and leaves out sessions without one", () => {
+    const rate = (value: unknown, live: unknown = true) => ({ value, live });
     const rates = parseOutputRates({
       sessions: [
-        { sessionId: 4, used: 123_000, window: 1_000_000, outputRate: 84 },
+        { sessionId: 4, used: 123_000, window: 1_000_000, outputRate: rate(84) },
+        { sessionId: 3, used: 123_000, window: 1_000_000, outputRate: rate(61, false) },
         { sessionId: 5, used: 1_000, window: 200_000, outputRate: null },
         { sessionId: 6, used: 1_000, window: 200_000 },
-        { sessionId: 7, used: 1_000, window: 200_000, outputRate: 0 },
-        { sessionId: 8, used: 1_000, window: 200_000, outputRate: -3 },
-        { sessionId: 9, used: 1_000, window: 200_000, outputRate: 12.5 },
-        { sessionId: "x", outputRate: 40 },
+        { sessionId: 7, used: 1_000, window: 200_000, outputRate: rate(0) },
+        { sessionId: 8, used: 1_000, window: 200_000, outputRate: rate(-3) },
+        { sessionId: 9, used: 1_000, window: 200_000, outputRate: rate(12.5) },
+        { sessionId: 10, used: 1_000, window: 200_000, outputRate: rate(40, "yes") },
+        // The shape before the live flag.
+        { sessionId: 11, used: 1_000, window: 200_000, outputRate: 40 },
+        { sessionId: "x", outputRate: rate(40) },
       ],
     });
-    expect(rates).toEqual(new Map([[4, 84]]));
+    expect(rates).toEqual(
+      new Map([
+        [4, { value: 84, live: true }],
+        [3, { value: 61, live: false }],
+      ]),
+    );
     expect(parseOutputRates({ sessions: "none" })).toBeNull();
     expect(parseOutputRates(null)).toBeNull();
   });
 
   it("keeps the context use as it was", () => {
     const parsed = parseContextSnapshot({
-      sessions: [{ sessionId: 4, used: 123_000, window: 1_000_000, outputRate: 84 }],
+      sessions: [
+        { sessionId: 4, used: 123_000, window: 1_000_000, outputRate: { value: 84, live: true } },
+      ],
     });
     expect(parsed?.get(4)).toEqual({ used: 123_000, window: 1_000_000 });
   });
@@ -112,6 +125,20 @@ describe("the output rate", () => {
     expect(t("speed.value", { value: formatOutputRate(42, "de") })).toBe("42 tok/s");
     expect(t("speed.hint", { value: "42" })).toBe(
       "Claude Code erzeugt gerade 42 Token pro Sekunde",
+    );
+  });
+
+  it("says live rates as current and kept ones as the last response's", () => {
+    const de = createTranslator("de");
+    expect(outputRateHint({ value: 1234, live: true }, "de", de)).toBe(
+      "Claude Code erzeugt gerade 1.234 Token pro Sekunde",
+    );
+    expect(outputRateHint({ value: 84, live: false }, "de", de)).toBe(
+      "Letzte Antwort: 84 Token pro Sekunde",
+    );
+    const en = createTranslator("en");
+    expect(outputRateHint({ value: 84, live: false }, "en", en)).toBe(
+      "Last response: 84 tokens per second",
     );
   });
 });

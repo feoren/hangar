@@ -8,7 +8,13 @@ import { Fragment, type ReactNode } from "react";
 
 import { Badge } from "./Badge";
 import { ContextFact, ContextRing, ContextTokens, RuntimeCell } from "./ContextLine";
-import { contextHint, formatOutputRate, type SessionContext } from "./contextUsage";
+import {
+  contextHint,
+  formatOutputRate,
+  outputRateHint,
+  type OutputRate,
+  type SessionContext,
+} from "./contextUsage";
 import { useT } from "./i18n";
 import { BranchIcon, FolderIcon, TeamIcon } from "./icons";
 import { revealInvisible } from "./invisible";
@@ -52,10 +58,10 @@ export interface RowBodyProps {
   /** The estimated cost so far ("~$0.42", costs.ts `costText`); missing or `null`: none. */
   cost?: string | null;
   /**
-   * Output tokens per second while Claude Code writes (useContextUsage.ts); missing or `null`:
-   * none, also whenever the session does not work.
+   * Output tokens per second of Claude Code (useContextUsage.ts), live or the last one kept;
+   * missing or `null`: none measured yet.
    */
-  speed?: number | null;
+  speed?: OutputRate | null;
   language: string;
   /**
    * What decides a sub-agent session's figure (SessionLook.tsx): with `subAgent` the figure
@@ -303,13 +309,16 @@ function RowElementView({ element, ...props }: { element: RowElement } & RowBody
   }
 }
 
-/** The output rate on screen ("84 tok/s"), the sentence for screen readers. */
-function RowSpeed({ rate, language }: { rate: number; language: string }) {
+/**
+ * The output rate on screen ("84 tok/s"), quieter once it is the last response's and no longer
+ * live; the sentence for screen readers.
+ */
+function RowSpeed({ rate, language }: { rate: OutputRate; language: string }) {
   const t = useT();
-  const value = formatOutputRate(rate, language);
+  const value = formatOutputRate(rate.value, language);
   return (
-    <span className="session-speed row-fact">
-      <span className="sr-only">{t("speed.hint", { value })}</span>
+    <span className={rate.live ? "session-speed row-fact" : "session-speed row-fact settled"}>
+      <span className="sr-only">{outputRateHint(rate, language, t)}</span>
       <span aria-hidden="true">{t("speed.value", { value })}</span>
     </span>
   );

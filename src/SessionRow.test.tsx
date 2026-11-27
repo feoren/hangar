@@ -428,8 +428,9 @@ describe("the cost on the row", () => {
 
 describe("the output rate on the row", () => {
   it("shows tokens per second on the title line, the sentence for screen readers", () => {
-    const html = row(DEFAULT_ROW_LAYOUT, { speed: 1234 });
+    const html = row(DEFAULT_ROW_LAYOUT, { speed: { value: 1234, live: true } });
     expect(count(html, "session-speed")).toBe(1);
+    expect(count(html, "settled")).toBe(0);
     expect(html).toContain(">1,234 tok/s<");
     expect(html).toContain("Claude Code is writing 1,234 tokens per second");
     // On the title's line, just before the state.
@@ -439,11 +440,20 @@ describe("the output rate on the row", () => {
     expect(title?.[1]).toMatch(/session-speed[\s\S]*session-state/);
   });
 
-  it("shows nothing without a rate, and nothing while it is hidden", () => {
+  it("keeps the last response's rate, quieter, once it is no longer live", () => {
+    const html = row(DEFAULT_ROW_LAYOUT, { speed: { value: 84, live: false } });
+    expect(html).toContain('class="session-speed row-fact settled"');
+    expect(html).toContain(">84 tok/s<");
+    expect(html).toContain("Last response: 84 tokens per second");
+    expect(html).not.toContain("is writing");
+  });
+
+  it("shows nothing before the first measured response, and nothing while it is hidden", () => {
     expect(count(row(DEFAULT_ROW_LAYOUT, { speed: null }), "session-speed")).toBe(0);
     expect(count(row(DEFAULT_ROW_LAYOUT), "session-speed")).toBe(0);
+    expect(row(DEFAULT_ROW_LAYOUT)).not.toContain("tok/s");
     const hidden = hideElement(DEFAULT_ROW_LAYOUT, "speed");
-    expect(count(row(hidden, { speed: 84 }), "session-speed")).toBe(0);
+    expect(count(row(hidden, { speed: { value: 84, live: true } }), "session-speed")).toBe(0);
   });
 
   it("shows in the settings' preview for the working session only", () => {

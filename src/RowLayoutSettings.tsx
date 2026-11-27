@@ -8,7 +8,7 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 
-import type { SessionContext } from "./contextUsage";
+import type { OutputRate, SessionContext } from "./contextUsage";
 import { formatUsd } from "./costs";
 import { badgeColor } from "./format";
 import { useT, type MessageKey } from "./i18n";
@@ -701,8 +701,8 @@ interface PreviewRow {
   context: SessionContext;
   /** Estimated dollars so far. */
   cost: number;
-  /** Output tokens per second; only a working session shows it. */
-  speed: number | null;
+  /** Output tokens per second, live or the last response's. */
+  speed: OutputRate | null;
 }
 
 const PREVIEW_ROWS: readonly PreviewRow[] = [
@@ -718,7 +718,7 @@ const PREVIEW_ROWS: readonly PreviewRow[] = [
     minutes: 64,
     context: { used: 215_500, window: 1_000_000 },
     cost: 3.42,
-    speed: 84,
+    speed: { value: 84, live: true },
   },
   {
     id: 2,

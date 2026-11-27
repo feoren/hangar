@@ -2637,9 +2637,11 @@ h2 .beta-badge {
   color: var(--tree-flow-b);
 }
 
-/* A narrow title line gives up the rates first and then the context's bar, so the title keeps
-   room to be read and nothing runs past the row's edge; the share and the state stay. Only the
-   title line does this; the lines below never drop a fact (sessionFactsCss.test.ts). */
+/* A narrow title line gives up the tree flow's rates first, then the state's fixed cell (the word
+   keeps its own width, the titles no longer end alike), then the context's bar and last the
+   output rate, so the title keeps room to be read and nothing runs past the row's edge; the share
+   and the state stay. Only the title line does this; the lines below never drop a fact
+   (sessionFactsCss.test.ts). */
 .session-title-row {
   container: title-line / inline-size;
 }
@@ -2650,17 +2652,23 @@ h2 .beta-badge {
   }
 }
 
-/* The output rate (it shows while the session works) steps back where it would squeeze the
-   title below about six letters or push the state past the row's edge: measured in Chromium, a
-   title line of 239 px (sidebar 320 px) left the title 52 px and the state 15 px outside. */
+/* Measured in Chromium with the README mock: a title line of 239 px (sidebar 320 px) with the
+   rate and "arbeitet" in its fixed cell left a link lead's title 54 px; without the cell it gets
+   82 px. The rate stays down to the default sidebar width and steps back only below it. */
 @container title-line (max-width: 260px) {
-  .session-speed {
-    display: none;
+  .session-status {
+    min-width: 0;
   }
 }
 
 @container title-line (max-width: 230px) {
   .session-context-mini .session-context-bar {
+    display: none;
+  }
+}
+
+@container title-line (max-width: 225px) {
+  .session-speed {
     display: none;
   }
 }
@@ -13867,14 +13875,20 @@ body.session-dragging .session-actions {
 }
 
 /* --- Output rate on the row (SessionRow.tsx RowSpeed) ---
-   Only while Claude Code works: a quiet fact in a cell of fixed width with right-aligned tabular
-   digits, so the state beside it stays put when "8 tok/s" becomes "120 tok/s". It fades in
-   when the first response of a turn lands instead of popping up. */
+   From Claude Code's first measured response on: a quiet fact in a cell of fixed width with
+   right-aligned tabular digits, so the state beside it stays put when "8 tok/s" becomes
+   "120 tok/s". It fades in when it first appears instead of popping up. Once no response ended
+   for 30 s the last rate stays, a step quieter, and brightens again with the next response. */
 .session-speed {
   flex: none;
   min-width: var(--fact-speed);
   text-align: end;
   animation: speed-in 240ms var(--ease-out);
+  transition: opacity 240ms var(--ease-out);
+}
+
+.session-speed.settled {
+  opacity: 0.55;
 }
 
 @keyframes speed-in {
@@ -13886,6 +13900,7 @@ body.session-dragging .session-actions {
 @media (prefers-reduced-motion: reduce) {
   .session-speed {
     animation: none;
+    transition: none;
   }
 }
 
