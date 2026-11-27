@@ -84,6 +84,7 @@ use crate::partners::{
 use crate::permission_wait::PermissionWaits;
 use crate::repo_hooks;
 use crate::session::{GateStatus, SessionId};
+use crate::status_line;
 use crate::team_decisions::TeamDecision;
 use crate::team_share::TeammateFile;
 use crate::team_tasks::TeamTask;
@@ -225,6 +226,11 @@ struct Inner {
     permission: Mutex<PermissionWaits>,
     /// Announces a change of [`Inner::permission`], once the app set it.
     permission_signal: Mutex<Option<Signal>>,
+    /// Hangar's status line inside the agents' own (ADR 0023): off until the app reads the
+    /// person's setting ([`GateService::set_status_line`]).
+    status_line: AtomicBool,
+    /// The status line's cache folder, handed to the agent in [`status_line::CACHE_ENV`].
+    status_dir: Mutex<Option<PathBuf>>,
     /// The `gate-cleanup` threads, so a test can wait for them before it removes its folder.
     #[cfg(test)]
     cleanups: Mutex<Vec<thread::JoinHandle<()>>>,
@@ -342,6 +348,8 @@ impl GateService {
                 members: Mutex::new(None),
                 permission: Mutex::new(PermissionWaits::default()),
                 permission_signal: Mutex::new(None),
+                status_line: AtomicBool::new(false),
+                status_dir: Mutex::new(None),
                 #[cfg(test)]
                 cleanups: Mutex::new(Vec::new()),
             }),
@@ -352,6 +360,64 @@ impl GateService {
     /// executable.
     pub fn set_helper(&self, exe: PathBuf) {
         *lock(&self.inner.helper) = Some(exe);
+    }
+
+    /// Whether agent starts from now on get Hangar's status line (the person's setting).
+    pub fn set_status_line(&self, enabled: bool) {
+        self.inner.status_line.store(enabled, Ordering::SeqCst);
+    }
+
+    /// The folder the status line caches its git readings in.
+    pub fn set_status_dir(&self, dir: PathBuf) {
+        *lock(&self.inner.status_dir) = Some(dir);
+    }
+
+    /// What one start of a program with `format` gets for Hangar's status line: the setting
+    /// for Claude Code's or Qwen Code's settings, Codex's config override, and the cache folder.
+    /// Empty while the setting is off, for other programs, or when the executable's path cannot
+    /// stand in the program's command line.
+    fn status_parts(&self, format: Option<HookFormat>, user_args: &[String]) -> StatusParts {
+        if !self.inner.status_line.load(Ordering::SeqCst) {
+            return StatusParts::default();
+        }
+        let env = || {
+            lock(&self.inner.status_dir)
+                .as_ref()
+                .map(|dir| {
+                    (
+                        status_line::CACHE_ENV.to_owned(),
+                        dir.to_string_lossy().into_owned(),
+                    )
+                })
+                .into_iter()
+                .collect()
+        };
+        let command = |source| {
+            lock(&self.inner.helper)
+                .as_deref()
+                .and_then(|exe| status_line::command_for(exe, source))
+        };
+        match format {
+            Some(HookFormat::ClaudeSettings) => command(status_line::Source::Claude)
+                .map(|command| StatusParts {
+                    setting: Some(status_line::claude_setting(&command)),
+                    env: env(),
+                    ..StatusParts::default()
+                })
+                .unwrap_or_default(),
+            Some(HookFormat::QwenSystemSettings) => command(status_line::Source::Qwen)
+                .map(|command| StatusParts {
+                    setting: Some(status_line::qwen_setting(&command)),
+                    env: env(),
+                    ..StatusParts::default()
+                })
+                .unwrap_or_default(),
+            Some(HookFormat::CodexConfigFlags) => StatusParts {
+                prepend: status_line::codex_args(user_args),
+                ..StatusParts::default()
+            },
+            _ => StatusParts::default(),
+        }
     }
 
     /// Where the teammates' live claims come from: an edit of a file a teammate's session is
@@ -635,17 +701,23 @@ impl GateService {
         context: bool,
         program: &Path,
         version: Option<&str>,
+        status: Option<&serde_json::Value>,
     ) -> Result<Vec<String>, GateStatus> {
         let block = gate::claude_blocks_on_failure(version);
         let notify = gate::claude_notifies(version);
-        let settings = gate::claude_settings(port, context, block, notify);
+        let settings = with_setting(
+            &gate::claude_settings(port, context, block, notify),
+            &[CLAUDE_STATUS_KEY],
+            status,
+        );
         // One file per content, so sessions of Claude Code versions on both sides of
         // `CLAUDE_ON_FAILURE_SINCE` or `CLAUDE_NOTIFY_SINCE` never rewrite each other's file.
         let suffix = format!(
-            "{}{}{}",
+            "{}{}{}{}",
             if context { "-context" } else { "" },
             if block { "-block" } else { "" },
-            if notify { "-notify" } else { "" }
+            if notify { "-notify" } else { "" },
+            if status.is_some() { "-status" } else { "" }
         );
         let argument = if crate::batch::is_batch(program) {
             self.settings_file(port, &suffix, &settings)
@@ -660,10 +732,15 @@ impl GateService {
     /// launcher's arguments (batch.rs), so the JSON cannot go inline. `None` when the file's path
     /// holds a character cmd.exe would interpret or the file cannot be written.
     fn settings_file(&self, port: u16, suffix: &str, settings: &str) -> Option<String> {
-        let path = self
-            .inner
-            .settings_dir
-            .join(format!("{SETTINGS_PREFIX}{port}{suffix}.json"));
+        self.named_settings_file(&format!("{SETTINGS_PREFIX}{port}{suffix}.json"), settings)
+    }
+
+    /// [`Self::settings_file`] under `name` in the settings folder.
+    fn named_settings_file(&self, name: &str, settings: &str) -> Option<String> {
+        let path = self.inner.settings_dir.join(name);
+        if std::fs::create_dir_all(&self.inner.settings_dir).is_err() {
+            return None;
+        }
         let text = path.to_str()?.to_owned();
         if !crate::batch::argument_ok(&text) {
             return None;
@@ -738,12 +815,13 @@ impl GateService {
         program: &Path,
         user_args: &[String],
         version: Option<&str>,
+        status: &StatusParts,
     ) -> Result<Install, GateStatus> {
         let batch = crate::batch::is_batch(program);
         let path_text = |path: &Path| path.to_string_lossy().into_owned();
         let install = match format {
             HookFormat::ClaudeSettings => Install {
-                args: self.claude_args(port, context, program, version)?,
+                args: self.claude_args(port, context, program, version, status.setting.as_ref())?,
                 ..Install::default()
             },
             HookFormat::QwenSystemSettings => {
@@ -751,7 +829,11 @@ impl GateService {
                 let file = write_file(
                     &dir,
                     recipes::QWEN_FILE,
-                    &recipes::qwen_settings(port, context),
+                    &with_setting(
+                        &recipes::qwen_settings(port, context),
+                        &QWEN_STATUS_KEY,
+                        status.setting.as_ref(),
+                    ),
                 )?;
                 Install {
                     env: vec![(recipes::QWEN_SETTINGS_ENV.to_owned(), path_text(&file))],
@@ -819,7 +901,8 @@ impl GateService {
                     batch,
                 )
                 .map_err(|_| GateStatus::InstallPath)?;
-                let prepend = recipes::codex_args(&command, user_args);
+                let mut prepend = recipes::codex_args(&command, user_args);
+                prepend.extend(status.prepend.iter().cloned());
                 if batch && !prepend.iter().all(|arg| crate::batch::argument_ok(arg)) {
                     return Err(GateStatus::InstallPath);
                 }
@@ -951,6 +1034,70 @@ impl GateService {
     }
 }
 
+/// Claude Code's settings key of the status line.
+const CLAUDE_STATUS_KEY: &str = "statusLine";
+/// Qwen Code's: `ui.statusLine`.
+const QWEN_STATUS_KEY: [&str; 2] = ["ui", "statusLine"];
+/// The status line alone, for starts without hooks: one file each, the same for every session
+/// (it names Hangar's executable only), so it is never removed.
+const CLAUDE_STATUS_FILE: &str = "claude-status-line.json";
+const QWEN_STATUS_FILE: &str = "qwen-status-line.json";
+
+/// What Hangar's status line adds to one start ([`GateService::status_parts`]).
+#[derive(Default)]
+struct StatusParts {
+    /// Claude Code's `statusLine` or Qwen Code's `ui.statusLine`.
+    setting: Option<serde_json::Value>,
+    /// Codex's config override.
+    prepend: Vec<String>,
+    env: Vec<(String, String)>,
+}
+
+impl StatusParts {
+    /// Whether a start of `format` that took these parts shows Hangar's status line.
+    fn carried(&self, format: HookFormat) -> bool {
+        match format {
+            HookFormat::ClaudeSettings | HookFormat::QwenSystemSettings => self.setting.is_some(),
+            HookFormat::CodexConfigFlags => !self.prepend.is_empty(),
+            _ => false,
+        }
+    }
+}
+
+/// `settings` (a JSON object) with `value` at `path`, objects on the way created; unchanged
+/// without a value or when `settings` is no object.
+fn with_setting(settings: &str, path: &[&str], value: Option<&serde_json::Value>) -> String {
+    let (Some(value), Ok(serde_json::Value::Object(mut root))) =
+        (value, serde_json::from_str::<serde_json::Value>(settings))
+    else {
+        return settings.to_owned();
+    };
+    let Some((last, parents)) = path.split_last() else {
+        return settings.to_owned();
+    };
+    let mut target = &mut root;
+    for key in parents {
+        let entry = target
+            .entry((*key).to_owned())
+            .or_insert_with(|| serde_json::Value::Object(serde_json::Map::new()));
+        if !entry.is_object() {
+            *entry = serde_json::Value::Object(serde_json::Map::new());
+        }
+        let serde_json::Value::Object(next) = entry else {
+            return settings.to_owned();
+        };
+        target = next;
+    }
+    target.insert((*last).to_owned(), value.clone());
+    let root = serde_json::Value::Object(root);
+    // Pretty files stay pretty; inline arguments stay on one line.
+    if settings.contains('\n') {
+        serde_json::to_string_pretty(&root).unwrap_or_else(|_| root.to_string())
+    } else {
+        root.to_string()
+    }
+}
+
 /// [`GateService::install`]'s result.
 #[derive(Default)]
 struct Install {
@@ -1069,8 +1216,11 @@ impl LaunchGate for GateService {
             }
         };
         let context = agent.capabilities.context_inject;
+        let status = self.status_parts(Some(format), args);
         // Each program takes its hooks in its own format; the endpoint and token are the same.
-        let install = match self.install(format, session, port, context, program, args, version) {
+        let install = match self.install(
+            format, session, port, context, program, args, version, &status,
+        ) {
             Ok(install) => install,
             Err(status) => {
                 self.remove_dirs(session);
@@ -1096,6 +1246,7 @@ impl LaunchGate for GateService {
         let env = install
             .env
             .into_iter()
+            .chain(status.env.iter().cloned())
             .map(|(name, value)| (name, Zeroizing::new(value)))
             .chain(std::iter::once(token_var))
             .chain(notice_var)
@@ -1104,6 +1255,7 @@ impl LaunchGate for GateService {
             prepend: install.prepend,
             args: install.args,
             env,
+            status_line: status.carried(format),
         })
     }
 
@@ -1126,17 +1278,91 @@ impl LaunchGate for GateService {
                 return None;
             }
         };
-        let settings = gate::claude_notify_settings(port);
+        let status = self.status_parts(Some(HookFormat::ClaudeSettings), &[]);
+        let settings = with_setting(
+            &gate::claude_notify_settings(port),
+            &[CLAUDE_STATUS_KEY],
+            status.setting.as_ref(),
+        );
+        let suffix = if status.setting.is_some() {
+            "-notify-only-status"
+        } else {
+            "-notify-only"
+        };
         let argument = if crate::batch::is_batch(program) {
-            self.settings_file(port, "-notify-only", &settings)?
+            self.settings_file(port, suffix, &settings)?
         } else {
             settings
         };
         let token = lock(&self.inner.gate).register(session, TokenScope::Notify);
+        let env = status
+            .env
+            .iter()
+            .map(|(name, value)| (name.clone(), Zeroizing::new(value.clone())))
+            .chain(std::iter::once((
+                NOTIFY_TOKEN_ENV.to_owned(),
+                Zeroizing::new(token),
+            )))
+            .collect();
         Some(GateLaunch {
             prepend: Vec::new(),
             args: vec!["--settings".to_owned(), argument],
-            env: vec![(NOTIFY_TOKEN_ENV.to_owned(), Zeroizing::new(token))],
+            env,
+            status_line: status.carried(HookFormat::ClaudeSettings),
+        })
+    }
+
+    fn status_only(&self, agent: &Agent, program: &Path, args: &[String]) -> Option<GateLaunch> {
+        let format = agent.capabilities.hook_format?;
+        let profile = &agent.profile;
+        // The profile's own settings stay its own: a second `--settings` or system settings
+        // file of Hangar's would compete with them.
+        if format.conflicts_with(args, &profile.env, &profile.secret_env) {
+            return None;
+        }
+        let status = self.status_parts(Some(format), args);
+        let batch = crate::batch::is_batch(program);
+        let (prepend, args, mut env) = match (format, &status.setting) {
+            (HookFormat::ClaudeSettings, Some(setting)) => {
+                let settings = serde_json::json!({ CLAUDE_STATUS_KEY: setting }).to_string();
+                let argument = if batch {
+                    self.named_settings_file(CLAUDE_STATUS_FILE, &settings)?
+                } else {
+                    settings
+                };
+                (
+                    Vec::new(),
+                    vec!["--settings".to_owned(), argument],
+                    Vec::new(),
+                )
+            }
+            // The file takes the place of an administrator's system settings: never where
+            // there are some.
+            (HookFormat::QwenSystemSettings, Some(setting))
+                if !recipes::admin_settings_present(format) =>
+            {
+                let settings = with_setting("{}", &QWEN_STATUS_KEY, Some(setting));
+                let file = self.named_settings_file(QWEN_STATUS_FILE, &settings)?;
+                (
+                    Vec::new(),
+                    Vec::new(),
+                    vec![(recipes::QWEN_SETTINGS_ENV.to_owned(), file)],
+                )
+            }
+            (HookFormat::CodexConfigFlags, None) if !status.prepend.is_empty() => {
+                (status.prepend.clone(), Vec::new(), Vec::new())
+            }
+            _ => return None,
+        };
+        env.extend(status.env.iter().cloned());
+        Some(GateLaunch {
+            prepend,
+            args,
+            env: env
+                .into_iter()
+                .map(|(name, value)| (name, Zeroizing::new(value)))
+                .collect(),
+            status_line: true,
         })
     }
 
@@ -5646,5 +5872,240 @@ mod tests {
             post(port, ROUTE_PRE_TOOL_USE_JSON, Some(&token), "{"),
             (200, gate::EMPTY_JSON.to_owned())
         );
+    }
+
+    /// The `--settings` value of a launch, read inline or from its file.
+    fn settings_of(launch: &GateLaunch) -> serde_json::Value {
+        let at = launch.args.iter().position(|a| a == "--settings").unwrap();
+        let value = &launch.args[at + 1];
+        let text = if value.starts_with('{') {
+            value.clone()
+        } else {
+            std::fs::read_to_string(value).unwrap()
+        };
+        serde_json::from_str(&text).unwrap()
+    }
+
+    fn status_fixture() -> Fixture {
+        let fixture = fixture(DECISION_TIMEOUT);
+        fixture.service.set_helper(helper_exe(false));
+        fixture
+            .service
+            .set_status_dir(fixture.settings.path().join("status-line"));
+        fixture.service.set_status_line(true);
+        fixture
+    }
+
+    #[test]
+    fn claude_gets_the_status_line_in_the_gates_settings() {
+        let fixture = status_fixture();
+        fixture.service.configure(true);
+        let launch = launched(fixture.service.prepare(
+            1,
+            &claude(),
+            Path::new("claude.exe"),
+            &[],
+            Some("2.1.332"),
+        ));
+        assert!(launch.status_line);
+        let settings = settings_of(&launch);
+        // One `--settings`: hooks and status line in the same object.
+        assert_eq!(launch.args.iter().filter(|a| *a == "--settings").count(), 1);
+        assert!(settings["hooks"]["PreToolUse"].is_array());
+        let command = settings["statusLine"]["command"].as_str().unwrap();
+        assert!(command.ends_with(" status-line claude"), "{command}");
+        assert!(!command.contains('\\'), "{command}");
+        let dir = fixture.settings.path().join("status-line");
+        assert_eq!(
+            env_of(&launch, status_line::CACHE_ENV),
+            Some(dir.to_string_lossy().as_ref())
+        );
+        // Off: the same start without it.
+        fixture.service.set_status_line(false);
+        let plain = launched(fixture.service.prepare(
+            2,
+            &claude(),
+            Path::new("claude.exe"),
+            &[],
+            Some("2.1.332"),
+        ));
+        assert!(!plain.status_line);
+        assert!(settings_of(&plain).get("statusLine").is_none());
+        assert!(env_of(&plain, status_line::CACHE_ENV).is_none());
+    }
+
+    #[test]
+    fn a_cmd_launcher_gets_the_status_line_in_the_settings_file() {
+        let fixture = status_fixture();
+        fixture.service.configure(true);
+        let launch = launched(fixture.service.prepare(
+            1,
+            &claude(),
+            Path::new("claude.cmd"),
+            &[],
+            Some("2.1.332"),
+        ));
+        let file = &launch.args[launch.args.len() - 1];
+        assert!(file.ends_with("-status.json"), "{file}");
+        assert!(settings_of(&launch)["statusLine"].is_object());
+        // Without the gate (a private session): the notice hooks carry it.
+        let notice = fixture
+            .service
+            .notify(2, &claude(), Path::new("claude.cmd"), Some("2.1.332"))
+            .unwrap();
+        assert!(notice.status_line);
+        assert!(notice.args[1].ends_with("-notify-only-status.json"));
+        let settings = settings_of(&notice);
+        assert!(settings["hooks"]["PermissionRequest"].is_array());
+        assert!(settings["statusLine"].is_object());
+    }
+
+    #[test]
+    fn the_status_line_comes_alone_without_hooks() {
+        let fixture = status_fixture();
+        // Inline for the program itself.
+        let launch = fixture
+            .service
+            .status_only(&claude(), Path::new("claude.exe"), &[])
+            .unwrap();
+        assert!(launch.status_line && launch.prepend.is_empty());
+        assert_eq!(launch.args[0], "--settings");
+        let settings = settings_of(&launch);
+        assert_eq!(settings.as_object().unwrap().len(), 1);
+        assert!(settings["statusLine"]["command"].is_string());
+        // As a file for a cmd.exe launcher, which takes no `"`.
+        let launch = fixture
+            .service
+            .status_only(&claude(), Path::new("claude.cmd"), &[])
+            .unwrap();
+        assert!(launch.args[1].ends_with(CLAUDE_STATUS_FILE));
+        assert!(crate::batch::argument_ok(&launch.args[1]));
+        assert!(settings_of(&launch)["statusLine"].is_object());
+        // The profile's own settings stay alone.
+        let own = ["--settings".to_owned(), "mine.json".to_owned()];
+        assert!(fixture
+            .service
+            .status_only(&claude(), Path::new("claude.exe"), &own)
+            .is_none());
+        // A program without a status line of Hangar's, or the setting off: nothing.
+        assert!(fixture
+            .service
+            .status_only(&agent_in("pi_extension", false), Path::new("pi.exe"), &[])
+            .is_none());
+        fixture.service.set_status_line(false);
+        assert!(fixture
+            .service
+            .status_only(&claude(), Path::new("claude.exe"), &[])
+            .is_none());
+    }
+
+    #[test]
+    fn a_blank_in_the_path_needs_a_short_name_for_claude() {
+        let fixture = status_fixture();
+        fixture.service.set_helper(helper_exe(true));
+        let launch = fixture
+            .service
+            .status_only(&claude(), Path::new("claude.exe"), &[]);
+        if cfg!(windows) {
+            // The made-up path has no short name: no status line rather than a broken one.
+            assert!(launch.is_none());
+        } else {
+            let settings = settings_of(&launch.unwrap());
+            let command = settings["statusLine"]["command"].as_str().unwrap();
+            assert!(command.starts_with('"'), "{command}");
+        }
+    }
+
+    #[test]
+    fn qwen_gets_the_status_line_in_its_system_settings() {
+        let fixture = status_fixture();
+        fixture.service.configure(true);
+        let qwen = agent_in("qwen_system_settings", false);
+        let launch = launched(
+            fixture
+                .service
+                .prepare(7, &qwen, Path::new("qwen.exe"), &[], None),
+        );
+        assert!(launch.status_line);
+        let file = env_of(&launch, recipes::QWEN_SETTINGS_ENV).unwrap();
+        let settings: serde_json::Value =
+            serde_json::from_str(&std::fs::read_to_string(file).unwrap()).unwrap();
+        assert!(settings["hooks"]["PreToolUse"].is_array());
+        let status = &settings["ui"]["statusLine"];
+        assert!(status["command"]
+            .as_str()
+            .unwrap()
+            .ends_with(" status-line qwen"));
+        assert_eq!(status["respectUserColors"], true);
+        fixture.service.ended(7);
+        // Without the gate: a file of its own, unless an administrator's settings are in place.
+        let alone = fixture
+            .service
+            .status_only(&qwen, Path::new("qwen.exe"), &[]);
+        if recipes::admin_settings_present(HookFormat::QwenSystemSettings) {
+            assert!(alone.is_none());
+        } else {
+            let alone = alone.unwrap();
+            let file = env_of(&alone, recipes::QWEN_SETTINGS_ENV).unwrap();
+            assert!(file.ends_with(QWEN_STATUS_FILE));
+            let settings: serde_json::Value =
+                serde_json::from_str(&std::fs::read_to_string(file).unwrap()).unwrap();
+            assert!(settings.get("hooks").is_none());
+            assert!(settings["ui"]["statusLine"].is_object());
+        }
+    }
+
+    #[test]
+    fn codex_gets_its_status_items_with_and_without_the_gate() {
+        let fixture = status_fixture();
+        fixture.service.configure(true);
+        let codex = agent_in("codex_config_flags", false);
+        let launch =
+            launched(
+                fixture
+                    .service
+                    .prepare(4, &codex, Path::new("codex.exe"), &[], None),
+            );
+        assert!(launch.status_line);
+        let expected = status_line::codex_args(&[]);
+        assert!(launch.prepend.ends_with(&expected), "{:?}", launch.prepend);
+        assert!(launch
+            .prepend
+            .iter()
+            .any(|a| a.starts_with("hooks.PreToolUse")));
+        // Through codex.cmd as well.
+        let batch = launched(
+            fixture
+                .service
+                .prepare(5, &codex, Path::new("codex.cmd"), &[], None),
+        );
+        assert!(batch.prepend.ends_with(&expected));
+        let alone = fixture
+            .service
+            .status_only(&codex, Path::new("codex.cmd"), &[])
+            .unwrap();
+        assert_eq!(alone.prepend, expected);
+        assert!(alone.args.is_empty() && alone.env.is_empty());
+        // The profile's own items stay.
+        let own = ["-c".to_owned(), "tui.status_line=[]".to_owned()];
+        assert!(fixture
+            .service
+            .status_only(&codex, Path::new("codex.exe"), &own)
+            .is_none());
+    }
+
+    #[test]
+    fn settings_get_a_value_at_a_path() {
+        let value = serde_json::json!({ "type": "command" });
+        assert_eq!(
+            with_setting(r#"{"hooks":{}}"#, &["statusLine"], Some(&value)),
+            r#"{"hooks":{},"statusLine":{"type":"command"}}"#
+        );
+        let nested = with_setting("{\n  \"ui\": 5\n}", &QWEN_STATUS_KEY, Some(&value));
+        assert!(nested.contains('\n'));
+        let parsed: serde_json::Value = serde_json::from_str(&nested).unwrap();
+        assert_eq!(parsed["ui"]["statusLine"], value);
+        assert_eq!(with_setting("[1]", &["x"], Some(&value)), "[1]");
+        assert_eq!(with_setting("{}", &["x"], None), "{}");
     }
 }

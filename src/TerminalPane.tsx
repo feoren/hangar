@@ -39,6 +39,11 @@ interface Props {
   dropping: boolean;
   /** The last prompt bar above the terminal; off for programs that show it themselves. */
   promptBar: boolean;
+  /**
+   * Hangar's bar above the terminal (HangarBar.tsx); missing or `null`: none. Drawn only while
+   * the pane is on screen, so hidden panes read no numbers.
+   */
+  statusBar?: React.ReactNode;
   /** Clicked in split view: this pane gets the focus. */
   onFocusPane: (id: number) => void;
   /** Double click on the header: show only this session. */
@@ -199,6 +204,7 @@ export function TerminalPane(props: Props) {
           <span className="sr-only">{split.status}</span>
         </div>
       )}
+      {visible && props.statusBar}
       {visible && props.promptBar && <LastPromptBar terminal={terminal} />}
       {visible && props.crew && form === "strip" && <CrewColumn {...props.crew} form="strip" />}
       <div className="pane-row">

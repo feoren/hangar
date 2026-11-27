@@ -9,6 +9,11 @@ fn main() {
         if first == hangar_lib::hook_recipes::HELPER_SUBCOMMAND {
             std::process::exit(hangar_lib::gate_hook::main(rest));
         }
+        // `hangar status-line …` is the status line command of Claude Code and Qwen Code
+        // (status_line.rs), the same way.
+        if first == hangar_lib::status_line::SUBCOMMAND {
+            std::process::exit(hangar_lib::status_line::main(rest));
+        }
     }
     if let Err(error) = hangar_lib::run() {
         eprintln!("Hangar could not start: {error}");

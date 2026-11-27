@@ -4004,13 +4004,18 @@ pub async fn protected_settings(
 pub async fn save_protected_settings(
     window: tauri::Window,
     store: State<'_, MainStore>,
+    gate: State<'_, GateService>,
     settings: ProtectedSettings,
 ) -> Result<(), MainStoreError> {
     main_store::check_main(window.label())?;
     let store = store.inner().clone();
+    let status_line = settings.status_line;
     tauri::async_runtime::spawn_blocking(move || store.save_settings(settings))
         .await
-        .map_err(|error| MainStoreError::Task(error.to_string()))?
+        .map_err(|error| MainStoreError::Task(error.to_string()))??;
+    // Only what is stored applies: the next agent start takes it (ADR 0023).
+    gate.set_status_line(status_line);
+    Ok(())
 }
 
 /// Where and how the next session starts and whether a waiting session shows itself (start

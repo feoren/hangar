@@ -48,6 +48,8 @@ import { claimsOf, markerText, overlapNotice, overlapsBySession, type Overlap } 
 import { playChime } from "./chimeAudio";
 import { drawBadgePng } from "./badgeImage";
 import { NO_ACTIVITY } from "./statusLine";
+import { changedFiles, showsHangarBar } from "./hangarBarFacts";
+import { HangarBar } from "./HangarBar";
 import { notificationText, shouldNotify } from "./desktopNotify";
 import { branchPaths, parseBranches } from "./gitBranches";
 import {
@@ -173,7 +175,7 @@ import {
   type StartedMember,
 } from "./links";
 import { memberAliases, type AliasSource } from "./linkAliases";
-import { withModel } from "./localLlm";
+import { modelBadge, modelNote, withModel } from "./localLlm";
 import { introKind, introSummary, type IntroKind } from "./linkIntro";
 import {
   keepOffered,
@@ -327,7 +329,7 @@ import { loadProjectItems, searchNoteItems } from "./launcherSearch";
 import { oneLineLabelKey, toggleOneLine } from "./oneLineRows";
 import type { SearchHit } from "./notes";
 import { setSystemUsageEnabled } from "./useSystemUsage";
-import { sessionLabels } from "./sessionLabel";
+import { projectFolder, sessionLabels } from "./sessionLabel";
 import {
   doneFileCount,
   DONE_NOTICE_MS,
@@ -5396,6 +5398,40 @@ export function App() {
   }, []);
 
   const profileById = new Map(profiles.map((profile) => [profile.id, profile]));
+
+  /**
+   * Hangar's bar above an agent session's terminal, or `null` where the program draws Hangar's
+   * status line itself, for shells, update runs and while the setting is off (hangarBarFacts.ts).
+   */
+  const hangarBarFor = (session: SessionView): React.ReactNode => {
+    const profile = profileById.get(session.profileId);
+    const show = showsHangarBar({
+      enabled: settings.hangarBar,
+      agent: runsAgent(profile?.command, session.kind),
+      statusLine: session.statusLine,
+    });
+    if (!show) return null;
+    const modelText = modelBadge(session.model, profile, t);
+    // A worktree's folder name repeats its branch; the repository's name says more.
+    const folder = projectFolder(session.worktree?.repoRoot ?? session.cwd);
+    return (
+      <HangarBar
+        sessionId={session.id}
+        createdAt={session.createdAt}
+        exited={session.status === "exited"}
+        model={
+          modelText === null
+            ? null
+            : { text: modelText, title: modelNote(session.model, profile, t) ?? modelText }
+        }
+        folder={folder === "" ? null : folder}
+        worktree={session.worktree !== undefined}
+        branch={branches.get(session.cwd) ?? session.worktree?.branch ?? null}
+        changes={changedFiles(claims, session.id)}
+        language={settings.language}
+      />
+    );
+  };
   /**
    * Link messages that wait for a click, as cards below their target's row: of a group's
    * introductions only the newest, which replaces the older ones (linkCards.ts `stackCards`).
@@ -7551,6 +7587,7 @@ export function App() {
                     visible={active || paneInfo !== null}
                     split={paneInfo}
                     promptBar={needsLastPromptBar(session.profileId)}
+                    statusBar={hangarBarFor(session)}
                     crew={
                       crewWatching && active && subAgentKey !== null && session.id === watchedId
                         ? {

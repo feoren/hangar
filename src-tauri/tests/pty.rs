@@ -1672,6 +1672,7 @@ struct RecordingGate {
     prepared: std::sync::Mutex<Vec<u64>>,
     ended: std::sync::Mutex<Vec<u64>>,
     notified: std::sync::Mutex<Vec<u64>>,
+    status_asked: std::sync::Mutex<Vec<String>>,
 }
 
 impl LaunchGate for RecordingGate {
@@ -1696,6 +1697,7 @@ impl LaunchGate for RecordingGate {
                     hangar_lib::gate::TOKEN_ENV.into(),
                     Zeroizing::new("gate-token-marker".into()),
                 )],
+                status_line: false,
             }),
             "ungated" => GatePlan::Unavailable(GateStatus::Launcher),
             // Options before the user's arguments, like Codex's hook layer and Copilot's plugin
@@ -1708,6 +1710,7 @@ impl LaunchGate for RecordingGate {
                 },
                 args: vec!["AFTER".into()],
                 env: Vec::new(),
+                status_line: false,
             }),
             _ => GatePlan::Skip,
         }
@@ -1728,6 +1731,25 @@ impl LaunchGate for RecordingGate {
                 hangar_lib::gate::NOTIFY_TOKEN_ENV.into(),
                 Zeroizing::new("notice-token-marker".into()),
             )],
+            status_line: false,
+        })
+    }
+
+    fn status_only(
+        &self,
+        agent: &hangar_lib::agent_catalog::Agent,
+        _program: &std::path::Path,
+        _args: &[String],
+    ) -> Option<GateLaunch> {
+        self.status_asked
+            .lock()
+            .unwrap()
+            .push(agent.id().to_owned());
+        (agent.id() == "status-only").then(|| GateLaunch {
+            prepend: Vec::new(),
+            args: vec!["status-arg-marker".into()],
+            env: Vec::new(),
+            status_line: true,
         })
     }
 
@@ -2025,6 +2047,48 @@ fn a_private_session_gets_the_notice_hooks_but_never_the_gate() {
     collect_until_exit(&manager, info.id, &rx);
     assert_eq!(gate.notified.lock().unwrap().as_slice(), [info.id, info.id]);
     assert!(!gate.prepared.lock().unwrap().contains(&info.id));
+}
+
+/// An agent start that gets neither the gate nor the notice hooks gets Hangar's status line alone
+/// (ADR 0023), and the session says so; one with the notice hooks is never asked, since the
+/// status line rides along with them.
+#[test]
+fn a_start_without_hooks_gets_the_status_line_alone() {
+    let probe = if cfg!(windows) {
+        profile("status-only", "cmd", &["/d", "/c", "echo"])
+    } else {
+        profile("status-only", "sh", &["-c", "echo \"$@\"", "sh"])
+    };
+    let noticed = if cfg!(windows) {
+        profile("noticed", "cmd", &["/d", "/c", "echo", "NOTICED"])
+    } else {
+        profile("noticed", "sh", &["-c", "echo NOTICED"])
+    };
+    let manager = SessionManager::new(vec![probe, noticed], Vec::new(), common::home());
+    let gate = Arc::new(RecordingGate::default());
+    manager.set_launch_gate(gate.clone());
+    let (tx, rx) = channel();
+    let info = manager
+        .create("status-only", None, SIZE, move |e| tx.send(e).unwrap_or(()))
+        .unwrap();
+    let (output, _) = collect_until_exit(&manager, info.id, &rx);
+    assert!(output.contains("status-arg-marker"), "{output:?}");
+    let listed = manager
+        .list()
+        .into_iter()
+        .find(|i| i.id == info.id)
+        .unwrap();
+    assert!(listed.status_line);
+    let (tx, rx) = channel();
+    let other = manager
+        .create("noticed", None, SIZE, move |e| tx.send(e).unwrap_or(()))
+        .unwrap();
+    collect_until_exit(&manager, other.id, &rx);
+    assert!(!other.status_line);
+    assert_eq!(
+        gate.status_asked.lock().unwrap().as_slice(),
+        ["status-only"]
+    );
 }
 
 /// A catalog entry for the probe's program that takes Claude Code's hook format, so a user

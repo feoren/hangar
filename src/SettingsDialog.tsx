@@ -11,7 +11,7 @@ import { clampFontSize, FONT_SIZE } from "./layout";
 import { availableProfiles, type BadgeLook } from "./programPrefs";
 import type { ProgramVersions } from "./programs";
 import type { UpdateActions } from "./ProgramUpdateOffer";
-import { AgentInstructionsGroup, ProgramsAdvanced } from "./ProgramFilesSettings";
+import { AgentInstructionsGroup, ProgramsAdvanced, StatusLineGroup } from "./ProgramFilesSettings";
 import { AvailableList, ProgramsSettings } from "./ProgramsSettings";
 import { AttentionSettings } from "./AttentionSettings";
 import { RangeField } from "./RangeField";
@@ -809,6 +809,7 @@ function ProgramsSection(props: Props) {
         onChange={props.onChange}
         onOpen={props.onOpenHangarMd}
       />
+      <StatusLineGroup settings={props.settings} onChange={props.onChange} />
       <AvailableList profiles={availableProfiles(props.profiles)} />
       <ProgramsAdvanced
         settings={props.settings}

@@ -133,6 +133,8 @@ pub struct GateLaunch {
     pub args: Vec<String>,
     /// Set in the child's environment only, after the profile's own variables.
     pub env: Vec<(String, Zeroizing<String>)>,
+    /// The start carries Hangar's status line inside the program (ADR 0023).
+    pub status_line: bool,
 }
 
 /// What the agent gate decided for one process start.
@@ -197,6 +199,13 @@ pub trait LaunchGate: Send + Sync {
         _cwd: &Path,
         _args: &[String],
     ) -> Option<GateStatus> {
+        None
+    }
+    /// For an agent start that got neither the gate nor the notice hooks: Hangar's status line
+    /// alone (ADR 0023), in the program's own settings format. `None` while the setting is off,
+    /// for a program without a status line of Hangar's, or when the profile brings settings of
+    /// its own.
+    fn status_only(&self, _agent: &Agent, _program: &Path, _args: &[String]) -> Option<GateLaunch> {
         None
     }
     fn ended(&self, session: SessionId);
@@ -482,6 +491,8 @@ struct Runtime {
     flow: Arc<Flow>,
     /// The agent gate for this process, copied into the session's info when it attaches.
     gate: GateStatus,
+    /// Hangar's status line runs inside this process's program, copied like `gate`.
+    status_line: bool,
 }
 
 impl Runtime {
@@ -615,6 +626,7 @@ impl Shared {
             return Ok(info);
         }
         entry.info.gate = runtime.gate;
+        entry.info.status_line = runtime.status_line;
         // If the process has already exited again, the status stays `exited` and `runtime` is dropped.
         if entry.info.status == Status::Starting {
             entry.info.mark_running()?;
@@ -2115,6 +2127,16 @@ fn spawn(
         }
         _ => gate,
     };
+    // Without hooks of Hangar's the status line comes alone; it rides along with them otherwise,
+    // since Claude Code takes one `--settings` only. A profile with settings of its own keeps
+    // them.
+    let gate = match (launch.kind, gate, shared.launch_gate()) {
+        (SessionKind::Agent, None, Some(launcher)) if !own_hooks => {
+            launcher.status_only(agent, &program, &args)
+        }
+        (_, gate, _) => gate,
+    };
+    let status_line = gate.as_ref().is_some_and(|gate| gate.status_line);
     // Update sessions run an installer, never the agent: neither instructions nor a prompt.
     let batch = batch::is_batch(&program);
     let models = if launch.kind == SessionKind::Agent {
@@ -2281,6 +2303,7 @@ fn spawn(
         tree,
         flow,
         gate: gate_status,
+        status_line,
     })
 }
 
@@ -2798,6 +2821,7 @@ mod tests {
             prepend: strings(&["--hook-trust"]),
             args: strings(&["--settings", "gate.json"]),
             env: Vec::new(),
+            status_line: false,
         };
         let parts = ArgParts {
             start: strings(&["resume", "--last"]),
@@ -3178,6 +3202,7 @@ mod tests {
             tree: None,
             flow: Arc::clone(&flow),
             gate,
+            status_line: false,
         };
         (runtime, flow, kills, input_rx)
     }
