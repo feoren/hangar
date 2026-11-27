@@ -2109,7 +2109,34 @@ commands=['x']
         assert_eq!(servers("codex"), both);
         assert_eq!(servers("aider"), both);
         assert!(servers("gemini").is_empty());
-        assert_eq!(servers("hermes"), [LocalServer::Lmstudio]);
+        assert_eq!(servers("hermes"), both);
+        assert_eq!(servers("qwen"), both);
+        assert_eq!(servers("omp"), both);
+        // Goose takes the model only from GOOSE_MODEL; LM Studio's provider id is undocumented.
+        assert_eq!(servers("goose"), [LocalServer::Ollama]);
+        // Copilot CLI: only Ollama documents the route.
+        assert_eq!(servers("copilot"), [LocalServer::Ollama]);
+        // Evidenced as not startable against a local server from argv and env alone
+        // (docs/wiki/pages/syntheses/local-models-per-agent.md).
+        for id in [
+            "antigravity",
+            "cursor",
+            "kimi",
+            "kiro",
+            "opencode",
+            "crush",
+            "pi",
+            "forge",
+            "kode",
+            "codebuff",
+            "cline",
+            "vibe",
+            "droid",
+            "amp",
+            "openclaw",
+        ] {
+            assert!(servers(id).is_empty(), "{id}");
+        }
         // OpenClaw has no start flag for a model: nothing is offered.
         let openclaw = get("openclaw");
         assert!(openclaw.models.is_none() && openclaw.local.is_none());
@@ -2158,6 +2185,50 @@ commands=['x']
             "LM_STUDIO_API_BASE".into(),
             "http://127.0.0.1:1234/v1".into()
         )));
+        let ollama = |id: &str, model: &str| {
+            let agent = Agent::from_catalog(get(id).clone());
+            crate::start_model::launch(
+                agent.profile.model_spec(),
+                &crate::start_model::StartModel {
+                    source: crate::start_model::ModelSource::Ollama,
+                    id: model.into(),
+                },
+            )
+            .unwrap()
+        };
+        // Hermes reaches Ollama as its custom endpoint, in the classic REPL.
+        assert_eq!(
+            ollama("hermes", "qwen3:8b").args,
+            strings(&[
+                "chat",
+                "--cli",
+                "--provider",
+                "custom",
+                "--base-url",
+                "http://127.0.0.1:11434/v1",
+                "-m",
+                "qwen3:8b"
+            ])
+        );
+        // Goose: no model argument, the model and the host go into the environment.
+        let goose = ollama("goose", "qwen3:8b");
+        assert!(goose.args.is_empty());
+        assert!(goose
+            .env
+            .contains(&("GOOSE_MODEL".into(), "qwen3:8b".into())));
+        assert!(goose
+            .env
+            .contains(&("OLLAMA_HOST".into(), "http://127.0.0.1:11434".into())));
+        // Copilot CLI: the empty key is set, not left out.
+        let copilot = ollama("copilot", "qwen3:8b");
+        assert_eq!(copilot.args, strings(&["--model", "qwen3:8b"]));
+        assert!(copilot
+            .env
+            .contains(&("COPILOT_PROVIDER_API_KEY".into(), String::new())));
+        assert!(copilot.env.contains(&(
+            "COPILOT_PROVIDER_BASE_URL".into(),
+            "http://127.0.0.1:11434/v1".into()
+        )));
     }
 
     #[test]
@@ -2167,12 +2238,19 @@ commands=['x']
             "{base}models=[{{id='m',label='M'}}]\nmodel_args=['-m','{{model}}']\n"
         ))
         .is_ok());
+        // {model} only in an env value is enough.
+        assert!(parse(&format!(
+            "{base}local={{ollama={{env={{MODEL='{{model}}',HOST='{{base}}'}}}}}}\n"
+        ))
+        .is_ok());
         for bad in [
             // models without model_args.
             "models=[{id='m',label='M'}]\n",
             "models=[{id='m',label='M'}]\nmodel_args=['-m']\n",
             "models=[{id='m m',label='M'}]\nmodel_args=['-m','{model}']\n",
             "local={ollama={args=['-m']}}\n",
+            // {model} in neither args nor env.
+            "local={ollama={args=['-m'],env={HOST='{base}'}}}\n",
             "local={ollama={args=['{model}'],env={'1X'='a'}}}\n",
             "local={ollama={args=['{model}','{other}']}}\n",
         ] {

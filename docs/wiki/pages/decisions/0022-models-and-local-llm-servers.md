@@ -51,7 +51,9 @@ replaces the catalog's):
 - `local = { ollama = { args = [...], env = { ... } }, lmstudio = { args = [...], env = { ... } } }`:
   how the agent runs against a local server. `{model}` and `{base}` (the server's base URL,
   `http://127.0.0.1:11434` or `http://127.0.0.1:1234`) are the only placeholders, in args and
-  env values. An env value may be empty (sets the variable empty).
+  env values. An env value may be empty (sets the variable empty). `{model}` must appear in the
+  args or in at least one env value (amended 2026-11-27: some programs take the model only from a
+  variable, such as Goose's `GOOSE_MODEL`); an entry with it in neither is refused.
 
 Values for the built-in agents follow the facts above. Claude Code: `fable` "Fable 5.2", `opus`
 "Opus 5.5", `sonnet` "Sonnet 5.5", `haiku` "Haiku 5.5". Codex CLI: `gpt-6.2-sol` "GPT-6.2 Sol",
@@ -128,8 +130,12 @@ Both with icon SVG, NOTICE row and `agent.<id>.description` in 12 languages, lik
 - Vendor model names age: the lists live in the catalog (data, not code) and a user's
   `profiles.toml` can replace them.
 - Two small HTTP probes every 10 s on loopback; nothing leaves the machine.
-- Open: Hermes against Ollama (needs its config file), OpenClaw models (no start flag), the
-  collapsed rail and the app menu do not offer models yet.
+- Open: OpenClaw models (no start flag), the collapsed rail and the app menu do not offer models
+  yet.
+- Update 2026-11-27: Hermes against Ollama is offered after all (`--provider custom --base-url`
+  for one launch); Qwen Code, Oh My Pi, Copilot CLI (Ollama) and Goose (Ollama, model in env only)
+  joined. The check of every other
+  catalog agent is in [[local-models-per-agent]].
 
 ## Evidence
 Read on 2026-11-27:

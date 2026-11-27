@@ -30,7 +30,8 @@ pub struct ModelOption {
 #[derive(Debug, Clone, PartialEq, Eq, Default, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct LocalLaunch {
-    /// Placed after the profile's arguments; must hold `{model}`.
+    /// Placed after the profile's arguments. `{model}` must appear here or in an `env` value:
+    /// some programs take the model only from a variable (Goose's `GOOSE_MODEL`).
     #[serde(default)]
     pub args: Vec<String>,
     /// Applied after the profile's variables and before its secrets. An empty value sets the
@@ -219,8 +220,13 @@ pub fn check(
         return Ok(());
     };
     for launch in [&local.ollama, &local.lmstudio].into_iter().flatten() {
-        if !launch.args.iter().any(|arg| arg.contains(MODEL)) {
-            return Err("local: args need the placeholder {model}");
+        if !launch
+            .args
+            .iter()
+            .chain(launch.env.values())
+            .any(|text| text.contains(MODEL))
+        {
+            return Err("local: args or an env value need the placeholder {model}");
         }
         let texts = launch.args.iter().chain(launch.env.values());
         if !texts
@@ -445,10 +451,26 @@ mod tests {
             label: " ".into(),
         };
         assert!(check(Some(&[blank]), Some(&args), None, true).is_err());
-        // local: {model} required, names valid, placeholders known.
+        // local: {model} required in args or an env value, names valid, placeholders known.
         let mut bad = local();
         bad.ollama.as_mut().unwrap().args = strings(&["--oss"]);
         assert!(check(None, None, Some(&bad), true).is_err());
+        let env_only = LocalSpecs {
+            ollama: Some(LocalLaunch {
+                args: Vec::new(),
+                env: [("GOOSE_MODEL".to_owned(), "{model}".to_owned())].into(),
+            }),
+            lmstudio: None,
+        };
+        assert_eq!(check(None, None, Some(&env_only), true), Ok(()));
+        let neither = LocalSpecs {
+            ollama: Some(LocalLaunch {
+                args: strings(&["--oss"]),
+                env: [("OLLAMA_HOST".to_owned(), "{base}".to_owned())].into(),
+            }),
+            lmstudio: None,
+        };
+        assert!(check(None, None, Some(&neither), true).is_err());
         let mut bad = local();
         bad.ollama
             .as_mut()

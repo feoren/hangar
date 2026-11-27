@@ -147,8 +147,10 @@
 #                    arguments, before agent_args and prompt_args.
 #   local            Optional. How the program runs against a local LLM server on this machine:
 #                    { ollama = { args = [...], env = { NAME = "value" } }, lmstudio = { ... } }.
-#                    args must hold {model} and go where model_args go; env is applied after the
-#                    profile's env and before its secret_env, so a user's own secret still wins.
+#                    {model} must appear in args or in an env value (for a program that takes
+#                    the model only from a variable). args go where model_args go; env is
+#                    applied after the profile's env and before its secret_env, so a user's own
+#                    secret still wins.
 #                    Placeholders in args and env values: {model} and {base} (the server's base
 #                    URL, http://127.0.0.1:11434 for Ollama, http://127.0.0.1:1234 for LM
 #                    Studio), nothing else. An empty env value sets the variable empty.
@@ -327,6 +329,14 @@ capabilities = { pre_edit_block = true, context_inject = false, per_session_conf
 # 1.0.114 (listed, and a headless `--agent` run answered as the copy):
 # docs/wiki/pages/sources/sub-agent-formats-measurement.md.
 agent_program = "copilot"
+# Ollama through Copilot's OpenAI-compatible provider variables, as Ollama's Copilot CLI page gives
+# them (base with /v1, empty key, responses wire API): https://docs.ollama.com/integrations/copilot-cli.
+# `--model` sets the provider's model id before COPILOT_MODEL (changelog 1.0.109,
+# https://raw.githubusercontent.com/github/copilot-cli/main/changelog.md). GitHub sign-in is not
+# required with an own provider: https://docs.github.com/en/copilot/how-tos/copilot-cli/set-up-copilot-cli/authenticate-copilot-cli.
+# No LM Studio: neither GitHub nor LM Studio documents that route
+# (docs/wiki/pages/syntheses/local-models-per-agent.md).
+local = { ollama = { args = ["--model", "{model}"], env = { COPILOT_PROVIDER_BASE_URL = "{base}/v1", COPILOT_PROVIDER_API_KEY = "", COPILOT_PROVIDER_WIRE_API = "responses" } } }
 icon = "Co"
 homepage = "https://github.com/github/copilot-cli"
 install_windows = "winget install GitHub.Copilot"
@@ -375,6 +385,14 @@ commands = ["qwen"]
 # measurement pending (measured = false keeps it off):
 # docs/wiki/pages/syntheses/agent-gate-adapters.md.
 capabilities = { pre_edit_block = true, context_inject = true, per_session_config = true, hook_format = "qwen_system_settings", measured = false, min_version = "0.27.2" }
+# OpenAI-compatible auth from the environment alone: OPENAI_API_KEY, OPENAI_BASE_URL and
+# OPENAI_MODEL must all be set, so the key is a dummy (getAuthTypeFromEnv in
+# packages/cli/src/utils/modelConfigUtils.ts; docs/users/configuration/auth.md, both at
+# https://github.com/QwenLM/qwen-code/tree/1a5c8bb49fa388b81e4df8dcf7b37f47a3d8ca07). `--auth-type
+# openai` because a saved security.auth.selectedType wins over the environment
+# (packages/cli/src/config/config.ts); Ollama and LM Studio are named as OpenAI-compatible servers
+# in docs/users/configuration/model-providers.md.
+local = { ollama = { args = ["--auth-type", "openai", "--model", "{model}"], env = { OPENAI_BASE_URL = "{base}/v1", OPENAI_API_KEY = "ollama", OPENAI_MODEL = "{model}" } }, lmstudio = { args = ["--auth-type", "openai", "--model", "{model}"], env = { OPENAI_BASE_URL = "{base}/v1", OPENAI_API_KEY = "lm-studio", OPENAI_MODEL = "{model}" } } }
 icon = "Q"
 homepage = "https://github.com/QwenLM/qwen-code"
 install_windows = "irm https://qwen-code-assets.oss-cn-hangzhou.aliyuncs.com/installation/install-qwen-standalone.ps1 | iex"
@@ -466,6 +484,17 @@ install_windows = "Invoke-WebRequest -Uri \"https://raw.githubusercontent.com/aa
 install_unix = "curl -fsSL https://github.com/aaif-goose/goose/releases/download/stable/download_cli.sh | bash"
 latest = { github = "aaif-goose/goose", tag_prefix = "v" }
 self_update = { args = ["update"], aware = true }
+# Ollama from the environment alone: GOOSE_PROVIDER and GOOSE_MODEL override the config file for
+# the process (documentation/docs/guides/config-files.md; `GOOSE_PROVIDER=ollama` in
+# documentation/docs/guides/custom-distributions.md), OLLAMA_HOST is the Ollama provider's host
+# (documentation/docs/getting-started/providers.md), all at
+# https://github.com/aaif-goose/goose/tree/v1.61.1. `goose session` takes the provider from the
+# environment before the config file (crates/goose-cli/src/session/builder.rs). The documented
+# `goose session` options have no model flag, so the model goes only into GOOSE_MODEL; on a
+# resume the session's saved provider and model win (same file). No LM Studio: the docs name the
+# provider only as "LM Studio" in `goose configure`, not its id
+# (docs/wiki/pages/syntheses/local-models-per-agent.md).
+local = { ollama = { env = { GOOSE_PROVIDER = "ollama", GOOSE_MODEL = "{model}", OLLAMA_HOST = "{base}" } } }
 
 [[agent]]
 id = "crush"
@@ -504,6 +533,12 @@ commands = ["omp"]
 # live measurement pending (not installed; measured = false keeps it off):
 # docs/wiki/pages/syntheses/agent-gate-adapters.md. Floor: the version the research read.
 capabilities = { pre_edit_block = true, context_inject = false, per_session_config = true, hook_format = "omp_extension", measured = false, min_version = "18.19.0" }
+# Ollama and LM Studio are built-in, keyless providers found without a models.yml entry; their
+# bases come from OLLAMA_BASE_URL (no /v1) and LM_STUDIO_BASE_URL (with /v1). `--model
+# <provider>/<id>` picks the model; OMP_SKIP_SETUP skips the first-run setup scenes. docs/providers.md,
+# docs/cli-reference.md and docs/environment-variables.md at
+# https://github.com/can1357/oh-my-pi/tree/deddfd6134fbe856ef01cc306fb716fe6b91daa4/docs.
+local = { ollama = { args = ["--model", "ollama/{model}"], env = { OLLAMA_BASE_URL = "{base}", OMP_SKIP_SETUP = "1" } }, lmstudio = { args = ["--model", "lm-studio/{model}"], env = { LM_STUDIO_BASE_URL = "{base}/v1", OMP_SKIP_SETUP = "1" } } }
 icon = "OP"
 homepage = "https://github.com/can1357/oh-my-pi"
 install_windows = "irm https://omp.sh/install.ps1 | iex"
@@ -590,13 +625,16 @@ packages = { npm = "@sourcegraph/amp", winget = "Sourcegraph.Amp" }
 
 # Nous Research's Hermes Agent: `hermes` starts it interactively. The CLI reference lists
 # `hermes chat --provider <id> -m <model>` with the provider id `lmstudio` (LM Studio's default
-# server, http://localhost:1234/v1). Ollama needs a custom endpoint in ~/.hermes/config.yaml, no
-# flag, so it is not offered (ADR 0022).
+# server, http://localhost:1234/v1). Local Ollama is the custom endpoint (base with /v1, no key):
+# `--base-url` sets it for `--provider custom` for one launch, without touching config.yaml.
+# `--cli` keeps the classic REPL, since the TUI refuses `--base-url`. website/docs/reference/cli-commands.md,
+# website/docs/integrations/providers.md and hermes_cli/_parser.py at
+# https://github.com/NousResearch/hermes-agent/tree/28ef6e4e7d1df3015bf786dea6b0d355baf5c211.
 [[agent]]
 id = "hermes"
 name = "Hermes Agent"
 commands = ["hermes"]
-local = { lmstudio = { args = ["chat", "--provider", "lmstudio", "-m", "{model}"] } }
+local = { ollama = { args = ["chat", "--cli", "--provider", "custom", "--base-url", "{base}/v1", "-m", "{model}"] }, lmstudio = { args = ["chat", "--provider", "lmstudio", "-m", "{model}"] } }
 icon = "H"
 homepage = "https://github.com/NousResearch/hermes-agent"
 install_windows = "iex (irm https://hermes-agent.nousresearch.com/install.ps1)"

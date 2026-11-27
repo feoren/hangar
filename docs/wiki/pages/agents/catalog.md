@@ -2,7 +2,7 @@
 title: Agent catalog
 type: agent
 tags: [agents, catalog, installation]
-sources: ["[[agent-clis-research]]", "[[agent-icons]]", "[[agent-commands-measurement]]", "[[agent-vendors-licenses]]", "[[0022-models-and-local-llm-servers]]"]
+sources: ["[[agent-clis-research]]", "[[agent-icons]]", "[[agent-commands-measurement]]", "[[agent-vendors-licenses]]", "[[0022-models-and-local-llm-servers]]", "[[local-models-per-agent]]"]
 created: 2026-11-07
 updated: 2026-11-27
 ---
@@ -53,9 +53,12 @@ and program inherits each of them it does not set itself; its own value replaces
 - `model_args`: how a vendor model goes into the start, with the placeholder `{model}`; required
   with `models`. Placed after the start arguments (on a resume after `resume_args`; the CLIs
   accept the model flag there, evidence in the decision).
-- `local`: how the program runs against Ollama or LM Studio on this machine, `args` with
-  `{model}` and `env` with `{model}` and `{base}`. Claude Code, Codex CLI and Aider run against
-  both, Hermes Agent against LM Studio only.
+- `local`: how the program runs against Ollama or LM Studio on this machine, `args` and `env`
+  with `{model}` and `{base}`; `{model}` in the args or in at least one env value. Claude Code,
+  Codex CLI, Aider, Hermes Agent, Qwen Code and Oh My Pi run against both, GitHub Copilot CLI and
+  Goose against Ollama only. Every other
+  catalog agent, why it is not offered, the exact argv and env and the sources:
+  [[local-models-per-agent]].
 
 The id of a model is checked before anything starts; a new start with a model the program does
 not offer is refused, a restored session whose stored model is gone starts with the program's
@@ -63,8 +66,9 @@ default.
 
 ## Hermes Agent and OpenClaw
 - `hermes` (Nous Research): starts with `hermes`; with an LM Studio model as
-  `hermes chat --provider lmstudio -m <model>`. Ollama needs a custom endpoint in
-  `~/.hermes/config.yaml`, so it is not offered.
+  `hermes chat --provider lmstudio -m <model>`, with an Ollama model as
+  `hermes chat --cli --provider custom --base-url http://127.0.0.1:11434/v1 -m <model>`
+  ([[local-models-per-agent]]).
 - `openclaw`: starts as `openclaw tui --local`, which needs no gateway. It has no model flag at the
   start (models change with `/model` inside the session), so it offers no models.
 
