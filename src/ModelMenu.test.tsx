@@ -1,7 +1,8 @@
 // @vitest-environment happy-dom
 
-// The "Model" pill of a program row (ADR 0022): its menu's rows, and that it opens with a click,
-// Enter, Space or Right arrow, starts with the picked model and gives the focus back on Escape.
+// The "Model" pill of a program row (ADR 0022): its menu's rows, and that it opens with a click
+// (Enter and Space are a native button's click) or Right arrow, starts with the picked model and
+// gives the focus back on Escape.
 
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
