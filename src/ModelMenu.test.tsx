@@ -1,7 +1,7 @@
 // @vitest-environment happy-dom
 
-// The "›" of a program row (ADR 0022): its menu's rows, and that it opens with Enter or Right
-// arrow, starts with the picked model and gives the focus back on Escape.
+// The "Model" pill of a program row (ADR 0022): its menu's rows, and that it opens with a click,
+// Enter, Space or Right arrow, starts with the picked model and gives the focus back on Escape.
 
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
@@ -106,8 +106,10 @@ describe("ModelMenuButton", () => {
   const button = () => host.querySelector<HTMLButtonElement>(".profile-models");
   const menu = () => document.querySelector<HTMLElement>('[role="menu"]');
 
-  it("names what it does and opens its menu on click", () => {
+  it("shows a word, names what it does and opens its menu on click", () => {
     render();
+    expect(button()?.textContent).toBe("Model");
+    expect(button()?.querySelector("svg")).toBeNull();
     expect(button()?.getAttribute("aria-label")).toBe("Start Claude Code with a model");
     expect(button()?.getAttribute("aria-expanded")).toBe("false");
     act(() => {

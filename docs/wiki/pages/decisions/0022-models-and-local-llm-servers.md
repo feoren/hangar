@@ -115,7 +115,9 @@ Both with icon SVG, NOTICE row and `agent.<id>.description` in 12 languages, lik
   green (`--ok`) while it runs, grey while not; the tooltip and the accessible name say it in
   words ("Ollama runs, 4 models" / "Ollama is off"). Never color alone.
 - **Sidebar, "New session"**: a program row whose agent has `models` or a `local` entry for a
-  running server gets a quiet "›" at its right end, like a submenu in the app menu. It opens a
+  running server gets a quiet text pill "Model" at its right end (shown on hover, keyboard focus
+  and while its menu is open; amended 2026-11-27: the owner found a plus and an arrow unclear,
+  so the row itself is the start button and the choice is a word). It opens a
   fixed-position menu next to the row: the vendor's models first (heading: the program's
   name), then "Ollama" and "LM Studio" with their models (loaded ones marked), each section only
   when it has entries. A click starts the session with that model; the row's own click keeps

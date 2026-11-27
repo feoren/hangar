@@ -52,6 +52,7 @@ import {
   StopIcon,
   TeamIcon,
 } from "./icons";
+import { ProgramRow } from "./ProgramRow";
 import { ProgramUpdateOffer } from "./ProgramUpdateOffer";
 import { targetTooltip, type StartTarget, type WorktreeChance } from "./startTarget";
 import { isTeamSession, listedFor, teamPossible, type StartMode } from "./startMode";
@@ -61,7 +62,6 @@ import type { SessionView } from "./sessions";
 import { labelWithVersion, type ProgramVersions } from "./programs";
 import { offerShowsInstalled, runnableUpdate, type ProgramUpdates } from "./programUpdates";
 import { modelNote, modelSections, type LocalLlmState } from "./localLlm";
-import { ModelMenuButton } from "./ModelMenu";
 import { PopupMenu, type PopupItem } from "./PopupMenu";
 import { markerColorText } from "./SessionMarker";
 import { SessionPeek, useSessionPeek } from "./SessionPeek";
@@ -1526,39 +1526,20 @@ export function Sidebar(props: Props) {
             .map((profile) => {
               const version = versions.get(profile.id);
               const programUpdate = props.updates.get(profile.id);
-              const models = modelSections(profile, props.localLlm);
               return (
-                <li key={profile.id} className="profile-row">
-                  <button
-                    type="button"
-                    className="profile"
-                    title={[profile.command, ...profile.args].join(" ")}
-                    onClick={() => {
-                      props.onStart(profile);
-                    }}
-                  >
-                    <Badge look={badgeFor(profile.id)} />
-                    <span className="profile-name">{profile.name}</span>
-                    {version && !offerShowsInstalled(programUpdate) && (
-                      <span className="profile-version">
-                        <span aria-hidden="true">·</span> {version}
-                      </span>
-                    )}
-                    {programUpdate?.updateAvailable === true && (
-                      <span className="dot update profile-update-dot" aria-hidden="true" />
-                    )}
-                    <PlusIcon />
-                  </button>
-                  {models.length > 0 && (
-                    <ModelMenuButton
-                      program={profile.name}
-                      sections={models}
-                      onPick={(model) => {
-                        props.onStart(profile, model);
-                      }}
-                      onAction={props.onMenuClose}
-                    />
-                  )}
+                <ProgramRow
+                  key={profile.id}
+                  name={profile.name}
+                  commandLine={[profile.command, ...profile.args].join(" ")}
+                  badge={badgeFor(profile.id)}
+                  version={version && !offerShowsInstalled(programUpdate) ? version : null}
+                  updateAvailable={programUpdate?.updateAvailable === true}
+                  models={modelSections(profile, props.localLlm)}
+                  onStart={(model) => {
+                    props.onStart(profile, model);
+                  }}
+                  onMenuClose={props.onMenuClose}
+                >
                   {programUpdate !== undefined && (
                     <ProgramUpdateOffer
                       className="in-sidebar"
@@ -1575,7 +1556,7 @@ export function Sidebar(props: Props) {
                       onCancel={props.onCancelUpdate}
                     />
                   )}
-                </li>
+                </ProgramRow>
               );
             })}
         </ul>
