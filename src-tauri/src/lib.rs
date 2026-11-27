@@ -22,6 +22,7 @@ pub mod claims_service;
 pub mod cli_session;
 pub mod clipboard_image;
 pub mod codex_agents;
+pub mod codex_models;
 pub mod codex_shell_env;
 pub mod command_guard;
 pub mod command_split;
