@@ -86,6 +86,11 @@ pub struct CatalogAgent {
     /// (see [`Prompting::agent_program`]).
     #[serde(default)]
     pub agent_program: Option<crate::agent_models::DefProgram>,
+    /// The program starts a background process outside its session's Job Object on purpose
+    /// (`CREATE_BREAKAWAY_FROM_JOB`, Hermes Agent's gateway). Only then does the job allow it
+    /// (`proctree.rs`); for every other program each child ends with the session.
+    #[serde(default)]
+    pub job_breakaway: bool,
     /// Verified commands of the program for the session menu (see [`crate::agent_commands`]).
     #[serde(default)]
     pub agent_commands: Vec<crate::agent_commands::AgentCommand>,
@@ -559,6 +564,8 @@ pub struct Agent {
     pub cwd_flag: Option<&'static str>,
     /// From the catalog; a user profile inherits them only when it starts the same program.
     pub capabilities: Capabilities,
+    /// From the catalog ([`CatalogAgent::job_breakaway`]), inherited like `capabilities`.
+    pub job_breakaway: bool,
     /// From the catalog, inherited like `capabilities`.
     pub prompting: Prompting,
     /// From the catalog; a user profile inherits them along with `latest` (see [`merge`]).
@@ -584,6 +591,7 @@ impl Agent {
             install_hint: None,
             cwd_flag: None,
             capabilities: Capabilities::default(),
+            job_breakaway: false,
             prompting: Prompting::default(),
             npm_variants: Vec::new(),
         }
@@ -627,6 +635,7 @@ impl Agent {
             install_hint,
             cwd_flag: None,
             capabilities: agent.capabilities,
+            job_breakaway: agent.job_breakaway,
             prompting: Prompting {
                 instruction_args: agent.instruction_args,
                 prompt_args: agent.prompt_args,
@@ -805,6 +814,7 @@ pub fn merge_all(user: Vec<Profile>, catalog: Vec<CatalogAgent>, found: Vec<Agen
                     inherit_session_options(&mut agent.profile, &from_catalog.profile);
                     // The hooks belong to the program, like its session options.
                     agent.capabilities = from_catalog.capabilities;
+                    agent.job_breakaway = from_catalog.job_breakaway;
                     // So do its commands; the profile's own come after them.
                     agent.profile.agent_commands = crate::agent_commands::merge(
                         &from_catalog.profile.agent_commands,
@@ -959,6 +969,7 @@ mod tests {
             prompt_args: None,
             agent_args: None,
             agent_program: None,
+            job_breakaway: false,
             agent_commands: Vec::new(),
             models: None,
             model_args: None,
@@ -2073,6 +2084,21 @@ commands=['x']
             .flatten()
             .map(|m| m.id.as_str())
             .collect()
+    }
+
+    #[test]
+    fn only_hermes_may_leave_its_sessions_job() {
+        let marked: Vec<String> = builtin()
+            .unwrap()
+            .into_iter()
+            .filter(|agent| agent.job_breakaway)
+            .map(|agent| agent.id)
+            .collect();
+        assert_eq!(marked, ["hermes"]);
+        let hermes = builtin().unwrap().into_iter().find(|a| a.id == "hermes");
+        assert!(Agent::from_catalog(hermes.unwrap()).job_breakaway);
+        let bad = "[[agent]]\nid='x'\nname='X'\ncommands=['x']\njob_breakaway = 'yes'\n";
+        assert!(parse(bad).is_err());
     }
 
     #[test]

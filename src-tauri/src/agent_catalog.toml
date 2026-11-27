@@ -38,6 +38,9 @@
 #                    normally with args plus session_id_args and the same id.
 #   sub_agents       Optional. Where the program keeps sub-agent transcripts that Hangar can show
 #                    read-only; only "claude" so far (docs/wiki/pages/sources/subagent-transcripts.md).
+#   job_breakaway    Optional, default false. true: the program may start a process outside its
+#                    session's Job Object on purpose (CREATE_BREAKAWAY_FROM_JOB, Windows). Only
+#                    for a program that needs it: such a process does not end with the session.
 #   capabilities     Optional. What Hangar's agent gate can do with the program (team service
 #                    step B, docs/wiki/pages/syntheses/team-service-v1.md, section 1), all false by
 #                    default: { pre_edit_block, context_inject, per_session_config,
@@ -634,6 +637,9 @@ packages = { npm = "@sourcegraph/amp", winget = "Sourcegraph.Amp" }
 id = "hermes"
 name = "Hermes Agent"
 commands = ["hermes"]
+# Its gateway runs on with CREATE_BREAKAWAY_FROM_JOB; without the job's leave Hermes stops with
+# "windows_breakaway_unavailable".
+job_breakaway = true
 local = { ollama = { args = ["chat", "--cli", "--provider", "custom", "--base-url", "{base}/v1", "-m", "{model}"] }, lmstudio = { args = ["chat", "--provider", "lmstudio", "-m", "{model}"] } }
 icon = "H"
 homepage = "https://github.com/NousResearch/hermes-agent"

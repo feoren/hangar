@@ -2202,7 +2202,11 @@ fn spawn(
 
     // Without the tree, closing the session would leave the program's children running: such a
     // session does not start at all.
-    let tree = match child.process_id().map(ProcTree::attach) {
+    let breakaway = agent.job_breakaway;
+    let tree = match child
+        .process_id()
+        .map(|pid| ProcTree::attach_with(pid, breakaway))
+    {
         Some(Ok(tree)) => Some(Arc::new(tree)),
         // A program that ended before it could join the job has no tree left to watch; the
         // wait thread reports its exit like any other.

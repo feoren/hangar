@@ -39,6 +39,14 @@ jobs:
           cargo audit --file crates/hangar-team-crypto/Cargo.lock
           cargo audit --file crates/hangar-team-protocol/Cargo.lock
 
+      # Licenses and sources of the app's crates (src-tauri/deny.toml): permissive licenses only,
+      # crates.io only.
+      - name: Install cargo-deny
+        run: cargo install cargo-deny --version 0.20.2 --locked
+
+      - name: Rust licenses and sources
+        run: cargo deny --manifest-path src-tauri/Cargo.toml check licenses sources bans
+
       # Reads pnpm-lock.yaml only; nothing is installed or run.
       - name: npm dependencies
         run: pnpm audit
