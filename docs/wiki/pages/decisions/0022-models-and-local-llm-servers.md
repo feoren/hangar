@@ -55,9 +55,15 @@ replaces the catalog's):
   args or in at least one env value (amended 2026-11-27: some programs take the model only from a
   variable, such as Goose's `GOOSE_MODEL`); an entry with it in neither is refused.
 
-Values for the built-in agents follow the facts above. Claude Code: `fable` "Fable 5.2", `opus`
-"Opus 5.5", `sonnet` "Sonnet 5.5", `haiku` "Haiku 5.5". Codex CLI: `gpt-6.2-sol` "GPT-6.2 Sol",
-`gpt-6.2-astra` "GPT-6.2 Astra", `gpt-6.1-terra` "GPT-6.1 Terra", `gpt-6-luna` "GPT-6 Luna".
+Values for the built-in agents follow the facts above. Claude Code: `fable` "Fable", `opus`
+"Opus", `sonnet` "Sonnet", `haiku` "Haiku" (amended 2026-11-27: an alias always starts the
+newest model of its family, so the labels carry no version number that would go stale). Codex
+CLI: `gpt-6.2-sol` "GPT-6.2 Sol", `gpt-6.2-astra` "GPT-6.2 Astra", `gpt-6.1-terra` "GPT-6.1
+Terra", `gpt-6-luna` "GPT-6 Luna" as the fallback; Hangar offers the models Codex itself lists
+in `<CODEX_HOME>/models_cache.json` (fetched by Codex from OpenAI; `visibility: "list"`, in
+Codex's `priority` order, `display_name` as the label) whenever that file is readable, for the
+menu and for checking a chosen id at the start (`src-tauri/src/codex_models.rs`, amended
+2026-11-27). The file's shape was read from Codex CLI 0.171.0's own cache on this machine.
 Gemini CLI: `auto` "Auto", `pro` "Pro", `flash` "Flash", `flash-lite` "Flash Lite". Aider gets
 `local` only (its vendor list is open ended). Hermes gets `local.lmstudio` only if the provider
 id for LM Studio is verified in its docs, otherwise nothing. OpenClaw gets neither: Hangar does

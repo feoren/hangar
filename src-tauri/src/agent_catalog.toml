@@ -198,13 +198,15 @@ agent_commands = [
   { label_key = "model", text = "/model" },
   { label_key = "clear", text = "/clear", confirm = true },
 ]
-# `--model <alias|id>` with the aliases fable, opus, sonnet, haiku. Ollama and LM Studio speak the
-# Anthropic Messages API; the variables are the ones their docs give for Claude Code (ADR 0022).
+# `--model <alias|id>` with the aliases fable, opus, sonnet, haiku. An alias always starts the
+# newest model of its family, so the labels name the family without a version number and never
+# go stale. Ollama and LM Studio speak the Anthropic Messages API; the variables are the ones
+# their docs give for Claude Code (ADR 0022).
 models = [
-  { id = "fable", label = "Fable 5.2" },
-  { id = "opus", label = "Opus 5.5" },
-  { id = "sonnet", label = "Sonnet 5.5" },
-  { id = "haiku", label = "Haiku 5.5" },
+  { id = "fable", label = "Fable" },
+  { id = "opus", label = "Opus" },
+  { id = "sonnet", label = "Sonnet" },
+  { id = "haiku", label = "Haiku" },
 ]
 model_args = ["--model", "{model}"]
 local = { ollama = { args = ["--model", "{model}"], env = { ANTHROPIC_BASE_URL = "{base}", ANTHROPIC_AUTH_TOKEN = "ollama", ANTHROPIC_API_KEY = "" } }, lmstudio = { args = ["--model", "{model}"], env = { ANTHROPIC_BASE_URL = "{base}", ANTHROPIC_AUTH_TOKEN = "lmstudio", ANTHROPIC_API_KEY = "", CLAUDE_CODE_ATTRIBUTION_HEADER = "0" } } }

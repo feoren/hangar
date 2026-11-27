@@ -1122,6 +1122,11 @@ impl SessionManager {
             .iter()
             .map(|agent| {
                 let mut view = agent.view(path.as_deref(), pathext.as_deref());
+                if let Some(models) = live_models(agent) {
+                    if !view.models.is_empty() {
+                        view.models = models;
+                    }
+                }
                 // Offered only where it works on this machine, not just in the catalog.
                 let block = blocks
                     .get(agent.id())
@@ -1485,13 +1490,20 @@ impl SessionManager {
         };
         let stored = cli_session_id.map(cli_session::validate).transpose()?;
         let agent = self.agent(profile_id)?;
+        // The models the menu offered: Codex CLI's own current list where it keeps one.
+        let mut profile_now = agent.profile.clone();
+        if !profile_now.model_spec().offered().is_empty() {
+            if let Some(models) = live_models(&agent) {
+                profile_now.models = Some(models);
+            }
+        }
         // A new start with a model that cannot start is an error, never the program's default.
         // A restore, a restart or a reopened recent session (`resume`) brings a stored choice
         // that may be gone since (the catalog or the profile changed): it starts without it.
         let mut extras = extras;
         extras.model = match request.model.as_ref() {
             None => None,
-            Some(choice) => match start_model::launch(agent.profile.model_spec(), choice) {
+            Some(choice) => match start_model::launch(profile_now.model_spec(), choice) {
                 Ok(launch) => Some(launch),
                 Err(error) if resume => {
                     eprintln!(
@@ -2383,6 +2395,27 @@ pub fn session_title(title: &str) -> Result<String, ManagerError> {
         .collect::<String>()
         .trim_end()
         .to_owned())
+}
+
+/// Codex CLI's current models from its own cache ([`crate::codex_models`]) for an entry that
+/// starts Codex CLI with vendor models; `None` for every other program, or without the file.
+fn live_models(agent: &Agent) -> Option<Vec<crate::start_model::ModelOption>> {
+    let codex = std::iter::once(&agent.profile.command)
+        .chain(&agent.candidates)
+        .any(|command| {
+            let file = command.rsplit(['/', '\\']).next().unwrap_or(command);
+            let name = file.to_ascii_lowercase();
+            let stem = name
+                .strip_suffix(".exe")
+                .or_else(|| name.strip_suffix(".cmd"))
+                .unwrap_or(&name);
+            stem == "codex"
+        });
+    if !codex {
+        return None;
+    }
+    let home = crate::codex_models::codex_home(&agent.profile.env)?;
+    crate::codex_models::from_home(&home)
 }
 
 /// The profile's secrets, then the chosen local server's variables (ADR 0022). The server's come
