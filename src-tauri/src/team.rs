@@ -969,6 +969,9 @@ pub fn lock_path(dir: &Path, service: &str, key: &str) -> PathBuf {
     service_dir(dir, service).join(format!("{key}.lock"))
 }
 
+/// The most a team state file may hold; far above any real one.
+const MAX_STATE_BYTES: usize = 16 * 1024 * 1024;
+
 impl LocalState {
     pub fn path(dir: &Path, service: &str, key: &str) -> PathBuf {
         service_dir(dir, service).join(format!("{key}.json"))
@@ -977,8 +980,10 @@ impl LocalState {
     /// The stored state; empty when there is no file yet. A file that exists but cannot be read
     /// or parsed is an error: starting empty would forget the replay marks and the cursor.
     pub fn load(dir: &Path, service: &str, key: &str) -> std::io::Result<Self> {
-        match std::fs::read_to_string(Self::path(dir, service, key)) {
-            Ok(text) => serde_json::from_str(&text).map_err(std::io::Error::other),
+        // Regular file only and bounded: a link or a huge file there must not hang the start.
+        match crate::persist::read_regular_capped(&Self::path(dir, service, key), MAX_STATE_BYTES) {
+            Ok(Some(bytes)) => serde_json::from_slice(&bytes).map_err(std::io::Error::other),
+            Ok(None) => Err(std::io::Error::other("team state file is too large")),
             Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(Self::default()),
             Err(error) => Err(error),
         }

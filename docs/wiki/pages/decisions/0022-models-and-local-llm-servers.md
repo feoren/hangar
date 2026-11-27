@@ -80,7 +80,10 @@ Both with icon SVG, NOTICE row and `agent.<id>.description` in 12 languages, lik
   - Expanded arguments pass `batch::argument_ok` like every other argument for `.cmd` launchers.
 - Args: `model_args` (provider) or `local.<server>.args` go after the profile's args and before
   the instruction, agent and prompt args. Env: `local.<server>.env` is applied after the
-  profile's env and before secrets, so a user's own secret still wins.
+  profile's env and after its secrets: a real provider key stored under a name the entry sets
+  (`ANTHROPIC_API_KEY`, `OPENAI_API_KEY`) must never go in plain text to a local port, where any
+  process could listen while the real server is down. Entries therefore set such names
+  themselves, empty or with a dummy.
 - The choice is stored with the session (`persist.rs`, like `sub_agent`) and used again on
   restore and resume. Recent sessions keep it too.
 - A stored choice never costs the session: a value this Hangar cannot read in `workspace.json`
@@ -121,10 +124,11 @@ Both with icon SVG, NOTICE row and `agent.<id>.description` in 12 languages, lik
   running server opens a flyout directly to its right once the pointer rests on it (about
   150 ms), or with Right arrow (Left arrow and Escape go back to the row). The pointer may cross
   the gap and other rows on its way into the flyout (a short grace period and a safe triangle);
-  leaving both closes it, and over another row it hands over at once. No pill, plus or arrow:
-  the row keeps its hover look while its flyout is open (amended 2026-11-27, twice: the owner
-  found a plus and an arrow unclear, then the "Model" pill too, and asked for a flyout on
-  hover). Touch screens have no hover: there a tap starts with the default. The flyout is
+  leaving both closes it, and over another row it hands over at once. No pill or plus: a small
+  quiet arrow at the end of the row marks that it has models, and the row keeps its hover look
+  while its flyout is open (amended 2026-11-27, three times: the owner found a plus and an
+  arrow button unclear, then the "Model" pill too, asked for a flyout on hover, and then for an
+  arrow as the hint that a row has more than one model). Touch screens have no hover: there a tap starts with the default. The flyout is
   fixed to the window: the vendor's models first (heading: the program's name), then "Ollama"
   and "LM Studio" with their models (loaded ones marked), each section only when it has
   entries. A click starts the session with that model.

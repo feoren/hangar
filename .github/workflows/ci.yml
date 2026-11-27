@@ -539,6 +539,7 @@ jobs:
           cargo audit --file crates/hangar-team-crypto/Cargo.lock
           cargo audit --file crates/hangar-team-protocol/Cargo.lock
 
-      # Reads pnpm-lock.yaml only; nothing is installed or run.
+      # Reads pnpm-lock.yaml only; nothing is installed or run. Without --prod: the build chain
+      # (vite, the Tauri CLI) produces the shipped bundle, so its advisories count too.
       - name: npm dependencies
-        run: pnpm audit --prod
+        run: pnpm audit

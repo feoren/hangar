@@ -2172,17 +2172,10 @@ fn spawn(
     for (name, value) in &models.env {
         command.env(name, value);
     }
-    // The chosen local server's variables: after the profile's, before its secrets, so a user's
-    // own secret still wins (ADR 0022).
-    for (name, value) in model.iter().flat_map(|model| &model.env) {
-        command.env(name, value);
-    }
     // Straight into the child's environment; the values are not kept anywhere else.
-    for (name, value) in
-        secrets::for_launch(shared.secrets.as_ref(), &profile.id, &profile.secret_env)
-    {
-        command.env(name, value.as_str());
-    }
+    let secrets = secrets::for_launch(shared.secrets.as_ref(), &profile.id, &profile.secret_env);
+    let local = model.as_ref().map_or(&[][..], |model| &model.env);
+    apply_secrets_then_local(&mut command, &secrets, local);
     // Last, so no profile variable can replace the gate's token.
     for (name, value) in gate.iter().flat_map(|gate| &gate.env) {
         command.env(name, value.as_str());
@@ -2388,10 +2381,62 @@ pub fn session_title(title: &str) -> Result<String, ManagerError> {
         .to_owned())
 }
 
+/// The profile's secrets, then the chosen local server's variables (ADR 0022). The server's come
+/// last: a start against a local model must never carry a real provider key under a name the
+/// server's entry sets (`ANTHROPIC_API_KEY`, `OPENAI_API_KEY`), or the key would go in plain text
+/// to whatever listens on that local port.
+fn apply_secrets_then_local(
+    command: &mut CommandBuilder,
+    secrets: &[(String, zeroize::Zeroizing<String>)],
+    local: &[(String, String)],
+) {
+    for (name, value) in secrets {
+        command.env(name, value.as_str());
+    }
+    for (name, value) in local {
+        command.env(name, value);
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::agent_catalog::HookFormat;
+
+    #[test]
+    fn a_local_start_never_carries_a_secret_under_a_name_the_server_sets() {
+        let mut command = CommandBuilder::new("agent");
+        let secrets = vec![
+            (
+                "ANTHROPIC_API_KEY".to_owned(),
+                zeroize::Zeroizing::new("KEY-MARKER".to_owned()),
+            ),
+            (
+                "OTHER_TOKEN".to_owned(),
+                zeroize::Zeroizing::new("OTHER-MARKER".to_owned()),
+            ),
+        ];
+        let local = vec![
+            ("ANTHROPIC_API_KEY".to_owned(), String::new()),
+            (
+                "ANTHROPIC_BASE_URL".to_owned(),
+                "http://127.0.0.1:1234".to_owned(),
+            ),
+        ];
+        apply_secrets_then_local(&mut command, &secrets, &local);
+        let env = |name: &str| command.get_env(name).and_then(|value| value.to_str());
+        assert_eq!(env("ANTHROPIC_API_KEY"), Some(""));
+        assert_eq!(env("ANTHROPIC_BASE_URL"), Some("http://127.0.0.1:1234"));
+        // A secret the server's entry does not name stays.
+        assert_eq!(env("OTHER_TOKEN"), Some("OTHER-MARKER"));
+        // Without a local model the secret goes through as before.
+        let mut plain = CommandBuilder::new("agent");
+        apply_secrets_then_local(&mut plain, &secrets, &[]);
+        assert_eq!(
+            plain.get_env("ANTHROPIC_API_KEY").and_then(|v| v.to_str()),
+            Some("KEY-MARKER")
+        );
+    }
 
     #[test]
     fn session_titles_are_trimmed_and_bounded() {

@@ -34,8 +34,8 @@ pub struct LocalLaunch {
     /// some programs take the model only from a variable (Goose's `GOOSE_MODEL`).
     #[serde(default)]
     pub args: Vec<String>,
-    /// Applied after the profile's variables and before its secrets. An empty value sets the
-    /// variable empty.
+    /// Applied after the profile's variables and its secrets, so a real provider key never
+    /// goes to the local port. An empty value sets the variable empty.
     #[serde(default)]
     pub env: BTreeMap<String, String>,
 }
@@ -128,7 +128,7 @@ pub struct StartModel {
 pub struct ModelLaunch {
     /// Placed after the start arguments, before the sub-agent and first prompt arguments.
     pub args: Vec<String>,
-    /// Applied after the profile's variables, before its secrets.
+    /// Applied after the profile's variables and its secrets.
     pub env: Vec<(String, String)>,
 }
 
