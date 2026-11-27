@@ -33,7 +33,7 @@ Args are what Hangar appends after the catalog's `args`; env is set for the sess
 | Claude Code (`claude`) | offered: `--model {model}`; `ANTHROPIC_BASE_URL={base}`, `ANTHROPIC_AUTH_TOKEN=ollama`, `ANTHROPIC_API_KEY=` (empty) | offered: `--model {model}`; `ANTHROPIC_BASE_URL={base}`, `ANTHROPIC_AUTH_TOKEN=lmstudio`, `CLAUDE_CODE_ATTRIBUTION_HEADER=0` | [[0022-models-and-local-llm-servers]] |
 | Codex CLI (`codex`) | offered: `--oss --local-provider ollama -m {model}` | offered: `--oss --local-provider lmstudio -m {model}` | [[0022-models-and-local-llm-servers]] |
 | Aider (`aider`) | offered: `--model ollama_chat/{model}`; `OLLAMA_API_BASE={base}` | offered: `--model lm_studio/{model}`; `LM_STUDIO_API_BASE={base}/v1`, `LM_STUDIO_API_KEY=dummy-api-key` | [[0022-models-and-local-llm-servers]] |
-| Hermes Agent (`hermes`) | offered: `chat --cli --provider custom --base-url {base}/v1 -m {model}` | offered: `chat --provider lmstudio -m {model}` | 1, 2 |
+| Hermes Agent (`hermes`) | offered: `chat --cli --provider ollama -m {model}`; `CUSTOM_BASE_URL={base}/v1` | offered: `chat --provider lmstudio -m {model}` | 1, 2 |
 | GitHub Copilot CLI (`copilot`) | offered: `--model {model}`; `COPILOT_PROVIDER_BASE_URL={base}/v1`, `COPILOT_PROVIDER_API_KEY=` (empty), `COPILOT_PROVIDER_WIRE_API=responses` | offered: the same; GitHub takes any OpenAI-compatible server with its `/v1` URL, LM Studio serves `/v1/responses` (no page names both together) | 3, 4, 5, 25 |
 | Qwen Code (`qwen`) | offered: `--auth-type openai --model {model}`; `OPENAI_BASE_URL={base}/v1`, `OPENAI_API_KEY=ollama`, `OPENAI_MODEL={model}` | offered: same args; `OPENAI_BASE_URL={base}/v1`, `OPENAI_API_KEY=lm-studio`, `OPENAI_MODEL={model}` | 6 |
 | Oh My Pi (`omp`) | offered: `--model ollama/{model}`; `OLLAMA_BASE_URL={base}`, `OMP_SKIP_SETUP=1` | offered: `--model lm-studio/{model}`; `LM_STUDIO_BASE_URL={base}/v1`, `OMP_SKIP_SETUP=1` | 7 |
@@ -57,12 +57,19 @@ Args are what Hangar appends after the catalog's `args`; env is set for the sess
 
 ## Notes on the offered entries
 - **Hermes Agent, Ollama:** local Ollama is Hermes' custom endpoint ("base URL
-  `http://localhost:11434/v1`, no key"). `--base-url` is a launch-only endpoint for
-  `--provider custom`; `--cli` keeps the classic REPL, because the TUI (chosen by
-  `display.interface: tui` or `HERMES_TUI=1`) stops on `--base-url` with "Unsupported --tui
-  options" and points to `hermes chat --cli` (`_refuse_unforwarded_tui_flags` in
-  `hermes_cli/main_tui_launch.py`); `--cli` wins over both (`_resolve_use_tui`). `chat` accepts
-  `--cli` (`hermes_cli/_parser.py`).
+  `http://localhost:11434/v1`, no key"). The first entry used `--provider custom --base-url`,
+  which the owner saw fail with "provider 'custom' resolved without credentials (no endpoint or
+  API key configured)": in Hermes at `bb834a2cb329b27d67958036039d3e4fe9749a54` (2026-10-18)
+  `chat` parses `--base-url` and `--api-key` but the classic chat never receives them
+  (`_CHAT_PASSTHROUGH` and `cmd_chat` in `hermes_cli/main.py`), so the bare `custom` provider is
+  left without endpoint and key (`_raise_for_credentialless_bare_custom` in
+  `hermes_cli/runtime_provider.py`). The entry now uses the alias `ollama`, which resolves to the
+  custom endpoint, with the endpoint from `CUSTOM_BASE_URL` (an endpoint source the resolver
+  names, `_raise_if_local_alias_missing_endpoint`). Measured on Windows 11 on 2026-11-27 with
+  that Hermes and Ollama serving `gemma4:12b`: `CUSTOM_BASE_URL=http://127.0.0.1:11434/v1 hermes
+  chat --cli --provider ollama -m gemma4:12b -Q -q "Antworte nur mit OK"` answered `OK`; the same
+  with `--provider custom` failed with the message above, with and without `--api-key ollama`.
+  `--cli` keeps the classic REPL (`_resolve_use_tui`).
 - **Hermes Agent, both servers:** on an install where no provider is configured at all, the
   classic chat shows its first-run prompt ("Run setup now?") before argv is used
   (`_has_any_provider_configured` and `_first_run_setup_guard` in `hermes_cli/main.py`). The

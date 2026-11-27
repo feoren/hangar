@@ -641,9 +641,8 @@ packages = { npm = "@sourcegraph/amp", winget = "Sourcegraph.Amp" }
 
 # Nous Research's Hermes Agent: `hermes` starts it interactively. The CLI reference lists
 # `hermes chat --provider <id> -m <model>` with the provider id `lmstudio` (LM Studio's default
-# server, http://localhost:1234/v1). Local Ollama is the custom endpoint (base with /v1, no key):
-# `--base-url` sets it for `--provider custom` for one launch, without touching config.yaml.
-# `--cli` keeps the classic REPL, since the TUI refuses `--base-url`. website/docs/reference/cli-commands.md,
+# server, http://localhost:1234/v1). Local Ollama is the custom endpoint (base with /v1, no key).
+# `--cli` keeps the classic REPL. website/docs/reference/cli-commands.md,
 # website/docs/integrations/providers.md and hermes_cli/_parser.py at
 # https://github.com/NousResearch/hermes-agent/tree/28ef6e4e7d1df3015bf786dea6b0d355baf5c211.
 [[agent]]
@@ -653,7 +652,12 @@ commands = ["hermes"]
 # Its gateway runs on with CREATE_BREAKAWAY_FROM_JOB; without the job's leave Hermes stops with
 # "windows_breakaway_unavailable".
 job_breakaway = true
-local = { ollama = { args = ["chat", "--cli", "--provider", "custom", "--base-url", "{base}/v1", "-m", "{model}"] }, lmstudio = { args = ["chat", "--provider", "lmstudio", "-m", "{model}"] } }
+# Ollama: `--provider ollama` (an alias of the custom endpoint) with the endpoint from
+# CUSTOM_BASE_URL. `--base-url` and `--api-key` are parsed but not passed on to the classic chat
+# (`_CHAT_PASSTHROUGH` in hermes_cli/main.py at bb834a2), so `--provider custom --base-url` stops
+# with "provider 'custom' resolved without credentials"; the alias with CUSTOM_BASE_URL answered
+# through Ollama when run on 2026-11-27 (docs/wiki/pages/syntheses/local-models-per-agent.md).
+local = { ollama = { args = ["chat", "--cli", "--provider", "ollama", "-m", "{model}"], env = { CUSTOM_BASE_URL = "{base}/v1" } }, lmstudio = { args = ["chat", "--provider", "lmstudio", "-m", "{model}"] } }
 icon = "H"
 homepage = "https://github.com/NousResearch/hermes-agent"
 install_windows = "iex (irm https://hermes-agent.nousresearch.com/install.ps1)"

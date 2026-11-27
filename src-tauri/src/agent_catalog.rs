@@ -2223,19 +2223,18 @@ commands=['x']
             )
             .unwrap()
         };
-        // Hermes reaches Ollama as its custom endpoint, in the classic REPL.
+        // Hermes reaches Ollama through its `ollama` alias, the endpoint from CUSTOM_BASE_URL.
+        let hermes = ollama("hermes", "qwen3:8b");
         assert_eq!(
-            ollama("hermes", "qwen3:8b").args,
-            strings(&[
-                "chat",
-                "--cli",
-                "--provider",
-                "custom",
-                "--base-url",
-                "http://127.0.0.1:11434/v1",
-                "-m",
-                "qwen3:8b"
-            ])
+            hermes.args,
+            strings(&["chat", "--cli", "--provider", "ollama", "-m", "qwen3:8b"])
+        );
+        assert_eq!(
+            hermes.env,
+            vec![(
+                "CUSTOM_BASE_URL".to_owned(),
+                "http://127.0.0.1:11434/v1".to_owned()
+            )]
         );
         // Goose: no model argument, the model and the host go into the environment.
         let goose = ollama("goose", "qwen3:8b");
