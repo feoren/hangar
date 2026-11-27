@@ -62,6 +62,45 @@ describe("modelMenuItems", () => {
   });
 });
 
+describe("efforts", () => {
+  const sections = modelSections(
+    {
+      name: "Claude Code",
+      models: [
+        { id: "opus", label: "Opus", efforts: ["low", "xhigh"] },
+        { id: "haiku", label: "Haiku" },
+      ],
+      localSources: [],
+    },
+    null,
+  );
+
+  it("gives a model with efforts a submenu of its levels and none to the others", () => {
+    const de = createTranslator("de");
+    const onPick = vi.fn<(model: SessionModel) => void>();
+    const items = modelMenuItems("Claude Code", sections, onPick, de);
+    const opus = items.find((item) => item.type === "action" && item.label === "Opus");
+    const haiku = items.find((item) => item.type === "action" && item.label === "Haiku");
+    if (opus?.type !== "action" || haiku?.type !== "action") throw new Error("no models");
+    expect(haiku.submenu).toBeUndefined();
+    expect(opus.submenu?.label).toBe("Denkaufwand für Opus");
+    // No default is known for Claude Code: no level says "Standard".
+    expect(
+      opus.submenu?.items.map((item) =>
+        item.type === "action" ? [item.label, item.detail ?? ""] : item.type,
+      ),
+    ).toEqual([
+      ["Niedrig", ""],
+      ["Extra hoch", ""],
+    ]);
+    const xhigh = opus.submenu?.items[1];
+    if (xhigh?.type === "action") xhigh.run();
+    expect(onPick).toHaveBeenCalledWith({ source: "provider", id: "opus", effort: "xhigh" });
+    opus.run();
+    expect(onPick).toHaveBeenLastCalledWith({ source: "provider", id: "opus" });
+  });
+});
+
 describe("flyoutPlace", () => {
   it("goes right of the row, level with its top, and ends at its bottom when flipped", () => {
     expect(flyoutPlace({ right: 260, top: 400, bottom: 430 })).toEqual({

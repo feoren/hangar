@@ -66,7 +66,7 @@ export function RecentSessionList({
         const name = programName(entry.profileId);
         const detail = recentDetail(entry, name);
         const profile = profileFor?.(entry.profileId);
-        const model = modelBadge(entry.model, profile);
+        const model = modelBadge(entry.model, profile, t);
         const modelTitle = modelNote(entry.model, profile, t);
         const age =
           entry.closedAt === UNKNOWN_TIME ? null : shortAge(entry.closedAt, now, language);

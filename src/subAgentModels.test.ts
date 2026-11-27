@@ -119,7 +119,7 @@ describe("the fields", () => {
     expect(claude).toContain('aria-label="Model of backend"');
     const codexHtml = html("codex");
     expect(codexHtml).toContain('value="gpt-6.1-sol"');
-    expect(codexHtml).toContain("Very high");
+    expect(codexHtml).toContain("Extra high");
     expect(codexHtml).toContain("Effort as main session");
   });
 });

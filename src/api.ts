@@ -95,10 +95,14 @@ export interface Profile {
   localSources?: LocalServerId[];
 }
 
-/** Rust `ModelView`: a vendor model of a program; `id` goes into the start, `label` is shown. */
+/** Rust `ModelOption`: a vendor model of a program; `id` goes into the start, `label` is shown. */
 export interface ProfileModel {
   id: string;
   label: string;
+  /** The reasoning efforts a start can pick for this model, in menu order; missing: none. */
+  efforts?: string[];
+  /** The effort the program uses on its own, one of `efforts`; missing: not known. */
+  defaultEffort?: string;
 }
 
 /** A local model server Hangar watches (Rust `local_llm.rs`). */
@@ -111,6 +115,8 @@ export type ModelSource = "provider" | LocalServerId;
 export interface SessionModel {
   source: ModelSource;
   id: string;
+  /** The reasoning effort, one of the model's `efforts`; missing: the program's default. */
+  effort?: string;
 }
 
 /** Rust `LabelKey`: a command label Hangar translates (`agentCommand.<key>` in i18n.ts). */

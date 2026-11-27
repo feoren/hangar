@@ -11,7 +11,7 @@ import type {
   SessionInfo,
   SessionModel,
 } from "./api";
-import type { Translate } from "./i18n";
+import type { MessageKey, Translate } from "./i18n";
 
 /** The servers in the order the top bar and the start menu show them. */
 export const LOCAL_SERVERS: readonly LocalServerId[] = ["ollama", "lmstudio"];
@@ -40,6 +40,29 @@ export type LocalLlmState = Readonly<Record<LocalServerId, LocalServer>>;
 const MAX_MODELS = 200;
 const MAX_ID_CHARS = 160;
 const MODEL_ID = /^[A-Za-z0-9._:/@+[\]-]+$/;
+
+/** A reasoning effort as the backend accepts it (start_model.rs `valid_effort`). */
+const EFFORT_ID = /^[a-z0-9][a-z0-9-]{0,31}$/;
+
+export function validEffort(value: unknown): value is string {
+  return typeof value === "string" && EFFORT_ID.test(value);
+}
+
+/** The efforts the window names in its own words; any other is shown as the program names it. */
+const EFFORT_TEXTS: ReadonlyMap<string, MessageKey> = new Map([
+  ["low", "effort.low"],
+  ["medium", "effort.medium"],
+  ["high", "effort.high"],
+  ["xhigh", "effort.xhigh"],
+  ["max", "effort.max"],
+  ["ultra", "effort.ultra"],
+]);
+
+/** "Hoch" for `high`; an effort Hangar has no word for reads as its id. */
+export function effortLabel(effort: string, t: Translate): string {
+  const key = EFFORT_TEXTS.get(effort);
+  return key === undefined ? effort : t(key);
+}
 
 /** A model id as the backend accepts it: 1 to 160 safe characters, no leading `-`. */
 export function validModelId(value: unknown): value is string {
@@ -71,12 +94,17 @@ function labelOf(value: unknown, fallback: string): string {
   return text === "" ? fallback : Array.from(text).slice(0, MAX_ID_CHARS).join("");
 }
 
-/** A session's model choice as the backend stores it; anything else is `null`. */
+/**
+ * A session's model choice as the backend stores it; anything else is `null`. An effort that is
+ * not valid costs only the effort, as in the backend (`start_model::lenient_stored`).
+ */
 export function parseSessionModel(value: unknown): SessionModel | null {
   if (typeof value !== "object" || value === null || Array.isArray(value)) return null;
   const source = field(value, "source");
   const id = field(value, "id");
-  return isSource(source) && validModelId(id) ? { source, id } : null;
+  if (!isSource(source) || !validModelId(id)) return null;
+  const effort = field(value, "effort");
+  return validEffort(effort) ? { source, id, effort } : { source, id };
 }
 
 function parseServer(value: unknown): LocalServer | null {
@@ -167,7 +195,27 @@ export class LocalLlmStore {
   }
 }
 
-/** The program's vendor models, checked: valid ids, each once, a label to show. */
+/** As the backend bounds them (start_model.rs `MAX_EFFORTS`). */
+const MAX_EFFORTS = 12;
+
+/** A model's efforts, valid and each once, and its default when that is one of them. */
+function effortsOf(item: object): Pick<ProfileModel, "efforts" | "defaultEffort"> {
+  const list = field(item, "efforts");
+  if (!Array.isArray(list)) return {};
+  const values: readonly unknown[] = list;
+  const efforts: string[] = [];
+  for (const value of values) {
+    if (efforts.length >= MAX_EFFORTS) break;
+    if (validEffort(value) && !efforts.includes(value)) efforts.push(value);
+  }
+  if (efforts.length === 0) return {};
+  const fallback = field(item, "defaultEffort");
+  return validEffort(fallback) && efforts.includes(fallback)
+    ? { efforts, defaultEffort: fallback }
+    : { efforts };
+}
+
+/** The program's vendor models, checked: valid ids, each once, a label to show, their efforts. */
 export function profileModels(profile: Pick<Profile, "models">): ProfileModel[] {
   const list: unknown = profile.models;
   if (!Array.isArray(list)) return [];
@@ -179,7 +227,7 @@ export function profileModels(profile: Pick<Profile, "models">): ProfileModel[] 
     const id = field(item, "id");
     if (!validModelId(id) || seen.has(id)) continue;
     seen.add(id);
-    models.push({ id, label: labelOf(field(item, "label"), id) });
+    models.push({ id, label: labelOf(field(item, "label"), id), ...effortsOf(item) });
   }
   return models;
 }
@@ -210,6 +258,10 @@ export interface ModelEntry {
   model: SessionModel;
   label: string;
   loaded: boolean;
+  /** The reasoning efforts a start can pick; empty: the model opens no submenu. */
+  efforts: readonly string[];
+  /** The effort the program uses on its own, when it says so. */
+  defaultEffort: string | null;
 }
 
 export interface ModelSection {
@@ -238,6 +290,8 @@ export function modelSections(
         model: { source: "provider", id: model.id },
         label: model.label,
         loaded: false,
+        efforts: model.efforts ?? [],
+        defaultEffort: model.defaultEffort ?? null,
       })),
     });
   }
@@ -252,15 +306,23 @@ export function modelSections(
         model: { source: id, id: model.id },
         label: model.label,
         loaded: model.loaded,
+        efforts: [],
+        defaultEffort: null,
       })),
     });
   }
   return sections;
 }
 
+/** " · Hoch" for a choice with an effort, else nothing. */
+function effortSuffix(model: SessionModel, t: Translate): string {
+  return model.effort === undefined ? "" : ` · ${effortLabel(model.effort, t)}`;
+}
+
 /**
  * How a session's model reads in its peek: "Model: Opus 5.5" for a vendor model (its label when
- * the program still lists it), "Model: qwen3:8b · Ollama" for a local one. `null` without a choice.
+ * the program still lists it), "Model: Opus 5.5 · High" with an effort, "Model: qwen3:8b ·
+ * Ollama" for a local one. `null` without a choice.
  */
 export function modelNote(
   model: SessionModel | null | undefined,
@@ -272,7 +334,7 @@ export function modelNote(
     const label =
       (profile === undefined ? undefined : profileModels(profile).find((m) => m.id === model.id))
         ?.label ?? model.id;
-    return t("model.note", { model: label });
+    return t("model.note", { model: label + effortSuffix(model, t) });
   }
   return t("model.note", { model: `${model.id} · ${SERVER_NAMES[model.source]}` });
 }
@@ -283,12 +345,14 @@ const BADGE_CHARS = 22;
 /**
  * The short text of a session's model badge: a vendor model's label ("Opus 5.5"), a local
  * model's own name without the folders before it ("hf.co/org/Qwen3-Coder:Q4" reads
- * "Qwen3-Coder:Q4"), cut to [`BADGE_CHARS`]. The full name stays in the tooltip (`modelNote`).
- * `null` without a choice.
+ * "Qwen3-Coder:Q4"), cut to [`BADGE_CHARS`]. A chosen effort follows the cut name, so it always
+ * shows ("Opus · Hoch"). The full name stays in the tooltip (`modelNote`). `null` without a
+ * choice.
  */
 export function modelBadge(
   model: SessionModel | null | undefined,
   profile: Pick<Profile, "models"> | undefined,
+  t: Translate,
 ): string | null {
   if (model === null || model === undefined) return null;
   const text =
@@ -297,7 +361,8 @@ export function modelBadge(
           ?.label ?? model.id)
       : (model.id.split("/").pop() ?? model.id);
   // Model ids are ASCII by their rule (`validModelId`), labels come from the catalog.
-  return text.length <= BADGE_CHARS ? text : `${text.slice(0, BADGE_CHARS - 1)}…`;
+  const name = text.length <= BADGE_CHARS ? text : `${text.slice(0, BADGE_CHARS - 1)}…`;
+  return name + effortSuffix(model, t);
 }
 
 /**

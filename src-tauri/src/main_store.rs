@@ -1713,6 +1713,7 @@ mod tests {
             model: Some(StartModel {
                 source: ModelSource::Provider,
                 id: "opus".into(),
+                effort: None,
             }),
             ..closed(r"C:\work\app", None)
         }];

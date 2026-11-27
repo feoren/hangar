@@ -1124,7 +1124,9 @@ impl SessionManager {
                 let mut view = agent.view(path.as_deref(), pathext.as_deref());
                 if let Some(models) = live_models(agent) {
                     if !view.models.is_empty() {
-                        view.models = models;
+                        let mut profile = agent.profile.clone();
+                        profile.models = Some(models);
+                        view.models = profile.model_spec().menu();
                     }
                 }
                 // Offered only where it works on this machine, not just in the catalog.
@@ -1501,20 +1503,9 @@ impl SessionManager {
         // A restore, a restart or a reopened recent session (`resume`) brings a stored choice
         // that may be gone since (the catalog or the profile changed): it starts without it.
         let mut extras = extras;
-        extras.model = match request.model.as_ref() {
-            None => None,
-            Some(choice) => match start_model::launch(profile_now.model_spec(), choice) {
-                Ok(launch) => Some(launch),
-                Err(error) if resume => {
-                    eprintln!(
-                        "hangar: starting {} without its stored model: {error}",
-                        agent.profile.name
-                    );
-                    None
-                }
-                Err(error) => return Err(error.into()),
-            },
-        };
+        let (launch, chosen) =
+            model_for_start(&profile_now, request.model, resume).map_err(ManagerError::from)?;
+        extras.model = launch;
         if let Some(name) = &extras.sub_agent {
             if !crate::agent_defs::valid_name(name) {
                 return Err(ManagerError::InvalidSubAgent(name.clone()));
@@ -1537,7 +1528,6 @@ impl SessionManager {
             kind: SessionKind::Agent,
             mode,
         };
-        let chosen = extras.model.as_ref().and(request.model);
         self.start(agent, cwd, size, plan, kind, (extras, chosen), title, sink)
     }
 
@@ -2395,6 +2385,44 @@ pub fn session_title(title: &str) -> Result<String, ManagerError> {
         .collect::<String>()
         .trim_end()
         .to_owned())
+}
+
+/// What a model choice adds to a start, and the choice the session keeps. A new start refuses a
+/// choice that cannot start. On `resume` (a stored choice) a reasoning effort that is gone costs
+/// only the effort, a model that is gone costs the whole choice; the session then keeps what
+/// really started.
+fn model_for_start(
+    profile: &crate::profile::Profile,
+    choice: Option<StartModel>,
+    resume: bool,
+) -> Result<(Option<ModelLaunch>, Option<StartModel>), start_model::ModelError> {
+    let Some(choice) = choice else {
+        return Ok((None, None));
+    };
+    let spec = profile.model_spec();
+    let error = match start_model::launch(spec, &choice) {
+        Ok(launch) => return Ok((Some(launch), Some(choice))),
+        Err(error) if !resume => return Err(error),
+        Err(error) => error,
+    };
+    if choice.effort.is_some() {
+        let plain = StartModel {
+            effort: None,
+            ..choice
+        };
+        if let Ok(launch) = start_model::launch(spec, &plain) {
+            eprintln!(
+                "hangar: starting {} without its stored reasoning effort: {error}",
+                profile.name
+            );
+            return Ok((Some(launch), Some(plain)));
+        }
+    }
+    eprintln!(
+        "hangar: starting {} without its stored model: {error}",
+        profile.name
+    );
+    Ok((None, None))
 }
 
 /// Codex CLI's current models from its own cache ([`crate::codex_models`]) for an entry that

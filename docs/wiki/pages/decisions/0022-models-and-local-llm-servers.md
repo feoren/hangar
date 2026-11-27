@@ -105,6 +105,42 @@ Both with icon SVG, NOTICE row and `agent.<id>.description` in 12 languages, lik
 - `ProfileView` gains `models: [{ id, label }]` (empty when none) and
   `localSources: ("ollama" | "lmstudio")[]`.
 
+### Reasoning effort per start (amended 2026-11-27)
+The owner asked for the effort choice Claude Desktop shows under its model list: a vendor model
+opens a submenu of its levels, and the chosen one goes into the start.
+- Catalog and profile: a model may carry `efforts = ["low", ...]` (menu order, at most 12, each
+  1 to 32 characters from `a-z 0-9 -`, no leading `-`) and `default_effort` (one of them). A new
+  per-program field `effort_args` with exactly the placeholder `{effort}` says how a chosen level
+  goes into the start; it is required in the catalog when a model has efforts, a profile inherits
+  it like `model_args`. Without `effort_args` the menu shows no efforts.
+- Only levels that are documented for exactly that model are offered ([[only-offer-what-works]]).
+  Claude Code (`claude --help` 2.1.332: `--effort <level>  Effort level for the current session
+  (low, medium, high, xhigh, max)`): `fable`, `opus` and `sonnet` with all five levels,
+  `effort_args = ["--effort", "{effort}"]`. Haiku offers none: whether it takes an effort is not
+  documented. No Claude model names a default level, since none is documented. Codex CLI: the
+  levels come from Codex's own model list (`supported_reasoning_levels[].effort` and
+  `default_reasoning_level` in `models_cache.json`, read by `src-tauri/src/codex_models.rs`; for
+  example `low` to `ultra` for gpt-6.2-sol, without `ultra` for gpt-6-luna). The catalog's
+  fallback list names none. `effort_args = ["-c", "model_reasoning_effort={effort}"]`: the main
+  session's effort, measured with 0.171.0 (`codex exec ... -c model_reasoning_effort=low` ran
+  with `reasoning effort: low`, [[codex-subagent-model-measurement]]); `codex resume --help`
+  0.172.0 lists `-c` as well, so the arguments also work after `resume_args`.
+- The start: `model` gains an optional `effort`. It must be valid, the source must be `provider`
+  (local models take none) and the model must list it; then the expanded `effort_args` go right
+  after `model_args`. A new start with an effort that does not fit is refused. Without an effort
+  nothing is passed and the program keeps its own default: a click on the model itself starts so.
+- The effort is stored with the model (workspace, recent sessions). On a restore or a reopened
+  recent session an effort that no longer fits costs only the effort: the session starts with
+  the model and keeps the model without the effort. A stored effort of a bad shape is dropped on
+  reading, the model stays.
+- Interface: a model with efforts has a small "›" in the flyout; resting on it (150 ms) or Right
+  arrow opens its levels beside the flyout, Left arrow and Escape go back, another row closes it
+  after a short grace (250 ms) so the pointer can cross a neighbor. The levels carry the window's
+  own names in 12 languages (German: Niedrig, Mittel, Hoch, Extra hoch, Maximal, Ultra; an unknown
+  level shows its id), the program's default level says "Default" quietly. The session row's
+  model badge and the recent sessions name the level after the model ("Opus · Hoch").
+- `ProfileView.models[]` gains `efforts` (left out when empty) and `defaultEffort`.
+
 ### Local servers (`local_llm.rs`)
 - One background thread, as in `power.rs`: probes both servers every 10 s (30 s while power
   saving), emits `local-llm-changed` only on change, command `local_llm_status` returns the

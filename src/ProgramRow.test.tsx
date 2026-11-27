@@ -12,6 +12,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { SessionModel } from "./api";
 import { createTranslator, I18nContext } from "./i18n";
 import { modelSections, type ModelSection } from "./localLlm";
+import { SUBMENU_GRACE_MS, SUBMENU_OPEN_DELAY_MS } from "./PopupMenu";
 import { FLYOUT_GRACE_MS, FLYOUT_OPEN_DELAY_MS, ProgramList, ProgramRow } from "./ProgramRow";
 
 Reflect.set(globalThis, "IS_REACT_ACT_ENVIRONMENT", true);
@@ -454,5 +455,151 @@ describe("ProgramRow", () => {
     });
     expect(onStart).toHaveBeenCalledExactlyOnceWith("claude");
     expect(flyout()).toBeNull();
+  });
+
+  describe("reasoning efforts", () => {
+    const EFFORT_ROWS: readonly RowSpec[] = [
+      {
+        id: "codex",
+        name: "Codex",
+        models: modelSections(
+          {
+            name: "Codex",
+            models: [
+              {
+                id: "gpt-sol",
+                label: "GPT Sol",
+                efforts: ["low", "high", "ultra"],
+                defaultEffort: "low",
+              },
+              { id: "gpt-plain", label: "GPT Plain" },
+            ],
+            localSources: [],
+          },
+          null,
+        ),
+      },
+    ];
+    const efforts = () => document.querySelector<HTMLElement>(".popup-submenu");
+    const model = (label: string) => {
+      const item = [...(flyout()?.querySelectorAll<HTMLElement>('[role="menuitem"]') ?? [])].find(
+        (entry) => entry.textContent.includes(label) && efforts()?.contains(entry) !== true,
+      );
+      if (item === undefined) throw new Error(`no model ${label}`);
+      return item;
+    };
+    const key = (name: string) => {
+      act(() => {
+        document.activeElement?.dispatchEvent(
+          new KeyboardEvent("keydown", { key: name, bubbles: true }),
+        );
+      });
+    };
+
+    it("marks a model with efforts and opens them once the pointer rests on it", () => {
+      render(EFFORT_ROWS);
+      hoverOpen("Codex");
+      const sol = model("GPT Sol");
+      expect(sol.getAttribute("aria-haspopup")).toBe("menu");
+      expect(sol.querySelector(".menu-hint")?.textContent).toBe("›");
+      expect(model("GPT Plain").getAttribute("aria-haspopup")).toBeNull();
+      pointer(sol, null);
+      wait(SUBMENU_OPEN_DELAY_MS - 1);
+      expect(efforts()).toBeNull();
+      wait(1);
+      expect(efforts()?.getAttribute("aria-label")).toBe("Reasoning effort for GPT Sol");
+      expect(sol.getAttribute("aria-expanded")).toBe("true");
+      // Only the levels the model takes, in its order; its own default says so quietly.
+      expect(
+        [...(efforts()?.querySelectorAll('[role="menuitem"]') ?? [])].map(
+          (entry) => entry.textContent,
+        ),
+      ).toEqual(["Low · Default", "High", "Ultra"]);
+      // Another model without efforts: the submenu goes after the grace period.
+      pointer(model("GPT Plain"), sol);
+      wait(SUBMENU_GRACE_MS);
+      expect(efforts()).toBeNull();
+    });
+
+    it("keeps the submenu while the pointer crosses a neighbor on its way into it", () => {
+      render(EFFORT_ROWS);
+      hoverOpen("Codex");
+      const sol = model("GPT Sol");
+      pointer(sol, null);
+      wait(SUBMENU_OPEN_DELAY_MS);
+      pointer(model("GPT Plain"), sol);
+      wait(SUBMENU_GRACE_MS - 50);
+      const high = efforts()?.querySelectorAll<HTMLElement>('[role="menuitem"]')[1];
+      if (high === undefined) throw new Error("no level");
+      pointer(high, null);
+      wait(SUBMENU_GRACE_MS * 2);
+      expect(efforts()).not.toBeNull();
+      expect(document.activeElement).toBe(high);
+    });
+
+    it("starts with the picked effort, and the model itself with the program's own", () => {
+      const { onStart, onMenuClose } = render(EFFORT_ROWS);
+      hoverOpen("Codex");
+      const sol = model("GPT Sol");
+      pointer(sol, null);
+      wait(SUBMENU_OPEN_DELAY_MS);
+      const high = efforts()?.querySelectorAll<HTMLElement>('[role="menuitem"]')[1];
+      expect(high?.title).toBe("Start Codex with GPT Sol, reasoning effort: High");
+      act(() => {
+        high?.click();
+      });
+      expect(onStart).toHaveBeenCalledExactlyOnceWith("codex", {
+        source: "provider",
+        id: "gpt-sol",
+        effort: "high",
+      });
+      expect(onMenuClose).toHaveBeenCalledOnce();
+      expect(flyout()).toBeNull();
+
+      onStart.mockClear();
+      hoverOpen("Codex");
+      act(() => {
+        model("GPT Sol").click();
+      });
+      expect(onStart).toHaveBeenCalledExactlyOnceWith("codex", {
+        source: "provider",
+        id: "gpt-sol",
+      });
+    });
+
+    it("opens with Right arrow, goes back with Left arrow and Escape, starts with Enter", () => {
+      const { onStart } = render(EFFORT_ROWS);
+      row("Codex")?.focus();
+      key("ArrowRight");
+      expect(document.activeElement?.textContent).toContain("GPT Sol");
+      key("ArrowRight");
+      expect(efforts()).not.toBeNull();
+      expect(document.activeElement?.textContent).toBe("Low · Default");
+      key("ArrowDown");
+      expect(document.activeElement?.textContent).toBe("High");
+      key("ArrowLeft");
+      expect(efforts()).toBeNull();
+      expect(flyout()).not.toBeNull();
+      expect(document.activeElement?.textContent).toContain("GPT Sol");
+      key("ArrowRight");
+      key("Escape");
+      expect(efforts()).toBeNull();
+      expect(document.activeElement?.textContent).toContain("GPT Sol");
+      // Down to a model without efforts: Right arrow opens nothing there.
+      key("ArrowDown");
+      key("ArrowRight");
+      expect(efforts()).toBeNull();
+      key("ArrowUp");
+      key("ArrowRight");
+      key("ArrowDown");
+      key("ArrowDown");
+      key("Enter");
+      expect(onStart).toHaveBeenCalledExactlyOnceWith("codex", {
+        source: "provider",
+        id: "gpt-sol",
+        effort: "ultra",
+      });
+      expect(flyout()).toBeNull();
+    });
   });
 });

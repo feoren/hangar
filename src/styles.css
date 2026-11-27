@@ -2849,6 +2849,11 @@ h2 .beta-badge {
   text-overflow: ellipsis;
 }
 
+/* A row's submenu beside its menu (a model's reasoning efforts): a few short words. */
+.popup-submenu {
+  min-width: 150px;
+}
+
 /* Recently opened: a group of its own right above New session, with the same header. It parts
    from what is above by one line, as New session does, and gives way first when the sidebar is
    short. Rows like the programs', on two lines: the folder, then the title (or program) and how
