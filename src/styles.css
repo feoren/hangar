@@ -738,7 +738,6 @@ h2 .beta-badge {
 
 .session-title,
 .profile-name,
-.cwd-label,
 .cwd-path {
   overflow: hidden;
   white-space: nowrap;
@@ -2703,19 +2702,19 @@ h2 .beta-badge {
   margin: 0 8px 4px;
 }
 
-/* The start folder as a quiet card: folder tile, name first, parent path and branch below, a
-   chevron for the menu behind it. */
+/* The start folder as a quiet card: folder tile, the folder's name, parent path and branch below
+   it, a chevron for the menu behind it. No caption: the tile says what it is. */
 .cwd {
   display: flex;
   flex: 1;
   align-items: center;
-  gap: 10px;
+  gap: 9px;
   min-width: 0;
-  padding: 8px 8px 8px 8px;
+  padding: 6px 8px 6px 6px;
   color: var(--muted);
   background: var(--panel-raised);
   border: 1px solid var(--border);
-  border-radius: 8px;
+  border-radius: 9px;
   transition:
     border-color 120ms ease,
     background-color 120ms ease;
@@ -2736,11 +2735,17 @@ h2 .beta-badge {
   display: grid;
   flex: none;
   place-items: center;
-  width: 30px;
-  height: 30px;
+  width: 28px;
+  height: 28px;
   color: var(--accent);
   background: color-mix(in srgb, var(--accent) 12%, transparent);
   border-radius: 7px;
+  transition: background-color 120ms ease;
+}
+
+.cwd:hover .cwd-icon,
+.cwd[aria-expanded="true"] .cwd-icon {
+  background: color-mix(in srgb, var(--accent) 20%, transparent);
 }
 
 .cwd-text {
@@ -2750,12 +2755,7 @@ h2 .beta-badge {
   gap: 1px;
   min-width: 0;
   text-align: left;
-  line-height: 1.3;
-}
-
-.cwd .cwd-label {
-  font-size: 10.5px;
-  letter-spacing: 0.02em;
+  line-height: 1.25;
 }
 
 .cwd-chevron {
@@ -2773,6 +2773,7 @@ h2 .beta-badge {
 
 @media (prefers-reduced-motion: reduce) {
   .cwd,
+  .cwd-icon,
   .cwd-chevron {
     transition: none;
   }
@@ -10606,15 +10607,17 @@ body.session-dragging .session-actions {
   }
 }
 
-/* Start target chosen for the next start: solid accent edge and its own label, not color alone. */
+/* Start target chosen for the next start: solid accent edge, a filled tile and the reset button
+   beside it, not color alone. */
 .cwd-row.chosen .cwd {
   border-style: solid;
   border-color: color-mix(in srgb, var(--accent) 55%, transparent);
   background: color-mix(in srgb, var(--accent) 7%, transparent);
 }
 
-.cwd-row.chosen .cwd-label {
-  color: var(--accent);
+.cwd-row.chosen .cwd-icon {
+  color: var(--bg);
+  background: var(--accent);
 }
 
 .cwd-name {
@@ -10633,7 +10636,7 @@ body.session-dragging .session-actions {
   align-items: center;
   gap: 8px;
   min-width: 0;
-  font-size: 11.5px;
+  font-size: 11px;
   color: var(--muted);
 }
 

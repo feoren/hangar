@@ -1441,7 +1441,8 @@ export function Sidebar(props: Props) {
               <FolderIcon size={16} />
             </span>
             <span className="cwd-text">
-              <span className="cwd-label">{t("sidebar.projectFolder")}</span>
+              {/* The card says what it is by its look; the word stays for screen readers. */}
+              <span className="sr-only">{t("sidebar.projectFolder")}</span>
               <span className="cwd-name">{targetName}</span>
               {(targetParent !== null || targetBranch !== null) && (
                 <span className="cwd-sub">
