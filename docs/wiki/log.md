@@ -1852,3 +1852,8 @@ ADR 0023: Claude Code, Qwen Code and Codex CLI started from Hangar show Hangar's
 (`hangar status-line`, Codex's built-in items in Hangar's order), every other agent a Hangar bar
 above the terminal. Measured Codex's `tui.status_line` override, its item ids and the renderer's
 timing. New: [[0023-hangar-status-line]], [[status-line-measurement]].
+
+## [2026-11-27] schema | Status line in the owner's look
+ADR 0023 amended: the renderer now matches the owner's Claude Code status line (emoji labels,
+`[model]`, ` | `, e-mail, cold cache word in the interface language, cache miss causes).
+Pages changed: [[0023-hangar-status-line]].
