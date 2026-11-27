@@ -1,7 +1,8 @@
 // The programs in "New session". Each row is one start button: a click starts a session with the
 // program's default. A row with models to choose from (ADR 0022) opens them in a flyout beside
 // it once the pointer rests on it, or with Right arrow; a click there starts with that model. No
-// extra glyph or pill: the row keeps its hover look while its flyout is open. Touch screens have
+// pill: a small quiet arrow at the row's end says that it has models, and the row keeps its hover
+// look while its flyout is open. Touch screens have
 // no hover, so there a tap simply starts. Anything below a row (an update offer) comes in as
 // children and wraps onto its own line.
 
@@ -18,6 +19,7 @@ import {
 import type { SessionModel } from "./api";
 import { Badge } from "./Badge";
 import { useT } from "./i18n";
+import { ChevronIcon } from "./icons";
 import type { ModelSection } from "./localLlm";
 import { headingFor, type PointerPoint } from "./menuNav";
 import { flyoutPlace, ModelFlyout, type FlyoutPlace } from "./ModelMenu";
@@ -309,6 +311,12 @@ export function ProgramRow(props: {
         )}
         {props.updateAvailable && (
           <span className="dot update profile-update-dot" aria-hidden="true" />
+        )}
+        {/* The one hint that this row has more than its default: models open beside it. */}
+        {hasModels && (
+          <span className="profile-more">
+            <ChevronIcon size={12} />
+          </span>
         )}
       </button>
       {open !== null && (

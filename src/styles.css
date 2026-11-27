@@ -2882,6 +2882,28 @@ h2 .beta-badge {
 }
 
 /* The version gives way first when space is short; the name stays readable. */
+/* The arrow at the end of a row that has models: quiet until the row is hovered or open. */
+.profile-more {
+  display: inline-flex;
+  flex: none;
+  margin-left: auto;
+  color: var(--muted);
+  opacity: 0.55;
+  transition: opacity 120ms ease;
+}
+
+.profile:hover .profile-more,
+.profile:focus-visible .profile-more,
+.profile[aria-expanded="true"] .profile-more {
+  opacity: 1;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .profile-more {
+    transition: none;
+  }
+}
+
 .profile-version {
   flex: 0 100 auto;
   min-width: 0;

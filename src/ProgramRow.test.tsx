@@ -133,15 +133,20 @@ describe("ProgramRow", () => {
     expect(onStart).toHaveBeenCalledExactlyOnceWith("claude");
   });
 
-  it("has no pill, plus or arrow, and says when a row has a menu", () => {
+  it("has no pill or plus, and marks a row that has a menu with a small arrow", () => {
     render();
-    expect(host.querySelector("svg")).toBeNull();
+    expect(host.querySelectorAll("svg")).toHaveLength(
+      host.querySelectorAll(".profile-more").length,
+    );
     expect(host.textContent).not.toContain("›");
     expect(host.textContent).not.toContain("Model");
     expect(host.querySelectorAll("button")).toHaveLength(3);
     expect(row("Claude Code")?.getAttribute("aria-haspopup")).toBe("menu");
     expect(row("Claude Code")?.getAttribute("aria-expanded")).toBe("false");
     expect(row("PowerShell")?.hasAttribute("aria-haspopup")).toBe(false);
+    // Only a row with models carries the arrow.
+    expect(row("Claude Code")?.querySelector(".profile-more")).not.toBeNull();
+    expect(row("PowerShell")?.querySelector(".profile-more")).toBeNull();
     expect(row("PowerShell")?.hasAttribute("aria-expanded")).toBe(false);
   });
 
