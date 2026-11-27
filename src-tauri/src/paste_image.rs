@@ -217,7 +217,7 @@ fn random_suffix() -> String {
     hex
 }
 
-fn check(image: &RgbaImage) -> Result<(), PasteImageError> {
+pub(crate) fn check(image: &RgbaImage) -> Result<(), PasteImageError> {
     check_dimensions(image.width, image.height)?;
     if image.rgba.len() != image.width * image.height * 4 {
         return Err(PasteImageError::Malformed(format!(

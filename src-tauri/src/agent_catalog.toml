@@ -149,8 +149,8 @@
 #                    { ollama = { args = [...], env = { NAME = "value" } }, lmstudio = { ... } }.
 #                    {model} must appear in args or in an env value (for a program that takes
 #                    the model only from a variable). args go where model_args go; env is
-#                    applied after the profile's env and before its secret_env, so a user's own
-#                    secret still wins.
+#                    applied last, after the profile's env and its secret_env, so a real
+#                    provider key never goes to the local port.
 #                    Placeholders in args and env values: {model} and {base} (the server's base
 #                    URL, http://127.0.0.1:11434 for Ollama, http://127.0.0.1:1234 for LM
 #                    Studio), nothing else. An empty env value sets the variable empty.
@@ -204,7 +204,7 @@ models = [
   { id = "haiku", label = "Haiku 5.5" },
 ]
 model_args = ["--model", "{model}"]
-local = { ollama = { args = ["--model", "{model}"], env = { ANTHROPIC_BASE_URL = "{base}", ANTHROPIC_AUTH_TOKEN = "ollama", ANTHROPIC_API_KEY = "" } }, lmstudio = { args = ["--model", "{model}"], env = { ANTHROPIC_BASE_URL = "{base}", ANTHROPIC_AUTH_TOKEN = "lmstudio", CLAUDE_CODE_ATTRIBUTION_HEADER = "0" } } }
+local = { ollama = { args = ["--model", "{model}"], env = { ANTHROPIC_BASE_URL = "{base}", ANTHROPIC_AUTH_TOKEN = "ollama", ANTHROPIC_API_KEY = "" } }, lmstudio = { args = ["--model", "{model}"], env = { ANTHROPIC_BASE_URL = "{base}", ANTHROPIC_AUTH_TOKEN = "lmstudio", ANTHROPIC_API_KEY = "", CLAUDE_CODE_ATTRIBUTION_HEADER = "0" } } }
 icon = "C"
 homepage = "https://github.com/anthropics/claude-code"
 install_windows = "irm https://claude.ai/install.ps1 | iex"

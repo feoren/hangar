@@ -344,19 +344,28 @@ const HEADER_START: &str = "[Message from ";
 /// Characters that change how a text reads without being seen, as `src/invisible.ts` lists them:
 /// bidi embeddings, overrides, isolates and marks (the "Trojan Source" trick), the Arabic letter
 /// mark, zero width space, word joiner and invisible operators, the byte order mark and the tag
-/// characters. Zero width joiner and non-joiner stay: emoji sequences and Persian or Indic
+/// characters, plus the soft hyphen, the Hangul fillers, the Mongolian vowel separator, the
+/// deprecated format characters and the interlinear annotation marks. Zero width joiner and non-joiner stay: emoji sequences and Persian or Indic
 /// spelling need them, and they reorder nothing.
 fn is_hidden(c: char) -> bool {
     matches!(
         c,
-        '\u{061C}'
+        '\u{00AD}'
+            | '\u{061C}'
+            | '\u{115F}'
+            | '\u{1160}'
+            | '\u{180E}'
+            | '\u{3164}'
+            | '\u{FFA0}'
             | '\u{200B}'
             | '\u{200E}'
             | '\u{200F}'
             | '\u{202A}'..='\u{202E}'
             | '\u{2060}'..='\u{2064}'
             | '\u{2066}'..='\u{2069}'
+            | '\u{206A}'..='\u{206F}'
             | '\u{FEFF}'
+            | '\u{FFF9}'..='\u{FFFB}'
             | '\u{E0000}'..='\u{E007F}'
     )
 }
@@ -416,6 +425,19 @@ pub fn is_shell_command(command: &str) -> bool {
         "csh",
         "nu",
         "git-bash",
+        "ash",
+        "busybox",
+        "elvish",
+        "xonsh",
+        // Not shells by name, yet a pasted line runs there just the same: remote and nested
+        // shells. Interpreters (python, node) stay out: agents are started through them.
+        "ssh",
+        "mosh",
+        "tmux",
+        "screen",
+        "docker",
+        "podman",
+        "kubectl",
     ];
     let file = command
         .trim()
@@ -709,6 +731,10 @@ mod tests {
         let text = "a\u{202E}b\u{2066}c\u{2069}d\u{200E}\u{200F}e\u{200B}f\u{2060}g\u{FEFF}h\
                     \u{E0041}\u{E007F}i\u{061C}j";
         assert_eq!(clean_message(text).unwrap(), "abcdefghij");
+        // The soft hyphen, fillers, deprecated format characters and annotation marks too.
+        let more = "a\u{00AD}b\u{115F}\u{1160}c\u{180E}d\u{3164}\u{FFA0}e\u{206A}\u{206F}f\
+                    \u{FFF9}\u{FFFB}g";
+        assert_eq!(clean_message(more).unwrap(), "abcdefg");
         // Emoji sequences and Persian spelling keep their joiners.
         let joined = "\u{1F469}\u{200D}\u{1F4BB} \u{0645}\u{06CC}\u{200C}\u{062E}\u{0648}\u{0627}\u{0647}\u{0645}";
         assert_eq!(clean_message(joined).unwrap(), joined);
@@ -757,6 +783,12 @@ mod tests {
             "/bin/zsh",
             "Git-Bash.exe",
             "fish",
+            "ssh",
+            r"C:\Windows\System32\OpenSSH\ssh.exe",
+            "tmux",
+            "docker",
+            "busybox",
+            "xonsh",
         ] {
             assert!(is_shell_command(shell), "{shell}");
         }
@@ -767,6 +799,8 @@ mod tests {
             "aider",
             "/usr/bin/bashful",
             "npx",
+            "python",
+            "node.exe",
         ] {
             assert!(!is_shell_command(agent), "{agent}");
         }

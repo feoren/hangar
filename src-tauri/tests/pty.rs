@@ -2375,7 +2375,8 @@ fn a_chosen_model_reaches_the_program_and_survives_a_restart() {
     let (output, _) = collect_until_exit(&manager, info.id, &rx);
     assert!(output.contains("--model opus"), "{output:?}");
 
-    // A local model: the server's variables win over the profile's, a secret over them both.
+    // A local model: the server's variables win over the profile's and over a secret of the
+    // same name, so a real key never goes to the local port.
     let (info, rx) = start_requested(
         &manager,
         "modeled",
@@ -2403,11 +2404,10 @@ fn a_chosen_model_reaches_the_program_and_survives_a_restart() {
     );
     let (output, _) = collect_until_exit(&manager, info.id, &rx);
     assert!(
-        output.contains(&format!(
-            "MODEL=[http://127.0.0.1:11434][{SECRET_VALUE}][local]"
-        )),
+        output.contains("MODEL=[http://127.0.0.1:11434][local][local]"),
         "{output:?}"
     );
+    assert!(!output.contains(SECRET_VALUE), "{output:?}");
     assert!(output.contains("ollama_chat/qwen3:8b"), "{output:?}");
 
     // Refused before anything starts: unknown vendor model, bad id, no LM Studio entry.

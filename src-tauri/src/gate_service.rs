@@ -2356,7 +2356,7 @@ impl Inner {
             Opened::Full => return Outcome::Ask(gate::full_reason(&shown_path, &named, &reserved)),
         };
         self.publish();
-        self.hold(id, ticket, &rx, stream)
+        self.hold(id, ticket, &rx, stream, Outcome::Allow)
     }
 
     /// Answers one shell command: at once when no guard rule matches it, by the person's
@@ -2502,17 +2502,21 @@ impl Inner {
             Opened::Full => return Outcome::Deny(gate::command_full_reason(&rules)),
         };
         self.publish();
-        self.hold(id, ticket, &rx, stream)
+        // A client that only closed its sending side still reads the answer: a held command
+        // must not run because the hook stopped talking.
+        let gone = Outcome::Deny(gate::command_ended_reason(&rules));
+        self.hold(id, ticket, &rx, stream, gone)
     }
 
     /// Waits for the outcome of decision `id`: the person's answer, a rule set meanwhile, the
-    /// expiry after the decision time, or the agent closing the connection.
+    /// expiry after the decision time, or the agent closing the connection (`gone`).
     fn hold(
         &self,
         id: u64,
         ticket: u64,
         rx: &std::sync::mpsc::Receiver<Outcome>,
         stream: &TcpStream,
+        gone: Outcome,
     ) -> Outcome {
         let deadline = Instant::now() + self.limits.decision;
         loop {
@@ -2537,7 +2541,7 @@ impl Inner {
                 if removed {
                     self.publish();
                 }
-                return Outcome::Allow;
+                return gone;
             }
         }
     }
@@ -4689,6 +4693,29 @@ mod tests {
             assert!(Instant::now() < deadline, "card stayed");
             thread::sleep(Duration::from_millis(50));
         }
+    }
+
+    #[test]
+    fn a_held_command_is_refused_when_its_client_stops_sending() {
+        let fixture = fixture(DECISION_TIMEOUT);
+        fixture.service.configure(true);
+        let (port, token) = launch(&fixture, 1);
+        let body = bash(&fixture.root, "git push --force origin main");
+        let mut stream = connect(port);
+        let request = format!(
+            "POST {ROUTE_PRE_TOOL_USE} HTTP/1.1\r\nHost: 127.0.0.1:{port}\r\n\
+             Authorization: Bearer {token}\r\nContent-Length: {}\r\n\r\n{body}",
+            body.len()
+        );
+        stream.write_all(request.as_bytes()).unwrap();
+        next_pending(&fixture.events);
+        // Only the sending side closes: the client still reads the answer, and it must not be
+        // a go-ahead nobody gave.
+        stream.shutdown(std::net::Shutdown::Write).unwrap();
+        let mut answer = String::new();
+        stream.read_to_string(&mut answer).unwrap();
+        assert!(answer.contains("\"deny\""), "{answer}");
+        assert!(fixture.service.snapshot().pending.is_empty());
     }
 
     #[test]

@@ -2162,6 +2162,8 @@ commands=['x']
         assert_eq!(
             launch.env,
             vec![
+                // Empty on purpose: a real key must never go to the local port.
+                ("ANTHROPIC_API_KEY".to_owned(), String::new()),
                 ("ANTHROPIC_AUTH_TOKEN".to_owned(), "lmstudio".to_owned()),
                 (
                     "ANTHROPIC_BASE_URL".to_owned(),
