@@ -1,20 +1,26 @@
 import { describe, expect, it } from "vitest";
 
 import { createTranslator } from "./i18n";
-import { EMPTY_ACTIVITY, type PeerView, type TeamActivity, type TeamStatus } from "./team";
+import {
+  EMPTY_ACTIVITY,
+  type PeerView,
+  type TaskView,
+  type TeamActivity,
+  type TeamStatus,
+} from "./team";
 import {
   anyShared,
   emailInitials,
-  initialTab,
   initials,
   meInitials,
   onlinePeople,
   pillLabel,
   pillText,
+  peerTasks,
+  peopleHereFirst,
+  presenceOf,
   shownProject,
-  shownTab,
   teamPill,
-  teamTabs,
 } from "./teamOverview";
 
 const t = createTranslator("en");
@@ -112,7 +118,7 @@ describe("teamPill", () => {
     const pill = teamPill(new Map([["p1", CONNECTED]]), none, 2);
     expect(pill.kind).toBe("requests");
     expect(pill.tone).toBe("attention");
-    expect(pillLabel(pill, t, byName)).toBe("Team: Requests: 2");
+    expect(pillLabel(pill, t, byName)).toBe("Team: Waiting for you: 2");
   });
 
   it("asks for attention while this device waits for its confirmation", () => {
@@ -165,21 +171,50 @@ describe("teamPill", () => {
   });
 });
 
-describe("tabs", () => {
-  it("offers requests only while there are any", () => {
-    expect(teamTabs(0)).toEqual(["now", "people"]);
-    expect(teamTabs(1)).toEqual(["now", "people", "requests"]);
+describe("presence and tasks per person", () => {
+  it("shows idle as here and only away as away", () => {
+    expect(presenceOf({ presence: "active" })).toBe("online");
+    expect(presenceOf({ presence: "idle" })).toBe("online");
+    expect(presenceOf({ presence: "away" })).toBe("away");
   });
 
-  it("opens on the requests while there are any", () => {
-    expect(initialTab(0)).toBe("now");
-    expect(initialTab(3)).toBe("requests");
+  it("lists the people who are here before those who are away", () => {
+    const people = [
+      peer("ann", { presence: "away" }),
+      peer("ben", { presence: "idle" }),
+      peer("cem"),
+      peer("dan", { presence: "away" }),
+    ];
+    expect(peopleHereFirst(people).map((entry) => entry.member)).toEqual([
+      "ben",
+      "cem",
+      "ann",
+      "dan",
+    ]);
   });
 
-  it("falls back to now when the chosen tab is gone", () => {
-    expect(shownTab("requests", 0)).toBe("now");
-    expect(shownTab("requests", 1)).toBe("requests");
-    expect(shownTab("people", 0)).toBe("people");
+  it("gives each device only the tasks it holds", () => {
+    const task = (member: string, device: string, title: string): TaskView => ({
+      task: title,
+      title,
+      area: null,
+      member,
+      device,
+      name: member,
+      mine: false,
+      own: false,
+      since: 0,
+      expiresAt: null,
+      expiring: false,
+      request: null,
+    });
+    const tasks = [
+      task("ada", "ada-device", "Login"),
+      task("ada", "ada-laptop", "Docs"),
+      task("ben", "ben-device", "Tests"),
+    ];
+    expect(peerTasks(peer("ada"), tasks).map((entry) => entry.title)).toEqual(["Login"]);
+    expect(peerTasks(peer("cem"), tasks)).toEqual([]);
   });
 });
 

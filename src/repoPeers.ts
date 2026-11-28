@@ -3,6 +3,7 @@
 // repoPeers.test.ts and fileTree.test.ts.
 
 import type { PeerView, TeamActivity } from "./team";
+import { presenceOf, type Presence } from "./teamOverview";
 
 /**
  * The teammates working in this session's repository: of every shared project this session is
@@ -44,6 +45,8 @@ export interface RepoTeammate {
   name: string;
   /** Their programs there, each once, in the order first seen. */
   agents: string[];
+  /** Here while any of their devices there is; away only when all of them are. */
+  presence: Presence;
 }
 
 /**
@@ -56,10 +59,16 @@ export function repoTeammates(peers: readonly PeerView[]): RepoTeammate[] {
     if (peer.own || peer.sessions.length === 0) continue;
     let person = people.get(peer.member);
     if (person === undefined) {
-      person = { member: peer.member, name: peer.name.trim(), agents: [] };
+      person = {
+        member: peer.member,
+        name: peer.name.trim(),
+        agents: [],
+        presence: presenceOf(peer),
+      };
       people.set(peer.member, person);
-    } else if (person.name === "") {
-      person.name = peer.name.trim();
+    } else {
+      if (person.name === "") person.name = peer.name.trim();
+      if (presenceOf(peer) === "online") person.presence = "online";
     }
     for (const session of peer.sessions) {
       const agent = session.agent.trim();

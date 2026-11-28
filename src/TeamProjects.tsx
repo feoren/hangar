@@ -43,9 +43,9 @@ import { SeePlansButton } from "./TeamPlanNote";
 import { account } from "./useAccount";
 import { deviceKey, loadTeamStatuses, taskKey, team } from "./useTeam";
 
-// The Team window's building blocks: a project's details and share switch, connecting a first
-// project, the waiting help with the safety number, and the requests that wait for an answer
-// (new devices to confirm, tasks to hand over).
+// The Team window's building blocks: a project's details and share switch under "Manage",
+// connecting a first project, the waiting help with the safety number, and the requests that wait
+// for an answer under "Waiting for you" (new devices to confirm, tasks to hand over).
 
 /**
  * Whether the answers of a request may be used: `false` for ARM_DELAY_MS after the component
@@ -84,9 +84,41 @@ export function NoSeatNote() {
 }
 
 /**
- * One project in the Team window's "People" tab: role, plan, seats (per account of the owner)
+ * "Invite people": opens the project's invite page on the website, says so when that failed.
+ * Offered only to owners and admins while the plan has a seat left (the caller checks).
+ */
+export function InviteButton({ projectId }: { projectId: string }) {
+  const t = useT();
+  const [problem, setProblem] = useState<AccountProblem | null>(null);
+  return (
+    <>
+      <button
+        type="button"
+        className="secondary-button team-invite"
+        title={t("team.inviteHelp")}
+        onClick={() => {
+          setProblem(null);
+          account
+            .open({ kind: "invite", projectId })
+            .then(setProblem)
+            .catch(() => undefined);
+        }}
+      >
+        {t("team.invite")}
+      </button>
+      {problem !== null && (
+        <p className="team-help error-text" role="alert">
+          {accountErrorText(problem, t)}
+        </p>
+      )}
+    </>
+  );
+}
+
+/**
+ * One project under "Manage" in the Team window: role, plan, seats (per account of the owner)
  * and pending invitations, "Share with team" with the connection's state, while connected the
- * shared repositories, and "Invite people" for owners and admins.
+ * shared repositories and this person's devices, and "Invite people" for owners and admins.
  */
 export function ProjectDetails(props: {
   project: Project;
@@ -98,7 +130,6 @@ export function ProjectDetails(props: {
   const t = useT();
   const { project, status } = props;
   const [shareProblem, setShareProblem] = useState<TeamProblem | null>(null);
-  const [inviteProblem, setInviteProblem] = useState<AccountProblem | null>(null);
   const role = roleText(project.role, t);
   const meta = projectMeta(project, t);
   /** No seat left: inviting would fail, so the plan is named instead of "Invite people". */
@@ -132,28 +163,8 @@ export function ProjectDetails(props: {
               .catch(() => undefined);
           }}
         />
-        {project.canInvite && !seatHint && (
-          <button
-            type="button"
-            className="secondary-button team-invite"
-            title={t("team.inviteHelp")}
-            onClick={() => {
-              setInviteProblem(null);
-              account
-                .open({ kind: "invite", projectId: project.id })
-                .then(setInviteProblem)
-                .catch(() => undefined);
-            }}
-          >
-            {t("team.invite")}
-          </button>
-        )}
+        {project.canInvite && !seatHint && <InviteButton projectId={project.id} />}
         {seatHint && <NoSeatNote />}
-        {inviteProblem !== null && (
-          <p className="team-help error-text" role="alert">
-            {accountErrorText(inviteProblem, t)}
-          </p>
-        )}
         {props.activity.logFull && <LogFullNotice manages={manages(project)} />}
         {props.activity.historyWithheld && (
           <p className="team-help" role="status">
@@ -303,7 +314,7 @@ function TeamDeviceRow(props: { projectId: string; device: OwnDevice; busy: bool
 
 /**
  * The team admitted this device: before it shares anything, the person compares who admitted it
- * and the team's log with that device ("Your devices" in its Team window) and confirms.
+ * and the team's log with that device ("Manage", "Your devices" in its Team window) and confirms.
  */
 export function AdmissionCheck(props: {
   projectId: string;

@@ -1,11 +1,18 @@
 // What the sidebar footer and the Team window show at a glance: initials for avatars, the
-// teammates online, the team pill's state and which tabs the Team window offers. Pure functions;
+// teammates online, the team pill's state, presence and what each teammate works on. Pure functions;
 // the components only render their results.
 
 import type { Me } from "./account";
 import type { Translate } from "./i18n";
 import { revealInvisible } from "./invisible";
-import { isSharing, statusTone, type TeamActivity, type TeamStatus } from "./team";
+import {
+  isSharing,
+  statusTone,
+  type PeerView,
+  type TaskView,
+  type TeamActivity,
+  type TeamStatus,
+} from "./team";
 
 /**
  * Up to two initials of a name ("Anna Berg" gives "AB", "anna" gives "A"); empty when the name
@@ -102,7 +109,6 @@ export function teamPill(
   return { kind, tone: PILL_TONES[kind], online, requests };
 }
 
-/** The pill's state in words. */
 /** The pill's short text: "2 online", "Requests: 1", "Not connected" and so on. */
 export function pillText(pill: TeamPill, t: Translate): string {
   switch (pill.kind) {
@@ -138,22 +144,30 @@ export function pillLabel(
   return t("teamPill.label", { state });
 }
 
-/** Tabs of the Team window, in their order. */
-export type TeamTab = "now" | "people" | "requests";
+/** Whether a person shows as here or away: one dot on their avatar, the same everywhere. */
+export type Presence = "online" | "away";
 
-/** "Requests" only while something waits for an answer. */
-export function teamTabs(requests: number): TeamTab[] {
-  return requests > 0 ? ["now", "people", "requests"] : ["now", "people"];
+export function presenceOf(peer: Pick<PeerView, "presence">): Presence {
+  return peer.presence === "away" ? "away" : "online";
 }
 
-/** The tab the window opens on: the requests while there are any, otherwise "Now". */
-export function initialTab(requests: number): TeamTab {
-  return requests > 0 ? "requests" : "now";
+/** Teammate devices that are here first, then those away; otherwise in the team's order. */
+export function peopleHereFirst<T extends Pick<PeerView, "presence">>(peers: readonly T[]): T[] {
+  return [
+    ...peers.filter((peer) => presenceOf(peer) === "online"),
+    ...peers.filter((peer) => presenceOf(peer) === "away"),
+  ];
 }
 
-/** The tab to show: the chosen one while it exists, otherwise "Now". */
-export function shownTab(chosen: TeamTab, requests: number): TeamTab {
-  return teamTabs(requests).includes(chosen) ? chosen : "now";
+/**
+ * The tasks one teammate device holds, in the team's order: what the person works on, shown
+ * beside their name so one glance tells who does what.
+ */
+export function peerTasks(
+  peer: Pick<PeerView, "member" | "device">,
+  tasks: readonly TaskView[],
+): TaskView[] {
+  return tasks.filter((task) => task.member === peer.member && task.device === peer.device);
 }
 
 /**

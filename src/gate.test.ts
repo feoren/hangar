@@ -613,7 +613,7 @@ describe("reserved folders", () => {
     expect(shown?.reserved).toEqual(raw.reserved);
     if (shown === undefined) return;
     expect(decisionText(shown, nameOf, t).detail).toBe(
-      "In the folder of a reserved task: “Fix login” by Anna #3f9a2c1b…",
+      "In the folder of a task in progress: “Fix login” by Anna #3f9a2c1b…",
     );
     // Nobody else at all: malformed.
     expect(parseGateSnapshot({ enabled: true, pending: [{ ...raw, reserved: [] }] })).toBeNull();

@@ -1,6 +1,6 @@
-import { useState } from "react";
+import { useState, type ReactNode } from "react";
 
-import { Avatar } from "./Avatar";
+import { PersonAvatar } from "./Avatar";
 import { useT } from "./i18n";
 import { revealInvisible } from "./invisible";
 import { Revealed } from "./Revealed";
@@ -14,13 +14,16 @@ import {
   repoChoices,
   sessionStateText,
   shortId,
+  taskTitle,
   teamErrorText,
   type PeerSession,
   type PeerView,
   type RepoRef,
+  type TaskView,
   type TeamActivity,
   type TeamProblem,
 } from "./team";
+import { peerTasks, peopleHereFirst, presenceOf } from "./teamOverview";
 import { linkKey, team } from "./useTeam";
 
 /** Files of one teammate session listed before "show more". */
@@ -121,11 +124,19 @@ export function TeamRepos(props: {
 }
 
 /**
- * Who else is working in a connected project: one row per teammate device with an avatar, the
- * name, online or away, and their sessions' agent, title, state and changed files. Calm: no
- * colors without text, nothing that blinks.
+ * "Who's here" in a connected project: one row per teammate device with their avatar and presence
+ * dot, the name, the tasks they took ("Working on ...") and their sessions' agent, title, state
+ * and changed files. People who are here come before those who are away. Calm: no colors
+ * without text, nothing that blinks. `invite`: the way to bring people in, offered while nobody
+ * else is here.
  */
-export function TeamPeople({ activity }: { activity: TeamActivity }) {
+export function TeamPeople({
+  activity,
+  invite,
+}: {
+  activity: TeamActivity;
+  invite?: ReactNode | undefined;
+}) {
   const t = useT();
   return (
     <TeamCard
@@ -144,11 +155,18 @@ export function TeamPeople({ activity }: { activity: TeamActivity }) {
         </p>
       ))}
       {activity.peers.length === 0 ? (
-        <TeamCardEmpty>{t("team.activity.nobody")}</TeamCardEmpty>
+        <div className="team-card-empty-block">
+          <TeamCardEmpty>{t("team.activity.nobody")}</TeamCardEmpty>
+          {invite}
+        </div>
       ) : (
         <ul className="team-peer-list">
-          {activity.peers.map((peer) => (
-            <Peer key={`${peer.member}\u0000${peer.device}`} peer={peer} />
+          {peopleHereFirst(activity.peers).map((peer) => (
+            <Peer
+              key={`${peer.member}\u0000${peer.device}`}
+              peer={peer}
+              tasks={peerTasks(peer, activity.tasks)}
+            />
           ))}
         </ul>
       )}
@@ -156,16 +174,21 @@ export function TeamPeople({ activity }: { activity: TeamActivity }) {
   );
 }
 
-function Peer({ peer }: { peer: PeerView }) {
+function Peer({ peer, tasks }: { peer: PeerView; tasks: readonly TaskView[] }) {
   const t = useT();
   const name = personName(peer, t);
+  const presence = presenceOf(peer);
   // The name is whatever the teammate's device sends; the member id is the verified log's, so
   // it shows quietly next to any name a device chose itself.
   const named = !peer.own && peer.name.trim() !== "";
   return (
     <li className="team-peer">
       <div className="team-peer-head">
-        <Avatar name={peer.own ? "" : revealInvisible(peer.name.trim())} size="small" />
+        <PersonAvatar
+          name={peer.own ? "" : revealInvisible(peer.name.trim())}
+          presence={presence}
+          size="small"
+        />
         <span className="team-peer-name" title={peer.member}>
           <Revealed text={name} />
         </span>
@@ -174,10 +197,18 @@ function Peer({ peer }: { peer: PeerView }) {
             #{shortId(peer.member)}
           </span>
         )}
-        <span className={`team-peer-presence ${peer.presence === "away" ? "away" : "online"}`}>
-          {peer.presence === "away" ? t("team.activity.away") : t("team.activity.online")}
-        </span>
+        {/* The dot says it at a glance; "away" stays in words, "online" for screen readers. */}
+        {presence === "away" ? (
+          <span className="team-peer-presence away">{t("team.activity.away")}</span>
+        ) : (
+          <span className="sr-only">{t("team.activity.online")}</span>
+        )}
       </div>
+      {tasks.map((task) => (
+        <p key={task.task} className="team-peer-task" title={revealInvisible(task.title)}>
+          <Revealed text={t("team.activity.workingOn", { title: taskTitle(task.title, t) })} />
+        </p>
+      ))}
       {peer.sessions.length === 0 ? (
         <p className="team-help">{t("team.activity.noSessions")}</p>
       ) : (

@@ -1,7 +1,7 @@
 import { useEffect, useId, useMemo, useRef, useState, type ReactNode } from "react";
 
 import { api } from "./api";
-import { Avatar } from "./Avatar";
+import { PersonAvatar } from "./Avatar";
 import { commitAge, commitDate } from "./gitHistory";
 import { useT, type Language } from "./i18n";
 import { GlobeIcon, RestartIcon } from "./icons";
@@ -430,7 +430,12 @@ function Teammates({ people }: { people: Parameters<typeof teammateNames>[0] }) 
     <p className="project-teammates" title={names}>
       <span className="project-avatars" aria-hidden="true">
         {shown.map((person) => (
-          <Avatar key={person.member} name={person.name} size="mini" />
+          <PersonAvatar
+            key={person.member}
+            name={person.name}
+            presence={person.presence}
+            size="mini"
+          />
         ))}
         {more > 0 && <span className="session-teammates-more">+{more}</span>}
       </span>
