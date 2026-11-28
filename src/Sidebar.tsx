@@ -40,7 +40,6 @@ import {
   ClockIcon,
   CloseIcon,
   DownloadIcon,
-  EditIcon,
   FolderIcon,
   GlobeIcon,
   HangarLogo,
@@ -224,8 +223,6 @@ interface Props {
   placements: ReadonlyMap<number, PanePlacement>;
   /** Newest local dev server address per session (devServer.ts); missing: none. */
   devServers: ReadonlyMap<number, string>;
-  /** The globe on a row: opens that session's dev server in the browser. */
-  onOpenDevServer: (id: number) => void;
   /** UI language, for the compact durations. */
   language: string;
   /** Session whose name is being edited in the sidebar right now. */
@@ -2002,7 +1999,6 @@ function SessionItem({
   filesOpen,
   onToggleFiles,
   devServers,
-  onOpenDevServer,
   language,
   queued: queuedMessages,
   profiles,
@@ -2049,8 +2045,6 @@ function SessionItem({
   const gpuColumn = useGpuColumn();
   // The tree flow's rate on the row: a cell kept while the session runs, the numbers while it works.
   const showRate = useTreeFlow()?.showRate === true && !exited;
-  const openDevServer =
-    devServer === undefined ? null : t("session.openDevServer", { url: devServer });
   const link = links.get(session.id);
   // Read only where the row shows it, so other rows never re-render for a new cost.
   const cost = useSessionCostText(isPlaced(plan.layout, "cost") ? session.id : -1, language);
@@ -2255,16 +2249,6 @@ function SessionItem({
             onRun={onAgentCommand}
           />
         )}
-        {openDevServer !== null && !editing && (
-          <IconButton
-            label={openDevServer}
-            onClick={() => {
-              onOpenDevServer(session.id);
-            }}
-          >
-            <GlobeIcon />
-          </IconButton>
-        )}
         {active && !editing && (
           <button
             type="button"
@@ -2276,16 +2260,6 @@ function SessionItem({
           >
             <FolderIcon />
           </button>
-        )}
-        {!editing && (
-          <IconButton
-            label={t("session.rename")}
-            onClick={() => {
-              onRenameStart(session.id);
-            }}
-          >
-            <EditIcon />
-          </IconButton>
         )}
         {exited ? (
           <IconButton

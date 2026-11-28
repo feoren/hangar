@@ -7288,7 +7288,6 @@ export function App() {
           filesOpen={filesShown}
           onToggleFiles={toggleFiles}
           devServers={devServers}
-          onOpenDevServer={openDevServer}
           closedGroups={layout.closedGroups}
           onToggleGroup={(group: SidebarGroup) => {
             setLayout((current) => toggleGroup(current, group));
