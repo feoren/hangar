@@ -4,6 +4,34 @@
     "date": null,
     "items": [
       {
+        "de": "Hangars Statuszeile in Claude Code, Qwen Code und Codex CLI: Modell, Ordner, Branch, Kontext, Kosten und Limits. Andere Programme zeigen eine Hangar-Leiste.",
+        "en": "Hangar's status line in Claude Code, Qwen Code and Codex CLI: model, folder, branch, context, cost and limits. Other programs show a slim Hangar bar.",
+        "el": "Η γραμμή κατάστασης του Hangar σε Claude Code, Qwen Code και Codex CLI: μοντέλο, φάκελος, branch, context, κόστος, όρια. Τα άλλα έχουν μπάρα Hangar.",
+        "es": "Línea de estado de Hangar en Claude Code, Qwen Code y Codex CLI: modelo, carpeta, rama, contexto, coste y límites. Los demás muestran una barra de Hangar.",
+        "fr": "Ligne d'état de Hangar dans Claude Code, Qwen Code et Codex CLI : modèle, dossier, branche, contexte, coût, limites. Les autres ont une barre Hangar.",
+        "it": "Riga di stato di Hangar in Claude Code, Qwen Code e Codex CLI: modello, cartella, branch, contesto, costi e limiti. Gli altri mostrano una barra Hangar.",
+        "ja": "Claude Code、Qwen Code、Codex CLI に Hangar のステータスライン（モデル、フォルダー、ブランチ、コンテキスト、コスト、上限）を表示。ほかのプログラムには Hangar バーが付きます。",
+        "pl": "Pasek stanu Hangara w Claude Code, Qwen Code i Codex CLI: model, folder, gałąź, kontekst, koszt i limity. Inne programy mają pasek Hangara.",
+        "pt": "Linha de status do Hangar no Claude Code, Qwen Code e Codex CLI: modelo, pasta, branch, contexto, custo e limites. Os outros mostram uma barra do Hangar.",
+        "ru": "Строка состояния Hangar в Claude Code, Qwen Code и Codex CLI: модель, папка, ветка, контекст, стоимость, лимиты. У других программ панель Hangar.",
+        "tr": "Claude Code, Qwen Code ve Codex CLI'da Hangar durum satırı: model, klasör, dal, bağlam, maliyet ve limitler. Diğer programlar Hangar çubuğu gösterir.",
+        "zh": "Claude Code、Qwen Code 和 Codex CLI 中显示 Hangar 状态栏：模型、文件夹、分支、上下文、费用和限额。其他程序显示一条细的 Hangar 栏。"
+      },
+      {
+        "de": "Das Team-Fenster ist einfach geworden: keine Tabs mehr, sondern wer da ist, woran jeder arbeitet und was auf dich wartet. Alles andere liegt hinter „Verwalten“.",
+        "en": "The Team window is simple now: no more tabs, just who is here, what each person works on and what is waiting for you. Everything else is behind “Manage”.",
+        "el": "Το παράθυρο Ομάδας είναι απλό: χωρίς καρτέλες, μόνο ποιος είναι εδώ, σε τι δουλεύει και τι σε περιμένει. Τα υπόλοιπα στη «Διαχείριση».",
+        "es": "La ventana de Equipo ahora es sencilla: sin pestañas, solo quién está, en qué trabaja cada uno y qué te espera. Todo lo demás está en «Gestionar».",
+        "fr": "La fenêtre Équipe est désormais simple : plus d'onglets, seulement qui est là, sur quoi chacun travaille et ce qui t'attend. Le reste se trouve sous « Gérer ».",
+        "it": "La finestra Team ora è semplice: niente più schede, solo chi c'è, su cosa lavora ciascuno e cosa ti aspetta. Tutto il resto è sotto «Gestisci».",
+        "ja": "チーム画面がシンプルになりました。タブはなくなり、誰がいるか、それぞれが何に取り組んでいるか、あなたを待っているものだけを表示します。その他はすべて「管理」にあります。",
+        "pl": "Okno Zespołu jest teraz proste: bez kart, tylko kto jest obecny, nad czym kto pracuje i co czeka na ciebie. Wszystko inne jest pod „Zarządzaj”.",
+        "pt": "A janela Equipe agora é simples: sem abas, só quem está aqui, no que cada um trabalha e o que espera por você. O resto fica em “Gerenciar”.",
+        "ru": "Окно команды стало простым: никаких вкладок, только кто здесь, кто над чем работает и что ждёт тебя. Всё остальное в разделе «Управление».",
+        "tr": "Ekip penceresi artık sade: sekme yok, yalnızca kimin burada olduğu, herkesin ne üzerinde çalıştığı ve seni neyin beklediği. Geri kalan her şey “Yönet” altında.",
+        "zh": "团队窗口变得简单了：不再有标签页，只显示谁在线、每个人在做什么以及等你处理的事项。其余内容都在“管理”中。"
+      },
+      {
         "de": "Claude-Code-Zeilen zeigen Token pro Sekunde, etwa „84 tok/s“: live während der Arbeit, danach bleibt der letzte Wert blasser stehen.",
         "en": "Claude Code rows show how many tokens per second Claude Code writes, for example “84 tok/s”: live while it works, then the last value stays, slightly dimmed.",
         "el": "Οι γραμμές του Claude Code δείχνουν πόσα tokens ανά δευτερόλεπτο γράφει, π.χ. «84 tok/s»: ζωντανά όσο δουλεύει, μετά μένει η τελευταία τιμή, λίγο αχνή.",
@@ -30,6 +58,34 @@
         "ru": "Выбирай модель при запуске: «›» рядом с Claude Code, Codex CLI и другими. И локальные модели из Ollama и LM Studio, их статус виден в верхней панели.",
         "tr": "Başlatırken model seç: Claude Code, Codex CLI ve diğerlerinin yanındaki “›”. Ollama ve LM Studio'daki yerel modeller de var, durumları üst çubukta.",
         "zh": "启动时可选择模型：点 Claude Code、Codex CLI 等旁边的“›”。也支持 Ollama 和 LM Studio 的本地模型，其状态显示在顶部栏。"
+      },
+      {
+        "de": "Beim Start wählst du pro Modell die Denkstufe, etwa niedrig, mittel oder hoch. Codex CLI bietet seine aktuellen Modelle direkt aus der eigenen Liste an.",
+        "en": "When you start, pick the reasoning effort per model, such as low, medium or high. Codex CLI offers its current models straight from its own list.",
+        "el": "Στην εκκίνηση διαλέγεις επίπεδο συλλογισμού ανά μοντέλο (χαμηλό, μεσαίο, υψηλό). Το Codex CLI δείχνει τα τρέχοντα μοντέλα από τη λίστα του.",
+        "es": "Al iniciar, elige el nivel de razonamiento por modelo, como bajo, medio o alto. Codex CLI ofrece sus modelos actuales directamente desde su propia lista.",
+        "fr": "Au démarrage, choisis le niveau de réflexion par modèle (bas, moyen, élevé). Codex CLI propose ses modèles actuels depuis sa propre liste.",
+        "it": "All'avvio scegli il livello di ragionamento per modello (basso, medio, alto). Codex CLI offre i suoi modelli attuali dalla propria lista.",
+        "ja": "起動時にモデルごとの推論レベル（低、中、高など）を選べます。Codex CLI は自身のリストから最新のモデルをそのまま提示します。",
+        "pl": "Przy starcie wybierasz poziom rozumowania dla każdego modelu, np. niski, średni lub wysoki. Codex CLI oferuje swoje aktualne modele prosto z własnej listy.",
+        "pt": "Ao iniciar, escolha o nível de raciocínio por modelo, como baixo, médio ou alto. O Codex CLI oferece seus modelos atuais direto da própria lista.",
+        "ru": "При запуске выбирай уровень рассуждений для модели (низкий, средний, высокий). Codex CLI предлагает актуальные модели из своего списка.",
+        "tr": "Başlatırken her model için düşünme düzeyini seç, örneğin düşük, orta veya yüksek. Codex CLI güncel modellerini doğrudan kendi listesinden sunar.",
+        "zh": "启动时可以为每个模型选择推理强度，例如低、中或高。Codex CLI 会直接从它自己的列表中提供当前的模型。"
+      },
+      {
+        "de": "Seitenleiste: Jede Sitzung zeigt ihr Modell als kleines Feld, und die Programme unter „Neue Sitzung“ sortierst du per Ziehen.",
+        "en": "Sidebar: every session shows its model as a small pill, and you reorder the programs under “New session” by dragging them.",
+        "el": "Πλαϊνή μπάρα: κάθε συνεδρία δείχνει το μοντέλο της σε ένα μικρό πλαίσιο, και αλλάζεις τη σειρά των προγραμμάτων στη «Νέα συνεδρία» σύροντάς τα.",
+        "es": "Barra lateral: cada sesión muestra su modelo en una pequeña etiqueta, y reordenas los programas de «Nueva sesión» arrastrándolos.",
+        "fr": "Barre latérale : chaque session affiche son modèle dans une petite pastille, et tu réordonnes les programmes de « Nouvelle session » en les faisant glisser.",
+        "it": "Barra laterale: ogni sessione mostra il suo modello in una piccola etichetta, e riordini i programmi di «Nuova sessione» trascinandoli.",
+        "ja": "サイドバー: 各セッションのモデルを小さなラベルで表示します。「新しいセッション」のプログラムはドラッグで並べ替えられます。",
+        "pl": "Pasek boczny: każda sesja pokazuje swój model w małej etykiecie, a programy w „Nowej sesji” układasz, przeciągając je.",
+        "pt": "Barra lateral: cada sessão mostra seu modelo em uma pequena etiqueta, e você reordena os programas de “Nova sessão” arrastando-os.",
+        "ru": "Боковая панель: каждая сессия показывает свою модель в маленькой плашке, а программы в «Новой сессии» можно переставлять перетаскиванием.",
+        "tr": "Kenar çubuğu: her oturum modelini küçük bir etikette gösterir, “Yeni oturum” altındaki programları sürükleyerek sıralarsın.",
+        "zh": "侧边栏：每个会话都会用一个小标签显示它的模型，“新建会话”中的程序可以拖动来调整顺序。"
       },
       {
         "de": "Neu unter den Programmen: Hermes Agent von Nous Research und OpenClaw.",
@@ -142,6 +198,20 @@
         "ru": "Спокойнее связки: ждущие сообщения в одной строке с «Отправить все», меню связки для ведущего и паузы, представления ждут агента.",
         "tr": "Daha sakin ağlar: bekleyen mesajlar “Tümünü gönder” ile tek satırda, lider ve duraklama için ağ menüsü, tanıtımlar ajanı bekler.",
         "zh": "更安静的关联：等待中的消息合为一行并带有“全部发送”，关联菜单可设置负责人和暂停，介绍会等待智能体完成。"
+      },
+      {
+        "de": "Sicherer: strengere Prüfung beim Start lokaler Modelle, beim Wächter, bei eingefügtem Text und beim Lesen von Dateien.",
+        "en": "Safer: stricter checks when starting local models, in the gate, for pasted text and when reading files.",
+        "el": "Πιο ασφαλές: αυστηρότεροι έλεγχοι στην εκκίνηση τοπικών μοντέλων, στον φύλακα, στο επικολλημένο κείμενο και στην ανάγνωση αρχείων.",
+        "es": "Más seguro: comprobaciones más estrictas al iniciar modelos locales, en el guardián, en el texto pegado y al leer archivos.",
+        "fr": "Plus sûr : contrôles plus stricts au démarrage des modèles locaux, dans le gardien, pour le texte collé et à la lecture des fichiers.",
+        "it": "Più sicuro: controlli più severi all'avvio dei modelli locali, nel guardiano, sul testo incollato e nella lettura dei file.",
+        "ja": "より安全に: ローカルモデルの起動、ゲート、貼り付けたテキスト、ファイルの読み込みでのチェックを厳しくしました。",
+        "pl": "Bezpieczniej: ostrzejsze kontrole przy starcie lokalnych modeli, w strażniku, przy wklejanym tekście i przy odczycie plików.",
+        "pt": "Mais seguro: verificações mais rígidas ao iniciar modelos locais, no guardião, em texto colado e ao ler arquivos.",
+        "ru": "Безопаснее: более строгие проверки при запуске локальных моделей, в стороже, для вставленного текста и при чтении файлов.",
+        "tr": "Daha güvenli: yerel modelleri başlatırken, bekçide, yapıştırılan metinde ve dosya okurken daha sıkı denetimler.",
+        "zh": "更安全：启动本地模型、守卫、粘贴的文本和读取文件时的检查更加严格。"
       },
       {
         "de": "Behoben: Eine Notiz mit Windows-Zeilenenden (CRLF), etwa außerhalb von Hangar bearbeitet, öffnete sich leer; wer dann tippte, überschrieb sie.",
