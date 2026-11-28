@@ -3,11 +3,10 @@ import { useEffect, useId, useLayoutEffect, useRef, useState, type ReactNode } f
 import { accountErrorText, isSignedIn, type Project } from "./account";
 import { AccountStateSection } from "./AccountSettings";
 import { DialogResizeHandles, useDialogSize, type DialogSizeBounds } from "./DialogResize";
-import { useT, type MessageKey } from "./i18n";
-import { CloseIcon } from "./icons";
+import { useT } from "./i18n";
+import { ChevronIcon, CloseIcon, GearIcon } from "./icons";
 import { revealInvisible } from "./invisible";
 import { Revealed } from "./Revealed";
-import { nextTabIndex } from "./settingsSections";
 import {
   EMPTY_ACTIVITY,
   canToggle,
@@ -23,6 +22,7 @@ import {
   AdmissionCheck,
   ConnectButton,
   ConnectList,
+  InviteButton,
   NoSeatNote,
   PendingConfirmations,
   ProjectDetails,
@@ -31,31 +31,18 @@ import {
 } from "./TeamProjects";
 import { TeamDecisionsView, type DecisionTarget } from "./TeamDecisionsView";
 import { TeamTasksView, type TaskSession } from "./TeamTasksView";
-import { refusedForSeat, teamAccess } from "./teamPlan";
+import { noSeatHint, refusedForSeat, teamAccess } from "./teamPlan";
 import { TeamPlanNote } from "./TeamPlanNote";
-import {
-  anyShared,
-  initialTab,
-  shownProject,
-  shownTab,
-  teamTabs,
-  type TeamTab,
-} from "./teamOverview";
+import { anyShared, shownProject } from "./teamOverview";
 import { loadProjects, useAccount } from "./useAccount";
 import { useTeam } from "./useTeam";
-
-const TAB_NAMES: Record<TeamTab, MessageKey> = {
-  now: "teamWindow.tab.now",
-  people: "teamWindow.tab.people",
-  requests: "teamWindow.tab.requests",
-};
 
 /** The project shown last while Hangar runs; the window opens on it again. */
 let lastProject: string | null = null;
 
 /**
  * Resizable like the Settings dialog. The standard size matches `--large-dialog-width` and
- * `--large-dialog-height`; the minimum keeps the tabs and a project row readable.
+ * `--large-dialog-height`; the minimum keeps the header and one person row readable.
  */
 const SIZE_BOUNDS: DialogSizeBounds = {
   storageKey: "hangar.teamWindowSize",
@@ -68,9 +55,11 @@ const SIZE_BOUNDS: DialogSizeBounds = {
  * keep running; Tab may leave the panel. It closes on Escape (with the focus inside), its close
  * button and a click outside; the caller then hands the focus back to the terminal.
  *
- * One state at a time: sign in, connect a first project, or the tabs "Now" (who works on what,
- * reservations), "People" (the project, sharing, repositories, invitations) and "Requests"
- * (only while something waits for an answer).
+ * One state at a time: sign in, connect a first project, or the team itself. The team opens on
+ * what people ask most, without a click: who is here, what each of them works on, the tasks and
+ * decisions. Whatever waits for an answer from this device sits on top, under "Waiting for you",
+ * and leaves once answered. Things done rarely (sharing, invitations, repositories, devices) sit
+ * behind "Manage" in the header; Escape steps back from there first.
  */
 export function TeamWindow(props: {
   /** This device's running sessions, for linking a reservation to one. */
@@ -85,33 +74,31 @@ export function TeamWindow(props: {
 }) {
   const t = useT();
   const titleId = useId();
-  const tabsId = useId();
   const panel = useRef<HTMLDivElement>(null);
+  const manageButton = useRef<HTMLButtonElement>(null);
   const size = useDialogSize(SIZE_BOUNDS);
-  const tabButtons = useRef(new Map<TeamTab, HTMLButtonElement>());
   const snapshot = useAccount();
   const teamStore = useTeam();
   const { projects, projectsError, loadingProjects, view } = snapshot;
   const release = releaseRequests(teamStore.activities);
   const requestCount = teamStore.pending.length + release.length;
-  const [chosenTab, setChosenTab] = useState<TeamTab>(() => initialTab(requestCount));
+  const [managing, setManaging] = useState(false);
   const [chosenProject, setChosenProject] = useState<string | null>(null);
   const { onClose } = props;
 
   const projectIds = (projects ?? []).map((project) => project.id);
   const projectId = shownProject(projectIds, chosenProject, teamStore.statuses, lastProject);
   const project = projects?.find((entry) => entry.id === projectId) ?? null;
-  const tab = shownTab(chosenTab, requestCount);
-  const tabs = teamTabs(requestCount);
   const signedIn = isSignedIn(view);
   /** Free without a team (teamPlan.ts): the window explains the Team plan instead. */
   const planOnly = teamAccess(view, projects) === "no";
-  const showTabs =
+  const shared =
     signedIn &&
     !planOnly &&
     projects !== null &&
     projects.length > 0 &&
     anyShared(projectIds, teamStore.statuses);
+  const showManage = shared && project !== null && managing;
 
   useEffect(() => {
     if (projectId !== null) lastProject = projectId;
@@ -140,23 +127,9 @@ export function TeamWindow(props: {
     };
   }, [onClose]);
 
-  const selectTab = (next: TeamTab, focus: boolean) => {
-    setChosenTab(next);
-    if (focus) tabButtons.current.get(next)?.focus();
-  };
-
-  const onTabKey = (event: React.KeyboardEvent) => {
-    const next = nextTabIndex(event.key, tabs.indexOf(tab), tabs.length);
-    const target = next === null ? undefined : tabs[next];
-    if (target === undefined) return;
-    event.preventDefault();
-    selectTab(target, true);
-  };
-
-  const focusNow = () => {
-    const now = tabButtons.current.get("now");
-    if (now?.isConnected === true) now.focus();
-    else panel.current?.focus();
+  /** After the last answer the requests are gone: the keyboard stays in the window. */
+  const focusPanel = () => {
+    panel.current?.focus();
   };
 
   let body: ReactNode;
@@ -198,7 +171,7 @@ export function TeamWindow(props: {
         {t("team.empty")} <ReloadButton busy={loadingProjects} label={t("team.reload")} />
       </p>
     );
-  } else if (!showTabs) {
+  } else if (!shared) {
     body = (
       <div className="team-window-connect">
         <p className="team-window-lead">{t("teamWindow.connectIntro")}</p>
@@ -208,70 +181,67 @@ export function TeamWindow(props: {
   } else if (project !== null) {
     const status = statusFor(teamStore.statuses, project.id);
     const activity = teamStore.activities.get(project.id) ?? EMPTY_ACTIVITY;
-    switch (tab) {
-      case "now":
-        body = (
-          <NowTab
-            project={project}
-            status={status}
-            content={
-              <>
-                <TeamPeople activity={activity} />
-                <div className="team-stack">
-                  <TeamTasksView
-                    projectId={project.id}
-                    activity={activity}
-                    sessions={props.sessions}
-                    busy={teamStore.busy}
-                  />
-                  <TeamDecisionsView
-                    projectId={project.id}
-                    activity={activity}
-                    busy={teamStore.busy}
-                    manages={project.role === "owner" || project.role === "admin"}
-                    target={props.decisionTarget}
-                    onSend={props.onSendDecision}
-                  />
-                </div>
-              </>
-            }
-            busy={teamStore.busy.has(project.id)}
-          />
-        );
-        break;
-      case "people":
-        body = (
-          <ProjectDetails
-            // A project of its own gets fresh state: no problem left over from another one.
-            key={project.id}
-            project={project}
-            status={status}
-            activity={activity}
-            repos={teamStore.repos}
-            busy={teamStore.busy}
-          />
-        );
-        break;
-      case "requests":
-        body = (
-          <div className="team-requests">
-            <ReleaseRequests
-              requests={release}
-              projects={projects}
-              busy={teamStore.busy}
-              onLastAnswered={focusNow}
-            />
-            <PendingConfirmations
-              pending={teamStore.pending}
-              projects={projects}
-              busy={teamStore.busy}
-              onLastAnswered={focusNow}
-            />
-          </div>
-        );
-        break;
-    }
+    const invite =
+      project.canInvite && !noSeatHint(project, status) ? (
+        <InviteButton projectId={project.id} />
+      ) : undefined;
+    body = showManage ? (
+      <ProjectDetails
+        // A project of its own gets fresh state: no problem left over from another one.
+        key={project.id}
+        project={project}
+        status={status}
+        activity={activity}
+        repos={teamStore.repos}
+        busy={teamStore.busy}
+      />
+    ) : (
+      <TeamNow
+        project={project}
+        status={status}
+        busy={teamStore.busy.has(project.id)}
+        content={
+          <>
+            <TeamPeople activity={activity} invite={invite} />
+            <div className="team-stack">
+              <TeamTasksView
+                projectId={project.id}
+                activity={activity}
+                sessions={props.sessions}
+                busy={teamStore.busy}
+              />
+              <TeamDecisionsView
+                projectId={project.id}
+                activity={activity}
+                busy={teamStore.busy}
+                manages={project.role === "owner" || project.role === "admin"}
+                target={props.decisionTarget}
+                onSend={props.onSendDecision}
+              />
+            </div>
+          </>
+        }
+      />
+    );
   }
+
+  const waiting =
+    shared && requestCount > 0 ? (
+      <WaitingForYou>
+        <ReleaseRequests
+          requests={release}
+          projects={projects}
+          busy={teamStore.busy}
+          onLastAnswered={focusPanel}
+        />
+        <PendingConfirmations
+          pending={teamStore.pending}
+          projects={projects}
+          busy={teamStore.busy}
+          onLastAnswered={focusPanel}
+        />
+      </WaitingForYou>
+    ) : null;
 
   return (
     <div
@@ -285,12 +255,16 @@ export function TeamWindow(props: {
       onKeyDown={(event) => {
         if (event.key !== "Escape") return;
         event.stopPropagation();
-        onClose();
+        // From "Manage", Escape goes back to the team first; from there it closes the window.
+        if (showManage) {
+          setManaging(false);
+          manageButton.current?.focus();
+        } else onClose();
       }}
     >
       <div className="dialog-header team-window-header">
         <h2 id={titleId}>{t("team.title")}</h2>
-        {showTabs && project !== null && (
+        {shared && project !== null && (
           <ProjectSwitch
             projects={projects}
             current={project}
@@ -299,61 +273,35 @@ export function TeamWindow(props: {
             }}
           />
         )}
+        {shared && project !== null && (
+          <button
+            ref={manageButton}
+            type="button"
+            className={
+              showManage ? "secondary-button team-manage back" : "secondary-button team-manage"
+            }
+            title={showManage ? undefined : t("teamWindow.manageHelp")}
+            onClick={() => {
+              setManaging(!showManage);
+            }}
+          >
+            {showManage ? <ChevronIcon size={14} /> : <GearIcon size={14} />}
+            <span>{showManage ? t("teamWindow.back") : t("teamWindow.manage")}</span>
+          </button>
+        )}
         <button
           type="button"
           className="icon-button team-window-close"
           aria-label={t("common.close")}
           title={t("common.close")}
-          data-autofocus={showTabs ? undefined : true}
+          data-autofocus={shared ? undefined : true}
           onClick={onClose}
         >
           <CloseIcon />
         </button>
       </div>
-      {showTabs && (
-        <div
-          className="team-tabs"
-          role="tablist"
-          aria-label={t("teamWindow.tabs")}
-          aria-orientation="horizontal"
-          onKeyDown={onTabKey}
-        >
-          {tabs.map((id) => {
-            const selected = id === tab;
-            return (
-              <button
-                key={id}
-                ref={(element) => {
-                  if (element) tabButtons.current.set(id, element);
-                  else tabButtons.current.delete(id);
-                }}
-                type="button"
-                role="tab"
-                id={`${tabsId}-${id}`}
-                className="team-tab"
-                aria-selected={selected}
-                aria-controls={selected ? `${tabsId}-panel` : undefined}
-                tabIndex={selected ? 0 : -1}
-                data-autofocus={selected ? true : undefined}
-                onClick={() => {
-                  selectTab(id, false);
-                }}
-              >
-                {t(TAB_NAMES[id])}
-                {id === "requests" && (
-                  <span className="team-tab-count">{requestCount > 9 ? "9+" : requestCount}</span>
-                )}
-              </button>
-            );
-          })}
-        </div>
-      )}
-      <div
-        className="team-window-body"
-        {...(showTabs
-          ? { role: "tabpanel", id: `${tabsId}-panel`, "aria-labelledby": `${tabsId}-${tab}` }
-          : {})}
-      >
+      <div className="team-window-body">
+        {waiting}
         {body}
       </div>
       <DialogResizeHandles state={size} />
@@ -395,10 +343,28 @@ function ProjectSwitch(props: {
 }
 
 /**
- * "Now" of one project: while connected, who works on what and the reservations; otherwise what
- * the connection does, with the waiting help or "Connect" where that helps.
+ * Everything that waits for an answer from this device, on top of the window: release requests
+ * and devices to confirm, one at a time each. Gone once nothing is left.
  */
-function NowTab(props: {
+function WaitingForYou({ children }: { children: ReactNode }) {
+  const t = useT();
+  const titleId = useId();
+  return (
+    <section className="team-attention" aria-labelledby={titleId}>
+      <h3 id={titleId} className="team-attention-title">
+        {t("teamWindow.waitingForYou")}
+      </h3>
+      {children}
+    </section>
+  );
+}
+
+/**
+ * The team of one project: while connected, who is here and what each person works on, the tasks
+ * and decisions; otherwise what the connection does, with the waiting help or "Connect" where
+ * that helps.
+ */
+function TeamNow(props: {
   project: Project;
   status: TeamStatus;
   content: ReactNode;

@@ -1,5 +1,5 @@
 import { PersonIcon } from "./icons";
-import { initials } from "./teamOverview";
+import { initials, type Presence } from "./teamOverview";
 
 /**
  * A round avatar: the person's picture when there is one, else their initials, else a person
@@ -36,6 +36,24 @@ export function Avatar({
   return (
     <span className={shape} aria-hidden="true">
       {letters === "" ? <PersonIcon size={size === "normal" ? 14 : 11} /> : letters}
+    </span>
+  );
+}
+
+/**
+ * A teammate: their avatar with one presence dot, the same in the Team window, the sidebar and
+ * the session rows. Here is a filled dot, away a hollow ring, so the shape tells it apart as well
+ * as the color. Decorative like the avatar: the words stand next to it.
+ */
+export function PersonAvatar(props: {
+  name: string;
+  presence: Presence;
+  size?: "normal" | "small" | "mini";
+}) {
+  return (
+    <span className={`person-avatar ${props.size ?? "normal"}`} aria-hidden="true">
+      <Avatar name={props.name} size={props.size ?? "normal"} />
+      <span className={`presence-dot ${props.presence}`} />
     </span>
   );
 }

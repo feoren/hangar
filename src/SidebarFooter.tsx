@@ -1,7 +1,7 @@
 import { useEffect } from "react";
 
 import { accountButtonText, isSignedIn } from "./account";
-import { Avatar } from "./Avatar";
+import { Avatar, PersonAvatar } from "./Avatar";
 import { useT } from "./i18n";
 import { GearIcon, MoonIcon, SunIcon, TeamIcon } from "./icons";
 import { formatShortcut, SHORTCUT_LABELS } from "./shortcuts";
@@ -11,10 +11,14 @@ import type { Theme } from "./theme";
 import { useAccount, useAccountAvatar } from "./useAccount";
 import { loadTeamStatuses, useTeam } from "./useTeam";
 
+/** Online teammates shown as faces in the team pill; the count in its text says the rest. */
+const MAX_FACES = 3;
+
 /**
  * The sidebar's last row: who is signed in (a plain button: signed out it opens the Team window to
- * sign in, signed in Settings, Account; in a narrow sidebar only the avatar), the team pill (its
- * state mark and how many people are online, the rest in its tooltip; opens the Team window), the
+ * sign in, signed in Settings, Account; in a narrow sidebar only the avatar), the team pill (the
+ * faces of who is online, or its state mark, and a short state text, the names in its tooltip;
+ * opens the Team window), the
  * light and dark switch, the support link and Settings. The rail shows the same as icons.
  */
 export function SidebarFooter(props: {
@@ -44,6 +48,8 @@ export function SidebarFooter(props: {
   const pill = teamPill(teamStore.statuses, teamStore.activities, requests);
   const nameOf = (person: OnlinePerson) => personName(person, t);
   const teamLabel = pillLabel(pill, t, nameOf);
+  /** Faces only while all is well; anything that needs the person keeps the plain mark. */
+  const faces = pill.kind === "connected" ? pill.online.slice(0, MAX_FACES) : [];
   const settingsTitle = `${t("settings.title")} (${formatShortcut(SHORTCUT_LABELS.openSettings, t)})`;
   const account = accountButtonText(view, t);
 
@@ -131,7 +137,21 @@ export function SidebarFooter(props: {
           data-team-toggle=""
           onClick={props.onToggleTeam}
         >
-          <span className="team-mark" aria-hidden="true" />
+          {faces.length > 0 ? (
+            // Who is online, as the same avatars the Team window shows; the label names them.
+            <span className="team-pill-faces" aria-hidden="true">
+              {faces.map((person) => (
+                <PersonAvatar
+                  key={person.member}
+                  name={person.name}
+                  presence="online"
+                  size="mini"
+                />
+              ))}
+            </span>
+          ) : (
+            <span className="team-mark" aria-hidden="true" />
+          )}
           <span className="team-pill-text" aria-hidden="true">
             {pillText(pill, t)}
           </span>

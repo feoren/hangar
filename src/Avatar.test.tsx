@@ -1,7 +1,7 @@
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
 
-import { Avatar } from "./Avatar";
+import { Avatar, PersonAvatar } from "./Avatar";
 
 const PNG = "data:image/png;base64,iVBORw0KGgo=";
 
@@ -21,6 +21,15 @@ describe("Avatar", () => {
     }
     expect(renderToStaticMarkup(<Avatar name="" text="AB" size="mini" session />)).toBe(
       '<span class="avatar mini session" aria-hidden="true">AB</span>',
+    );
+  });
+
+  it("marks a teammate as here or away with one dot on the avatar", () => {
+    expect(renderToStaticMarkup(<PersonAvatar name="Ada Lovelace" presence="online" />)).toBe(
+      '<span class="person-avatar normal" aria-hidden="true"><span class="avatar normal" aria-hidden="true">AL</span><span class="presence-dot online"></span></span>',
+    );
+    expect(renderToStaticMarkup(<PersonAvatar name="Ada" presence="away" size="mini" />)).toContain(
+      'class="presence-dot away"',
     );
   });
 });
