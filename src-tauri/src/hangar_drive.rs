@@ -3,9 +3,12 @@
 //! public list of the folders it syncs, to mark the project cards. Hangar Drive asks the person to
 //! confirm every folder itself; nothing here adds a folder or writes a file of Hangar Drive.
 
+use std::collections::HashMap;
 use std::fs;
 use std::io::Read;
 use std::path::{Path, PathBuf};
+use std::sync::{Mutex, PoisonError};
+use std::time::{Duration, Instant};
 
 use serde::Serialize;
 use serde_json::Value;
@@ -20,8 +23,20 @@ const FOLDERS_CONTRACT: &str = "drive-folders 1";
 const MAX_FOLDERS_BYTES: u64 = 1024 * 1024;
 /// Entries read from the list at most.
 const MAX_FOLDERS: usize = 4096;
-/// Longer paths are refused before the file system is asked.
+/// Longer paths are refused before the file system is asked; Hangar Drive takes at most this many
+/// bytes of decoded path.
 const MAX_PATH_LEN: usize = 4096;
+/// Hangar Drive refuses a longer add-folder link. A path within [`MAX_PATH_LEN`] always fits
+/// (three characters per byte plus the prefix), so this is a last guard, not a second limit.
+const MAX_LINK_LEN: usize = 12_320;
+/// Hangar Drive keeps one proposal open and ignores new ones for 30 s after an outcome without an
+/// add, so the same folder is not handed over again within this time.
+const PROPOSAL_COOLDOWN: Duration = Duration::from_secs(30);
+/// Names Windows keeps for devices, also with an extension (`nul.txt`).
+const RESERVED_NAMES: [&str; 22] = [
+    "con", "prn", "aux", "nul", "com1", "com2", "com3", "com4", "com5", "com6", "com7", "com8",
+    "com9", "lpt1", "lpt2", "lpt3", "lpt4", "lpt5", "lpt6", "lpt7", "lpt8", "lpt9",
+];
 
 #[derive(Debug, thiserror::Error, PartialEq, Eq)]
 pub enum DriveError {
@@ -35,6 +50,8 @@ pub enum DriveError {
     NotLocalFolder,
     #[error("Too many folders at once")]
     TooMany,
+    #[error("The link for this folder would be too long")]
+    LinkTooLong,
     #[error("Background task aborted: {0}")]
     Task(String),
     #[error("Hangar Drive did not open: {0}")]
@@ -99,11 +116,12 @@ impl DriveLink {
 /// The link for `path`: exactly one query parameter, no fragment. Every byte outside the RFC 3986
 /// unreserved set is percent-encoded (a space as `%20`, never `+`), so `#`, `&`, `%` and `?` in a
 /// folder name cannot end or split the parameter.
-pub fn add_folder_link(path: &str) -> DriveLink {
-    DriveLink(format!(
-        "{SCHEME}://add-folder?path={}",
-        percent_encode(path)
-    ))
+pub fn add_folder_link(path: &str) -> Result<DriveLink, DriveError> {
+    let link = format!("{SCHEME}://add-folder?path={}", percent_encode(path));
+    if link.len() > MAX_LINK_LEN {
+        return Err(DriveError::LinkTooLong);
+    }
+    Ok(DriveLink(link))
 }
 
 fn percent_encode(text: &str) -> String {
@@ -257,10 +275,24 @@ fn local_form(canonical: &str, windows: bool) -> Option<String> {
     absolute(text, windows).then(|| text.to_owned())
 }
 
+/// A part of a Windows path that Hangar Drive refuses: a reserved device name (also with an
+/// extension, `CON.txt`) or a name that ends in a dot or a space, which Windows would drop.
+fn awkward_windows_part(part: &str) -> bool {
+    if part.ends_with('.') || part.ends_with(' ') {
+        return true;
+    }
+    let stem = part.split('.').next().unwrap_or(part).trim_end();
+    RESERVED_NAMES
+        .iter()
+        .any(|name| stem.eq_ignore_ascii_case(name))
+}
+
 /// Whether a path from the window may be offered to Hangar Drive before the file system is asked:
-/// local and absolute, no control characters, no UNC or device path, no `..`.
+/// local and absolute, no control characters, no UNC or device path, no `..`; on Windows also no
+/// reserved device name and no part ending in a dot or a space.
 pub fn plain_folder(path: &str, windows: bool) -> bool {
     absolute(path, windows)
+        && !(windows && path.split(['\\', '/']).skip(1).any(awkward_windows_part))
 }
 
 /// The folder as Hangar Drive gets it: an existing directory on a local fixed drive, resolved.
@@ -274,8 +306,46 @@ pub fn checked_folder(path: &str) -> Result<String, DriveError> {
         return Err(DriveError::NotLocalFolder);
     }
     let text = canonical.to_str().ok_or(DriveError::NotLocalFolder)?;
-    local_form(text, windows).ok_or(DriveError::NotLocalFolder)
+    local_form(text, windows)
+        .filter(|text| plain_folder(text, windows))
+        .ok_or(DriveError::NotLocalFolder)
 }
+
+/// When each folder was last handed to Hangar Drive, so a second click within
+/// [`PROPOSAL_COOLDOWN`] does not send a proposal Hangar Drive would only ignore.
+#[derive(Debug, Default)]
+pub struct Proposals {
+    sent: HashMap<String, Instant>,
+}
+
+impl Proposals {
+    /// Whether `folder` may be handed over at `now`; records it when it may.
+    pub fn allow(&mut self, folder: &str, now: Instant) -> bool {
+        self.sent
+            .retain(|_, at| now.saturating_duration_since(*at) < PROPOSAL_COOLDOWN);
+        if self.sent.contains_key(folder) {
+            return false;
+        }
+        self.sent.insert(folder.to_owned(), now);
+        true
+    }
+
+    /// Forgets `folder` after its link did not open, so the next click tries again at once.
+    pub fn forget(&mut self, folder: &str) {
+        self.sent.remove(folder);
+    }
+}
+
+fn with_proposals<T>(action: impl FnOnce(&mut Proposals) -> T) -> T {
+    action(
+        PROPOSALS
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .get_or_insert_with(Proposals::default),
+    )
+}
+
+static PROPOSALS: Mutex<Option<Proposals>> = Mutex::new(None);
 
 /// Whether the release build of Hangar Drive is installed for this user.
 ///
@@ -331,14 +401,22 @@ pub fn status(paths: &[String]) -> Result<DriveStatus, DriveError> {
     })
 }
 
-/// Hands `path` to Hangar Drive, which asks the person whether to back it up.
+/// Hands `path` to Hangar Drive, which asks the person whether to back it up. A folder handed
+/// over less than [`PROPOSAL_COOLDOWN`] ago is not sent again: Hangar Drive's question for it is
+/// still open, or Hangar Drive would ignore it.
 pub fn add_folder(path: &str) -> Result<(), DriveError> {
     if !installed() {
         return Err(DriveError::NotInstalled);
     }
     let folder = checked_folder(path)?;
-    crate::desktop::open_drive_link(&add_folder_link(&folder))
-        .map_err(|error| DriveError::Open(error.to_string()))
+    let link = add_folder_link(&folder)?;
+    if !with_proposals(|proposals| proposals.allow(&folder, Instant::now())) {
+        return Ok(());
+    }
+    crate::desktop::open_drive_link(&link).map_err(|error| {
+        with_proposals(|proposals| proposals.forget(&folder));
+        DriveError::Open(error.to_string())
+    })
 }
 
 #[cfg(test)]
@@ -366,7 +444,7 @@ mod tests {
     #[test]
     fn the_link_encodes_every_special_character() {
         let path = r"C:\Users\Jörg Müller\a#b&c%d?e+f=g";
-        let link = add_folder_link(path);
+        let link = add_folder_link(path).unwrap();
         let text = link.as_str();
         let value = text
             .strip_prefix("hangar-drive://add-folder?path=")
@@ -381,11 +459,77 @@ mod tests {
 
     #[test]
     fn the_link_keeps_unreserved_characters_and_unix_paths() {
-        let link = add_folder_link("/home/a/my-proj_1.0~x");
+        let link = add_folder_link("/home/a/my-proj_1.0~x").unwrap();
         assert_eq!(
             link.as_str(),
             "hangar-drive://add-folder?path=%2Fhome%2Fa%2Fmy-proj_1.0~x"
         );
+    }
+
+    #[test]
+    fn the_longest_path_still_gives_a_link_within_the_limit() {
+        let longest = "\u{e4}".repeat(MAX_PATH_LEN / 2);
+        assert_eq!(longest.len(), MAX_PATH_LEN);
+        let link = add_folder_link(&longest).unwrap();
+        assert!(link.as_str().len() <= MAX_LINK_LEN);
+        assert_eq!(
+            add_folder_link(&"a%".repeat(MAX_LINK_LEN / 2)),
+            Err(DriveError::LinkTooLong)
+        );
+    }
+
+    #[test]
+    fn a_plus_is_encoded_and_the_link_has_one_parameter_and_no_fragment() {
+        let link = add_folder_link(r"C:\a+b#c&path=d").unwrap();
+        let text = link.as_str();
+        assert!(text.ends_with("C%3A%5Ca%2Bb%23c%26path%3Dd"), "{text}");
+        assert_eq!(text.matches('?').count(), 1);
+        assert_eq!(text.matches('=').count(), 1);
+        assert!(!text.contains(['#', '&', '+']));
+    }
+
+    #[test]
+    fn reserved_names_and_trailing_dots_or_spaces_are_refused_on_windows() {
+        for path in [
+            r"C:\CON",
+            r"C:\a\con",
+            r"C:\a\Nul.txt",
+            r"C:\a\aux.tar.gz",
+            r"C:\a\COM1\b",
+            r"C:\a\lpt9",
+            r"C:\a\prn .txt",
+            r"C:\a\proj.",
+            r"C:\a\proj \b",
+            "C:/a/proj./b",
+        ] {
+            assert!(!plain_folder(path, true), "{path:?}");
+        }
+        for path in [
+            r"C:\a\console",
+            r"C:\a\com10",
+            r"C:\a\lpt",
+            r"C:\a\.git",
+            r"C:\a\my proj",
+            r"C:\a\v1.2",
+            r"C:\",
+        ] {
+            assert!(plain_folder(path, true), "{path:?}");
+        }
+        assert!(plain_folder("/home/a/con", false));
+        assert!(plain_folder("/home/a/proj.", false));
+    }
+
+    #[test]
+    fn the_same_folder_is_handed_over_once_per_cooldown() {
+        let start = Instant::now();
+        let mut proposals = Proposals::default();
+        assert!(proposals.allow(r"C:\a", start));
+        assert!(!proposals.allow(r"C:\a", start + Duration::from_secs(29)));
+        assert!(proposals.allow(r"C:\b", start + Duration::from_secs(1)));
+        assert!(proposals.allow(r"C:\a", start + PROPOSAL_COOLDOWN));
+        assert!(!proposals.allow(r"C:\a", start + PROPOSAL_COOLDOWN));
+        proposals.forget(r"C:\a");
+        assert!(proposals.allow(r"C:\a", start + PROPOSAL_COOLDOWN));
     }
 
     #[test]

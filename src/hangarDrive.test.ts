@@ -62,6 +62,26 @@ describe("isLocalFolder", () => {
       expect(isLocalFolder(path), path).toBe(false);
     }
   });
+
+  it("refuses reserved device names and parts ending in a dot or space on Windows", () => {
+    for (const path of [
+      "C:\\CON",
+      "C:\\a\\nul.txt",
+      "C:\\a\\Aux.tar.gz",
+      "C:\\a\\COM1\\b",
+      "C:\\a\\lpt9",
+      "C:\\a\\prn .txt",
+      "C:\\a\\proj.",
+      "C:\\a\\proj \\b",
+    ]) {
+      expect(isLocalFolder(path), path).toBe(false);
+    }
+    for (const path of ["C:\\a\\console", "C:\\a\\com10", "C:\\a\\.git", "C:\\a\\v1.2", "C:\\"]) {
+      expect(isLocalFolder(path), path).toBe(true);
+    }
+    expect(isLocalFolder("/home/a/con")).toBe(true);
+    expect(isLocalFolder("/home/a/proj.")).toBe(true);
+  });
 });
 
 describe("driveFolder", () => {

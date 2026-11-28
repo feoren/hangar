@@ -67,7 +67,21 @@ export function isLocalFolder(path: string): boolean {
   if (path.trim() === "" || hasControl(path)) return false;
   if (path.startsWith("\\\\") || path.startsWith("//")) return false;
   if (!/^(?:[A-Za-z]:(?:[\\/]|$)|\/)/.test(path)) return false;
-  return !path.split(/[\\/]/).includes("..");
+  const parts = path.split(/[\\/]/);
+  if (parts.includes("..")) return false;
+  return path.startsWith("/") || !parts.slice(1).some(awkwardWindowsPart);
+}
+
+/** Names Windows keeps for devices, also with an extension (`nul.txt`). */
+const RESERVED_NAME = /^(?:con|prn|aux|nul|com[1-9]|lpt[1-9])$/i;
+
+/**
+ * A part of a Windows path Hangar Drive refuses (Rust: `awkward_windows_part`): a reserved device
+ * name, also with an extension, or a name that ends in a dot or a space.
+ */
+function awkwardWindowsPart(part: string): boolean {
+  if (part.endsWith(".") || part.endsWith(" ")) return true;
+  return RESERVED_NAME.test((part.split(".")[0] ?? part).trimEnd());
 }
 
 /** What the session menu needs of a session. */

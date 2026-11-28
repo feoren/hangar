@@ -51,7 +51,14 @@ Option 3.
   Hangar Drive refuses UNC, device and relative paths too, so Hangar never offers them. The
   backend builds the link itself (`add_folder_link`): `hangar-drive://add-folder?path=<path>`,
   exactly one parameter, no fragment, every byte outside the RFC 3986 unreserved set
-  percent-encoded (space as `%20`, never `+`). Only that function makes a `DriveLink`, the one
+  percent-encoded (space as `%20`, never `+`), at most 12,320 characters for a path of at most
+  4096 bytes. Hangar Drive refuses a malformed link silently (it only logs), so Hangar checks
+  everything it refuses first; on Windows that includes reserved device names (`CON`, `PRN`,
+  `AUX`, `NUL`, `COM1` to `COM9`, `LPT1` to `LPT9`, also with an extension) and parts ending in a
+  dot or a space, both in the window's path and in the canonical one. Hangar Drive keeps one
+  proposal open and ignores new ones for 30 s after an outcome without an add, so the backend
+  hands the same folder over at most once per 30 s (`Proposals`, in memory; a link that did not
+  open is forgotten, so the next click retries). Only that function makes a `DriveLink`, the one
   non-web address `desktop::open_drive_link` opens: `ShellExecuteW` on Windows (as for web pages),
   the platform opener with the link as its one argument elsewhere. Hangar Drive always asks the
   person natively and shows its own notice when it is not set up, or when the folder is already in
@@ -64,7 +71,9 @@ Option 3.
   under a `dev` folder, which Hangar never reads. Hangar reads at most 1 MiB and 4096 entries; a
   missing file, broken JSON, another contract or a missing list means no marks; an entry without
   a usable local absolute path is left out; an unknown state still marks the folder, without a
-  state word (`other`). The list is read only while Hangar Drive counts as installed.
+  state word (`other`). `setUp: false` comes with an empty list; `updated` is the time of the
+  last change, not a heartbeat, so an old value never makes the list count as stale. The list is
+  read only while Hangar Drive counts as installed.
 - **Matching** (`covers`, `mark`): a project folder is in Hangar Drive when it equals a listed
   folder or lies inside it, part by part (`C:\a\proj2` is not inside `C:\a\proj`), `/` and `\`
   alike and without case on Windows, a leading `\\?\` dropped. Nested listed folders: the
@@ -99,7 +108,9 @@ Option 3.
 
 ## Evidence
 - Unit tests in `src-tauri/src/hangar_drive.rs`: link encoding (spaces, umlauts, `#`, `&`, `%`,
-  `?`, `+`, `=`), path checks (UNC, device, relative, `..`, control characters, length), the
+  `?`, `+`, `=`; one parameter, no fragment, the link length limit), path checks (UNC, device,
+  relative, `..`, control characters, length, reserved device names, trailing dots and spaces),
+  the 30 s cooldown per folder, the
   canonical form, real folders and files in a test folder, the folder list (unknown states, broken
   JSON, other contract, missing list, size limit, missing file), matching (case and separators on
   Windows, case on Unix, the sibling `proj2`, nested folders) and the registry command as a pure
