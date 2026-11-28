@@ -38,6 +38,9 @@
 #                    normally with args plus session_id_args and the same id.
 #   sub_agents       Optional. Where the program keeps sub-agent transcripts that Hangar can show
 #                    read-only; only "claude" so far (docs/wiki/pages/sources/subagent-transcripts.md).
+#   job_breakaway    Optional, default false. true: the program may start a process outside its
+#                    session's Job Object on purpose (CREATE_BREAKAWAY_FROM_JOB, Windows). Only
+#                    for a program that needs it: such a process does not end with the session.
 #   capabilities     Optional. What Hangar's agent gate can do with the program (team service
 #                    step B, docs/wiki/pages/syntheses/team-service-v1.md, section 1), all false by
 #                    default: { pre_edit_block, context_inject, per_session_config,
@@ -138,6 +141,36 @@
 #                    own; an own command with the same text replaces the catalog's. Only
 #                    commands found in the installed program or its docs:
 #                    docs/wiki/pages/syntheses/agent-commands.md.
+#   models           Optional. The vendor's models the "New session" menu offers for a start, in
+#                    this order: [{ id = "opus", label = "Opus 5.5" }, ...]. id: 1 to 160
+#                    characters from A-Z a-z 0-9 . _ : / @ + - [ ], no leading -; it goes into
+#                    {model}. label: 1 to 80 characters, shown as is. Requires model_args.
+#                    efforts: optional, the reasoning efforts a start can pick for this model,
+#                    in menu order (at most 12, each 1 to 32 characters from a-z 0-9 -, no
+#                    leading -); only levels the program documents for exactly this model.
+#                    Requires effort_args. default_effort: optional, one of efforts, only where
+#                    the program says which one it uses on its own; the menu marks it.
+#   model_args       Optional. How a vendor model goes into the start, with exactly the
+#                    placeholder {model}: ["--model", "{model}"]. Placed after the start
+#                    arguments, before agent_args and prompt_args.
+#   effort_args      Optional. How a chosen effort goes into the start, with exactly the
+#                    placeholder {effort}: ["--effort", "{effort}"]. Placed right after
+#                    model_args, only when the person picked an effort; without one the
+#                    program keeps its own default. Codex CLI's efforts per model come from its
+#                    own model list (src-tauri/src/codex_models.rs) when that file is readable.
+#   local            Optional. How the program runs against a local LLM server on this machine:
+#                    { ollama = { args = [...], env = { NAME = "value" } }, lmstudio = { ... } }.
+#                    {model} must appear in args or in an env value (for a program that takes
+#                    the model only from a variable). args go where model_args go; env is
+#                    applied last, after the profile's env and its secret_env, so a real
+#                    provider key never goes to the local port.
+#                    Placeholders in args and env values: {model} and {base} (the server's base
+#                    URL, http://127.0.0.1:11434 for Ollama, http://127.0.0.1:1234 for LM
+#                    Studio), nothing else. An empty env value sets the variable empty.
+#                    A user profile with the same id and program inherits models, model_args,
+#                    effort_args and local, each one it does not set itself; its own value
+#                    replaces the catalog's. Only flags and variables from the vendor docs:
+#                    docs/wiki/pages/decisions/0022-models-and-local-llm-servers.md.
 #
 # Source of all entries: official vendor docs, as of 2026-11-07
 # (docs/wiki/raw/2026-11-07-agent-clis-research.md, rules in docs/wiki/pages/agents/catalog.md).
@@ -175,6 +208,22 @@ agent_commands = [
   { label_key = "model", text = "/model" },
   { label_key = "clear", text = "/clear", confirm = true },
 ]
+# `--model <alias|id>` with the aliases fable, opus, sonnet, haiku. An alias always starts the
+# newest model of its family, so the labels name the family without a version number and never
+# go stale. Ollama and LM Studio speak the Anthropic Messages API; the variables are the ones
+# their docs give for Claude Code (ADR 0022). `claude --help` 2.1.332: `--effort <level>  Effort
+# level for the current session (low, medium, high, xhigh, max)`. Whether Haiku takes an effort is
+# not documented, so it offers none; which level is the default is not documented either, so no
+# model names one.
+models = [
+  { id = "fable", label = "Fable", efforts = ["low", "medium", "high", "xhigh", "max"] },
+  { id = "opus", label = "Opus", efforts = ["low", "medium", "high", "xhigh", "max"] },
+  { id = "sonnet", label = "Sonnet", efforts = ["low", "medium", "high", "xhigh", "max"] },
+  { id = "haiku", label = "Haiku" },
+]
+model_args = ["--model", "{model}"]
+effort_args = ["--effort", "{effort}"]
+local = { ollama = { args = ["--model", "{model}"], env = { ANTHROPIC_BASE_URL = "{base}", ANTHROPIC_AUTH_TOKEN = "ollama", ANTHROPIC_API_KEY = "" } }, lmstudio = { args = ["--model", "{model}"], env = { ANTHROPIC_BASE_URL = "{base}", ANTHROPIC_AUTH_TOKEN = "lmstudio", ANTHROPIC_API_KEY = "", CLAUDE_CODE_ATTRIBUTION_HEADER = "0" } } }
 icon = "C"
 homepage = "https://github.com/anthropics/claude-code"
 install_windows = "irm https://claude.ai/install.ps1 | iex"
@@ -216,6 +265,21 @@ agent_commands = [
   { label_key = "model", text = "/model" },
   { label_key = "new", text = "/new", confirm = true },
 ]
+# `-m <model>` (gpt-6.1-terra needs CLI 0.159.0+); local models through `--oss --local-provider`
+# (ADR 0022). The fallback list names no efforts: which ones a model takes comes from Codex's own
+# model list (`supported_reasoning_levels`), read in codex_models.rs. `-c
+# model_reasoning_effort=<level>` sets the session's effort (measured with 0.171.0:
+# docs/wiki/pages/sources/codex-subagent-model-measurement.md); `codex resume --help` 0.172.0
+# lists `-c` too.
+models = [
+  { id = "gpt-6.2-sol", label = "GPT-6.2 Sol" },
+  { id = "gpt-6.2-astra", label = "GPT-6.2 Astra" },
+  { id = "gpt-6.1-terra", label = "GPT-6.1 Terra" },
+  { id = "gpt-6-luna", label = "GPT-6 Luna" },
+]
+model_args = ["-m", "{model}"]
+effort_args = ["-c", "model_reasoning_effort={effort}"]
+local = { ollama = { args = ["--oss", "--local-provider", "ollama", "-m", "{model}"] }, lmstudio = { args = ["--oss", "--local-provider", "lmstudio", "-m", "{model}"] } }
 icon = "Cx"
 homepage = "https://github.com/openai/codex"
 install_windows = "powershell -ExecutionPolicy ByPass -c \"irm https://chatgpt.com/codex/install.ps1 | iex\""
@@ -249,6 +313,14 @@ agent_commands = [
   { label_key = "model", text = "/model" },
   { label_key = "clear", text = "/clear", confirm = true },
 ]
+# `-m <model>` with the aliases auto, pro, flash, flash-lite; no local models (ADR 0022).
+models = [
+  { id = "auto", label = "Auto" },
+  { id = "pro", label = "Pro" },
+  { id = "flash", label = "Flash" },
+  { id = "flash-lite", label = "Flash Lite" },
+]
+model_args = ["-m", "{model}"]
 icon = "G"
 homepage = "https://github.com/google-gemini/gemini-cli"
 install_windows = "npm install -g @google/gemini-cli"
@@ -281,6 +353,17 @@ capabilities = { pre_edit_block = true, context_inject = false, per_session_conf
 # 1.0.114 (listed, and a headless `--agent` run answered as the copy):
 # docs/wiki/pages/sources/sub-agent-formats-measurement.md.
 agent_program = "copilot"
+# Ollama through Copilot's OpenAI-compatible provider variables, as Ollama's Copilot CLI page gives
+# them (base with /v1, empty key, responses wire API): https://docs.ollama.com/integrations/copilot-cli.
+# `--model` sets the provider's model id before COPILOT_MODEL (changelog 1.0.109,
+# https://raw.githubusercontent.com/github/copilot-cli/main/changelog.md). GitHub sign-in is not
+# required with an own provider: https://docs.github.com/en/copilot/how-tos/copilot-cli/set-up-copilot-cli/authenticate-copilot-cli.
+# No LM Studio: neither GitHub nor LM Studio documents that route
+# (docs/wiki/pages/syntheses/local-models-per-agent.md).
+# LM Studio the same way: GitHub's BYOK page takes any OpenAI-compatible server with its /v1 URL,
+# and LM Studio serves POST /v1/responses (lmstudio.ai/docs/developer/openai-compat); only the
+# value "responses" is documented for COPILOT_PROVIDER_WIRE_API.
+local = { ollama = { args = ["--model", "{model}"], env = { COPILOT_PROVIDER_BASE_URL = "{base}/v1", COPILOT_PROVIDER_API_KEY = "", COPILOT_PROVIDER_WIRE_API = "responses" } }, lmstudio = { args = ["--model", "{model}"], env = { COPILOT_PROVIDER_BASE_URL = "{base}/v1", COPILOT_PROVIDER_API_KEY = "", COPILOT_PROVIDER_WIRE_API = "responses" } } }
 icon = "Co"
 homepage = "https://github.com/github/copilot-cli"
 install_windows = "winget install GitHub.Copilot"
@@ -312,6 +395,11 @@ id = "kimi"
 name = "Kimi Code CLI"
 commands = ["kimi"]
 resume_args = ["--continue"]
+# A model from the environment alone: KIMI_MODEL_* define a provider in memory that wins over
+# default_model and writes nothing (docs/en/configuration/env-vars.md); with it the TUI counts as
+# signed in, so no /login (envOverlay.ts, tui welcome.ts at 62402f17). The key is required, a
+# placeholder serves a local server; the OpenAI provider type takes any /v1 base.
+local = { ollama = { env = { KIMI_MODEL_NAME = "{model}", KIMI_MODEL_API_KEY = "ollama", KIMI_MODEL_PROVIDER_TYPE = "openai", KIMI_MODEL_BASE_URL = "{base}/v1" } }, lmstudio = { env = { KIMI_MODEL_NAME = "{model}", KIMI_MODEL_API_KEY = "lm-studio", KIMI_MODEL_PROVIDER_TYPE = "openai", KIMI_MODEL_BASE_URL = "{base}/v1" } } }
 icon = "K"
 homepage = "https://github.com/MoonshotAI/kimi-code"
 install_windows = "irm https://code.kimi.com/kimi-code/install.ps1 | iex"
@@ -329,6 +417,14 @@ commands = ["qwen"]
 # measurement pending (measured = false keeps it off):
 # docs/wiki/pages/syntheses/agent-gate-adapters.md.
 capabilities = { pre_edit_block = true, context_inject = true, per_session_config = true, hook_format = "qwen_system_settings", measured = false, min_version = "0.27.2" }
+# OpenAI-compatible auth from the environment alone: OPENAI_API_KEY, OPENAI_BASE_URL and
+# OPENAI_MODEL must all be set, so the key is a dummy (getAuthTypeFromEnv in
+# packages/cli/src/utils/modelConfigUtils.ts; docs/users/configuration/auth.md, both at
+# https://github.com/QwenLM/qwen-code/tree/1a5c8bb49fa388b81e4df8dcf7b37f47a3d8ca07). `--auth-type
+# openai` because a saved security.auth.selectedType wins over the environment
+# (packages/cli/src/config/config.ts); Ollama and LM Studio are named as OpenAI-compatible servers
+# in docs/users/configuration/model-providers.md.
+local = { ollama = { args = ["--auth-type", "openai", "--model", "{model}"], env = { OPENAI_BASE_URL = "{base}/v1", OPENAI_API_KEY = "ollama", OPENAI_MODEL = "{model}" } }, lmstudio = { args = ["--auth-type", "openai", "--model", "{model}"], env = { OPENAI_BASE_URL = "{base}/v1", OPENAI_API_KEY = "lm-studio", OPENAI_MODEL = "{model}" } } }
 icon = "Q"
 homepage = "https://github.com/QwenLM/qwen-code"
 install_windows = "irm https://qwen-code-assets.oss-cn-hangzhou.aliyuncs.com/installation/install-qwen-standalone.ps1 | iex"
@@ -395,6 +491,9 @@ capabilities = { pre_edit_block = false, context_inject = false, per_session_con
 # `aider --help` 0.86.2: `--read FILE` adds a read-only file. No first prompt: `--message` sends
 # one message and exits.
 instruction_args = ["--read", "{file}"]
+# Local only: its vendor list is open ended. LiteLLM's ollama_chat/ and lm_studio/ prefixes with
+# their base variables; LM_STUDIO_API_KEY is required, any value (ADR 0022).
+local = { ollama = { args = ["--model", "ollama_chat/{model}"], env = { OLLAMA_API_BASE = "{base}" } }, lmstudio = { args = ["--model", "lm_studio/{model}"], env = { LM_STUDIO_API_BASE = "{base}/v1", LM_STUDIO_API_KEY = "dummy-api-key" } } }
 icon = "A"
 homepage = "https://github.com/Aider-AI/aider"
 install_windows = "python -m pip install aider-install && aider-install"
@@ -417,6 +516,20 @@ install_windows = "Invoke-WebRequest -Uri \"https://raw.githubusercontent.com/aa
 install_unix = "curl -fsSL https://github.com/aaif-goose/goose/releases/download/stable/download_cli.sh | bash"
 latest = { github = "aaif-goose/goose", tag_prefix = "v" }
 self_update = { args = ["update"], aware = true }
+# Ollama from the environment alone: GOOSE_PROVIDER and GOOSE_MODEL override the config file for
+# the process (documentation/docs/guides/config-files.md; `GOOSE_PROVIDER=ollama` in
+# documentation/docs/guides/custom-distributions.md), OLLAMA_HOST is the Ollama provider's host
+# (documentation/docs/getting-started/providers.md), all at
+# https://github.com/aaif-goose/goose/tree/v1.61.1. `goose session` takes the provider from the
+# environment before the config file (crates/goose-cli/src/session/builder.rs). The documented
+# `goose session` options have no model flag, so the model goes only into GOOSE_MODEL; on a
+# resume the session's saved provider and model win (same file). No LM Studio: the docs name the
+# provider only as "LM Studio" in `goose configure`, not its id
+# (docs/wiki/pages/syntheses/local-models-per-agent.md).
+# LM Studio: the declarative provider `lmstudio` reads its host from LMSTUDIO_HOST and appends
+# /v1/chat/completions itself, without a key (crates/oi-kit-providers/src/declarative/definitions/
+# lmstudio.json and declarative.rs at v1.61.1).
+local = { ollama = { env = { GOOSE_PROVIDER = "ollama", GOOSE_MODEL = "{model}", OLLAMA_HOST = "{base}" } }, lmstudio = { env = { GOOSE_PROVIDER = "lmstudio", GOOSE_MODEL = "{model}", LMSTUDIO_HOST = "{base}" } } }
 
 [[agent]]
 id = "crush"
@@ -455,6 +568,12 @@ commands = ["omp"]
 # live measurement pending (not installed; measured = false keeps it off):
 # docs/wiki/pages/syntheses/agent-gate-adapters.md. Floor: the version the research read.
 capabilities = { pre_edit_block = true, context_inject = false, per_session_config = true, hook_format = "omp_extension", measured = false, min_version = "18.19.0" }
+# Ollama and LM Studio are built-in, keyless providers found without a models.yml entry; their
+# bases come from OLLAMA_BASE_URL (no /v1) and LM_STUDIO_BASE_URL (with /v1). `--model
+# <provider>/<id>` picks the model; OMP_SKIP_SETUP skips the first-run setup scenes. docs/providers.md,
+# docs/cli-reference.md and docs/environment-variables.md at
+# https://github.com/can1357/oh-my-pi/tree/deddfd6134fbe856ef01cc306fb716fe6b91daa4/docs.
+local = { ollama = { args = ["--model", "ollama/{model}"], env = { OLLAMA_BASE_URL = "{base}", OMP_SKIP_SETUP = "1" } }, lmstudio = { args = ["--model", "lm-studio/{model}"], env = { LM_STUDIO_BASE_URL = "{base}/v1", OMP_SKIP_SETUP = "1" } } }
 icon = "OP"
 homepage = "https://github.com/can1357/oh-my-pi"
 install_windows = "irm https://omp.sh/install.ps1 | iex"
@@ -538,6 +657,42 @@ icon = "Am"
 homepage = "https://ampcode.com/manual"
 latest = { npm = "@sourcegraph/amp", compare = "equal" }
 packages = { npm = "@sourcegraph/amp", winget = "Sourcegraph.Amp" }
+
+# Nous Research's Hermes Agent: `hermes` starts it interactively. The CLI reference lists
+# `hermes chat --provider <id> -m <model>` with the provider id `lmstudio` (LM Studio's default
+# server, http://localhost:1234/v1). Local Ollama is the custom endpoint (base with /v1, no key).
+# `--cli` keeps the classic REPL. website/docs/reference/cli-commands.md,
+# website/docs/integrations/providers.md and hermes_cli/_parser.py at
+# https://github.com/NousResearch/hermes-agent/tree/28ef6e4e7d1df3015bf786dea6b0d355baf5c211.
+[[agent]]
+id = "hermes"
+name = "Hermes Agent"
+commands = ["hermes"]
+# Its gateway runs on with CREATE_BREAKAWAY_FROM_JOB; without the job's leave Hermes stops with
+# "windows_breakaway_unavailable".
+job_breakaway = true
+# Ollama: `--provider ollama` (an alias of the custom endpoint) with the endpoint from
+# CUSTOM_BASE_URL. `--base-url` and `--api-key` are parsed but not passed on to the classic chat
+# (`_CHAT_PASSTHROUGH` in hermes_cli/main.py at bb834a2), so `--provider custom --base-url` stops
+# with "provider 'custom' resolved without credentials"; the alias with CUSTOM_BASE_URL answered
+# through Ollama when run on 2026-11-27 (docs/wiki/pages/syntheses/local-models-per-agent.md).
+local = { ollama = { args = ["chat", "--cli", "--provider", "ollama", "-m", "{model}"], env = { CUSTOM_BASE_URL = "{base}/v1" } }, lmstudio = { args = ["chat", "--provider", "lmstudio", "-m", "{model}"] } }
+icon = "H"
+homepage = "https://github.com/NousResearch/hermes-agent"
+install_windows = "iex (irm https://hermes-agent.nousresearch.com/install.ps1)"
+install_unix = "curl -fsSL https://hermes-agent.nousresearch.com/install.sh | bash"
+
+# OpenClaw: `openclaw tui --local` runs without a gateway. No model flag at the start (models
+# change with /model inside the session), so neither models nor local (ADR 0022).
+[[agent]]
+id = "openclaw"
+name = "OpenClaw"
+commands = ["openclaw"]
+args = ["tui", "--local"]
+icon = "OC"
+homepage = "https://github.com/openclaw/openclaw"
+install_windows = "iwr -useb https://openclaw.ai/install.ps1 | iex"
+install_unix = "curl -fsSL https://openclaw.ai/install.sh | bash"
 
 # First prompts Hangar gives an agent with prompt_args on a fresh start (instructions.rs).
 # worktree: the session starts in a worktree Hangar has just created from the folder's branch

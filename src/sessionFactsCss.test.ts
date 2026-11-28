@@ -23,6 +23,9 @@ const CELL_GAP_PX = 6;
  * Edge at 125 %. */
 const NARROWEST_TEXT_PX = 210;
 
+/** The stylesheet without its container queries: the rules of a line wide enough for all. */
+const WIDE_CSS = CSS.replace(/@container[^{]*\{(?:[^{}]*\{[^{}]*\})*[^{}]*\}/g, "");
+
 /** Declarations of every top level rule whose selector list contains `selector`. */
 function declarations(selector: string, css = CSS): Map<string, string> {
   const found = new Map<string, string>();
@@ -168,7 +171,8 @@ describe("the first line: signs, title, state", () => {
   it("puts the one-word state in a fixed cell; only the title gives way", () => {
     const state = declarations(".session-state");
     expect(state.get("flex")).toBe("none");
-    const status = declarations(".session-status");
+    // A narrow title line loosens the cell ("the title line" below).
+    const status = declarations(".session-status", WIDE_CSS);
     expect(status.get("flex")).toBe("none");
     expect(status.get("min-width")).toBe("var(--state-word)");
     // "Entscheidung" in bold, the widest word in every language: 70.3 px at 11.5 px.
@@ -223,16 +227,23 @@ describe("the second line: folder at the start, branch at the right", () => {
 });
 
 describe("the title line", () => {
-  // In a narrow row the rate and then the context's bar step back, so the title stays readable
-  // and nothing runs past the row's edge.
-  it("gives up the rate, then the context's bar, never the title or the state", () => {
+  // In a narrow row the flow's rates, the state's fixed cell and the context's bar step back
+  // before the output rate, so it stays at the default sidebar width (title line 239 px), the
+  // title stays readable and nothing runs past the row's edge.
+  it("gives up the flow's rates, the state's cell, the context's bar, then the output rate", () => {
     expect(declarations(".session-title-row").get("container")).toBe("title-line / inline-size");
     const steps = [...CSS.matchAll(/@container title-line \(max-width: (\d+)px\) \{([^}]*)\}/g)];
     expect(
       steps.map((step) => [Number(step[1]), (step[2] ?? "").trim().split(/\s*\{/)[0]]),
     ).toEqual([
       [330, ".tree-flow-rate"],
+      [260, ".session-status"],
       [230, ".session-context-mini .session-context-bar"],
+      [225, ".session-speed"],
     ]);
+    // The state's word keeps its own width there; it never disappears.
+    const cell = steps.find((step) => step[1] === "260")?.[2] ?? "";
+    expect(cell).toMatch(/min-width:\s*0;/);
+    expect(cell).not.toContain("display");
   });
 });

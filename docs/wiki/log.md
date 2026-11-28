@@ -1793,3 +1793,67 @@ A `shell_environment_policy` in a project's `.codex/config.toml` between the wor
 the repository root (top level or in a profile table), or such a file that cannot be read as TOML,
 now means the Codex session is not offered sending; project layering is not measured. Updated:
 [[codex-shell-environment-measurement]] (and its raw record).
+
+## [2026-11-27] ingest | Model choice per start and local LLM servers
+New decision [[0022-models-and-local-llm-servers]]: the vendor models of Claude Code, Codex CLI and
+Gemini CLI and the models of a running Ollama or LM Studio can be picked per start; Hermes Agent
+and OpenClaw join the catalog. Facts from the official docs of Ollama, LM Studio, Claude Code,
+Codex CLI, Gemini CLI, Aider, Hermes Agent and OpenClaw (URLs in the decision).
+
+## [2026-11-27] ingest | Models per start: catalog page, restore without a lost model
+[[catalog]] gains the fields `models`, `model_args` and `local` and the entries Hermes Agent and
+OpenClaw. [[0022-models-and-local-llm-servers]] now says that a stored model a file cannot use
+costs only the model, that a restore whose model is gone starts with the program's default, and
+that `codex resume` takes `-m`, `--oss` and `--local-provider` (source read in the Codex
+repository).
+
+## [2026-11-27] ingest | Output rate of a Claude Code session
+Own measurement [[output-rate-measurement]] (raw `2026-11-27-output-rate-measurement.md`): final
+`output_tokens` on every record of a response, `user` records as the start of a response,
+response times and output rates of three main transcripts. [[context-window-measurement]] notes
+the poll that now runs every second while a transcript grows.
+
+## [2026-11-27] query | Local models per agent
+Checked every catalog agent without a `local` entry, and Hermes against Ollama, in the official
+docs and source: which interactive sessions start against Ollama or LM Studio from argv and env
+alone. Offered now: Hermes Agent (Ollama as its custom endpoint), Qwen Code and Oh My Pi (both
+servers), Copilot CLI (Ollama). New: [[local-models-per-agent]]. Updated: [[catalog]],
+[[0022-models-and-local-llm-servers]], index.
+
+## [2026-11-27] query | Local models: {model} in env, Goose
+The `local` rule now accepts `{model}` in the args or in at least one env value. Goose joins
+against Ollama (`GOOSE_PROVIDER`, `GOOSE_MODEL`, `OLLAMA_HOST`, no args); Goose with LM Studio and
+Kimi Code CLI stay out (provider id undocumented; first-launch `/login` not ruled out). Updated:
+[[0022-models-and-local-llm-servers]], [[local-models-per-agent]], [[catalog]], index.
+
+## [2026-11-27] query | Local models: review of the new entries
+Re-read the cited sources for Hermes, Copilot CLI, Qwen Code, Oh My Pi and Goose; every entry
+holds. Added from source: Hermes' TUI refusal of `--base-url` and its first-run prompt when no
+provider is configured, Qwen Code's startup auth dialog only without a resolved auth type, and
+Goose keeping the saved provider and model on a resume (its source has `--provider` and
+`--model` on `goose session`, its docs do not). Updated: [[local-models-per-agent]].
+
+## [2026-11-27] update | Output rate stays on the row
+The row's output rate no longer fades: once a session had a measured response, the rate of the
+last window with one stays, flagged as not live (dimmed on the row, "Last response" in the peek),
+in every state; it survives a fresh read and another conversation id. Below a 260 px title line
+the state word gives up its fixed cell before the rate steps back (225 px), so the rate shows at
+the default sidebar width. Updated: [[output-rate-measurement]].
+
+## [2026-11-27] update | Reasoning effort per start
+ADR 0022 amended: a vendor model may carry `efforts` and `default_effort`, a program `effort_args`
+with `{effort}`. Claude Code offers `--effort` low to max for Fable, Opus and Sonnet (not Haiku,
+not documented), Codex CLI the levels and default of its own model list through `-c
+model_reasoning_effort=<level>`. The flyout opens a model's levels in a submenu; the badge names
+the level. Updated: [[0022-models-and-local-llm-servers]].
+
+## [2026-11-27] ingest | Hangar status line
+ADR 0023: Claude Code, Qwen Code and Codex CLI started from Hangar show Hangar's status line
+(`hangar status-line`, Codex's built-in items in Hangar's order), every other agent a Hangar bar
+above the terminal. Measured Codex's `tui.status_line` override, its item ids and the renderer's
+timing. New: [[0023-hangar-status-line]], [[status-line-measurement]].
+
+## [2026-11-27] schema | Status line in the owner's look
+ADR 0023 amended: the renderer now matches the owner's Claude Code status line (emoji labels,
+`[model]`, ` | `, e-mail, cold cache word in the interface language, cache miss causes).
+Pages changed: [[0023-hangar-status-line]].

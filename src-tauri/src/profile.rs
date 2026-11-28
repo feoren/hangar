@@ -7,6 +7,7 @@ use std::path::{Path, PathBuf};
 use serde::Deserialize;
 
 use crate::install_source::{Packages, SelfUpdate};
+use crate::start_model::{LocalSpecs, ModelOption, ModelSpec};
 use crate::updates::{Latest, PlatformHint};
 
 pub const FILE_NAME: &str = "profiles.toml";
@@ -75,9 +76,34 @@ pub struct Profile {
     /// Added after the catalog's when the profile starts the catalog's program.
     #[serde(default, rename = "agent_commands")]
     pub agent_commands: Vec<crate::agent_commands::AgentCommand>,
+    /// The vendor's models the start menu offers (ADR 0022); replaces the catalog's list. A
+    /// profile that starts the catalog's program and leaves it out takes the catalog's.
+    #[serde(default)]
+    pub models: Option<Vec<ModelOption>>,
+    /// How a vendor model goes into the start, with `{model}`; replaces the catalog's.
+    #[serde(default, rename = "model_args")]
+    pub model_args: Option<Vec<String>>,
+    /// How a model's reasoning effort goes into the start, with `{effort}`; replaces the
+    /// catalog's.
+    #[serde(default, rename = "effort_args")]
+    pub effort_args: Option<Vec<String>>,
+    /// How the program runs against a local LLM server; replaces the catalog's.
+    #[serde(default)]
+    pub local: Option<LocalSpecs>,
 }
 
 impl Profile {
+    /// What the program offers for a model choice at the start ([`crate::start_model`]).
+    pub fn model_spec(&self) -> ModelSpec<'_> {
+        ModelSpec {
+            program: &self.name,
+            models: self.models.as_deref().unwrap_or_default(),
+            model_args: self.model_args.as_deref(),
+            effort_args: self.effort_args.as_deref(),
+            local: self.local.as_ref(),
+        }
+    }
+
     /// Arguments for resuming, if the profile has any. An empty list counts as none.
     pub fn resume_args(&self) -> Option<&[String]> {
         self.resume_args.as_deref().filter(|args| !args.is_empty())
@@ -207,6 +233,21 @@ pub fn parse(source: &str) -> Result<Vec<Profile>, ProfileError> {
             });
         }
         if let Err(problem) = crate::agent_commands::check(&profile.agent_commands) {
+            return Err(ProfileError::Invalid {
+                profile: label.clone(),
+                problem,
+            });
+        }
+        // `model_args` and `effort_args` may come from the catalog entry the profile replaces.
+        if let Err(problem) = crate::start_model::check(
+            crate::start_model::ModelFields {
+                models: profile.models.as_deref(),
+                model_args: profile.model_args.as_deref(),
+                effort_args: profile.effort_args.as_deref(),
+                local: profile.local.as_ref(),
+            },
+            false,
+        ) {
             return Err(ProfileError::Invalid {
                 profile: label.clone(),
                 problem,
@@ -531,6 +572,47 @@ command='a'
             )),
             Err(ProfileError::Parse(_))
         ));
+    }
+
+    #[test]
+    fn models_and_local_servers_are_read_and_checked() {
+        let profiles = parse(
+            r#"
+            [[profile]]
+            id = "claude"
+            name = "Claude"
+            command = "claude"
+            models = [{ id = "opus", label = "Opus" }]
+            model_args = ["--model", "{model}"]
+            local = { ollama = { args = ["--model", "{model}"], env = { ANTHROPIC_BASE_URL = "{base}", ANTHROPIC_API_KEY = "" } } }
+
+            [[profile]]
+            id = "mine"
+            name = "Mine"
+            command = "claude"
+            models = [{ id = "sonnet", label = "Sonnet" }]
+            "#,
+        )
+        .unwrap();
+        let claude = &profiles[0];
+        assert_eq!(claude.models.as_ref().unwrap()[0].id, "opus");
+        assert_eq!(claude.model_args.as_deref().unwrap()[1], "{model}");
+        let ollama = claude.local.as_ref().unwrap().ollama.as_ref().unwrap();
+        assert_eq!(ollama.env["ANTHROPIC_API_KEY"], "");
+        // A profile may leave model_args to the catalog entry it replaces.
+        assert!(profiles[1].model_args.is_none());
+
+        for bad in [
+            r#"model_args = ["--model"]"#,
+            r#"models = [{ id = "-x", label = "X" }]"#,
+            r#"local = { ollama = { args = ["--oss"] } }"#,
+            r#"local = { ollama = { args = ["{model}"], env = { "A-B" = "x" } } }"#,
+            r#"local = { ollama = { args = ["{model}", "{host}"] } }"#,
+            r#"local = { cloud = { args = ["{model}"] } }"#,
+        ] {
+            let source = format!("[[profile]]\nid='a'\nname='A'\ncommand='a'\n{bad}\n");
+            assert!(parse(&source).is_err(), "{bad}");
+        }
     }
 
     #[test]

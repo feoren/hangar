@@ -3,11 +3,11 @@
 // input path (deleting a selection, Enter from a button) reaches only one of them.
 
 import { promptWorthShowing } from "./lastPrompt";
-import { PromptLineTracker } from "./promptTitle";
+import { PromptLineTracker } from "./promptLine";
 
 /** Everything that reads the lines a session's user submits. */
 export interface TypedLineConsumers {
-  /** Every line, in shells too: the handover, the timeline and the session title judge it. */
+  /** Every line, in shells too: the handover and the timeline judge it. */
   line(line: string, agent: boolean): void;
   /**
    * Agent sessions only: the lines of one chunk worth showing in the last prompt bar, cleaned

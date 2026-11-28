@@ -47,7 +47,7 @@ use crate::persist::read_limited;
 
 /// The keys read from each file: includes, filter drivers, hooks named in the config, and paths
 /// git opens on its own. Section and key names come lower case from git, subsections as written.
-const GUARD_KEYS: &str = r"^(include\.path|includeif\..+\.path|filter\..+\.(clean|smudge|process)|hook\..+\.command|core\.(excludesfile|attributesfile|worktree)|mailmap\.file|diff\.orderfile)$";
+const GUARD_KEYS: &str = r"^(include\.path|includeif\..+\.path|filter\..+\.(clean|smudge|process)|hook\..+\.command|core\.(excludesfile|attributesfile|worktree)|mailmap\.file|diff\.orderfile|commit\.template)$";
 /// git's own limit for nested includes.
 const MAX_INCLUDE_DEPTH: usize = 10;
 /// git's own limit for nested alternates: files at depth 0 to 5 are read (`link_alt_odb_entries`
@@ -497,7 +497,8 @@ fn scan(
             } else if let Some(rest) = key.strip_prefix("hook.") {
                 config.hooks.insert(subsection(rest)?);
             } else if let Some(value) = value {
-                // A path git opens: an exclude, attributes, mailmap or order file, the work tree.
+                // A path git opens: an exclude, attributes, mailmap or order file, a commit template, the work
+                // tree.
                 let (target, from_home) = expand(&value, base)?;
                 if !allowed(start, &target, from_home) {
                     return Err(Refusal::Remote);

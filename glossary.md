@@ -43,6 +43,7 @@ UI texts in `src/i18n.ts` are translated per language and are not bound by this 
 | Sockel (Crew)                                   | plinth                            | block under a figure, its color shows the state; `CrewState`                                     |
 | Sprechblase (Crew)                              | speech bubble                     | short text of what a figure does; `crewText.ts`                                                  |
 | Kontextanzeige                                  | context meter                     | context window use of an agent session on its row, `ContextLine.tsx`                             |
+| Ausgaberate (Token pro Sekunde)                 | output rate                       | output tokens per second of a working Claude Code session; `OutputRate`, `RowSpeed`              |
 | Kostenübersicht                                 | cost overview                     | tokens and estimated cost per session and day, `cost_service.rs`, `CostDialog.tsx`               |
 | Preistabelle                                    | price table                       | dollars per million tokens per model, `model_prices.toml`, user `model-prices.toml`              |
 | Kostenbuch                                      | cost ledger                       | per conversation id and local day, `cost-ledger.json`                                            |
@@ -214,6 +215,8 @@ UI texts in `src/i18n.ts` are translated per language and are not bound by this 
 | Energiesparmodus (des Systems)                  | battery saver                     | Windows `SystemStatusFlag`; state `saver`                                                        |
 | Push aufs Handy                                 | push (to the phone)               | `push.rs`, `phonePush.ts`; ntfy or Pushover, opt-in                                              |
 | Statuszeile (Session)                           | status line                       | `statusLine.ts`; status, folder, branch, run time                                                |
+| Statuszeile von Hangar (im Programm)            | Hangar status line                | drawn by the agent CLI itself; setting `statusLine`, `SessionInfo.statusLine`                    |
+| Hangar-Leiste                                   | Hangar bar                        | `HangarBar.tsx`, `hangarBarFacts.ts`; facts above an agent terminal, setting `hangarBar`         |
 | Laufzeit (Session)                              | run time                          | since the process started                                                                        |
 | Taskleisten-Zähler                              | taskbar badge                     | `taskbarBadge.ts`; overlay icon on Windows                                                       |
 | Eigener Worktree (Session)                      | own worktree                      | `worktree.ts`; branch `hangar/<slug>` per session                                                |
@@ -241,7 +244,6 @@ UI texts in `src/i18n.ts` are translated per language and are not bound by this 
 | Letzter Prompt (Leiste)                         | last prompt bar                   | the user's last prompt above an agent's terminal; click jumps there; `lastPrompt.ts`             |
 | Zeilenkommentar (Diff)                          | line comment                      | `@path:line: text` from a diff line into the agent's prompt; `lineComment`                       |
 | Fertig-Hinweis                                  | done notice                       | changed files after an agent session stops working; `doneNotice.ts`                              |
-| Name aus dem ersten Prompt                      | prompt title                      | an agent session named after its first task; `promptTitle.ts`                                    |
 | Dev-Server (lokal)                              | dev server                        | local address found in a session's output; `devServer.ts`, globe on the row                      |
 | Upstream (Branch)                               | upstream                          | the branch's tracking branch, e.g. `origin/main`                                                 |
 | Nicht gepusht                                   | unpushed                          | on HEAD but not on the upstream; `CommitSummary.pushed`                                          |

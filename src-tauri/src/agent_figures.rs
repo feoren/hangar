@@ -380,6 +380,10 @@ impl FigureStore {
         if !valid_name(name) {
             return Err(FigureError::InvalidName);
         }
+        // The clipboard's image is foreign data: sizes and buffer length are checked before
+        // any pixel is read.
+        crate::paste_image::check(&image)
+            .map_err(|error| FigureError::Clipboard(error.to_string()))?;
         let image = fit(image, PASTE_SIDE);
         let png = crate::paste_image::encode(&image)
             .map_err(|error| FigureError::Clipboard(error.to_string()))?;

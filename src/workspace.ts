@@ -2,7 +2,8 @@
 // one was active and the message queued for each, plus trimming the saved scrollback.
 // Pure logic without backend; contract: docs/wiki/pages/syntheses/session-restore.md.
 
-import type { SessionKind, Worktree } from "./api";
+import type { SessionKind, SessionModel, Worktree } from "./api";
+import { parseSessionModel } from "./localLlm";
 import { normalizeMarkerColor, storedEmoji } from "./marker";
 import { cleanQueuedText } from "./messageQueue";
 import { validAgentName } from "./subAgentLibrary";
@@ -36,6 +37,11 @@ export interface SavedSession {
   cliSessionId: string | null;
   /** The sub-agent definition the session runs as, started as that one again; else `null`. */
   subAgent: string | null;
+  /**
+   * The model chosen at the start (ADR 0022), started with it again. Left out without one, so a
+   * workspace without models reads as before.
+   */
+  model?: SessionModel;
   /**
    * The message queued for the session (messageQueue.ts), as it is queued: not blank, at most
    * MAX_QUEUED_CHARS; else `null`. Comes back disarmed after a restart.
@@ -77,6 +83,7 @@ export interface SessionEntry {
   worktree?: Worktree | null | undefined;
   cliSessionId?: string | null | undefined;
   subAgent?: string | null | undefined;
+  model?: SessionModel | null | undefined;
   queuedMessage?: string | null | undefined;
 }
 
@@ -164,6 +171,7 @@ export function buildWorkspace(
       worktree: parseWorktree(entry.worktree ?? null),
       cliSessionId,
       subAgent: validAgentName(entry.subAgent) ? entry.subAgent : null,
+      ...modelField(entry.model),
       queuedMessage: storedQueuedMessage(entry.queuedMessage),
     });
   }
@@ -173,6 +181,12 @@ export function buildWorkspace(
     sessions,
     activeKey: active !== null && seen.has(active) ? active : null,
   };
+}
+
+/** The `model` field of a saved session: present only with a valid choice. */
+function modelField(value: unknown): { model?: SessionModel } {
+  const model = parseSessionModel(value);
+  return model === null ? {} : { model };
 }
 
 function savedSession(value: unknown): SavedSession | null {
@@ -206,6 +220,8 @@ function savedSession(value: unknown): SavedSession | null {
     worktree,
     cliSessionId,
     subAgent: validAgentName(subAgent) ? subAgent : null,
+    // Missing before 0.17.0; an invalid choice only costs the model, not the session.
+    ...modelField(field("model")),
     // Missing before 0.14.0; a malformed message only costs the message.
     queuedMessage: storedQueuedMessage(field("queuedMessage")),
   };

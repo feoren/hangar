@@ -76,6 +76,8 @@ describe("parseSettings", () => {
       gateEnabled: false,
       commandGuardEnabled: false,
       hangarMd: false,
+      statusLine: false,
+      hangarBar: false,
       worktreeUpstreamCheck: false,
       warnMultilinePaste: false,
       programs: { order: ["b", "a"], hidden: ["a"], icons: {} },
@@ -107,6 +109,7 @@ describe("parseSettings", () => {
       commandGuardEnabled: true,
       autoUpdate: true,
       hangarMd: true,
+      statusLine: true,
       warnMultilinePaste: true,
       snippets: defaultSnippets("en"),
       // Whether dictation is on too; model, language and key stay in storage.
@@ -289,6 +292,7 @@ describe("parseSettings", () => {
       warnMultilinePaste: false,
       autoUpdate: false,
       hangarMd: true,
+      statusLine: true,
       snippets: defaultSnippets("en"),
     });
     for (const broken of ["{broken", "[false]", "42"]) {
@@ -296,6 +300,7 @@ describe("parseSettings", () => {
         warnMultilinePaste: true,
         autoUpdate: true,
         hangarMd: true,
+        statusLine: true,
         snippets: defaultSnippets("en"),
       });
     }

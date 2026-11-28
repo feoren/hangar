@@ -58,9 +58,10 @@ created for the user only (0700 and 0600 on Unix, like the notes; on Windows the
   earlier than 48 hours ago.
 - **Never stored:** terminal output, prompts, environment variables, secrets, file contents.
 - **Titles are kept, on purpose.** Without them the review cannot say which session did what.
-  A title Hangar derives from the first prompt ([[agent-workflow-features]]) is the start of
-  its first line, at most 48 characters (`PROMPT_TITLE_MAX` in `promptTitle.ts`), and the same
-  title is already stored in `workspace.json`. What the log adds is retention: the title stays
+  Since 0.17.0 Hangar no longer names a session after its first prompt: a session without a
+  name of the person's shows its project folder. Titles an earlier version derived from a prompt
+  (at most 48 characters) stay until the session is renamed, and are already stored in
+  `workspace.json`. What the log adds is retention: the title stays
   for 90 days after the session closed. A title the user typed is the user's own name for the
   session. The log cuts any title to 200 characters and removes control characters; the
   prompt itself is never stored. Leaving titles out was rejected: a list of "Claude Code" rows

@@ -201,17 +201,11 @@ export class SessionTerminal {
   private readonly links: TerminalLinks;
   /** The clipboard held an image but no text, and saving the image failed. */
   onImagePasteFailed: (() => void) | null = null;
-  /**
-   * Lines the user submits with Enter, while the app may still name the session after its first
-   * task (promptTitle.ts); `null` stops the calls, not the tracking.
-   */
-  onPromptLine: ((line: string) => void) | null = null;
   /** One tracker for every reader of submitted lines (typedInput.ts). */
   private readonly typedInput = new TypedInput({
     line: (line, agent) => {
       this.submitted.record(line, agent);
       this.stepPrompt.submitted(line, this.attention.state, this.cursorRow());
-      this.emitPromptLine(line);
     },
     lastPrompts: (texts) => {
       this.trackLastPrompt(texts);
@@ -1120,11 +1114,6 @@ export class SessionTerminal {
     return true;
   }
 
-  /** Read anew per line: the listener may stop itself after the first one. */
-  private emitPromptLine(line: string): void {
-    this.onPromptLine?.(line);
-  }
-
   private forgetDevServer(): void {
     if (this.devServer.reset()) this.onDevServer?.(null);
   }
@@ -1241,7 +1230,6 @@ export class SessionTerminal {
     this.onOpenLink = null;
     this.links.dispose();
     this.onImagePasteFailed = null;
-    this.onPromptLine = null;
     this.lastPromptEntry?.marker?.dispose();
     this.lastPromptListeners.clear();
     this.onDevServer = null;

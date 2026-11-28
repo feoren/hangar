@@ -39,6 +39,7 @@ use crate::secrets::{self, KeyringStore, SecretStore};
 use crate::session::{
     GateStatus, SessionId, SessionInfo, SessionKind, SessionMode, Status, TransitionError,
 };
+use crate::start_model::{self, ModelLaunch, StartModel};
 use crate::subagents;
 use crate::unattended;
 use crate::updates::{self, CommandError};
@@ -132,6 +133,8 @@ pub struct GateLaunch {
     pub args: Vec<String>,
     /// Set in the child's environment only, after the profile's own variables.
     pub env: Vec<(String, Zeroizing<String>)>,
+    /// The start carries Hangar's status line inside the program (ADR 0023).
+    pub status_line: bool,
 }
 
 /// What the agent gate decided for one process start.
@@ -196,6 +199,13 @@ pub trait LaunchGate: Send + Sync {
         _cwd: &Path,
         _args: &[String],
     ) -> Option<GateStatus> {
+        None
+    }
+    /// For an agent start that got neither the gate nor the notice hooks: Hangar's status line
+    /// alone (ADR 0023), in the program's own settings format. `None` while the setting is off,
+    /// for a program without a status line of Hangar's, or when the profile brings settings of
+    /// its own.
+    fn status_only(&self, _agent: &Agent, _program: &Path, _args: &[String]) -> Option<GateLaunch> {
         None
     }
     fn ended(&self, session: SessionId);
@@ -327,6 +337,8 @@ pub enum ManagerError {
     InvalidSubAgent(String),
     #[error("{0} cannot start as a sub-agent")]
     NoSubAgentStart(String),
+    #[error(transparent)]
+    Model(#[from] start_model::ModelError),
     #[error("The update of {0} is already running")]
     UpdateRunning(String),
     #[error("The update of {0} changed since it was shown; check for updates again")]
@@ -479,6 +491,8 @@ struct Runtime {
     flow: Arc<Flow>,
     /// The agent gate for this process, copied into the session's info when it attaches.
     gate: GateStatus,
+    /// Hangar's status line runs inside this process's program, copied like `gate`.
+    status_line: bool,
 }
 
 impl Runtime {
@@ -505,6 +519,8 @@ struct Entry {
     instructions: Option<PathBuf>,
     /// The sub-agent definition the session runs as; restarts and fallbacks keep it.
     sub_agent: Option<String>,
+    /// What the chosen model adds to every process of the session (ADR 0022).
+    model: Option<ModelLaunch>,
     /// The user ended the running process. Its exit code is then no sign of a
     /// failed resume.
     kill_requested: bool,
@@ -610,6 +626,7 @@ impl Shared {
             return Ok(info);
         }
         entry.info.gate = runtime.gate;
+        entry.info.status_line = runtime.status_line;
         // If the process has already exited again, the status stays `exited` and `runtime` is dropped.
         if entry.info.status == Status::Starting {
             entry.info.mark_running()?;
@@ -659,7 +676,11 @@ impl Shared {
                 (
                     plan,
                     entry.info.mode,
-                    (entry.instructions.clone(), entry.sub_agent.clone()),
+                    (
+                        entry.instructions.clone(),
+                        entry.sub_agent.clone(),
+                        entry.model.clone(),
+                    ),
                 ),
                 entry.info.sub_agents,
             )
@@ -794,13 +815,16 @@ struct Launch<'a> {
     extras: StartExtras,
 }
 
+/// What every process of a session gets again: `HANGAR.md`, the sub-agent and the model.
+type Kept = (Option<PathBuf>, Option<String>, Option<ModelLaunch>);
+
 impl<'a> Launch<'a> {
     /// A restart or a fallback: `HANGAR.md` and the sub-agent again, but no first prompt.
     fn normal(
         args: &'a [String],
         kind: SessionKind,
         mode: SessionMode,
-        (instructions, sub_agent): (Option<PathBuf>, Option<String>),
+        (instructions, sub_agent, model): Kept,
     ) -> Self {
         Self {
             args,
@@ -812,6 +836,7 @@ impl<'a> Launch<'a> {
                 prompt: None,
                 sub_agent,
                 hint: None,
+                model,
             },
         }
     }
@@ -828,6 +853,9 @@ pub struct StartRequest {
     /// Start as this sub-agent definition (`agent_args`); only programs that take one, and only
     /// a name [`crate::agent_defs::valid_name`] accepts.
     pub sub_agent: Option<String>,
+    /// Start with this model (ADR 0022): one of the program's vendor models or a model of a
+    /// local server it can run against. Checked before anything starts ([`start_model::launch`]).
+    pub model: Option<StartModel>,
 }
 
 /// [`StartRequest`] resolved by the manager: the file's path and the prompt's text.
@@ -842,6 +870,8 @@ pub struct StartExtras {
     /// A line of Hangar's own after `HANGAR.md` ([`instructions::with_hint`]); set per process
     /// start by [`LaunchSend`], never stored with the session.
     pub hint: Option<String>,
+    /// The chosen model's arguments and variables, every process of the session.
+    pub model: Option<ModelLaunch>,
 }
 
 /// Arguments `extras` adds for `agent` started as `program`: the instructions go before the start
@@ -883,6 +913,14 @@ pub fn extra_args(
         _ => Vec::new(),
     });
     (before, after)
+}
+
+/// The start arguments followed by the chosen model's (ADR 0022).
+fn with_model(mut start: Vec<String>, model: Option<&ModelLaunch>) -> Vec<String> {
+    if let Some(model) = model {
+        start.extend(model.args.iter().cloned());
+    }
+    start
 }
 
 /// `before` with the config overrides of the sub-agent model default in front: they go before a
@@ -1096,6 +1134,13 @@ impl SessionManager {
             .iter()
             .map(|agent| {
                 let mut view = agent.view(path.as_deref(), pathext.as_deref());
+                if let Some(models) = live_models(agent) {
+                    if !view.models.is_empty() {
+                        let mut profile = agent.profile.clone();
+                        profile.models = Some(models);
+                        view.models = profile.model_spec().menu();
+                    }
+                }
                 // Offered only where it works on this machine, not just in the catalog.
                 let block = blocks
                     .get(agent.id())
@@ -1455,9 +1500,24 @@ impl SessionManager {
             }),
             sub_agent: request.sub_agent,
             hint: None,
+            model: None,
         };
         let stored = cli_session_id.map(cli_session::validate).transpose()?;
         let agent = self.agent(profile_id)?;
+        // The models the menu offered: Codex CLI's own current list where it keeps one.
+        let mut profile_now = agent.profile.clone();
+        if !profile_now.model_spec().offered().is_empty() {
+            if let Some(models) = live_models(&agent) {
+                profile_now.models = Some(models);
+            }
+        }
+        // A new start with a model that cannot start is an error, never the program's default.
+        // A restore, a restart or a reopened recent session (`resume`) brings a stored choice
+        // that may be gone since (the catalog or the profile changed): it starts without it.
+        let mut extras = extras;
+        let (launch, chosen) =
+            model_for_start(&profile_now, request.model, resume).map_err(ManagerError::from)?;
+        extras.model = launch;
         if let Some(name) = &extras.sub_agent {
             if !crate::agent_defs::valid_name(name) {
                 return Err(ManagerError::InvalidSubAgent(name.clone()));
@@ -1480,7 +1540,7 @@ impl SessionManager {
             kind: SessionKind::Agent,
             mode,
         };
-        self.start(agent, cwd, size, plan, kind, extras, title, sink)
+        self.start(agent, cwd, size, plan, kind, (extras, chosen), title, sink)
     }
 
     /// Like [`Self::create`]; with `resume` the program starts with `command` + `resume_args`
@@ -1554,7 +1614,7 @@ impl SessionManager {
         };
         // An installer, not the agent: no instructions, no prompt.
         let extras = StartExtras::default();
-        self.start(updater, None, size, plan, kind, extras, title, sink)
+        self.start(updater, None, size, plan, kind, (extras, None), title, sink)
     }
 
     fn agent(&self, profile_id: &str) -> Result<Agent, ManagerError> {
@@ -1578,7 +1638,7 @@ impl SessionManager {
         size: TermSize,
         plan: Plan,
         start: Start,
-        mut extras: StartExtras,
+        (mut extras, chosen): (StartExtras, Option<StartModel>),
         title: String,
         sink: impl EventSink,
     ) -> Result<SessionInfo, ManagerError> {
@@ -1618,6 +1678,7 @@ impl SessionManager {
             info.kind = kind;
             info.mode = mode;
             info.sub_agent.clone_from(&extras.sub_agent);
+            info.model = chosen;
             set_cli_session(&mut info, &agent, plan.cli_session_id.clone());
             sessions.insert(
                 id,
@@ -1629,6 +1690,7 @@ impl SessionManager {
                     size,
                     instructions: extras.instructions.clone(),
                     sub_agent: extras.sub_agent.clone(),
+                    model: extras.model.clone(),
                     kill_requested: false,
                     unattended: None,
                 },
@@ -1706,7 +1768,11 @@ impl SessionManager {
                 kind,
                 (
                     entry.info.mode,
-                    (entry.instructions.clone(), entry.sub_agent.clone()),
+                    (
+                        entry.instructions.clone(),
+                        entry.sub_agent.clone(),
+                        entry.model.clone(),
+                    ),
                 ),
                 plan,
             )
@@ -2061,6 +2127,16 @@ fn spawn(
         }
         _ => gate,
     };
+    // Without hooks of Hangar's the status line comes alone; it rides along with them otherwise,
+    // since Claude Code takes one `--settings` only. A profile with settings of its own keeps
+    // them.
+    let gate = match (launch.kind, gate, shared.launch_gate()) {
+        (SessionKind::Agent, None, Some(launcher)) if !own_hooks => {
+            launcher.status_only(agent, &program, &args)
+        }
+        (_, gate, _) => gate,
+    };
+    let status_line = gate.as_ref().is_some_and(|gate| gate.status_line);
     // Update sessions run an installer, never the agent: neither instructions nor a prompt.
     let batch = batch::is_batch(&program);
     let models = if launch.kind == SessionKind::Agent {
@@ -2084,8 +2160,16 @@ fn spawn(
     } else {
         (Vec::new(), Vec::new())
     };
+    // The model's arguments after the start arguments, before the sub-agent and the first
+    // prompt; never dropped for length, like the start arguments.
+    let model = launch
+        .extras
+        .model
+        .as_ref()
+        .filter(|_| launch.kind == SessionKind::Agent);
+    let start = with_model(args, model);
     let parts = ArgParts {
-        start: args,
+        start,
         gate: gate.as_ref(),
         send: &send.prepend,
         cwd_flag: agent
@@ -2113,11 +2197,9 @@ fn spawn(
         command.env(name, value);
     }
     // Straight into the child's environment; the values are not kept anywhere else.
-    for (name, value) in
-        secrets::for_launch(shared.secrets.as_ref(), &profile.id, &profile.secret_env)
-    {
-        command.env(name, value.as_str());
-    }
+    let secrets = secrets::for_launch(shared.secrets.as_ref(), &profile.id, &profile.secret_env);
+    let local = model.as_ref().map_or(&[][..], |model| &model.env);
+    apply_secrets_then_local(&mut command, &secrets, local);
     // Last, so no profile variable can replace the gate's token.
     for (name, value) in gate.iter().flat_map(|gate| &gate.env) {
         command.env(name, value.as_str());
@@ -2144,7 +2226,11 @@ fn spawn(
 
     // Without the tree, closing the session would leave the program's children running: such a
     // session does not start at all.
-    let tree = match child.process_id().map(ProcTree::attach) {
+    let breakaway = agent.job_breakaway;
+    let tree = match child
+        .process_id()
+        .map(|pid| ProcTree::attach_with(pid, breakaway))
+    {
         Some(Ok(tree)) => Some(Arc::new(tree)),
         // A program that ended before it could join the job has no tree left to watch; the
         // wait thread reports its exit like any other.
@@ -2217,6 +2303,7 @@ fn spawn(
         tree,
         flow,
         gate: gate_status,
+        status_line,
     })
 }
 
@@ -2323,10 +2410,121 @@ pub fn session_title(title: &str) -> Result<String, ManagerError> {
         .to_owned())
 }
 
+/// What a model choice adds to a start, and the choice the session keeps. A new start refuses a
+/// choice that cannot start. On `resume` (a stored choice) a reasoning effort that is gone costs
+/// only the effort, a model that is gone costs the whole choice; the session then keeps what
+/// really started.
+fn model_for_start(
+    profile: &crate::profile::Profile,
+    choice: Option<StartModel>,
+    resume: bool,
+) -> Result<(Option<ModelLaunch>, Option<StartModel>), start_model::ModelError> {
+    let Some(choice) = choice else {
+        return Ok((None, None));
+    };
+    let spec = profile.model_spec();
+    let error = match start_model::launch(spec, &choice) {
+        Ok(launch) => return Ok((Some(launch), Some(choice))),
+        Err(error) if !resume => return Err(error),
+        Err(error) => error,
+    };
+    if choice.effort.is_some() {
+        let plain = StartModel {
+            effort: None,
+            ..choice
+        };
+        if let Ok(launch) = start_model::launch(spec, &plain) {
+            eprintln!(
+                "hangar: starting {} without its stored reasoning effort: {error}",
+                profile.name
+            );
+            return Ok((Some(launch), Some(plain)));
+        }
+    }
+    eprintln!(
+        "hangar: starting {} without its stored model: {error}",
+        profile.name
+    );
+    Ok((None, None))
+}
+
+/// Codex CLI's current models from its own cache ([`crate::codex_models`]) for an entry that
+/// starts Codex CLI with vendor models; `None` for every other program, or without the file.
+fn live_models(agent: &Agent) -> Option<Vec<crate::start_model::ModelOption>> {
+    let codex = std::iter::once(&agent.profile.command)
+        .chain(&agent.candidates)
+        .any(|command| {
+            let file = command.rsplit(['/', '\\']).next().unwrap_or(command);
+            let name = file.to_ascii_lowercase();
+            let stem = name
+                .strip_suffix(".exe")
+                .or_else(|| name.strip_suffix(".cmd"))
+                .unwrap_or(&name);
+            stem == "codex"
+        });
+    if !codex {
+        return None;
+    }
+    let home = crate::codex_models::codex_home(&agent.profile.env)?;
+    crate::codex_models::from_home(&home)
+}
+
+/// The profile's secrets, then the chosen local server's variables (ADR 0022). The server's come
+/// last: a start against a local model must never carry a real provider key under a name the
+/// server's entry sets (`ANTHROPIC_API_KEY`, `OPENAI_API_KEY`), or the key would go in plain text
+/// to whatever listens on that local port.
+fn apply_secrets_then_local(
+    command: &mut CommandBuilder,
+    secrets: &[(String, zeroize::Zeroizing<String>)],
+    local: &[(String, String)],
+) {
+    for (name, value) in secrets {
+        command.env(name, value.as_str());
+    }
+    for (name, value) in local {
+        command.env(name, value);
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::agent_catalog::HookFormat;
+
+    #[test]
+    fn a_local_start_never_carries_a_secret_under_a_name_the_server_sets() {
+        let mut command = CommandBuilder::new("agent");
+        let secrets = vec![
+            (
+                "ANTHROPIC_API_KEY".to_owned(),
+                zeroize::Zeroizing::new("KEY-MARKER".to_owned()),
+            ),
+            (
+                "OTHER_TOKEN".to_owned(),
+                zeroize::Zeroizing::new("OTHER-MARKER".to_owned()),
+            ),
+        ];
+        let local = vec![
+            ("ANTHROPIC_API_KEY".to_owned(), String::new()),
+            (
+                "ANTHROPIC_BASE_URL".to_owned(),
+                "http://127.0.0.1:1234".to_owned(),
+            ),
+        ];
+        apply_secrets_then_local(&mut command, &secrets, &local);
+        let env = |name: &str| command.get_env(name).and_then(|value| value.to_str());
+        assert_eq!(env("ANTHROPIC_API_KEY"), Some(""));
+        assert_eq!(env("ANTHROPIC_BASE_URL"), Some("http://127.0.0.1:1234"));
+        // A secret the server's entry does not name stays.
+        assert_eq!(env("OTHER_TOKEN"), Some("OTHER-MARKER"));
+        // Without a local model the secret goes through as before.
+        let mut plain = CommandBuilder::new("agent");
+        apply_secrets_then_local(&mut plain, &secrets, &[]);
+        assert_eq!(
+            plain.get_env("ANTHROPIC_API_KEY").and_then(|v| v.to_str()),
+            Some("KEY-MARKER")
+        );
+    }
 
     #[test]
     fn session_titles_are_trimmed_and_bounded() {
@@ -2382,6 +2580,7 @@ mod tests {
             size: TermSize { cols: 80, rows: 24 },
             instructions: None,
             sub_agent: None,
+            model: None,
             kill_requested: false,
             unattended: None,
         };
@@ -2433,6 +2632,7 @@ mod tests {
             prompt: Some("Check upstream.".into()),
             sub_agent: None,
             hint: None,
+            model: None,
         };
         let both = prompted_agent(
             "instruction_args = ['--append-system-prompt', '{text}']\nprompt_args = ['{prompt}']\n",
@@ -2550,6 +2750,7 @@ mod tests {
             prompt: Some("Go.".into()),
             sub_agent: Some("backend".into()),
             hint: None,
+            model: None,
         };
         assert_eq!(
             extra_args(&agent, program, &extras),
@@ -2620,6 +2821,7 @@ mod tests {
             prepend: strings(&["--hook-trust"]),
             args: strings(&["--settings", "gate.json"]),
             env: Vec::new(),
+            status_line: false,
         };
         let parts = ArgParts {
             start: strings(&["resume", "--last"]),
@@ -3000,6 +3202,7 @@ mod tests {
             tree: None,
             flow: Arc::clone(&flow),
             gate,
+            status_line: false,
         };
         (runtime, flow, kills, input_rx)
     }
@@ -3023,6 +3226,7 @@ mod tests {
                 size: TermSize { cols: 80, rows: 24 },
                 instructions: None,
                 sub_agent: None,
+                model: None,
                 kill_requested: false,
                 unattended: None,
             },

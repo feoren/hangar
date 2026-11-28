@@ -22,6 +22,7 @@ pub mod claims_service;
 pub mod cli_session;
 pub mod clipboard_image;
 pub mod codex_agents;
+pub mod codex_models;
 pub mod codex_shell_env;
 pub mod command_guard;
 pub mod command_split;
@@ -57,6 +58,7 @@ pub mod launcher_badge;
 pub mod link_memory;
 pub mod link_service;
 pub mod links;
+pub mod local_llm;
 pub mod login_path;
 pub mod main_store;
 pub mod main_window;
@@ -93,6 +95,8 @@ pub mod send_bin;
 pub mod server_check;
 pub mod session;
 pub mod single_instance;
+pub mod start_model;
+pub mod status_line;
 pub mod subagent_counts;
 pub mod subagents;
 pub mod system_usage;
@@ -318,6 +322,24 @@ pub fn run() -> tauri::Result<()> {
                 eprintln!("hangar: power state not watched: {error}");
             }
             app.manage(power);
+            // Local LLM servers (ADR 0022): two loopback probes every 10 s, 30 s on battery,
+            // events only on a change.
+            let local_llm = local_llm::LocalLlmMonitor::default();
+            let events = app.handle().clone();
+            let power_state = app.handle().clone();
+            let started = local_llm.start(
+                std::sync::Arc::new(local_llm::HttpFetch::default()),
+                move || {
+                    local_llm::interval_for(power_state.state::<power::PowerMonitor>().current())
+                },
+                move |state| {
+                    let _ = events.emit_to(panel_window::MAIN_LABEL, local_llm::EVENT, state);
+                },
+            );
+            if let Err(error) = started {
+                eprintln!("hangar: local LLM servers not watched: {error}");
+            }
+            app.manage(local_llm);
             // One GPU reading for the system bar and the session rows alike.
             app.manage(gpu::GpuMonitor::default());
             app.manage(subagents::Watchers::default());
@@ -435,6 +457,7 @@ pub fn run() -> tauri::Result<()> {
                 });
             // Hook settings for cmd.exe launchers of gated agents; they hold no secret.
             let gate_dir = local_dir.join("gate");
+            let status_dir = local_dir.join(status_line::CACHE_DIR);
             // The person's gate rules: local, they name this machine's
             // repositories.
             let gate_rules_file = local_dir.join(gate_rules::FILE_NAME);
@@ -551,6 +574,15 @@ pub fn run() -> tauri::Result<()> {
                 let _ =
                     events.emit_to(panel_window::MAIN_LABEL, gate_service::PERMISSION_EVENT, ());
             });
+            // Hangar's status line in Claude Code, Qwen Code and Codex CLI (ADR 0023): the stored
+            // setting, on by default; its cache sits in the local data folder.
+            gate.set_status_line(
+                app.state::<main_store::MainStore>()
+                    .load_settings()
+                    .unwrap_or_default()
+                    .status_line,
+            );
+            gate.set_status_dir(status_dir);
             gate.load_rules(gate_rules_file);
             gate.load_command_guard(guard_file);
             app.state::<SessionManager>()
@@ -764,6 +796,8 @@ pub fn run() -> tauri::Result<()> {
             commands::session_resources,
             commands::system_usage,
             commands::power_state,
+            commands::local_llm_status,
+            commands::local_llm_refresh,
             commands::set_launcher_count,
             commands::push_settings,
             commands::push_save,
@@ -952,6 +986,7 @@ pub fn run() -> tauri::Result<()> {
             handle.state::<subagent_counts::SubAgentCounts>().stop();
             handle.state::<cost_service::CostService>().stop();
             handle.state::<power::PowerMonitor>().stop();
+            handle.state::<local_llm::LocalLlmMonitor>().stop();
             handle.state::<telemetry_service::TelemetryService>().stop();
             // Team connections close with a close frame.
             handle.state::<team_service::TeamService>().shutdown();

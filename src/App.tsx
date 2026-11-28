@@ -31,6 +31,7 @@ import {
   type NoteFolder,
   type Profile,
   type SessionInfo,
+  type SessionModel,
   type Worktree,
 } from "./api";
 import type { MenuGroup, MenuItem } from "./AppMenu";
@@ -47,6 +48,8 @@ import { claimsOf, markerText, overlapNotice, overlapsBySession, type Overlap } 
 import { playChime } from "./chimeAudio";
 import { drawBadgePng } from "./badgeImage";
 import { NO_ACTIVITY } from "./statusLine";
+import { changedFiles, showsHangarBar } from "./hangarBarFacts";
+import { HangarBar } from "./HangarBar";
 import { notificationText, shouldNotify } from "./desktopNotify";
 import { branchPaths, parseBranches } from "./gitBranches";
 import {
@@ -172,6 +175,7 @@ import {
   type StartedMember,
 } from "./links";
 import { memberAliases, type AliasSource } from "./linkAliases";
+import { modelBadge, modelNote, withModel } from "./localLlm";
 import { introKind, introSummary, type IntroKind } from "./linkIntro";
 import {
   keepOffered,
@@ -291,7 +295,6 @@ import {
   type ShellKind,
   type TreePath,
 } from "./pathQuote";
-import { promptVerdict } from "./promptTitle";
 import { pushEventFor, PushScheduler, PUSH_TEXTS } from "./phonePush";
 import { isQuietTime, noticesAt } from "./quietHours";
 import {
@@ -300,6 +303,7 @@ import {
   setPowerSavingEnabled,
   startPowerWatch,
 } from "./usePower";
+import { useLocalLlm } from "./useLocalLlm";
 import { setFigureMotion } from "./useFigureMotion";
 import { pollInterval } from "./power";
 import { observeResources, setResourcesEnabled } from "./useSessionResources";
@@ -325,7 +329,7 @@ import { loadProjectItems, searchNoteItems } from "./launcherSearch";
 import { oneLineLabelKey, toggleOneLine } from "./oneLineRows";
 import type { SearchHit } from "./notes";
 import { setSystemUsageEnabled } from "./useSystemUsage";
-import { sessionLabels } from "./sessionLabel";
+import { projectFolder, sessionLabels } from "./sessionLabel";
 import {
   doneFileCount,
   DONE_NOTICE_MS,
@@ -335,7 +339,7 @@ import {
 } from "./doneNotice";
 import { profileErrorText, shouldReportReloadError } from "./profileFile";
 import { installedKey, sameProfiles } from "./profiles";
-import { arrangedProfiles, resolveBadge, startableProfiles } from "./programPrefs";
+import { arrangedProfiles, moveAmong, resolveBadge, startableProfiles } from "./programPrefs";
 import {
   availableVersion,
   isPlanChanged,
@@ -793,6 +797,7 @@ export function App() {
   /** Private or team session for the next start, as the switch shows it (startMode.ts). */
   const [startMode, setStartMode] = useState<StartMode>(DEFAULT_START_MODE);
   const accountStore = useAccount();
+  const localLlm = useLocalLlm();
   /** Team sessions only for people in a team (teamPlan.ts); Free is for one person. */
   const teamOffered = offersTeam(teamAccess(accountStore.view, accountStore.projects));
   const [home, setHome] = useState<string | null>(null);
@@ -2673,33 +2678,6 @@ export function App() {
           api.linkPersonTyped(id).catch(() => undefined);
         }
       };
-      // An agent session is named after its first task, unless the user named it (promptTitle.ts).
-      terminal.onPromptLine = (line) => {
-        const session = stateRef.current.sessions.find((s) => s.id === id);
-        const profile = profilesRef.current.find((p) => p.id === session?.profileId);
-        // Placeholders and unknown programs wait: the shell kind decides, and it needs the profile.
-        if (session === undefined || profile === undefined || isPlaceholder(id)) return;
-        const verdict = promptVerdict(
-          {
-            title: session.title,
-            cwd: session.cwd,
-            kind: session.kind,
-            programNames: [profile.name, profile.id],
-            shell: shellKind(profile.command),
-          },
-          line,
-        );
-        if (verdict.kind === "wait") return;
-        terminal.onPromptLine = null;
-        if (verdict.kind === "stop") return;
-        api
-          .rename(id, verdict.title)
-          .then((info) => {
-            dispatch({ type: "updated", session: info });
-          })
-          // Not worth an error: the session keeps its name, the user can still rename it.
-          .catch(() => undefined);
-      };
       terminal.onDevServer = (url) => {
         setDevServers((current) => {
           if ((current.get(id) ?? null) === url) return current;
@@ -2880,7 +2858,8 @@ export function App() {
    * `resume`: start the program resumed, as a restore does (a recently closed session): the
    * conversation with `cliSessionId`, or without one the program's last conversation in the
    * folder (`resumeArgs`); a program without either starts normally, and if resuming fails the
-   * backend starts it fresh (`resumeFallback`).
+   * backend starts it fresh (`resumeFallback`). `model`: start with that model instead of the
+   * program's default (ADR 0022); the session keeps it for restore and restart.
    * Resolves to the new session's id, `null` when it does not run.
    */
   const start = useCallback(
@@ -2893,6 +2872,7 @@ export function App() {
       prepared?: PreparedWorktree,
       subAgent: string | null = null,
       resume: { cliSessionId: string | null } | null = null,
+      model: SessionModel | null = null,
     ): Promise<number | null> => {
       const fail = onError ?? setError;
       const base = folder ?? targetRef.current;
@@ -2934,6 +2914,7 @@ export function App() {
             settingsRef.current,
             worktree !== undefined && prepared === undefined,
             subAgent,
+            model,
           ),
         );
         terminal.setId(info.id);
@@ -2956,7 +2937,7 @@ export function App() {
         if (folder === undefined) setChosenCwd(null);
         dispatch({
           type: "added",
-          session: await withTitle(info, named),
+          session: await withTitle(withModel(info, model), named),
           ...(worktree ? { worktree } : {}),
         });
         setLastProgramId(profile.id);
@@ -2971,6 +2952,7 @@ export function App() {
                   title: named,
                   // The id Hangar gave the agent CLI: a list kept from a crash still resumes it.
                   cliSessionId: info.cliSessionId ?? resume?.cliSessionId,
+                  model,
                 },
                 Date.now(),
               )
@@ -3123,6 +3105,7 @@ export function App() {
           // Kept, so the next save does not lose it and "Restart" resumes this conversation.
           cliSessionId: saved.cliSessionId,
           subAgent: saved.subAgent,
+          model: saved.model ?? null,
           mode: sessionMode(
             saved,
             profilesRef.current.find((p) => p.id === saved.profileId),
@@ -3183,7 +3166,7 @@ export function App() {
           // Worktree sessions of older workspaces come back as team sessions where the program
           // can be one.
           sessionMode(saved, profile),
-          startOptions(settingsRef.current, false, saved.subAgent),
+          startOptions(settingsRef.current, false, saved.subAgent, saved.model ?? null),
         );
         terminal.setId(info.id);
         wire(terminal, info.id);
@@ -3192,7 +3175,7 @@ export function App() {
           order: saved.order,
           marker: { color: saved.color, emoji: saved.emoji },
           ...(saved.worktree ? { worktree: saved.worktree } : {}),
-          session: await withTitle(info, saved.title),
+          session: await withTitle(withModel(info, saved.model ?? null), saved.title),
         });
         catchUp(terminal, info.id);
         return { id: info.id, start: info.resumed === true ? "resumed" : "started" };
@@ -3240,13 +3223,22 @@ export function App() {
               session,
               profilesRef.current.find((p) => p.id === session.profileId),
             ),
-            startOptions(settingsRef.current, false, session.subAgent ?? null),
+            startOptions(
+              settingsRef.current,
+              false,
+              session.subAgent ?? null,
+              session.model ?? null,
+            ),
           );
           terminal.setId(info.id);
           terminals.delete(id);
           wire(terminal, info.id);
           forgetAttention(id);
-          dispatch({ type: "replaced", oldId: id, session: await withTitle(info, session.title) });
+          dispatch({
+            type: "replaced",
+            oldId: id,
+            session: await withTitle(withModel(info, session.model ?? null), session.title),
+          });
           catchUp(terminal, info.id);
         } catch (e) {
           terminal.exitCode = null;
@@ -3416,6 +3408,7 @@ export function App() {
               worktree: session.worktree ?? null,
               cliSessionId: session.cliSessionId ?? null,
               subAgent: session.subAgent ?? null,
+              model: session.model ?? null,
               queuedMessage: queueRef.current.get(terminal.key)?.text ?? null,
             },
           ]
@@ -4803,11 +4796,22 @@ export function App() {
    * Start in the target as the switch says. The sidebar greys out programs that cannot be team
    * sessions; a shortcut or menu start of one of them runs private instead of doing nothing.
    */
-  const startHere = (profile: Profile) => {
+  const startHere = (profile: Profile, model?: SessionModel) => {
     // Until the backend answered, the mode and folder are the defaults, not the user's: a start
     // then could run private (without the gate) in the home folder.
     if (!prefsReady) return;
-    void start(profile, undefined, startModeFor(nextMode, profile) ?? "private");
+    const mode = startModeFor(nextMode, profile) ?? "private";
+    void start(
+      profile,
+      undefined,
+      mode,
+      undefined,
+      undefined,
+      undefined,
+      null,
+      null,
+      model ?? null,
+    );
   };
 
   // Sub-agent definitions (subAgentLibrary.ts): those of the start places and the sessions'
@@ -4880,6 +4884,7 @@ export function App() {
       undefined,
       null,
       seeded ? null : { cliSessionId: entry.cliSessionId },
+      entry.model ?? null,
     )
       .then((id) => {
         // It did not start (a folder that is gone): not offered again.
@@ -5393,6 +5398,40 @@ export function App() {
   }, []);
 
   const profileById = new Map(profiles.map((profile) => [profile.id, profile]));
+
+  /**
+   * Hangar's bar above an agent session's terminal, or `null` where the program draws Hangar's
+   * status line itself, for shells, update runs and while the setting is off (hangarBarFacts.ts).
+   */
+  const hangarBarFor = (session: SessionView): React.ReactNode => {
+    const profile = profileById.get(session.profileId);
+    const show = showsHangarBar({
+      enabled: settings.hangarBar,
+      agent: runsAgent(profile?.command, session.kind),
+      statusLine: session.statusLine,
+    });
+    if (!show) return null;
+    const modelText = modelBadge(session.model, profile, t);
+    // A worktree's folder name repeats its branch; the repository's name says more.
+    const folder = projectFolder(session.worktree?.repoRoot ?? session.cwd);
+    return (
+      <HangarBar
+        sessionId={session.id}
+        createdAt={session.createdAt}
+        exited={session.status === "exited"}
+        model={
+          modelText === null
+            ? null
+            : { text: modelText, title: modelNote(session.model, profile, t) ?? modelText }
+        }
+        folder={folder === "" ? null : folder}
+        worktree={session.worktree !== undefined}
+        branch={branches.get(session.cwd) ?? session.worktree?.branch ?? null}
+        changes={changedFiles(claims, session.id)}
+        language={settings.language}
+      />
+    );
+  };
   /**
    * Link messages that wait for a click, as cards below their target's row: of a group's
    * introductions only the newest, which replaces the older ones (linkCards.ts `stackCards`).
@@ -7263,6 +7302,16 @@ export function App() {
             dispatch({ type: "activated", id });
           }}
           onStart={startHere}
+          onMoveProgram={(id, toIndex, shown) => {
+            const all = arrangedProfiles(profiles, settings.programs).map((p) => p.id);
+            updateSettings({
+              programs: {
+                ...settings.programs,
+                order: moveAmong(all, shown, id, toIndex),
+              },
+            });
+          }}
+          localLlm={localLlm}
           recentSessions={recentShown}
           onReopenRecent={reopenRecent}
           onRemoveRecent={(entry) => {
@@ -7441,6 +7490,7 @@ export function App() {
         />
         <main className="body">
           <MainBar
+            localLlm={localLlm}
             title={barTitle(homeShown ? undefined : activeSession)}
             sideOpen={sideShown}
             support={showsSupportLink(accountStore.view)}
@@ -7537,6 +7587,7 @@ export function App() {
                     visible={active || paneInfo !== null}
                     split={paneInfo}
                     promptBar={needsLastPromptBar(session.profileId)}
+                    statusBar={hangarBarFor(session)}
                     crew={
                       crewWatching && active && subAgentKey !== null && session.id === watchedId
                         ? {

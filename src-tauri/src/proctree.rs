@@ -2,6 +2,10 @@
 //!
 //! Windows: the process goes into a Job Object with `KILL_ON_JOB_CLOSE`. When the handle is
 //! closed (session over, app exited, app crashed), Windows terminates every process in the job.
+//! For a program the catalog marks (`job_breakaway`, Hermes Agent's gateway) the job also allows
+//! `BREAKAWAY_OK`: a daemon started with `CREATE_BREAKAWAY_FROM_JOB` on purpose runs outside the
+//! job instead of a refused start; children started without that flag stay in the job as before.
+//! Every other job refuses a breakaway, so nothing of such a session outlives it.
 //! Unix: portable-pty starts the child as session leader; its PID is the process group.
 //!
 //! [`usages`] reads what a whole tree uses right now (CPU time, resident memory and the ids of its
@@ -96,7 +100,7 @@ mod windows {
         JobObjectExtendedLimitInformation, QueryInformationJobObject, SetInformationJobObject,
         TerminateJobObject, JOBOBJECT_BASIC_ACCOUNTING_INFORMATION,
         JOBOBJECT_BASIC_PROCESS_ID_LIST, JOBOBJECT_EXTENDED_LIMIT_INFORMATION,
-        JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE,
+        JOB_OBJECT_LIMIT_BREAKAWAY_OK, JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE,
     };
     use windows_sys::Win32::System::ProcessStatus::{
         K32GetProcessMemoryInfo, PROCESS_MEMORY_COUNTERS,
@@ -123,6 +127,11 @@ mod windows {
 
     impl ProcTree {
         pub fn attach(pid: u32) -> io::Result<Self> {
+            Self::attach_with(pid, false)
+        }
+
+        /// [`Self::attach`]; `breakaway`: the job allows a child to leave it on purpose.
+        pub fn attach_with(pid: u32, breakaway: bool) -> io::Result<Self> {
             // SAFETY: Null pointers are allowed for attributes and name (anonymous job, default ACL).
             let job = unsafe { CreateJobObjectW(ptr::null(), ptr::null()) };
             if job.is_null() {
@@ -132,7 +141,11 @@ mod windows {
 
             // SAFETY: The struct is POD; an all-zero bit pattern is a valid initial value.
             let mut info: JOBOBJECT_EXTENDED_LIMIT_INFORMATION = unsafe { std::mem::zeroed() };
-            info.BasicLimitInformation.LimitFlags = JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE;
+            info.BasicLimitInformation.LimitFlags = if breakaway {
+                JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE | JOB_OBJECT_LIMIT_BREAKAWAY_OK
+            } else {
+                JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE
+            };
             // SAFETY: Pointer and size describe exactly `info`, which lives for the whole call.
             let ok = unsafe {
                 SetInformationJobObject(
@@ -296,6 +309,52 @@ mod windows {
         unsafe { CloseHandle(process) };
         (ok != 0).then_some(counters.WorkingSetSize as u64)
     }
+
+    #[cfg(test)]
+    mod tests {
+        use super::*;
+
+        fn limit_flags(tree: &ProcTree) -> u32 {
+            let mut info: JOBOBJECT_EXTENDED_LIMIT_INFORMATION = unsafe { std::mem::zeroed() };
+            // SAFETY: Pointer and size describe exactly `info`, which outlives the call.
+            let ok = unsafe {
+                QueryInformationJobObject(
+                    tree.job,
+                    JobObjectExtendedLimitInformation,
+                    (&mut info as *mut JOBOBJECT_EXTENDED_LIMIT_INFORMATION).cast::<c_void>(),
+                    std::mem::size_of::<JOBOBJECT_EXTENDED_LIMIT_INFORMATION>() as u32,
+                    ptr::null_mut(),
+                )
+            };
+            assert_ne!(ok, 0, "query job limits: {}", io::Error::last_os_error());
+            info.BasicLimitInformation.LimitFlags
+        }
+
+        /// Hermes Agent starts its gateway with CREATE_BREAKAWAY_FROM_JOB and stops with
+        /// `windows_breakaway_unavailable` when the job forbids that; everything else in the
+        /// job still ends with it. Any other program's job refuses a breakaway.
+        #[test]
+        fn only_a_marked_program_may_leave_its_job_and_every_job_kills_on_close() {
+            for breakaway in [false, true] {
+                let mut child = std::process::Command::new("cmd")
+                    .args(["/c", "ping", "-n", "30", "127.0.0.1"])
+                    .stdout(std::process::Stdio::null())
+                    .spawn()
+                    .expect("start cmd");
+                let tree = ProcTree::attach_with(child.id(), breakaway).expect("attach job");
+                let flags = limit_flags(&tree);
+                drop(tree);
+                let _ = child.kill();
+                let _ = child.wait();
+                assert_ne!(flags & JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE, 0);
+                assert_eq!(
+                    flags & JOB_OBJECT_LIMIT_BREAKAWAY_OK != 0,
+                    breakaway,
+                    "{breakaway}"
+                );
+            }
+        }
+    }
 }
 
 #[cfg(unix)]
@@ -323,6 +382,11 @@ mod unix {
         #[cfg_attr(not(target_os = "linux"), allow(dead_code))]
         pub(super) fn group(&self) -> libc::pid_t {
             self.group
+        }
+
+        /// [`Self::attach`]; a breakaway is a Job Object matter, Unix has nothing to allow.
+        pub fn attach_with(pid: u32, _breakaway: bool) -> io::Result<Self> {
+            Self::attach(pid)
         }
 
         pub fn attach(pid: u32) -> io::Result<Self> {

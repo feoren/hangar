@@ -164,6 +164,9 @@
   --fact-memory: 3.5em;
   --fact-runtime: 3.9em;
   --fact-tokens: 6.3em;
+  /* The output rate on the title line, "999 tok/s": about 4em in the UI font, plus room
+     (estimated from the glyph widths, not measured in Edge like the cells above). */
+  --fact-speed: 4.6em;
   /* The context bar takes the line's free width, down to this. */
   --fact-bar-min: 24px;
   /* A session title keeps at least this much (of its 13 px text). */
@@ -735,7 +738,6 @@ h2 .beta-badge {
 
 .session-title,
 .profile-name,
-.cwd-label,
 .cwd-path {
   overflow: hidden;
   white-space: nowrap;
@@ -2634,9 +2636,11 @@ h2 .beta-badge {
   color: var(--tree-flow-b);
 }
 
-/* A narrow title line gives up the rate first and then the context's bar, so the title keeps
-   room to be read and nothing runs past the row's edge; the share and the state stay. Only the
-   title line does this; the lines below never drop a fact (sessionFactsCss.test.ts). */
+/* A narrow title line gives up the tree flow's rates first, then the state's fixed cell (the word
+   keeps its own width, the titles no longer end alike), then the context's bar and last the
+   output rate, so the title keeps room to be read and nothing runs past the row's edge; the share
+   and the state stay. Only the title line does this; the lines below never drop a fact
+   (sessionFactsCss.test.ts). */
 .session-title-row {
   container: title-line / inline-size;
 }
@@ -2647,8 +2651,23 @@ h2 .beta-badge {
   }
 }
 
+/* Measured in Chromium with the README mock: a title line of 239 px (sidebar 320 px) with the
+   rate and "arbeitet" in its fixed cell left a link lead's title 54 px; without the cell it gets
+   82 px. The rate stays down to the default sidebar width and steps back only below it. */
+@container title-line (max-width: 260px) {
+  .session-status {
+    min-width: 0;
+  }
+}
+
 @container title-line (max-width: 230px) {
   .session-context-mini .session-context-bar {
+    display: none;
+  }
+}
+
+@container title-line (max-width: 225px) {
+  .session-speed {
     display: none;
   }
 }
@@ -2683,19 +2702,19 @@ h2 .beta-badge {
   margin: 0 8px 4px;
 }
 
-/* The start folder as a quiet card: folder tile, name first, parent path and branch below, a
-   chevron for the menu behind it. */
+/* The start folder as a quiet card: folder tile, the folder's name, parent path and branch below
+   it, a chevron for the menu behind it. No caption: the tile says what it is. */
 .cwd {
   display: flex;
   flex: 1;
   align-items: center;
-  gap: 10px;
+  gap: 9px;
   min-width: 0;
-  padding: 8px 8px 8px 8px;
+  padding: 6px 8px 6px 6px;
   color: var(--muted);
   background: var(--panel-raised);
   border: 1px solid var(--border);
-  border-radius: 8px;
+  border-radius: 9px;
   transition:
     border-color 120ms ease,
     background-color 120ms ease;
@@ -2716,11 +2735,17 @@ h2 .beta-badge {
   display: grid;
   flex: none;
   place-items: center;
-  width: 30px;
-  height: 30px;
+  width: 28px;
+  height: 28px;
   color: var(--accent);
   background: color-mix(in srgb, var(--accent) 12%, transparent);
   border-radius: 7px;
+  transition: background-color 120ms ease;
+}
+
+.cwd:hover .cwd-icon,
+.cwd[aria-expanded="true"] .cwd-icon {
+  background: color-mix(in srgb, var(--accent) 20%, transparent);
 }
 
 .cwd-text {
@@ -2730,12 +2755,7 @@ h2 .beta-badge {
   gap: 1px;
   min-width: 0;
   text-align: left;
-  line-height: 1.3;
-}
-
-.cwd .cwd-label {
-  font-size: 10.5px;
-  letter-spacing: 0.02em;
+  line-height: 1.25;
 }
 
 .cwd-chevron {
@@ -2753,20 +2773,49 @@ h2 .beta-badge {
 
 @media (prefers-reduced-motion: reduce) {
   .cwd,
+  .cwd-icon,
   .cwd-chevron {
     transition: none;
   }
 }
 
 .profile-row {
+  position: relative;
   display: flex;
   flex-wrap: wrap;
   align-items: center;
   border-radius: 6px;
 }
 
-.profile-row:hover {
+/* A row keeps its hover look while its model flyout is open (ProgramRow.tsx): the quiet sign of
+   where the flyout belongs, with no extra glyph. */
+.profile-row:hover,
+.profile-row:has(> .profile[aria-expanded="true"]) {
   background: var(--hover);
+}
+
+/* Sorting by drag (ProgramRow.tsx): the dragged row follows the pointer above the others, which
+   glide aside to show where it lands. */
+.profile-list.sorting .profile-row {
+  transition: transform 150ms ease;
+}
+
+.profile-list.sorting .profile-row.dragging {
+  z-index: 2;
+  background: var(--hover);
+  box-shadow: 0 4px 14px rgb(0 0 0 / 22%);
+  cursor: grabbing;
+  transition: none;
+}
+
+.profile-list.sorting .profile-row:not(.dragging):hover {
+  background: transparent;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .profile-list.sorting .profile-row {
+    transition: none;
+  }
 }
 
 .profile {
@@ -2780,20 +2829,29 @@ h2 .beta-badge {
   text-align: left;
 }
 
-.profile svg {
-  margin-left: auto;
-  color: var(--muted);
-  opacity: 0;
-}
-
-.profile:hover svg,
-.profile:focus-visible svg {
-  opacity: 1;
-}
-
 .profile-name {
   flex: 0 1 auto;
   min-width: 0;
+}
+
+/* A program's model flyout beside its row. Local model ids run long (hf.co/org/repo:quant) and a
+   server can hold many: the flyout stays inside the window and scrolls; a cut name is whole in
+   the item's tooltip. */
+.model-menu {
+  max-width: min(380px, calc(100vw - 16px));
+  max-height: calc(100vh - 16px);
+  overflow-y: auto;
+}
+
+.model-menu .menu-label {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* A row's submenu beside its menu (a model's reasoning efforts): a few short words. */
+.popup-submenu {
+  min-width: 150px;
 }
 
 /* Recently opened: a group of its own right above New session, with the same header. It parts
@@ -2837,6 +2895,50 @@ h2 .beta-badge {
   font-weight: 600;
 }
 
+/* Folder and model on one line: the folder gives way first, the model keeps its short name. */
+.recent-head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+
+.recent-head .recent-folder {
+  flex: 0 1 auto;
+  min-width: 0;
+}
+
+/* The model a session ran on, as a quiet text badge in the recent rows. */
+.recent-model {
+  flex: none;
+  max-width: 16ch;
+  overflow: hidden;
+  padding: 0 5px;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  font-size: 10.5px;
+  font-weight: 500;
+  line-height: 15px;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  color: var(--muted);
+}
+
+/* The model in the session row: the same outlined pill and type as CPU and RAM in their pill
+   form (.session-load.pills), so the facts of a row read as one family. */
+.session-model {
+  flex: none;
+  max-width: 16ch;
+  overflow: hidden;
+  margin: 1px 0;
+  padding: 0 4px;
+  border-radius: 999px;
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--muted) 45%, transparent);
+  font-size: 10px;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
 .recent-detail {
   font-size: 11.5px;
   color: var(--muted);
@@ -2854,8 +2956,30 @@ h2 .beta-badge {
 }
 
 /* The version gives way first when space is short; the name stays readable. */
+/* The arrow at the end of a row that has models: quiet until the row is hovered or open. */
+.profile-more {
+  display: inline-flex;
+  flex: none;
+  margin-left: auto;
+  color: var(--muted);
+  opacity: 0.55;
+  transition: opacity 120ms ease;
+}
+
+.profile:hover .profile-more,
+.profile:focus-visible .profile-more,
+.profile[aria-expanded="true"] .profile-more {
+  opacity: 1;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .profile-more {
+    transition: none;
+  }
+}
+
 .profile-version {
-  flex: 0 4 auto;
+  flex: 0 100 auto;
   min-width: 0;
   overflow: hidden;
   white-space: nowrap;
@@ -2966,6 +3090,190 @@ button.last-prompt:focus-visible {
   overflow: hidden;
   white-space: nowrap;
   text-overflow: ellipsis;
+}
+
+/* --- Hangar bar (HangarBar.tsx): the facts of an agent session above its terminal ---
+   One quiet line in two groups, where on the left and how on the right. As the pane narrows, the
+   facts give way in the fixed order of hangarBarFacts.ts `DROP_ORDER` (drop-1 first); the context
+   stays to the end. Text in the muted color, the context bar in the accent, from 80 % in the
+   warning color, like the session row's meter. No motion. */
+.hangar-bar {
+  flex: none;
+  min-width: 0;
+  margin: 0 8px 6px 0;
+  container: hangar-bar / inline-size;
+}
+
+.hangar-bar-inner {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  min-width: 0;
+  height: 24px;
+  padding: 0 10px;
+  overflow: hidden;
+  font-size: 11.5px;
+  line-height: 1;
+  color: var(--muted);
+  white-space: nowrap;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  font-variant-numeric: tabular-nums;
+}
+
+.hangar-bar-group {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-width: 0;
+}
+
+.hangar-bar-group.where {
+  flex: 1 1 auto;
+}
+
+.hangar-bar-group.how {
+  flex: none;
+  margin-left: auto;
+}
+
+.hangar-bar-seg {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  gap: 4px;
+  min-width: 0;
+}
+
+/* Folder and branch give up letters before whole facts go. */
+.hangar-bar-seg.seg-folder,
+.hangar-bar-seg.seg-branch {
+  flex: 0 1 auto;
+}
+
+.hangar-bar-seg svg {
+  flex: none;
+}
+
+.hangar-bar-text {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.hangar-bar-seg.seg-folder {
+  color: var(--text);
+}
+
+.hangar-bar-model {
+  max-width: 18ch;
+  overflow: hidden;
+  padding: 2px 6px;
+  color: var(--text);
+  text-overflow: ellipsis;
+  border-radius: 999px;
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--muted) 45%, transparent);
+}
+
+.hangar-bar-tag {
+  padding: 2px 5px;
+  color: var(--worktree);
+  border-radius: 4px;
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--worktree) 55%, transparent);
+}
+
+.hangar-bar-seg.seg-branch svg {
+  color: var(--muted);
+}
+
+.hangar-bar-seg .settled {
+  opacity: 0.7;
+}
+
+.hangar-bar-context {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.hangar-bar-meter {
+  position: relative;
+  width: 56px;
+  height: 6px;
+  overflow: hidden;
+  background: color-mix(in srgb, var(--muted) 30%, transparent);
+  border-radius: 999px;
+}
+
+.hangar-bar-meter-fill {
+  position: absolute;
+  inset: 0 auto 0 0;
+  min-width: 2px;
+  background: var(--accent);
+  border-radius: inherit;
+}
+
+.hangar-bar-context.high {
+  color: var(--warn);
+}
+
+.hangar-bar-context.high .hangar-bar-meter-fill {
+  background: var(--warn);
+}
+
+.pane.split .hangar-bar {
+  margin: 4px 6px 2px;
+}
+
+/* The facts give way in DROP_ORDER as the bar narrows; the context stays. */
+@container hangar-bar (max-width: 760px) {
+  .hangar-bar-seg.drop-1 {
+    display: none;
+  }
+}
+
+@container hangar-bar (max-width: 680px) {
+  .hangar-bar-seg.drop-2 {
+    display: none;
+  }
+}
+
+@container hangar-bar (max-width: 620px) {
+  .hangar-bar-seg.drop-3,
+  .hangar-bar-tokens {
+    display: none;
+  }
+}
+
+@container hangar-bar (max-width: 560px) {
+  .hangar-bar-seg.drop-4 {
+    display: none;
+  }
+}
+
+@container hangar-bar (max-width: 500px) {
+  .hangar-bar-seg.drop-5 {
+    display: none;
+  }
+}
+
+@container hangar-bar (max-width: 430px) {
+  .hangar-bar-seg.drop-6 {
+    display: none;
+  }
+}
+
+@container hangar-bar (max-width: 340px) {
+  .hangar-bar-seg.drop-7 {
+    display: none;
+  }
+}
+
+@container hangar-bar (max-width: 250px) {
+  .hangar-bar-seg.drop-8 {
+    display: none;
+  }
 }
 
 /* Split panes have their own header; the bar sits inside the frame there. */
@@ -6519,6 +6827,56 @@ label.setting-line:hover {
 .main-bar-toggle[aria-pressed="true"] {
   color: var(--accent);
   background: color-mix(in srgb, var(--accent) 14%, transparent);
+}
+
+/* The local model servers (LocalLlmBadges.tsx): the mark in the muted color with a small dot on
+   its corner, green while the server runs. The words are in the tooltip and the accessible name. */
+.local-llm {
+  display: inline-flex;
+  flex: none;
+  gap: 4px;
+  align-items: center;
+}
+
+/* Dot, mark and number of models in one quiet pill. */
+.local-llm-badge {
+  display: inline-flex;
+  gap: 5px;
+  align-items: center;
+  height: 22px;
+  padding: 0 8px;
+  color: var(--muted);
+  background: color-mix(in srgb, var(--text) 5%, transparent);
+  border: 1px solid var(--border);
+  border-radius: 999px;
+}
+
+.local-llm-badge.running {
+  color: var(--text);
+}
+
+.local-llm-badge svg {
+  flex: none;
+}
+
+.local-llm-dot {
+  flex: none;
+  width: 6px;
+  height: 6px;
+  background: color-mix(in srgb, var(--muted) 60%, var(--panel));
+  border-radius: 50%;
+}
+
+.local-llm-badge.running .local-llm-dot {
+  background: var(--ok);
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--ok) 22%, transparent);
+}
+
+.local-llm-count {
+  font-size: 11px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  line-height: 1;
 }
 
 .workspace {
@@ -10443,15 +10801,17 @@ body.session-dragging .session-actions {
   }
 }
 
-/* Start target chosen for the next start: solid accent edge and its own label, not color alone. */
+/* Start target chosen for the next start: solid accent edge, a filled tile and the reset button
+   beside it, not color alone. */
 .cwd-row.chosen .cwd {
   border-style: solid;
   border-color: color-mix(in srgb, var(--accent) 55%, transparent);
   background: color-mix(in srgb, var(--accent) 7%, transparent);
 }
 
-.cwd-row.chosen .cwd-label {
-  color: var(--accent);
+.cwd-row.chosen .cwd-icon {
+  color: var(--bg);
+  background: var(--accent);
 }
 
 .cwd-name {
@@ -10470,7 +10830,7 @@ body.session-dragging .session-actions {
   align-items: center;
   gap: 8px;
   min-width: 0;
-  font-size: 11.5px;
+  font-size: 11px;
   color: var(--muted);
 }
 
@@ -13895,6 +14255,36 @@ body.session-dragging .session-actions {
   white-space: nowrap;
 }
 
+/* --- Output rate on the row (SessionRow.tsx RowSpeed) ---
+   From Claude Code's first measured response on: a quiet fact in a cell of fixed width with
+   right-aligned tabular digits, so the state beside it stays put when "8 tok/s" becomes
+   "120 tok/s". It fades in when it first appears instead of popping up. Once no response ended
+   for 30 s the last rate stays, a step quieter, and brightens again with the next response. */
+.session-speed {
+  flex: none;
+  min-width: var(--fact-speed);
+  text-align: end;
+  animation: speed-in 240ms var(--ease-out);
+  transition: opacity 240ms var(--ease-out);
+}
+
+.session-speed.settled {
+  opacity: 0.55;
+}
+
+@keyframes speed-in {
+  from {
+    opacity: 0;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .session-speed {
+    animation: none;
+    transition: none;
+  }
+}
+
 .link-cost {
   margin: 8px 0 0;
   font-size: 12.5px;
@@ -15404,72 +15794,39 @@ button.sub-agent-card:focus-visible {
   border-left: 2px solid var(--border);
 }
 
-/* Hangar's introduction of a link group, for people: one line, then the other members as chips
-   with their program's icon. */
-.link-intro {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
+/* Hangar's introduction of a link group, for people: a small quiet card, its members in one
+   muted line cut with an ellipsis (details in the tooltip). Nobody needs more of it. */
+.waiting-message[data-intro="true"] {
+  gap: 2px;
+  padding: 3px 8px;
+  font-size: 11px;
+  background: transparent;
+  border-color: var(--border);
 }
 
-.link-intro-lede {
+.waiting-message[data-intro="true"] .waiting-message-from {
+  font-weight: 500;
   color: var(--muted);
 }
 
-.link-intro-members {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 4px;
-  margin: 0;
-  padding: 0;
-  list-style: none;
+.waiting-message[data-intro="true"] .waiting-message-actions {
+  margin-top: 0;
 }
 
-.link-intro-member {
-  display: inline-flex;
-  align-items: center;
-  gap: 5px;
-  min-width: 0;
-  max-width: 100%;
-  padding: 2px 8px;
-  background: var(--count-chip-bg);
-  border-radius: 999px;
+.waiting-message[data-intro="true"] .waiting-message-actions .primary-button {
+  padding: 1px 10px;
+  font-size: 11px;
 }
 
-.link-intro-badge {
-  display: inline-flex;
-  flex: none;
-}
-
-.link-intro-member .badge {
-  width: 16px;
-  height: 16px;
-  margin-left: -4px;
-  border-radius: 4px;
-  font-size: 8px;
-}
-
-.link-intro-member .badge.wide {
-  font-size: 6px;
-}
-
-.link-intro-member .badge-icon img {
-  width: 16px;
-  height: 16px;
-}
-
-.link-intro-name {
-  min-width: 0;
+.link-intro {
   overflow: hidden;
+  color: var(--muted);
   white-space: nowrap;
   text-overflow: ellipsis;
 }
 
-.link-intro-lead {
-  flex: none;
-  color: var(--accent);
-  font-size: 11px;
-  font-weight: 600;
+.link-intro-name {
+  color: var(--text);
 }
 
 /* For a moment after a message appears its buttons take no click (useArmDelay.ts). */

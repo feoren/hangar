@@ -933,6 +933,12 @@ fn header_text(headers: &reqwest::header::HeaderMap, name: &str) -> Option<Strin
 }
 
 async fn read_body(response: &mut reqwest::Response) -> Option<Vec<u8>> {
+    if response
+        .content_length()
+        .is_some_and(|length| length > RESPONSE_LIMIT as u64)
+    {
+        return None;
+    }
     let mut body = Vec::new();
     while let Some(chunk) = response.chunk().await.ok()? {
         if body.len() + chunk.len() > RESPONSE_LIMIT {
@@ -1308,7 +1314,12 @@ mod tests {
             prompt_args: None,
             agent_args: None,
             agent_program: None,
+            job_breakaway: false,
             agent_commands: Vec::new(),
+            models: None,
+            model_args: None,
+            effort_args: None,
+            local: None,
         });
         agent
             .profile

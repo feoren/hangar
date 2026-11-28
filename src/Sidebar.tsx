@@ -1,6 +1,6 @@
 import { Fragment, useEffect, useId, useMemo, useRef, useState } from "react";
 
-import type { AgentCommand, Profile } from "./api";
+import type { AgentCommand, Profile, SessionModel } from "./api";
 import { AppMenu, type MenuGroup } from "./AppMenu";
 import type { AttentionReason, AttentionState } from "./attention";
 import { Badge } from "./Badge";
@@ -52,6 +52,7 @@ import {
   StopIcon,
   TeamIcon,
 } from "./icons";
+import { ProgramList, ProgramRow } from "./ProgramRow";
 import { ProgramUpdateOffer } from "./ProgramUpdateOffer";
 import { targetTooltip, type StartTarget, type WorktreeChance } from "./startTarget";
 import { isTeamSession, listedFor, teamPossible, type StartMode } from "./startMode";
@@ -60,6 +61,7 @@ import type { BadgeLook } from "./programPrefs";
 import type { SessionView } from "./sessions";
 import { labelWithVersion, type ProgramVersions } from "./programs";
 import { offerShowsInstalled, runnableUpdate, type ProgramUpdates } from "./programUpdates";
+import { modelBadge, modelNote, modelSections, type LocalLlmState } from "./localLlm";
 import { PopupMenu, type PopupItem } from "./PopupMenu";
 import { markerColorText } from "./SessionMarker";
 import { SessionPeek, useSessionPeek } from "./SessionPeek";
@@ -115,7 +117,7 @@ import { useClock } from "./useClock";
 import type { UpdateState } from "./useUpdater";
 import { useWaitingEdges } from "./useWaitingEdges";
 import { resourceParts } from "./resources";
-import { contextHint } from "./contextUsage";
+import { contextHint, outputRateHint } from "./contextUsage";
 import { isOneLine, oneLineLabelKey } from "./oneLineRows";
 import {
   isPlaced,
@@ -133,7 +135,7 @@ import {
   SubAgentCountMark,
   useRunningSubAgents,
 } from "./SubAgentCount";
-import { useSessionContext } from "./useContextUsage";
+import { useSessionContext, useSessionOutputRate } from "./useContextUsage";
 import { CompactAction } from "./CompactAction";
 import { commandBusy, sessionCommands } from "./agentCommands";
 import { useSessionCost, useSessionCostText } from "./useCosts";
@@ -231,8 +233,15 @@ interface Props {
   onHome: () => void;
   onMenuClose: () => void;
   onActivate: (id: number) => void;
-  /** Starts a program in the target, as the switch says (private or team session). */
-  onStart: (profile: Profile) => void;
+  /**
+   * Starts a program in the target, as the switch says (private or team session); `model`: with
+   * that model instead of the program's default (ADR 0022).
+   */
+  onStart: (profile: Profile, model?: SessionModel) => void;
+  /** A program row of "New session" was moved to `toIndex` among the shown ids. */
+  onMoveProgram: (id: string, toIndex: number, shown: readonly string[]) => void;
+  /** Ollama's and LM Studio's state for the rows' model menus; `null` while unknown. */
+  localLlm: LocalLlmState | null;
   /** Recently opened sessions not open now, most recent first (recentlyOpened.ts `shownRecent`). */
   recentSessions: readonly RecentSession[];
   /** Starts that session again: same program, folder, title and conversation. */
@@ -681,6 +690,8 @@ export function Sidebar(props: Props) {
       props.reasons.get(session.id) ?? null,
       runsAgent(profileById.get(session.profileId)?.command, session.kind),
     );
+  // The peek says the output rate in words (rows have no tooltip): live, or the last response's.
+  const peekSpeed = useSessionOutputRate(peekSession?.id ?? -1);
   const toggleLabel = collapsed ? t("sidebar.expand") : t("sidebar.collapse");
   /** Round button on the sidebar's right edge; the same place collapsed and expanded. */
   const edgeToggle = (
@@ -745,9 +756,11 @@ export function Sidebar(props: Props) {
                   peekContext === undefined ? null : contextHint(peekContext, props.language, t),
               }
             : {}),
+          speed: peekSpeed === undefined ? null : outputRateHint(peekSpeed, props.language, t),
           cost: costNote(peekCost, props.language, t),
           devServer: props.devServers.get(peekSession.id),
           program: programLine(profileById.get(peekSession.profileId), versions),
+          model: modelNote(peekSession.model, profileById.get(peekSession.profileId), t),
           cwd: peekSession.cwd,
         })}
         badge={
@@ -1212,7 +1225,6 @@ export function Sidebar(props: Props) {
                       generation={props.cardsKey}
                       language={props.language}
                       session={session.id}
-                      badgeFor={badgeFor}
                       pasteOnly={false}
                       stack={{
                         onSendAll: (messageIds) => {
@@ -1387,6 +1399,7 @@ export function Sidebar(props: Props) {
             entries={props.recentSessions}
             badgeFor={badgeFor}
             programName={(id) => profileById.get(id)?.name ?? id}
+            profileFor={(id) => profileById.get(id)}
             language={props.language}
             now={now}
             onReopen={props.onReopenRecent}
@@ -1428,7 +1441,8 @@ export function Sidebar(props: Props) {
               <FolderIcon size={16} />
             </span>
             <span className="cwd-text">
-              <span className="cwd-label">{t("sidebar.projectFolder")}</span>
+              {/* The card says what it is by its look; the word stays for screen readers. */}
+              <span className="sr-only">{t("sidebar.projectFolder")}</span>
               <span className="cwd-name">{targetName}</span>
               {(targetParent !== null || targetBranch !== null) && (
                 <span className="cwd-sub">
@@ -1513,34 +1527,27 @@ export function Sidebar(props: Props) {
           !startable.some((profile) => listedFor(mode, profile)) && (
             <p className="hint group-hint">{t("start.noTeamAgents")}</p>
           )}
-        <ul className="profile-list">
+        <ProgramList onMove={props.onMoveProgram}>
           {startable
             .filter((profile) => !teamPlanShown && listedFor(mode, profile))
             .map((profile) => {
               const version = versions.get(profile.id);
               const programUpdate = props.updates.get(profile.id);
               return (
-                <li key={profile.id} className="profile-row">
-                  <button
-                    type="button"
-                    className="profile"
-                    title={[profile.command, ...profile.args].join(" ")}
-                    onClick={() => {
-                      props.onStart(profile);
-                    }}
-                  >
-                    <Badge look={badgeFor(profile.id)} />
-                    <span className="profile-name">{profile.name}</span>
-                    {version && !offerShowsInstalled(programUpdate) && (
-                      <span className="profile-version">
-                        <span aria-hidden="true">·</span> {version}
-                      </span>
-                    )}
-                    {programUpdate?.updateAvailable === true && (
-                      <span className="dot update profile-update-dot" aria-hidden="true" />
-                    )}
-                    <PlusIcon />
-                  </button>
+                <ProgramRow
+                  key={profile.id}
+                  id={profile.id}
+                  name={profile.name}
+                  commandLine={[profile.command, ...profile.args].join(" ")}
+                  badge={badgeFor(profile.id)}
+                  version={version && !offerShowsInstalled(programUpdate) ? version : null}
+                  updateAvailable={programUpdate?.updateAvailable === true}
+                  models={modelSections(profile, props.localLlm)}
+                  onStart={(model) => {
+                    props.onStart(profile, model);
+                  }}
+                  onMenuClose={props.onMenuClose}
+                >
                   {programUpdate !== undefined && (
                     <ProgramUpdateOffer
                       className="in-sidebar"
@@ -1557,10 +1564,10 @@ export function Sidebar(props: Props) {
                       onCancel={props.onCancelUpdate}
                     />
                   )}
-                </li>
+                </ProgramRow>
               );
             })}
-        </ul>
+        </ProgramList>
         {mode === "team" && !teamPlanShown && <TeamUnavailable profiles={startable} />}
       </GroupSection>
 
@@ -1984,8 +1991,8 @@ function SessionItem({
   const gateOff = gateHint(session.gate, t);
   const devServer = devServers.get(session.id);
   const queued = queuedMessages.has(session.id);
-  const programName =
-    profiles.find((profile) => profile.id === session.profileId)?.name ?? session.profileId;
+  const profile = profiles.find((each) => each.id === session.profileId);
+  const programName = profile?.name ?? session.profileId;
   // Only while the setting is on and the window visible; the third line shows the numbers, the
   // title line a mark for an outlier, the peek says why.
   const resources = useSessionResources(session.id);
@@ -1999,6 +2006,13 @@ function SessionItem({
   const link = links.get(session.id);
   // Read only where the row shows it, so other rows never re-render for a new cost.
   const cost = useSessionCostText(isPlaced(plan.layout, "cost") ? session.id : -1, language);
+  // Always once measured: live while responses end, then the last one, quieter (RowSpeed).
+  const speed = useSessionOutputRate(isPlaced(plan.layout, "speed") ? session.id : -1) ?? null;
+  const modelText = modelBadge(session.model, profile, t);
+  const modelFact =
+    modelText === null
+      ? null
+      : { text: modelText, title: modelNote(session.model, profile, t) ?? modelText };
   const className = [
     "session",
     active ? "active" : "",
@@ -2099,6 +2113,8 @@ function SessionItem({
             runtime={where.runtime}
             context={context}
             cost={cost}
+            speed={speed}
+            model={modelFact}
             language={language}
             badgeCount={
               subAgents > 0 ? <SubAgentCountMark running={subAgents} place="badge" /> : null

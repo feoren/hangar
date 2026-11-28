@@ -17,6 +17,7 @@ use hangar_lib::manager::{
 use hangar_lib::profile::Profile;
 use hangar_lib::secrets::{self, SecretError, SecretStore};
 use hangar_lib::session::{GateStatus, SessionInfo, SessionKind, SessionMode, Status};
+use hangar_lib::start_model::{LocalLaunch, LocalSpecs, ModelOption, ModelSource, StartModel};
 use hangar_lib::updates::{CommandError, PlatformHint};
 use zeroize::Zeroizing;
 
@@ -45,6 +46,10 @@ fn profile(id: &str, command: &str, args: &[&str]) -> Profile {
         packages: None,
         self_update: None,
         agent_commands: Vec::new(),
+        models: None,
+        model_args: None,
+        effort_args: None,
+        local: None,
     }
 }
 
@@ -1667,6 +1672,7 @@ struct RecordingGate {
     prepared: std::sync::Mutex<Vec<u64>>,
     ended: std::sync::Mutex<Vec<u64>>,
     notified: std::sync::Mutex<Vec<u64>>,
+    status_asked: std::sync::Mutex<Vec<String>>,
 }
 
 impl LaunchGate for RecordingGate {
@@ -1691,6 +1697,7 @@ impl LaunchGate for RecordingGate {
                     hangar_lib::gate::TOKEN_ENV.into(),
                     Zeroizing::new("gate-token-marker".into()),
                 )],
+                status_line: false,
             }),
             "ungated" => GatePlan::Unavailable(GateStatus::Launcher),
             // Options before the user's arguments, like Codex's hook layer and Copilot's plugin
@@ -1703,6 +1710,7 @@ impl LaunchGate for RecordingGate {
                 },
                 args: vec!["AFTER".into()],
                 env: Vec::new(),
+                status_line: false,
             }),
             _ => GatePlan::Skip,
         }
@@ -1723,6 +1731,25 @@ impl LaunchGate for RecordingGate {
                 hangar_lib::gate::NOTIFY_TOKEN_ENV.into(),
                 Zeroizing::new("notice-token-marker".into()),
             )],
+            status_line: false,
+        })
+    }
+
+    fn status_only(
+        &self,
+        agent: &hangar_lib::agent_catalog::Agent,
+        _program: &std::path::Path,
+        _args: &[String],
+    ) -> Option<GateLaunch> {
+        self.status_asked
+            .lock()
+            .unwrap()
+            .push(agent.id().to_owned());
+        (agent.id() == "status-only").then(|| GateLaunch {
+            prepend: Vec::new(),
+            args: vec!["status-arg-marker".into()],
+            env: Vec::new(),
+            status_line: true,
         })
     }
 
@@ -2022,6 +2049,48 @@ fn a_private_session_gets_the_notice_hooks_but_never_the_gate() {
     assert!(!gate.prepared.lock().unwrap().contains(&info.id));
 }
 
+/// An agent start that gets neither the gate nor the notice hooks gets Hangar's status line alone
+/// (ADR 0023), and the session says so; one with the notice hooks is never asked, since the
+/// status line rides along with them.
+#[test]
+fn a_start_without_hooks_gets_the_status_line_alone() {
+    let probe = if cfg!(windows) {
+        profile("status-only", "cmd", &["/d", "/c", "echo"])
+    } else {
+        profile("status-only", "sh", &["-c", "echo \"$@\"", "sh"])
+    };
+    let noticed = if cfg!(windows) {
+        profile("noticed", "cmd", &["/d", "/c", "echo", "NOTICED"])
+    } else {
+        profile("noticed", "sh", &["-c", "echo NOTICED"])
+    };
+    let manager = SessionManager::new(vec![probe, noticed], Vec::new(), common::home());
+    let gate = Arc::new(RecordingGate::default());
+    manager.set_launch_gate(gate.clone());
+    let (tx, rx) = channel();
+    let info = manager
+        .create("status-only", None, SIZE, move |e| tx.send(e).unwrap_or(()))
+        .unwrap();
+    let (output, _) = collect_until_exit(&manager, info.id, &rx);
+    assert!(output.contains("status-arg-marker"), "{output:?}");
+    let listed = manager
+        .list()
+        .into_iter()
+        .find(|i| i.id == info.id)
+        .unwrap();
+    assert!(listed.status_line);
+    let (tx, rx) = channel();
+    let other = manager
+        .create("noticed", None, SIZE, move |e| tx.send(e).unwrap_or(()))
+        .unwrap();
+    collect_until_exit(&manager, other.id, &rx);
+    assert!(!other.status_line);
+    assert_eq!(
+        gate.status_asked.lock().unwrap().as_slice(),
+        ["status-only"]
+    );
+}
+
 /// A catalog entry for the probe's program that takes Claude Code's hook format, so a user
 /// profile with the same id and program inherits it.
 fn hooked_program(id: &str) -> CatalogAgent {
@@ -2292,4 +2361,231 @@ fn a_sub_agent_session_keeps_its_agent_across_a_restart() {
         |_| {},
     );
     assert!(matches!(refused, Err(ManagerError::NoSubAgentStart(_))));
+}
+
+// --- Model choice per start (ADR 0022, start_model.rs) ---
+
+fn model_profile() -> Profile {
+    let (command, args): (&str, &[&str]) = if cfg!(windows) {
+        (
+            "cmd",
+            &[
+                "/d",
+                "/c",
+                "echo",
+                "MODEL=[%M_URL%][%M_KEY%][%M_PROFILE%]",
+                "ARGS=",
+            ],
+        )
+    } else {
+        (
+            "sh",
+            &[
+                "-c",
+                "echo \"MODEL=[$M_URL][$M_KEY][$M_PROFILE]\" ARGS=\"$*\"",
+                "none",
+            ],
+        )
+    };
+    let mut p = profile("modeled", command, args);
+    p.env = [("M_PROFILE".to_owned(), "profile".to_owned())].into();
+    p.secret_env = vec!["M_KEY".into()];
+    p.models = Some(vec![ModelOption {
+        id: "opus".into(),
+        label: "Opus".into(),
+        efforts: vec!["low".into(), "high".into()],
+        default_effort: None,
+    }]);
+    p.model_args = Some(vec!["--model".into(), "{model}".into()]);
+    p.effort_args = Some(vec!["--effort".into(), "{effort}".into()]);
+    p.local = Some(LocalSpecs {
+        ollama: Some(LocalLaunch {
+            args: vec!["--local".into(), "ollama_chat/{model}".into()],
+            env: [
+                ("M_URL".to_owned(), "{base}".to_owned()),
+                ("M_KEY".to_owned(), "local".to_owned()),
+                ("M_PROFILE".to_owned(), "local".to_owned()),
+            ]
+            .into(),
+        }),
+        lmstudio: None,
+    });
+    p
+}
+
+#[test]
+fn a_chosen_model_reaches_the_program_and_survives_a_restart() {
+    let store = Arc::new(MemoryStore::default());
+    let manager = SessionManager::new(vec![model_profile()], Vec::new(), common::home())
+        .with_secret_store(store.clone());
+    let pick = |source, id: &str| StartRequest {
+        model: Some(StartModel {
+            source,
+            id: id.into(),
+            effort: None,
+        }),
+        ..StartRequest::default()
+    };
+
+    // A vendor model: its arguments after the start arguments, no variables.
+    let (info, rx) = start_requested(
+        &manager,
+        "modeled",
+        false,
+        pick(ModelSource::Provider, "opus"),
+    );
+    assert_eq!(
+        info.model,
+        Some(StartModel {
+            source: ModelSource::Provider,
+            id: "opus".into(),
+            effort: None
+        })
+    );
+    let (output, _) = collect_until_exit(&manager, info.id, &rx);
+    assert!(output.contains("--model opus"), "{output:?}");
+
+    // A local model: the server's variables win over the profile's and over a secret of the
+    // same name, so a real key never goes to the local port.
+    let (info, rx) = start_requested(
+        &manager,
+        "modeled",
+        false,
+        pick(ModelSource::Ollama, "qwen3:8b"),
+    );
+    let (output, _) = collect_until_exit(&manager, info.id, &rx);
+    assert!(
+        output.contains("MODEL=[http://127.0.0.1:11434][local][local]"),
+        "{output:?}"
+    );
+    assert!(
+        output.contains("--local ollama_chat/qwen3:8b"),
+        "{output:?}"
+    );
+    secrets::set(store.as_ref(), "modeled", "M_KEY", SECRET_VALUE).unwrap();
+    wait_for_status(&manager, info.id, Status::Exited);
+    let (tx, rx) = channel();
+    let restarted = manager
+        .restart(info.id, SIZE, move |e| tx.send(e).unwrap_or(()))
+        .unwrap();
+    assert_eq!(
+        restarted.model.as_ref().map(|m| m.id.as_str()),
+        Some("qwen3:8b")
+    );
+    let (output, _) = collect_until_exit(&manager, info.id, &rx);
+    assert!(
+        output.contains("MODEL=[http://127.0.0.1:11434][local][local]"),
+        "{output:?}"
+    );
+    assert!(!output.contains(SECRET_VALUE), "{output:?}");
+    assert!(output.contains("ollama_chat/qwen3:8b"), "{output:?}");
+
+    // Refused before anything starts: unknown vendor model, bad id, no LM Studio entry.
+    for request in [
+        pick(ModelSource::Provider, "sonnet"),
+        pick(ModelSource::Provider, "--dangerous"),
+        pick(ModelSource::Lmstudio, "qwen3:8b"),
+    ] {
+        let refused = manager.create_requested(
+            "modeled",
+            None,
+            SIZE,
+            false,
+            None,
+            SessionMode::Private,
+            request,
+            |_| {},
+        );
+        assert!(matches!(refused, Err(ManagerError::Model(_))));
+    }
+}
+
+#[test]
+fn a_restore_whose_stored_model_is_gone_starts_without_it() {
+    let manager = SessionManager::new(vec![model_profile()], Vec::new(), common::home());
+    for (source, id) in [
+        (ModelSource::Provider, "sonnet"),
+        (ModelSource::Lmstudio, "qwen3:8b"),
+    ] {
+        let request = StartRequest {
+            model: Some(StartModel {
+                source,
+                id: id.into(),
+                effort: None,
+            }),
+            ..StartRequest::default()
+        };
+        // `resume`: a restore, a restart of a placeholder or a reopened recent session.
+        let (info, rx) = start_requested(&manager, "modeled", true, request);
+        assert_eq!(info.model, None);
+        let (output, _) = collect_until_exit(&manager, info.id, &rx);
+        assert!(!output.contains("--model"), "{output:?}");
+        assert!(!output.contains("--local"), "{output:?}");
+    }
+}
+
+fn pick_effort(effort: &str) -> StartRequest {
+    StartRequest {
+        model: Some(StartModel {
+            source: ModelSource::Provider,
+            id: "opus".into(),
+            effort: Some(effort.into()),
+        }),
+        ..StartRequest::default()
+    }
+}
+
+#[test]
+fn a_chosen_effort_follows_the_model_and_survives_a_restart() {
+    let manager = SessionManager::new(vec![model_profile()], Vec::new(), common::home());
+    let (info, rx) = start_requested(&manager, "modeled", false, pick_effort("high"));
+    assert_eq!(
+        info.model.as_ref().and_then(|m| m.effort.as_deref()),
+        Some("high")
+    );
+    let (output, _) = collect_until_exit(&manager, info.id, &rx);
+    assert!(output.contains("--model opus --effort high"), "{output:?}");
+    wait_for_status(&manager, info.id, Status::Exited);
+    let (tx, rx) = channel();
+    let restarted = manager
+        .restart(info.id, SIZE, move |e| tx.send(e).unwrap_or(()))
+        .unwrap();
+    assert_eq!(
+        restarted.model.as_ref().and_then(|m| m.effort.as_deref()),
+        Some("high")
+    );
+    let (output, _) = collect_until_exit(&manager, info.id, &rx);
+    assert!(output.contains("--model opus --effort high"), "{output:?}");
+
+    // A new start with an effort the model does not list, or a bad one, is refused.
+    for effort in ["max", "&x"] {
+        let refused = manager.create_requested(
+            "modeled",
+            None,
+            SIZE,
+            false,
+            None,
+            SessionMode::Private,
+            pick_effort(effort),
+            |_| {},
+        );
+        assert!(matches!(refused, Err(ManagerError::Model(_))), "{effort}");
+    }
+}
+
+#[test]
+fn a_restore_whose_stored_effort_is_gone_keeps_the_model() {
+    let manager = SessionManager::new(vec![model_profile()], Vec::new(), common::home());
+    let (info, rx) = start_requested(&manager, "modeled", true, pick_effort("max"));
+    assert_eq!(
+        info.model,
+        Some(StartModel {
+            source: ModelSource::Provider,
+            id: "opus".into(),
+            effort: None,
+        })
+    );
+    let (output, _) = collect_until_exit(&manager, info.id, &rx);
+    assert!(output.contains("--model opus"), "{output:?}");
+    assert!(!output.contains("--effort"), "{output:?}");
 }

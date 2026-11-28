@@ -2,22 +2,25 @@
 // extra instruction and, in a worktree Hangar has just created, a first prompt that checks the
 // base branch upstream. The backend applies each only where the program takes it.
 
-import type { Profile, StartOptions } from "./api";
+import type { Profile, SessionModel, StartOptions } from "./api";
 import type { Settings } from "./settings";
 
 /**
  * `freshWorktree`: the session starts in a worktree made for it right now. Restored and restarted
- * sessions pass `false`: they continue a conversation and must not be asked again.
+ * sessions pass `false`: they continue a conversation and must not be asked again. `model`: the
+ * model chosen at the start (ADR 0022), passed again on restore and restart.
  */
 export function startOptions(
   settings: Pick<Settings, "hangarMd" | "worktreeUpstreamCheck">,
   freshWorktree: boolean,
   subAgent: string | null = null,
+  model: SessionModel | null = null,
 ): StartOptions {
   return {
     instructions: settings.hangarMd,
     startPrompt: freshWorktree && settings.worktreeUpstreamCheck ? "worktree" : null,
     ...(subAgent === null ? {} : { subAgent }),
+    ...(model === null ? {} : { model }),
   };
 }
 

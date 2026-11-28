@@ -272,6 +272,8 @@ describe("catalog agent descriptions", () => {
       vibe: "Apache-2.0",
       droid: null,
       amp: null,
+      hermes: null,
+      openclaw: null,
     };
     const license = (text: string): string | null =>
       /[(（]([A-Za-z0-9.-]+)[)）][.。]$/.exec(text)?.[1] ?? null;

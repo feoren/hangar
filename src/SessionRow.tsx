@@ -8,7 +8,13 @@ import { Fragment, type ReactNode } from "react";
 
 import { Badge } from "./Badge";
 import { ContextFact, ContextRing, ContextTokens, RuntimeCell } from "./ContextLine";
-import { contextHint, type SessionContext } from "./contextUsage";
+import {
+  contextHint,
+  formatOutputRate,
+  outputRateHint,
+  type OutputRate,
+  type SessionContext,
+} from "./contextUsage";
 import { useT } from "./i18n";
 import { BranchIcon, FolderIcon, TeamIcon } from "./icons";
 import { revealInvisible } from "./invisible";
@@ -51,6 +57,16 @@ export interface RowBodyProps {
   context: SessionContext | undefined;
   /** The estimated cost so far ("~$0.42", costs.ts `costText`); missing or `null`: none. */
   cost?: string | null;
+  /**
+   * Output tokens per second of Claude Code (useContextUsage.ts), live or the last one kept;
+   * missing or `null`: none measured yet.
+   */
+  speed?: OutputRate | null;
+  /**
+   * The model the session started with: the badge's short text and the full name for its
+   * tooltip (localLlm.ts `modelBadge`, `modelNote`); missing or `null`: the program's default.
+   */
+  model?: { text: string; title: string } | null;
   language: string;
   /**
    * What decides a sub-agent session's figure (SessionLook.tsx): with `subAgent` the figure
@@ -133,6 +149,10 @@ function present(element: RowElement, props: RowBodyProps): boolean {
       return props.context !== undefined;
     case "cost":
       return props.cost !== undefined && props.cost !== null;
+    case "speed":
+      return props.speed !== undefined && props.speed !== null;
+    case "model":
+      return props.model !== undefined && props.model !== null;
   }
 }
 
@@ -289,7 +309,33 @@ function RowElementView({ element, ...props }: { element: RowElement } & RowBody
       return <ContextTokens context={props.context} />;
     case "cost":
       return props.cost === undefined || props.cost === null ? null : <RowCost cost={props.cost} />;
+    case "speed":
+      return props.speed === undefined || props.speed === null ? null : (
+        <RowSpeed rate={props.speed} language={props.language} />
+      );
+    case "model":
+      return props.model === undefined || props.model === null ? null : (
+        <span className="session-model row-fact" title={props.model.title}>
+          <span className="sr-only">{props.model.title}</span>
+          <span aria-hidden="true">{props.model.text}</span>
+        </span>
+      );
   }
+}
+
+/**
+ * The output rate on screen ("84 tok/s"), quieter once it is the last response's and no longer
+ * live; the sentence for screen readers.
+ */
+function RowSpeed({ rate, language }: { rate: OutputRate; language: string }) {
+  const t = useT();
+  const value = formatOutputRate(rate.value, language);
+  return (
+    <span className={rate.live ? "session-speed row-fact" : "session-speed row-fact settled"}>
+      <span className="sr-only">{outputRateHint(rate, language, t)}</span>
+      <span aria-hidden="true">{t("speed.value", { value })}</span>
+    </span>
+  );
 }
 
 /** The estimated cost, with its name for screen readers ("Cost ~$0.42"). */

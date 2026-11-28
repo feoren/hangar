@@ -321,11 +321,12 @@ jobs:
       - run: pnpm install --frozen-lockfile
 
       # With an Apple Developer ID, the bundler signs with it and notarizes (Tauri's macOS signing
-      # guide). Only variables with a value are passed on: an empty APPLE_SIGNING_IDENTITY would
-      # replace the ad hoc identity "-" of tauri.conf.json, an empty APPLE_CERTIFICATE would fail
-      # the import. Without the secrets (no account yet, pull requests from forks) nothing is set
-      # and the bundle is signed ad hoc.
-      - name: Apple signing (only with an Apple Developer ID)
+      # guide). The secrets live only in this step's environment, never in $GITHUB_ENV, so the
+      # later steps (the start test runs the built app, the uploads) cannot read them. Empty
+      # variables are unset before the build: an empty APPLE_SIGNING_IDENTITY would replace the
+      # ad hoc identity "-" of tauri.conf.json, an empty APPLE_CERTIFICATE would fail the import.
+      # Without the secrets (no account yet, pull requests from forks) the bundle is signed ad hoc.
+      - name: Build
         env:
           APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
           APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
@@ -336,33 +337,29 @@ jobs:
           APPLE_API_ISSUER: ${{ secrets.APPLE_API_ISSUER }}
           APPLE_API_KEY: ${{ secrets.APPLE_API_KEY }}
           APPLE_API_PRIVATE_KEY: ${{ secrets.APPLE_API_PRIVATE_KEY }}
+          TARGET: ${{ matrix.target }}
         run: |
           set -euo pipefail
           if [ -z "$APPLE_SIGNING_IDENTITY" ]; then
             echo "No Apple Developer ID: the bundle is signed ad hoc and not notarized."
-            exit 0
+          else
+            echo "Apple Developer ID set: the bundle is signed with it and notarized."
           fi
-          for name in APPLE_CERTIFICATE APPLE_CERTIFICATE_PASSWORD APPLE_SIGNING_IDENTITY \
-            APPLE_ID APPLE_PASSWORD APPLE_TEAM_ID APPLE_API_ISSUER APPLE_API_KEY; do
-            value="${!name}"
-            [ -n "$value" ] || continue
-            delimiter="EOF_$(openssl rand -hex 16)"
-            printf '%s<<%s\n%s\n%s\n' "$name" "$delimiter" "$value" "$delimiter" >> "$GITHUB_ENV"
-          done
-          # The App Store Connect key goes in as a file; the bundler takes its path.
           if [ -n "$APPLE_API_PRIVATE_KEY" ]; then
             key="$RUNNER_TEMP/AuthKey_${APPLE_API_KEY}.p8"
             printf '%s\n' "$APPLE_API_PRIVATE_KEY" > "$key"
             chmod 600 "$key"
-            echo "APPLE_API_KEY_PATH=$key" >> "$GITHUB_ENV"
+            export APPLE_API_KEY_PATH="$key"
+            trap 'rm -f "$key"' EXIT
           fi
-          echo "Apple Developer ID set: the bundle is signed with it and notarized."
-
-      - name: Build
-        run: >-
-          pnpm tauri build --target ${{ matrix.target }} --bundles app,dmg
-          --config '{"bundle":{"createUpdaterArtifacts":false}}'
-          -- --locked
+          unset APPLE_API_PRIVATE_KEY
+          for name in APPLE_CERTIFICATE APPLE_CERTIFICATE_PASSWORD APPLE_SIGNING_IDENTITY \
+            APPLE_ID APPLE_PASSWORD APPLE_TEAM_ID APPLE_API_ISSUER APPLE_API_KEY; do
+            [ -n "${!name}" ] || unset "$name"
+          done
+          pnpm tauri build --target "$TARGET" --bundles app,dmg \
+            --config '{"bundle":{"createUpdaterArtifacts":false}}' \
+            -- --locked
 
       # The updater archive is what tauri-bundler writes with updater artifacts on: a gzip tar
       # with Hangar.app as its only top folder (tauri-plugin-updater 2.14.1 drops the first path
@@ -539,6 +536,15 @@ jobs:
           cargo audit --file crates/hangar-team-crypto/Cargo.lock
           cargo audit --file crates/hangar-team-protocol/Cargo.lock
 
-      # Reads pnpm-lock.yaml only; nothing is installed or run.
+      # Licenses and sources of the app's crates (src-tauri/deny.toml): permissive licenses only,
+      # crates.io only.
+      - name: Install cargo-deny
+        run: cargo install cargo-deny --version 0.20.2 --locked
+
+      - name: Rust licenses and sources
+        run: cargo deny --manifest-path src-tauri/Cargo.toml check licenses sources bans
+
+      # Reads pnpm-lock.yaml only; nothing is installed or run. Without --prod: the build chain
+      # (vite, the Tauri CLI) produces the shipped bundle, so its advisories count too.
       - name: npm dependencies
-        run: pnpm audit --prod
+        run: pnpm audit

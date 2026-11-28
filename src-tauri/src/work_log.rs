@@ -392,17 +392,30 @@ fn append_line(dir: &Path, path: &Path, line: &[u8]) -> std::io::Result<()> {
     }
     let mut options = OpenOptions::new();
     options.create(true).append(true);
+    // A link put in place of a day file is opened itself, never followed, and then refused: the
+    // line goes nowhere but into the user's own file.
+    #[cfg(windows)]
+    {
+        use std::os::windows::fs::OpenOptionsExt;
+        const FILE_FLAG_OPEN_REPARSE_POINT: u32 = 0x0020_0000;
+        options.custom_flags(FILE_FLAG_OPEN_REPARSE_POINT);
+    }
     #[cfg(unix)]
     {
         use std::os::unix::fs::OpenOptionsExt;
         options.mode(0o600);
+        options.custom_flags(libc::O_NOFOLLOW);
     }
-    options.open(path)?.write_all(line)
+    let mut file = options.open(path)?;
+    if !file.metadata()?.is_file() {
+        return Err(std::io::Error::other("day file is not a regular file"));
+    }
+    file.write_all(line)
 }
 
 /// Records of one day file; broken, foreign or too long lines are skipped.
 fn read_file(path: &Path) -> (Vec<Record>, bool) {
-    let Ok(file) = fs::File::open(path) else {
+    let Ok(file) = crate::persist::open_regular(path) else {
         return (Vec::new(), false);
     };
     let mut bytes = Vec::new();
@@ -602,6 +615,56 @@ mod tests {
             cwd.to_path_buf(),
             0,
         )
+    }
+
+    #[test]
+    fn a_link_in_place_of_a_day_file_is_neither_written_nor_read() {
+        let dir = TempDir::new("work-log-link");
+        let target = dir.path().join("elsewhere.txt");
+        fs::write(
+            &target,
+            "KEEP-MARKER
+",
+        )
+        .unwrap();
+        let day = dir.path().join("2026-11-14.jsonl");
+        #[cfg(unix)]
+        let made = std::os::unix::fs::symlink(&target, &day);
+        // File symbolic links need Developer Mode or an elevated process on Windows.
+        #[cfg(windows)]
+        let made = std::os::windows::fs::symlink_file(&target, &day);
+        match made {
+            Ok(()) => {
+                assert!(append_line(
+                    dir.path(),
+                    &day,
+                    b"{}
+"
+                )
+                .is_err());
+                assert_eq!(
+                    fs::read_to_string(&target).unwrap(),
+                    "KEEP-MARKER
+"
+                );
+                assert!(read_file(&day).0.is_empty());
+            }
+            Err(error) => eprintln!("symbolic link not possible here, link case skipped: {error}"),
+        }
+        // A regular day file is written and read as before.
+        let plain = dir.path().join("2026-11-15.jsonl");
+        append_line(
+            dir.path(),
+            &plain,
+            b"x
+",
+        )
+        .unwrap();
+        assert_eq!(
+            fs::read_to_string(&plain).unwrap(),
+            "x
+"
+        );
     }
 
     #[test]
