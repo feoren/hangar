@@ -49,6 +49,7 @@ pub mod git_activity;
 pub mod git_history;
 pub mod git_snapshots;
 pub mod gpu;
+pub mod hangar_drive;
 pub mod hook_http;
 pub mod hook_recipes;
 pub mod icon;
@@ -957,6 +958,8 @@ pub fn run() -> tauri::Result<()> {
             commands::telemetry_settings,
             commands::telemetry_count,
             commands::telemetry_open_info,
+            commands::hangar_drive_status,
+            commands::hangar_drive_add_folder,
         ])
         .build(tauri::generate_context!())?;
 

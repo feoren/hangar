@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-hangar-drive-add-folder"
+description = "Enables the hangar_drive_add_folder command without any pre-configured scope."
+commands.allow = ["hangar_drive_add_folder"]
+
+[[permission]]
+identifier = "deny-hangar-drive-add-folder"
+description = "Denies the hangar_drive_add_folder command without any pre-configured scope."
+commands.deny = ["hangar_drive_add_folder"]

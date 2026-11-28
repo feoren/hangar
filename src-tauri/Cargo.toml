@@ -85,6 +85,10 @@ sha2 = "0.10"
 # drive letters, UNC paths and percent-encoding. Already in the tree through tauri and reqwest
 # (servo/rust-url, MIT/Apache-2.0), so this adds no code.
 url = "2"
+# Hangar Drive's public folder list lies in the platform's local config folder
+# (hangar_drive.rs, `config_local_dir`), which Tauri's path resolver does not name. Already in the
+# tree at this version through tauri (dirs-dev, MIT/Apache-2.0), so this adds no code.
+dirs = "7"
 # Checking for new program versions. Same crates and features as tauri-plugin-updater
 # (rustls with ring, system proxy), so no extra code in the build; MIT/Apache-2.0.
 reqwest = { version = "0.13", default-features = false, features = ["rustls-no-provider", "system-proxy"] }

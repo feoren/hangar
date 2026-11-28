@@ -1080,6 +1080,11 @@ export const api = {
   telemetryCount: (feature: UsageFeature) => invoke<null>("telemetry_count", { feature }),
   /** Opens the public list of every field a report carries in the browser. */
   telemetryOpenInfo: () => invoke<null>("telemetry_open_info"),
+
+  /** Whether Hangar Drive can take a folder, and each path's state in it (`parseDriveStatus`). */
+  hangarDriveStatus: (paths: string[]) => invoke<unknown>("hangar_drive_status", { paths }),
+  /** Hands a local folder to Hangar Drive, which asks the person to confirm. */
+  hangarDriveAddFolder: (path: string) => invoke<null>("hangar_drive_add_folder", { path }),
 };
 
 /** Headings of a session report in the window's language (Rust: `Labels` in report/mod.rs). */

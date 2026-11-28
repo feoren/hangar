@@ -6,6 +6,25 @@ import { queueOffer, sessionMenuEntries, stallOffer, type QueueOffer } from "./s
 const t = createTranslator("en");
 
 describe("sessionMenuEntries", () => {
+  it("offers backing up with Hangar Drive only where it can take the folder", () => {
+    const keys = (drive: boolean | undefined) =>
+      sessionMenuEntries({ status: "running" }, t, false, {
+        queue: null,
+        stall: null,
+        ...(drive === undefined ? {} : { drive }),
+      }).map((entry) => entry.key);
+    expect(keys(undefined)).not.toContain("drive");
+    expect(keys(false)).not.toContain("drive");
+    expect(keys(true)).toEqual(["rename", "marker", "drive", "sep", "kill", "close"]);
+    const german = createTranslator("de");
+    const entry = sessionMenuEntries({ status: "exited" }, german, false, {
+      queue: null,
+      stall: null,
+      drive: true,
+    })[2];
+    expect(entry?.type === "action" ? entry.label : "").toBe("Mit Hangar Drive sichern …");
+  });
+
   it("offers end process for a running session", () => {
     const entries = sessionMenuEntries({ status: "running" }, t);
     expect(entries.map((entry) => entry.key)).toEqual(["rename", "marker", "sep", "kill", "close"]);

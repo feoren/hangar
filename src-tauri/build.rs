@@ -224,6 +224,8 @@ const COMMANDS: &[&str] = &[
     "telemetry_settings",
     "telemetry_count",
     "telemetry_open_info",
+    "hangar_drive_status",
+    "hangar_drive_add_folder",
 ];
 
 fn main() {

@@ -20,6 +20,7 @@ export type SessionAction =
   | "unlink"
   | "commands"
   | "report"
+  | "drive"
   | "subAgents"
   | "crew"
   | "queue"
@@ -92,6 +93,11 @@ export interface SessionMenuExtras {
    * have sub-agents, so it can be hidden and shown again where it is seen.
    */
   crewShown?: boolean;
+  /**
+   * Hangar Drive can take the session's folder and does not hold it yet (hangarDrive.ts
+   * `canBackUp`), so "Back up with Hangar Drive" hands it over.
+   */
+  drive?: boolean;
 }
 
 const NO_EXTRAS: SessionMenuExtras = { queue: null, stall: null };
@@ -100,7 +106,8 @@ const NO_EXTRAS: SessionMenuExtras = { queue: null, stall: null };
  * Rename, marker, hand over (only agent sessions, `handover`), send to a partner project (only
  * where the project has partners, `partner`), link with other sessions or edit and unlink the
  * session's group (`link`), then the program's commands (only while the session offers some,
- * agentCommands.ts), export as report (only for programs whose transcript Hangar reads), then show
+ * agentCommands.ts), export as report (only for programs whose transcript Hangar reads), back up
+ * with Hangar Drive (only where it can take the folder and does not hold it yet), then show
  * or hide the sub-agents (only for sessions that have them), then the stall hint's help (last
  * lines, Ctrl+C) and the queued message, then restart (ended) or end process (running), then
  * close. `subAgentsShown`: the sub-agent view of this session is open, so the entry hides it.
@@ -188,6 +195,9 @@ export function sessionMenuEntries(
       : []),
     ...(canExportReport(session)
       ? [{ type: "action", key: "report", label: t("session.exportReport") } as const]
+      : []),
+    ...(extras.drive === true
+      ? [{ type: "action", key: "drive", label: t("drive.backUp") } as const]
       : []),
     ...subAgents,
     ...stall,

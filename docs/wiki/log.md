@@ -1863,3 +1863,19 @@ The 0.17.0 screenshots replace `team-notes`, `home-glyphs`, `waiting-message` an
 with `model-menu`, `status-line`, `team` and `team-decisions`; `link-groups` now shows two
 groups picked with Ctrl+click to merge, `sub-agents` the red count on the row, and the overview
 model pills, the output rate, the status line and the Hangar bar. Updated: [[release-rollout]].
+
+## [2026-11-28] ingest | ADR 0024: back up project folders with Hangar Drive
+Filed the contract agreed with the separate Hangar Drive app: detection through its
+`hangar-drive` scheme, the add-folder link with a checked local folder (Hangar Drive confirms),
+its public `folders.json` read on window focus and matched part by part, the session menu entry
+and the quiet line on each project card, the threat model and what was not verified live
+(Hangar Drive's side not built yet). New: [[0024-hangar-drive-integration]]. Updated: index.
+
+## [2026-11-28] ingest | ADR 0024 amended: Hangar Drive 0.2.0 rules
+Hangar now offers Hangar Drive only when its scheme is registered and its public `folders.json`
+(under `data_local_dir`) carries `drive-folders 1` with `setUp: true`, since 0.1.0 drops links
+silently. Mirrored the refusals of Hangar Drive's security review: parts starting with a dot, the
+home folder and its direct children, hidden or system folders on Windows (the folder and its
+parents below home). The link fires once per click; Hangar Drive's growing pauses stay its own.
+Threat model: the list is information, never a permission. Evidence: a read-only check against
+Hangar Drive 0.2.0. Pages changed: [[0024-hangar-drive-integration]], index.

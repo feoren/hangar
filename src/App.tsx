@@ -486,6 +486,8 @@ import { useUpdater } from "./useUpdater";
 import { useClaims } from "./useClaims";
 import { projectNamesOf } from "./sharedNotes";
 import { useTeam } from "./useTeam";
+import { useHangarDrive, useRepoRoots } from "./useHangarDrive";
+import { canBackUp, driveFolder, handOverFolder } from "./hangarDrive";
 import { TeamWindow } from "./TeamWindow";
 import {
   clockTime,
@@ -5992,6 +5994,26 @@ export function App() {
 
   const menuSession =
     sessionMenu === null ? undefined : state.sessions.find((s) => s.id === sessionMenu.id);
+  // Hangar Drive for the session menu (ADR 0024): the folder "Back up" would hand over is known
+  // before the entry shows (the repository's main folder for a session in a subfolder), and
+  // Hangar Drive is asked about that folder, so the entry never offers a folder it refuses.
+  const driveRoots = useRepoRoots([
+    ...new Set(
+      state.sessions.flatMap((session) =>
+        session.worktree === undefined ? (driveFolder(session) ?? []) : [],
+      ),
+    ),
+  ]);
+  const drive = useHangarDrive([
+    ...new Set(state.sessions.flatMap((session) => handOverFolder(session, driveRoots) ?? [])),
+  ]);
+  /** Hands the session's project folder to Hangar Drive, which asks the person to confirm. */
+  const backUpWithDrive = (id: number) => {
+    const session = state.sessions.find((s) => s.id === id);
+    if (session === undefined) return;
+    const folder = handOverFolder(session, driveRoots);
+    if (canBackUp(drive, folder)) api.hangarDriveAddFolder(folder).catch(showError);
+  };
   /** Queued message per session id, for the rows, the menu and quick access. */
   const queuedById = new Map<number, QueuedMessage>();
   for (const session of state.sessions) {
@@ -6092,6 +6114,9 @@ export function App() {
       case "report":
         exportReport(id);
         break;
+      case "drive":
+        backUpWithDrive(id);
+        break;
       case "commands":
         if (sessionMenu !== null) setCommandMenu({ ...sessionMenu, id });
         break;
@@ -6141,6 +6166,8 @@ export function App() {
           commands:
             sessionCommands(menuSession, profiles).length > 0 && !sessionAsks(menuSession.id),
           crewShown: settings.crewColumn,
+          // Only while Hangar Drive can take the folder and does not hold it yet.
+          drive: canBackUp(drive, handOverFolder(menuSession, driveRoots)),
         }).map((entry): PopupItem => {
           if (entry.type === "separator") return entry;
           const action = entry.key;
@@ -7796,6 +7823,9 @@ export function App() {
                     onShowChanges={(id) => {
                       setPutAside(false);
                       showDoneChanges(id);
+                    }}
+                    onBackUp={(folder) => {
+                      api.hangarDriveAddFolder(folder).catch(showError);
                     }}
                     partners={partnerBook}
                     partnerActions={partnerActions}

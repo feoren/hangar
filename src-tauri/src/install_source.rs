@@ -274,7 +274,17 @@ pub(crate) mod registry {
         (status == ERROR_SUCCESS).then_some(Key(key))
     }
 
+    /// A string value with its surrounding quotes and spaces removed; `None` when it is empty.
     pub(crate) fn string_value(key: &Key, name: &str) -> Option<String> {
+        let text = raw_string_value(key, name)?;
+        let text = text.trim().trim_matches('"').trim().to_owned();
+        (!text.is_empty()).then_some(text)
+    }
+
+    /// A string value exactly as stored (up to its terminating zero). Shell open commands such as
+    /// `"C:\x\app.exe" "%1"` need their quotes, which [`string_value`] removes. `""` names the
+    /// key's default value.
+    pub(crate) fn raw_string_value(key: &Key, name: &str) -> Option<String> {
         let name = wide(name);
         let mut kind = 0u32;
         let mut size = 0u32;
@@ -309,9 +319,7 @@ pub(crate) mod registry {
             return None;
         }
         let len = buffer.iter().position(|&c| c == 0).unwrap_or(buffer.len());
-        let text = String::from_utf16_lossy(&buffer[..len]);
-        let text = text.trim().trim_matches('"').trim().to_owned();
-        (!text.is_empty()).then_some(text)
+        Some(String::from_utf16_lossy(&buffer[..len]))
     }
 
     pub(crate) fn subkeys(key: &Key) -> Vec<String> {

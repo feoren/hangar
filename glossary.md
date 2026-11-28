@@ -338,3 +338,6 @@ UI texts in `src/i18n.ts` are translated per language and are not bound by this 
 | Anonyme Nutzungsstatistik                       | usage statistics                  | opt-in, off by default; `telemetry*.rs`, ADR 0019                                                |
 | Tagesbericht (Nutzungsstatistik)                | daily report                      | one report per UTC day, schema 1; `telemetry::Report`                                            |
 | Programmschlüssel                               | program key                       | allowlisted name of a session's program in a report; `program_key`                               |
+| Hangar Drive                                    | Hangar Drive                      | the separate sync and backup app; a product name, never translated; ADR 0024                     |
+| Mit Hangar Drive sichern                        | back up with Hangar Drive         | hands a project folder to Hangar Drive, which asks to confirm; not a `.bak` backup               |
+| Ordnerliste (Hangar Drive)                      | folder list                       | Hangar Drive's public `folders.json`, read only; `hangar_drive.rs`                               |

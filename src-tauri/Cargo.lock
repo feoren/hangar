@@ -1895,6 +1895,7 @@ dependencies = [
  "block2",
  "clipboard-win",
  "cpal",
+ "dirs",
  "futures-util",
  "hangar-team-crypto",
  "hangar-team-protocol",
