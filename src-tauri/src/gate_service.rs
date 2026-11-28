@@ -5936,6 +5936,10 @@ mod tests {
 
     #[test]
     fn a_cmd_launcher_gets_the_status_line_in_the_settings_file() {
+        // A cmd.exe launcher exists on Windows only (`batch::is_batch`).
+        if !cfg!(windows) {
+            return;
+        }
         let fixture = status_fixture();
         fixture.service.configure(true);
         let launch = launched(fixture.service.prepare(
@@ -5973,14 +5977,16 @@ mod tests {
         let settings = settings_of(&launch);
         assert_eq!(settings.as_object().unwrap().len(), 1);
         assert!(settings["statusLine"]["command"].is_string());
-        // As a file for a cmd.exe launcher, which takes no `"`.
-        let launch = fixture
-            .service
-            .status_only(&claude(), Path::new("claude.cmd"), &[])
-            .unwrap();
-        assert!(launch.args[1].ends_with(CLAUDE_STATUS_FILE));
-        assert!(crate::batch::argument_ok(&launch.args[1]));
-        assert!(settings_of(&launch)["statusLine"].is_object());
+        // As a file for a cmd.exe launcher, which takes no `"`; such launchers exist on Windows only.
+        if cfg!(windows) {
+            let launch = fixture
+                .service
+                .status_only(&claude(), Path::new("claude.cmd"), &[])
+                .unwrap();
+            assert!(launch.args[1].ends_with(CLAUDE_STATUS_FILE));
+            assert!(crate::batch::argument_ok(&launch.args[1]));
+            assert!(settings_of(&launch)["statusLine"].is_object());
+        }
         // The profile's own settings stay alone.
         let own = ["--settings".to_owned(), "mine.json".to_owned()];
         assert!(fixture
