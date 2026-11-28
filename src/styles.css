@@ -4616,8 +4616,9 @@ body.resizing-horizontal * {
 }
 
 /* Messages from partner projects wait on this session (ADR 0012): a filled disc with the count at
-   the badge's bottom left. Collapsed, the click opens the session, where they wait. */
-.rail-waiting {
+   the badge's bottom left. Collapsed, the click opens the session, where they wait. Scoped to the
+   session button: the rail's top count of waiting sessions shares the class. */
+.rail-session .rail-waiting {
   position: absolute;
   bottom: 2px;
   left: 5px;
