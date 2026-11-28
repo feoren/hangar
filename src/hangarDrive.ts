@@ -176,3 +176,73 @@ export function handOverFolder(
   if (root === undefined) return null;
   return root ?? folder;
 }
+
+/** What a place on screen shows for a folder: the way to back it up, or that Drive holds it. */
+export type DriveMark = { kind: "offer" } | { kind: "held"; state: DriveState };
+
+/**
+ * The logo a session or project shows for `folder`: held while the folder lies in a folder
+ * Hangar Drive syncs, the way to back it up while `canBackUp` holds, and nothing otherwise
+ * (Hangar Drive not set up, folder refused, git not answered yet): hidden, never greyed out.
+ */
+export function driveMark(view: DriveView, folder: string | null): DriveMark | null {
+  if (!view.ready || folder === null) return null;
+  const state = view.marks.get(folder);
+  if (state !== undefined) return { kind: "held", state };
+  return canBackUp(view, folder) ? { kind: "offer" } : null;
+}
+
+/**
+ * Where the sidebar shows the logo: at the end of a project group's header, after the folder in
+ * each session row, as a button beside the row, in a column left of the rows, or nowhere (the
+ * session menu's entry stays in every case).
+ */
+export type DrivePlace = "sessionCard" | "besideCard" | "leftGutter" | "projectHeader" | "off";
+
+export const DRIVE_PLACES: readonly DrivePlace[] = [
+  "sessionCard",
+  "besideCard",
+  "leftGutter",
+  "projectHeader",
+  "off",
+];
+
+export const DEFAULT_DRIVE_PLACE: DrivePlace = "sessionCard";
+
+export function parseDrivePlace(value: unknown): DrivePlace {
+  return DRIVE_PLACES.find((place) => place === value) ?? DEFAULT_DRIVE_PLACE;
+}
+
+/** The logo the place `at` shows: the mark where the setting puts it, nothing anywhere else. */
+/**
+ * Where a row shows the logo: the place the setting names, except that a row layout without the
+ * folder has no place after the folder name, so the logo moves beside the row there.
+ */
+export function effectiveDrivePlace(place: DrivePlace, rowHasFolder: boolean): DrivePlace {
+  return place === "sessionCard" && !rowHasFolder ? "besideCard" : place;
+}
+
+export function driveMarkAt(
+  place: DrivePlace,
+  at: DrivePlace,
+  mark: DriveMark | null,
+): DriveMark | null {
+  return place === at && place !== "off" ? mark : null;
+}
+
+/**
+ * A project group header's logo while the setting puts it there: the first of the group's
+ * sessions that shows one stands for the project, whose folder they share.
+ */
+export function headerDrive(
+  place: DrivePlace,
+  sessionIds: readonly number[],
+  marks: ReadonlyMap<number, DriveMark>,
+): { id: number; mark: DriveMark } | null {
+  if (place !== "projectHeader") return null;
+  for (const id of sessionIds) {
+    const mark = marks.get(id);
+    if (mark !== undefined) return { id, mark };
+  }
+  return null;
+}

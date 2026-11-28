@@ -341,3 +341,4 @@ UI texts in `src/i18n.ts` are translated per language and are not bound by this 
 | Hangar Drive                                    | Hangar Drive                      | the separate sync and backup app; a product name, never translated; ADR 0024                     |
 | Mit Hangar Drive sichern                        | back up with Hangar Drive         | hands a project folder to Hangar Drive, which asks to confirm; not a `.bak` backup               |
 | Ordnerliste (Hangar Drive)                      | folder list                       | Hangar Drive's public `folders.json`, read only; `hangar_drive.rs`                               |
+| Hangar-Drive-Logo (Sidebar)                     | Hangar Drive logo                 | sidebar mark: logo with "+" backs up, with a check Drive holds it; `drivePlace`                  |

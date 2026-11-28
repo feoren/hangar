@@ -1171,6 +1171,161 @@ h2 .beta-badge {
   text-overflow: ellipsis;
 }
 
+/* --- Hangar Drive logo (DriveMark.tsx, ADR 0024) ---
+   Hangar Drive's own logo with a small badge on its corner: a "+" in the action color backs the
+   project up, the logo a little quieter until the pointer or the focus is on it; a check in the
+   OK color says Hangar Drive holds it, a pause or stop sign in the quiet color while it is paused
+   or stopped (the tooltip says which). The badge's ring in the panel color keeps it apart from
+   the logo. Where it shows is a setting (hangarDrive.ts `DrivePlace`). */
+.drive-mark {
+  display: inline-grid;
+  flex: none;
+  place-items: center;
+}
+
+.drive-mark.offer {
+  cursor: pointer;
+}
+
+.drive-sign {
+  position: relative;
+  display: inline-grid;
+  place-items: center;
+  line-height: 0;
+}
+
+.hangar-drive-logo {
+  display: block;
+  flex: none;
+}
+
+.drive-mark.offer .hangar-drive-logo {
+  opacity: 0.7;
+  filter: saturate(0.5);
+  transition:
+    opacity 120ms ease,
+    filter 120ms ease;
+}
+
+.drive-mark.offer:hover .hangar-drive-logo,
+.drive-mark.offer:focus-visible .hangar-drive-logo {
+  opacity: 1;
+  filter: none;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .drive-mark.offer .hangar-drive-logo {
+    transition: none;
+  }
+}
+
+.drive-badge {
+  position: absolute;
+  right: -3px;
+  bottom: -3px;
+  display: grid;
+  place-items: center;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  box-shadow: 0 0 0 1px var(--panel);
+}
+
+.drive-badge svg {
+  display: block;
+}
+
+.drive-badge.add {
+  color: var(--on-primary);
+  background: var(--primary);
+}
+
+.drive-badge.ok {
+  color: var(--on-badge);
+  background: var(--ok);
+}
+
+.drive-badge.quiet {
+  color: var(--panel);
+  background: var(--muted);
+}
+
+/* The settings row names the choice beside the logo. */
+.drive-place-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+}
+
+/* After the folder's name, on its line: the name gives way first, the logo stays whole. Inside
+   the row's own button it is no real button, so it draws the shared focus ring itself. */
+.session-path.has-drive {
+  min-width: 56px;
+}
+
+.drive-mark.in-card {
+  margin: -3px 0 -3px 2px;
+  padding: 3px;
+  border-radius: 4px;
+}
+
+.drive-mark.in-card.offer:hover {
+  background: color-mix(in srgb, var(--text) 14%, transparent);
+}
+
+.drive-mark.in-card.offer:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: -1px;
+}
+
+/* Beside the row: in a column the rows leave free on their right, centered on the row. */
+.session.drive-beside {
+  margin-right: 26px;
+}
+
+.drive-mark.beside-card,
+.drive-mark.left-gutter {
+  position: absolute;
+  top: 50%;
+  translate: 0 -50%;
+}
+
+.drive-mark.beside-card {
+  right: calc(-26px - var(--row-border));
+  width: 24px;
+  height: 24px;
+}
+
+/* A real icon button there: a faint hover tile like the one in the row, and the logo lights up. */
+.drive-mark.icon-button:hover {
+  background: color-mix(in srgb, var(--text) 10%, transparent);
+}
+
+/* In the free column at the list's left edge, below the group header's chevron and left of the
+   link bracket's line. */
+.drive-mark.left-gutter {
+  left: calc(-1 * (var(--agent-tree-x) + var(--tree-step) + var(--row-edge-drawn)));
+  width: 20px;
+  height: 20px;
+}
+
+/* At the project group header's right end, beside its toggle, which keeps the rest. */
+.section-title.agent-group-title.has-drive {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+}
+
+.agent-group-title.has-drive .agent-group-toggle {
+  flex: 1;
+  min-width: 0;
+}
+
+.drive-mark.in-header {
+  width: 24px;
+  height: 24px;
+}
+
 .attention-text {
   font-weight: 600;
   color: var(--text);

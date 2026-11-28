@@ -115,6 +115,7 @@ import {
   SourceControlIcon,
   TemplateIcon,
 } from "./icons";
+import { HangarDriveLogo } from "./DriveMark";
 import { LauncherDialog } from "./LauncherDialog";
 import { buildLauncherItems, commitItems, fileItems } from "./launcherItems";
 import { LinkAddress } from "./LinkAddress";
@@ -487,7 +488,7 @@ import { useClaims } from "./useClaims";
 import { projectNamesOf } from "./sharedNotes";
 import { useTeam } from "./useTeam";
 import { useHangarDrive, useRepoRoots } from "./useHangarDrive";
-import { canBackUp, driveFolder, handOverFolder } from "./hangarDrive";
+import { canBackUp, driveFolder, driveMark, handOverFolder, type DriveMark } from "./hangarDrive";
 import { TeamWindow } from "./TeamWindow";
 import {
   clockTime,
@@ -6014,6 +6015,12 @@ export function App() {
     const folder = handOverFolder(session, driveRoots);
     if (canBackUp(drive, folder)) api.hangarDriveAddFolder(folder).catch(showError);
   };
+  // The sidebar's logo per session, for the same folder the menu entry would hand over.
+  const driveMarks = new Map<number, DriveMark>();
+  for (const session of state.sessions) {
+    const mark = driveMark(drive, handOverFolder(session, driveRoots));
+    if (mark !== null) driveMarks.set(session.id, mark);
+  }
   /** Queued message per session id, for the rows, the menu and quick access. */
   const queuedById = new Map<number, QueuedMessage>();
   for (const session of state.sessions) {
@@ -6173,8 +6180,11 @@ export function App() {
           const action = entry.key;
           const id = menuSession.id;
           const anchor = sessionMenu === null ? null : { x: sessionMenu.x, y: sessionMenu.y };
+          const { icon, ...shown } = entry;
           return {
-            ...entry,
+            ...shown,
+            // A leading icon only where the menu marks an entry out (sessionMenu.ts `icon`).
+            ...(icon === "hangarDrive" ? { icon: <HangarDriveLogo size={14} /> } : {}),
             run: () => {
               runSessionAction(action, id, anchor);
             },
@@ -7391,6 +7401,9 @@ export function App() {
           onSessionMenu={(id, x, y) => {
             setSessionMenu({ id, x, y });
           }}
+          driveMarks={driveMarks}
+          drivePlace={settings.drivePlace}
+          onBackUpWithDrive={backUpWithDrive}
           onAgentCommand={compactFromRow}
           drag={
             sessionDragView === null
@@ -8801,6 +8814,7 @@ export function App() {
               },
             }}
             onChange={updateSettings}
+            driveReady={drive.ready}
             onClearScrollbacks={clearScrollbacks}
             usageConsent={usageConsent}
             onUsageConsent={answerUsage}

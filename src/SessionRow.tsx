@@ -90,6 +90,11 @@ export interface RowBodyProps {
    * none.
    */
   badgeCount?: ReactNode;
+  /**
+   * Hangar Drive's logo (DriveMark.tsx) right after the folder's name, on the folder's line; it
+   * stays whole while the name gives way. Missing or `null`: none, and none without a folder.
+   */
+  drive?: ReactNode;
 }
 
 function hasFigure(props: RowBodyProps): boolean {
@@ -291,7 +296,7 @@ function RowElementView({ element, ...props }: { element: RowElement } & RowBody
       return props.signs;
     case "folder":
       return props.place === null ? null : (
-        <RowFolder place={props.place} tag={forms.folder === "tag"} />
+        <RowFolder place={props.place} tag={forms.folder === "tag"} drive={props.drive ?? null} />
       );
     case "branch":
       return props.branch === null ? null : (
@@ -377,13 +382,22 @@ function StateView({ plan, line, waiting, chip }: RowBodyProps) {
   );
 }
 
-function RowFolder({ place, tag }: { place: string; tag: boolean }) {
+function RowFolder({ place, tag, drive }: { place: string; tag: boolean; drive: ReactNode }) {
+  const className = [
+    "session-path",
+    "row-where",
+    tag ? "tag" : "",
+    drive === null ? "" : "has-drive",
+  ]
+    .filter(Boolean)
+    .join(" ");
   return (
-    <span className={tag ? "session-path row-where tag" : "session-path row-where"}>
+    <span className={className}>
       <span className="session-path-icon" aria-hidden="true">
         <FolderIcon size={11} />
       </span>
       <span className="session-path-name">{place}</span>
+      {drive}
     </span>
   );
 }

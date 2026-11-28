@@ -25,6 +25,18 @@ describe("sessionMenuEntries", () => {
     expect(entry?.type === "action" ? entry.label : "").toBe("Mit Hangar Drive sichern …");
   });
 
+  it("marks the Hangar Drive entry out with its logo and no other entry", () => {
+    const entries = sessionMenuEntries({ status: "running" }, t, false, {
+      queue: null,
+      stall: null,
+      drive: true,
+    });
+    const icons = entries.flatMap((entry) =>
+      entry.type === "action" && entry.icon !== undefined ? [[entry.key, entry.icon]] : [],
+    );
+    expect(icons).toEqual([["drive", "hangarDrive"]]);
+  });
+
   it("offers end process for a running session", () => {
     const entries = sessionMenuEntries({ status: "running" }, t);
     expect(entries.map((entry) => entry.key)).toEqual(["rename", "marker", "sep", "kill", "close"]);

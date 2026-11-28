@@ -38,6 +38,11 @@ export type SessionMenuEntry =
       label: string;
       /** Dimmed at the row's end: the quicker way to the same thing ("Ctrl+click"). */
       shortcut?: string;
+      /**
+       * A leading icon that marks the entry out, the same one the sidebar shows for it
+       * ("hangarDrive": Hangar Drive's logo, DriveMark.tsx); the caller draws it.
+       */
+      icon?: "hangarDrive";
     }
   | { type: "separator"; key: string };
 
@@ -197,7 +202,7 @@ export function sessionMenuEntries(
       ? [{ type: "action", key: "report", label: t("session.exportReport") } as const]
       : []),
     ...(extras.drive === true
-      ? [{ type: "action", key: "drive", label: t("drive.backUp") } as const]
+      ? [{ type: "action", key: "drive", label: t("drive.backUp"), icon: "hangarDrive" } as const]
       : []),
     ...subAgents,
     ...stall,

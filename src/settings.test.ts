@@ -87,6 +87,7 @@ describe("parseSettings", () => {
       cursorBlink: false,
       viewerTheme: "harbor",
       sessionGrouping: "project",
+      drivePlace: "leftGutter",
       snippets: [{ id: "mine", text: "Fix the build" }],
       dailyBudget: 12.5,
       dictation: { enabled: true, model: "small", language: "de", key: "f9" },

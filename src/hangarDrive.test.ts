@@ -3,6 +3,14 @@ import { describe, expect, it } from "vitest";
 import {
   handOverFolder,
   canBackUp,
+  DEFAULT_DRIVE_PLACE,
+  DRIVE_PLACES,
+  driveMark,
+  driveMarkAt,
+  effectiveDrivePlace,
+  headerDrive,
+  parseDrivePlace,
+  type DriveMark,
   driveMarkKey,
   isLocalFolder,
   NO_DRIVE,
@@ -214,5 +222,71 @@ describe("handOverFolder", () => {
     const deeperRoots = new Map([[deeper.cwd, "C:\\Users\\a\\work\\proj"]]);
     expect(canBackUp(hidden, handOverFolder(deeper, deeperRoots))).toBe(false);
     expect(canBackUp(view, handOverFolder(deeper, deeperRoots))).toBe(true);
+  });
+});
+
+describe("driveMark", () => {
+  const ready = parseDriveStatus(["C:\\work\\held", "C:\\work\\new", "C:\\work\\refused"], {
+    ready: true,
+    home: "C:\\Users\\a",
+    marks: ["paused", null, null],
+    refused: [false, false, true],
+  });
+
+  it("offers the way to back up where Hangar Drive can take the folder", () => {
+    expect(driveMark(ready, "C:\\work\\new")).toEqual({ kind: "offer" });
+  });
+
+  it("shows the check with the state once Hangar Drive holds the folder", () => {
+    expect(driveMark(ready, "C:\\work\\held")).toEqual({ kind: "held", state: "paused" });
+  });
+
+  it("shows nothing for a refused folder, an unknown one or without Hangar Drive", () => {
+    expect(driveMark(ready, "C:\\work\\refused")).toBeNull();
+    expect(driveMark(ready, null)).toBeNull();
+    expect(driveMark(NO_DRIVE, "C:\\work\\new")).toBeNull();
+    expect(driveMark({ ...ready, ready: false }, "C:\\work\\held")).toBeNull();
+  });
+});
+
+describe("drive places", () => {
+  const offer: DriveMark = { kind: "offer" };
+  const held: DriveMark = { kind: "held", state: "active" };
+
+  it("shows the logo only at the chosen place, and nowhere while it is off", () => {
+    for (const place of DRIVE_PLACES) {
+      const shownAt = DRIVE_PLACES.filter((at) => driveMarkAt(place, at, offer) !== null);
+      expect(shownAt).toEqual(place === "off" ? [] : [place]);
+    }
+    expect(driveMarkAt("sessionCard", "sessionCard", null)).toBeNull();
+    expect(driveMarkAt("besideCard", "besideCard", held)).toBe(held);
+    expect(driveMarkAt("leftGutter", "sessionCard", held)).toBeNull();
+  });
+
+  it("puts the first session's logo of a project group in its header", () => {
+    const marks = new Map<number, DriveMark>([
+      [2, held],
+      [3, offer],
+    ]);
+    expect(headerDrive("projectHeader", [1, 2, 3], marks)).toEqual({ id: 2, mark: held });
+    expect(headerDrive("projectHeader", [1], marks)).toBeNull();
+    expect(headerDrive("sessionCard", [1, 2, 3], marks)).toBeNull();
+    expect(headerDrive("off", [2], marks)).toBeNull();
+  });
+
+  it("reads a stored place and falls back to the session row", () => {
+    expect(DEFAULT_DRIVE_PLACE).toBe("sessionCard");
+    for (const place of DRIVE_PLACES) expect(parseDrivePlace(place)).toBe(place);
+    expect(parseDrivePlace("sidebar")).toBe("sessionCard");
+    expect(parseDrivePlace(undefined)).toBe("sessionCard");
+  });
+});
+
+describe("effectiveDrivePlace", () => {
+  it("moves the logo beside a row whose layout has no folder", () => {
+    expect(effectiveDrivePlace("sessionCard", false)).toBe("besideCard");
+    expect(effectiveDrivePlace("sessionCard", true)).toBe("sessionCard");
+    expect(effectiveDrivePlace("leftGutter", false)).toBe("leftGutter");
+    expect(effectiveDrivePlace("off", false)).toBe("off");
   });
 });

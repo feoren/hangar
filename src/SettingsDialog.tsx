@@ -25,6 +25,8 @@ import {
   SwitchRow,
   WideRow,
 } from "./SettingsParts";
+import { HangarDriveLogo } from "./DriveMark";
+import { DRIVE_PLACES, parseDrivePlace, type DrivePlace } from "./hangarDrive";
 import { treeFlowSupported } from "./treeFlow";
 import { TreeFlowField } from "./TreeFlowSettings";
 import type { Settings } from "./settings";
@@ -92,6 +94,8 @@ interface Props {
   /** "Update" on a program row (one click, or a question while the program runs). */
   updateActions: UpdateActions;
   onChange: (patch: Partial<Settings>) => void;
+  /** Hangar Drive is set up, so the sidebar can show its logo and the choice where is offered. */
+  driveReady: boolean;
   /** Deletes all saved scrollback; rejects with a readable error. */
   onClearScrollbacks: () => Promise<void>;
   /** Opens profiles.toml in the default editor (creates it if needed); rejects with an error. */
@@ -398,10 +402,70 @@ function AppearanceSection(props: Props) {
             onChange({ rowLayout });
           }}
         />
+        <DrivePlaceField
+          ready={props.driveReady}
+          value={settings.drivePlace}
+          onChange={(drivePlace) => {
+            onChange({ drivePlace });
+          }}
+        />
       </SettingsGroup>
       <ViewerThemeGroup {...props} />
       <ResetLayoutLink onReset={props.onResetLayout} />
     </>
+  );
+}
+
+const DRIVE_PLACE_NAMES: Record<DrivePlace, MessageKey> = {
+  sessionCard: "settings.drivePlaceCard",
+  besideCard: "settings.drivePlaceBeside",
+  leftGutter: "settings.drivePlaceLeft",
+  projectHeader: "settings.drivePlaceHeader",
+  off: "settings.drivePlaceOff",
+};
+
+/**
+ * Where the sidebar shows Hangar Drive's logo; a list, as five choices do not fit in a row. Only
+ * while Hangar Drive is set up (`ready`): without it no logo shows anywhere.
+ */
+export function DrivePlaceField({
+  ready,
+  value,
+  onChange,
+}: {
+  ready: boolean;
+  value: DrivePlace;
+  onChange: (place: DrivePlace) => void;
+}) {
+  const t = useT();
+  if (!ready) return null;
+  return (
+    <SettingRow
+      label={
+        <span className="drive-place-label">
+          <HangarDriveLogo size={16} />
+          {t("settings.drivePlace")}
+        </span>
+      }
+      help={t("settings.drivePlaceHelp")}
+      control={({ labelId, helpId }) => (
+        <select
+          className="select"
+          value={value}
+          aria-labelledby={labelId}
+          aria-describedby={helpId}
+          onChange={(event) => {
+            onChange(parseDrivePlace(event.currentTarget.value));
+          }}
+        >
+          {DRIVE_PLACES.map((place) => (
+            <option key={place} value={place}>
+              {t(DRIVE_PLACE_NAMES[place])}
+            </option>
+          ))}
+        </select>
+      )}
+    />
   );
 }
 

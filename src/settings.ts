@@ -15,6 +15,7 @@ import { clamp } from "./layout";
 import { isLanguage, type Language } from "./i18n";
 import { DEFAULT_PROGRAM_PREFS, parseProgramPrefs, type ProgramPrefs } from "./programPrefs";
 import { DEFAULT_ROW_LAYOUT, parseRowLayout, type RowLayout } from "./rowLayout";
+import { DEFAULT_DRIVE_PLACE, parseDrivePlace, type DrivePlace } from "./hangarDrive";
 import { DEFAULT_TREE_FLOW, parseTreeFlow, type TreeFlowPrefs } from "./treeFlow";
 import { defaultSnippets, parseSnippets, type Snippet } from "./snippets";
 import {
@@ -247,6 +248,11 @@ export interface Settings {
   viewerTheme: ViewerTheme;
   /** The sidebar groups the sessions by program or by project folder (sessionGroups.ts). */
   sessionGrouping: SessionGrouping;
+  /**
+   * Where the sidebar shows Hangar Drive's logo (hangarDrive.ts `DrivePlace`); the session
+   * menu's entry stays in every case. Display only, so it lives in localStorage.
+   */
+  drivePlace: DrivePlace;
   /** Stored texts for agents (snippets.ts); seeded in the language of the first start. */
   snippets: Snippet[];
   /**
@@ -342,6 +348,7 @@ export function defaultSettings(language: Language): Settings {
     cursorBlink: DEFAULT_TERMINAL_LOOK.cursorBlink,
     viewerTheme: DEFAULT_VIEWER_THEME,
     sessionGrouping: "program",
+    drivePlace: DEFAULT_DRIVE_PLACE,
     snippets: defaultSnippets(language),
     dailyBudget: null,
     budgetEarlyPercent: DEFAULT_EARLY_PERCENT,
@@ -462,6 +469,7 @@ export function parseSettings(text: string | null, fallbackLanguage: Language): 
     cursorBlink: flag("cursorBlink"),
     viewerTheme: parseViewerTheme(viewerTheme) ?? defaults.viewerTheme,
     sessionGrouping: isSessionGrouping(grouping) ? grouping : defaults.sessionGrouping,
+    drivePlace: parseDrivePlace(get("drivePlace")),
     snippets: defaultSnippets(chosenLanguage),
     // Never from localStorage either: the backend keeps it with the notices (mainStore.ts).
     dailyBudget: defaults.dailyBudget,

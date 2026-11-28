@@ -137,6 +137,14 @@ import {
 } from "./SubAgentCount";
 import { useSessionContext, useSessionOutputRate } from "./useContextUsage";
 import { CompactAction } from "./CompactAction";
+import { DriveMarkView } from "./DriveMark";
+import {
+  driveMarkAt,
+  effectiveDrivePlace,
+  headerDrive,
+  type DriveMark,
+  type DrivePlace,
+} from "./hangarDrive";
 import { commandBusy, sessionCommands } from "./agentCommands";
 import { useSessionCost, useSessionCostText } from "./useCosts";
 import { useSessionResources } from "./useSessionResources";
@@ -287,6 +295,15 @@ interface Props {
   onRename: (id: number, title: string) => void;
   /** Right click or context menu key on a session: the session menu at this point. */
   onSessionMenu: (id: number, x: number, y: number) => void;
+  /**
+   * Hangar Drive's logo per session (hangarDrive.ts `driveMark`) for the folder the session menu
+   * would hand over; a session without an entry shows none.
+   */
+  driveMarks: ReadonlyMap<number, DriveMark>;
+  /** Where the sidebar shows the logo (settings `drivePlace`). */
+  drivePlace: DrivePlace;
+  /** The logo's "+": hands the session's project folder to Hangar Drive, as the menu does. */
+  onBackUpWithDrive: (id: number) => void;
   /** The compact button of a row: types the program's compact command into that session. */
   onAgentCommand: (id: number, command: AgentCommand, at: number) => void;
   /** A session row is being dragged: which one, and where the drop line shows. */
@@ -1109,6 +1126,23 @@ export function Sidebar(props: Props) {
     const rect = from.getBoundingClientRect();
     setGroupingMenu({ x: rect.left + 24, y: rect.bottom, from });
   };
+  /** Hangar Drive's logo at the end of a project group's header (hangarDrive.ts `headerDrive`). */
+  const groupDrive = (groupSessions: readonly SessionView[]) => {
+    const shown = headerDrive(
+      props.drivePlace,
+      groupSessions.map((session) => session.id),
+      props.driveMarks,
+    );
+    return shown === null ? null : (
+      <DriveMarkView
+        mark={shown.mark}
+        className="in-header"
+        onBackUp={() => {
+          props.onBackUpWithDrive(shown.id);
+        }}
+      />
+    );
+  };
   /**
    * The sessions, one group per program or project folder whose rows hang off its header like a
    * tree; the sub-agent tree hangs below the active row.
@@ -1146,6 +1180,7 @@ export function Sidebar(props: Props) {
           holdsActive={!open && agents.sessions.some((s) => s.id === activeId)}
           onToggle={props.onToggleAgentGroup}
           onMenu={openGroupingMenu}
+          drive={project === null ? null : groupDrive(agents.sessions)}
         >
           {flow.end !== null && <TreeFlowTrunk live={flow.live} />}
           {groupRows.map((session, index) => {
@@ -1658,6 +1693,7 @@ export function AgentGroupSection({
   holdsActive,
   onToggle,
   onMenu,
+  drive = null,
   children,
 }: {
   groupKey: string;
@@ -1675,6 +1711,8 @@ export function AgentGroupSection({
   holdsActive: boolean;
   onToggle: (key: string) => void;
   onMenu: (event: React.MouseEvent<HTMLElement>) => void;
+  /** Hangar Drive's logo at the header's right end (DriveMark.tsx); `null`: none. */
+  drive?: React.ReactNode;
   children: React.ReactNode;
 }) {
   const t = useT();
@@ -1684,7 +1722,13 @@ export function AgentGroupSection({
   const activeText = t("sidebar.agentGroupHoldsActive");
   return (
     <li className={open ? "agent-group" : "agent-group closed"}>
-      <h2 className="section-title group-title agent-group-title">
+      <h2
+        className={
+          drive === null
+            ? "section-title group-title agent-group-title"
+            : "section-title group-title agent-group-title has-drive"
+        }
+      >
         <button
           type="button"
           className={
@@ -1728,6 +1772,7 @@ export function AgentGroupSection({
             </span>
           )}
         </button>
+        {drive}
       </h2>
       <ul id={bodyId} className="agent-rows" hidden={!hasRows}>
         {children}
@@ -1969,6 +2014,9 @@ function SessionItem({
   selected,
   bracket,
   onSelectClick,
+  driveMarks,
+  drivePlace,
+  onBackUpWithDrive,
 }: ItemProps) {
   const t = useT();
   // Read here rather than in the context line: the ring and the small bars show it too. Only this
@@ -2008,6 +2056,19 @@ function SessionItem({
   const cost = useSessionCostText(isPlaced(plan.layout, "cost") ? session.id : -1, language);
   // Always once measured: live while responses end, then the last one, quieter (RowSpeed).
   const speed = useSessionOutputRate(isPlaced(plan.layout, "speed") ? session.id : -1) ?? null;
+  // Hangar Drive's logo where the setting puts it on or beside this row; the header's is the
+  // group's (AgentGroupSection).
+  const driveMark = driveMarks.get(session.id) ?? null;
+  const rowDrivePlace = effectiveDrivePlace(drivePlace, isPlaced(plan.layout, "folder"));
+  const backUp = () => {
+    onBackUpWithDrive(session.id);
+  };
+  const driveAt = (at: DrivePlace, className: string, inRow = false) => {
+    const mark = driveMarkAt(rowDrivePlace, at, driveMark);
+    return mark === null ? null : (
+      <DriveMarkView mark={mark} onBackUp={backUp} inRow={inRow} className={className} />
+    );
+  };
   const modelText = modelBadge(session.model, profile, t);
   const modelFact =
     modelText === null
@@ -2024,6 +2085,8 @@ function SessionItem({
     lookClass(rowLook(session, state, chip)),
     edgeClass(rowEdge(session, state, chip)),
     last ? "tree-last" : "",
+    // Beside the rows, every row leaves the logo's column free, so the rows stay one width.
+    rowDrivePlace === "besideCard" && driveMarks.size > 0 ? "drive-beside" : "",
     dragClass,
   ]
     .filter(Boolean)
@@ -2044,6 +2107,7 @@ function SessionItem({
       </span>
       {/* A member of a link group: the group's bracket, left of the tree's guide. */}
       {bracket !== null && <LinkBracketLine piece={bracket} />}
+      {driveAt("leftGutter", "left-gutter")}
       {editing ? (
         <div className="session-main">
           <input
@@ -2116,6 +2180,7 @@ function SessionItem({
             speed={speed}
             model={modelFact}
             language={language}
+            drive={driveAt("sessionCard", "in-card", true)}
             badgeCount={
               subAgents > 0 ? <SubAgentCountMark running={subAgents} place="badge" /> : null
             }
@@ -2250,6 +2315,7 @@ function SessionItem({
           <CloseIcon />
         </IconButton>
       </div>
+      {driveAt("besideCard", "beside-card")}
     </li>
   );
 }
