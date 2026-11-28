@@ -94,7 +94,7 @@ export interface SessionMenuExtras {
    */
   crewShown?: boolean;
   /**
-   * Hangar Drive is installed and does not hold the session's folder yet (hangarDrive.ts
+   * Hangar Drive can take the session's folder and does not hold it yet (hangarDrive.ts
    * `canBackUp`), so "Back up with Hangar Drive" hands it over.
    */
   drive?: boolean;
@@ -107,7 +107,7 @@ const NO_EXTRAS: SessionMenuExtras = { queue: null, stall: null };
  * where the project has partners, `partner`), link with other sessions or edit and unlink the
  * session's group (`link`), then the program's commands (only while the session offers some,
  * agentCommands.ts), export as report (only for programs whose transcript Hangar reads), back up
- * with Hangar Drive (only where it is installed and the folder is not in it yet), then show
+ * with Hangar Drive (only where it can take the folder and does not hold it yet), then show
  * or hide the sub-agents (only for sessions that have them), then the stall hint's help (last
  * lines, Ctrl+C) and the queued message, then restart (ended) or end process (running), then
  * close. `subAgentsShown`: the sub-agent view of this session is open, so the entry hides it.

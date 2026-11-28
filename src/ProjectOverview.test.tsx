@@ -1,7 +1,7 @@
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
 
-import { NO_DRIVE, type DriveView } from "./hangarDrive";
+import { NO_DRIVE, parseDriveStatus, type DriveView } from "./hangarDrive";
 import { createTranslator, I18nContext } from "./i18n";
 import { EMPTY_BOOK, parsePartnerBook, type PartnerBook } from "./partners";
 import type { Project, OverviewSession } from "./projectCards";
@@ -84,16 +84,41 @@ describe("ProjectCard", () => {
     expect(html).not.toContain("project-drive");
   });
 
+  const ready: DriveView = { ready: true, home: null, marks: new Map(), refused: new Set() };
+
   it("offers backing up a project Hangar Drive does not hold yet", () => {
-    const html = card(new Map(), new Map(), EMPTY_BOOK, { installed: true, marks: new Map() });
+    const html = card(new Map(), new Map(), EMPTY_BOOK, ready);
     expect(html).toContain("Mit Hangar Drive sichern …");
     expect(html).toContain("<button");
+  });
+
+  it("offers nothing while Hangar Drive cannot take a folder", () => {
+    // What the backend answers without folders.json, with `setUp: false` or another contract.
+    const notReady = parseDriveStatus(["E:\\work\\hangar"], {
+      ready: false,
+      home: null,
+      marks: [null],
+      refused: [true],
+    });
+    const html = card(new Map(), new Map(), EMPTY_BOOK, notReady);
+    expect(html).not.toContain("Hangar Drive");
+    expect(html).not.toContain("project-drive");
+  });
+
+  it("offers nothing for a folder the backend refuses or the rules forbid", () => {
+    const refused = card(new Map(), new Map(), EMPTY_BOOK, {
+      ...ready,
+      refused: new Set(["E:\\work\\hangar"]),
+    });
+    expect(refused).not.toContain("Hangar Drive");
+    const homeChild = card(new Map(), new Map(), EMPTY_BOOK, { ...ready, home: "E:\\work" });
+    expect(homeChild).not.toContain("Hangar Drive");
   });
 
   it("marks a project Hangar Drive holds, with its state where it does not sync", () => {
     const marked = (state: "active" | "paused" | "stopped" | "other") =>
       card(new Map(), new Map(), EMPTY_BOOK, {
-        installed: true,
+        ...ready,
         marks: new Map([["E:\\work\\hangar", state]]),
       });
     expect(marked("active")).toContain("In Hangar Drive<");

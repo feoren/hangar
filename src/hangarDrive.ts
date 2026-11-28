@@ -1,4 +1,4 @@
-// Hangar Drive, the separate sync and backup app (ADR 0024): whether it is installed, which
+// Hangar Drive, the separate sync and backup app (ADR 0024): whether it can take a folder, which
 // project folders it holds, and which folder a session's "Back up" hands to it. Pure; the backend
 // detects the app, reads its public folder list and checks every folder again.
 
@@ -8,13 +8,22 @@ import type { MessageKey } from "./i18n";
 export type DriveState = "active" | "paused" | "stopped" | "other";
 
 export interface DriveView {
-  /** Hangar Drive is installed; nothing of it shows otherwise. */
-  installed: boolean;
+  /** Hangar Drive is installed and set up, so it can take a folder; nothing of it shows otherwise. */
+  ready: boolean;
+  /** The home folder as the backend compares it, for `isLocalFolder`; `null` when unknown. */
+  home: string | null;
   /** Per asked folder that lies in a folder Hangar Drive syncs, that folder's state. */
   marks: ReadonlyMap<string, DriveState>;
+  /** Asked folders the backend's full check refuses (hidden, system, home, missing, …). */
+  refused: ReadonlySet<string>;
 }
 
-export const NO_DRIVE: DriveView = { installed: false, marks: new Map() };
+export const NO_DRIVE: DriveView = {
+  ready: false,
+  home: null,
+  marks: new Map(),
+  refused: new Set(),
+};
 
 /** Folders one status call asks about at most (Rust: `hangar_drive::MAX_PATHS`). */
 export const MAX_DRIVE_PATHS = 256;
@@ -28,15 +37,25 @@ function isState(value: unknown): value is DriveState {
 /** The backend's answer for `paths`, in the same order; anything unexpected means no Hangar Drive. */
 export function parseDriveStatus(paths: readonly string[], value: unknown): DriveView {
   if (typeof value !== "object" || value === null) return NO_DRIVE;
-  const installed: unknown = Reflect.get(value, "installed");
+  const ready: unknown = Reflect.get(value, "ready");
+  const home: unknown = Reflect.get(value, "home");
   const marks: unknown = Reflect.get(value, "marks");
-  if (installed !== true || !Array.isArray(marks)) return NO_DRIVE;
+  const refused: unknown = Reflect.get(value, "refused");
+  if (ready !== true || !Array.isArray(marks) || !Array.isArray(refused)) return NO_DRIVE;
   const found = new Map<string, DriveState>();
+  const refusedPaths = new Set<string>();
   paths.forEach((path, index) => {
     const mark: unknown = marks[index];
     if (isState(mark)) found.set(path, mark);
+    // Anything but an explicit `false` counts as refused: fail closed.
+    if (refused[index] !== false) refusedPaths.add(path);
   });
-  return { installed: true, marks: found };
+  return {
+    ready: true,
+    home: typeof home === "string" && home !== "" ? home : null,
+    marks: found,
+    refused: refusedPaths,
+  };
 }
 
 /** The words of a mark: the state only where the folder does not simply sync. */
@@ -61,15 +80,36 @@ function hasControl(text: string): boolean {
 
 /**
  * A local absolute folder Hangar Drive takes (`C:\…` or `/…`): no network share or device path
- * (`\\server`, `\\?\`), no `..`, no control characters. The backend checks the same and more.
+ * (`\\server`, `\\?\`), no `..`, no control characters, no part starting with a dot (`.git`), and
+ * neither the home folder nor a direct child of it (`home`, when known). The backend checks the
+ * same on the canonical path, and on Windows also hidden and system folders.
  */
-export function isLocalFolder(path: string): boolean {
+export function isLocalFolder(path: string, home: string | null = null): boolean {
   if (path.trim() === "" || hasControl(path)) return false;
   if (path.startsWith("\\\\") || path.startsWith("//")) return false;
   if (!/^(?:[A-Za-z]:(?:[\\/]|$)|\/)/.test(path)) return false;
-  const parts = path.split(/[\\/]/);
-  if (parts.includes("..")) return false;
-  return path.startsWith("/") || !parts.slice(1).some(awkwardWindowsPart);
+  const windows = !path.startsWith("/");
+  const parts = path.split(windows ? /[\\/]/ : "/").slice(1);
+  if (parts.some((part) => part === ".." || part.startsWith("."))) return false;
+  if (windows && parts.some(awkwardWindowsPart)) return false;
+  return home === null || !homeOrItsChild(path, home, windows);
+}
+
+/** The parts of an absolute path for comparing: no empty parts, without case on Windows. */
+function comparedParts(path: string, windows: boolean): string[] {
+  const parts = path.split(windows ? /[\\/]/ : "/").filter((part) => part !== "");
+  return windows ? parts.map((part) => part.toLowerCase()) : parts;
+}
+
+/**
+ * The home folder itself or a folder directly in it (Rust: `home_or_its_child`); deeper folders
+ * such as `C:\Users\a\Documents\proj` are fine.
+ */
+function homeOrItsChild(path: string, home: string, windows: boolean): boolean {
+  const own = comparedParts(path, windows);
+  const base = comparedParts(home, windows);
+  if (base.length === 0 || own.length < base.length || own.length > base.length + 1) return false;
+  return base.every((part, index) => own[index] === part);
 }
 
 /** Names Windows keeps for devices, also with an extension (`nul.txt`). */
@@ -96,15 +136,24 @@ export interface DriveSession {
  * worktree Hangar made, else the working folder. `null` for update sessions (home folder on
  * purpose) and folders Hangar Drive does not take.
  */
-export function driveFolder(session: DriveSession): string | null {
+export function driveFolder(session: DriveSession, home: string | null = null): string | null {
   if (session.kind === "update") return null;
   const folder = session.worktree?.repoRoot ?? session.cwd;
-  return isLocalFolder(folder) ? folder : null;
+  return isLocalFolder(folder, home) ? folder : null;
 }
 
-/** Hangar Drive can take this folder: installed, local, and not already in a synced folder. */
+/**
+ * Hangar Drive can take this folder: it is installed and set up, the folder is local, the
+ * backend's full check does not refuse it, and it is not already in a synced folder.
+ */
 export function canBackUp(view: DriveView, folder: string | null): folder is string {
-  return view.installed && folder !== null && !view.marks.has(folder);
+  return (
+    view.ready &&
+    folder !== null &&
+    isLocalFolder(folder, view.home) &&
+    !view.refused.has(folder) &&
+    !view.marks.has(folder)
+  );
 }
 
 /**
@@ -114,9 +163,13 @@ export function canBackUp(view: DriveView, folder: string | null): folder is str
 export async function backUpFolder(
   session: DriveSession,
   repoRoot: (folder: string) => Promise<string | null>,
+  home: string | null = null,
 ): Promise<string | null> {
-  const folder = driveFolder(session);
+  const folder = driveFolder(session, home);
   if (folder === null || session.worktree !== undefined) return folder;
   const root = await repoRoot(folder).catch(() => null);
-  return root !== null && isLocalFolder(root) ? root : folder;
+  if (root === null) return folder;
+  // A project Hangar Drive refuses (directly in the home folder, say) is not swapped for one of
+  // its subfolders: that would back up less than the person asked for.
+  return isLocalFolder(root, home) ? root : null;
 }

@@ -1,7 +1,9 @@
 //! Hangar Drive, the separate sync and backup app (ADR 0024). Hangar only finds out whether it is
-//! installed, hands it a project folder through its `hangar-drive://add-folder` link and reads the
-//! public list of the folders it syncs, to mark the project cards. Hangar Drive asks the person to
-//! confirm every folder itself; nothing here adds a folder or writes a file of Hangar Drive.
+//! installed and set up, hands it a project folder through its `hangar-drive://add-folder` link and
+//! reads the public list of the folders it syncs, to mark the project cards. Hangar Drive asks the
+//! person to confirm every folder itself; nothing here adds a folder or writes a file of Hangar
+//! Drive. The list is information only, never a permission: any program of the same user can write
+//! it.
 
 use std::collections::HashMap;
 use std::fs;
@@ -44,8 +46,8 @@ pub enum DriveError {
     WrongWindow,
     #[error("The window is not focused")]
     NotFocused,
-    #[error("Hangar Drive is not installed")]
-    NotInstalled,
+    #[error("Hangar Drive is not installed or not set up")]
+    NotReady,
     #[error("Only an existing folder on a local drive can be backed up")]
     NotLocalFolder,
     #[error("Too many folders at once")]
@@ -93,13 +95,35 @@ pub struct DriveFolder {
     pub state: FolderState,
 }
 
-/// What the window needs: whether to offer Hangar Drive at all, and per asked path the state of
-/// the folder in Hangar Drive that holds it (`None`: not in Hangar Drive).
+/// Hangar Drive's public list: whether it is set up, and the folders it syncs.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct DriveList {
+    pub set_up: bool,
+    pub folders: Vec<DriveFolder>,
+}
+
+/// What the window needs: whether to offer Hangar Drive at all (installed and set up), the home
+/// folder for the window's own mirror of the path rules, and per asked path the state of the folder
+/// in Hangar Drive that holds it (`None`: not in Hangar Drive) and whether Hangar Drive would
+/// refuse the path as a new folder.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct DriveStatus {
-    pub installed: bool,
+    pub ready: bool,
+    pub home: Option<String>,
     pub marks: Vec<Option<FolderState>>,
+    pub refused: Vec<bool>,
+}
+
+impl DriveStatus {
+    fn not_ready(count: usize) -> Self {
+        Self {
+            ready: false,
+            home: None,
+            marks: vec![None; count],
+            refused: vec![true; count],
+        }
+    }
 }
 
 /// The `hangar-drive://add-folder` link for one checked folder. Only [`add_folder_link`] makes
@@ -215,18 +239,28 @@ pub fn mark(folders: &[DriveFolder], project: &str, windows: bool) -> Option<Fol
         .map(|folder| folder.state)
 }
 
-/// The folders of Hangar Drive's list. Broken JSON, another contract or a missing list give none;
-/// an entry without a usable path is left out, an unknown state is [`FolderState::Other`].
-pub fn parse_folders(bytes: &[u8]) -> Vec<DriveFolder> {
-    let Ok(value) = serde_json::from_slice::<Value>(bytes) else {
-        return Vec::new();
-    };
+/// Hangar Drive's list, `None` for broken JSON or another contract. Only `setUp: true` counts as
+/// set up. A missing folder list gives no folders; an entry without a usable path is left out, an
+/// unknown state is [`FolderState::Other`].
+pub fn parse_list(bytes: &[u8]) -> Option<DriveList> {
+    let value = serde_json::from_slice::<Value>(bytes).ok()?;
     if value.get("contract").and_then(Value::as_str) != Some(FOLDERS_CONTRACT) {
-        return Vec::new();
+        return None;
     }
-    let Some(list) = value.get("folders").and_then(Value::as_array) else {
-        return Vec::new();
-    };
+    let set_up = value.get("setUp").and_then(Value::as_bool) == Some(true);
+    let folders = value
+        .get("folders")
+        .and_then(Value::as_array)
+        .map_or_else(Vec::new, |list| parse_entries(list));
+    Some(DriveList { set_up, folders })
+}
+
+/// The folders of Hangar Drive's list; none where [`parse_list`] gives no list.
+pub fn parse_folders(bytes: &[u8]) -> Vec<DriveFolder> {
+    parse_list(bytes).map_or_else(Vec::new, |list| list.folders)
+}
+
+fn parse_entries(list: &[Value]) -> Vec<DriveFolder> {
     list.iter()
         .take(MAX_FOLDERS)
         .filter_map(|entry| {
@@ -240,17 +274,15 @@ pub fn parse_folders(bytes: &[u8]) -> Vec<DriveFolder> {
         .collect()
 }
 
-/// `<config_local_dir>/Hangar Drive/public/folders.json`, the file the release build of Hangar
-/// Drive writes; its debug builds write elsewhere and are never read.
+/// `<data_local_dir>/Hangar Drive/public/folders.json`, the file the release build of Hangar Drive
+/// (0.2.0 and later) writes on every start; its debug builds write elsewhere and are never read.
 pub fn folders_file() -> Option<PathBuf> {
-    dirs::config_local_dir().map(|dir| dir.join("Hangar Drive").join("public").join("folders.json"))
+    dirs::data_local_dir().map(|dir| dir.join("Hangar Drive").join("public").join("folders.json"))
 }
 
-/// The list in `file`; none when it is missing, too large or unreadable.
-pub fn read_folders(file: &Path) -> Vec<DriveFolder> {
-    let Ok(handle) = fs::File::open(file) else {
-        return Vec::new();
-    };
+/// The list in `file`; `None` when it is missing, too large, unreadable or not [`parse_list`]'s.
+pub fn read_list(file: &Path) -> Option<DriveList> {
+    let handle = fs::File::open(file).ok()?;
     let mut bytes = Vec::new();
     // One byte more than allowed tells a file that is too large from one that just fits.
     if handle
@@ -259,9 +291,26 @@ pub fn read_folders(file: &Path) -> Vec<DriveFolder> {
         .is_err()
         || bytes.len() as u64 > MAX_FOLDERS_BYTES
     {
-        return Vec::new();
+        return None;
     }
-    parse_folders(&bytes)
+    parse_list(&bytes)
+}
+
+/// The folders in `file`; none where [`read_list`] gives no list.
+pub fn read_folders(file: &Path) -> Vec<DriveFolder> {
+    read_list(file).map_or_else(Vec::new, |list| list.folders)
+}
+
+/// The list of a Hangar Drive that can take a folder: its scheme is registered and its public list
+/// says it is set up. Hangar Drive 0.1.0 writes no list and drops add-folder links silently, and an
+/// uninstall can leave the list behind, so both are needed.
+fn ready_list() -> Option<DriveList> {
+    if !installed() {
+        return None;
+    }
+    folders_file()
+        .and_then(|file| read_list(&file))
+        .filter(|list| list.set_up)
 }
 
 /// The local form of a canonical path: on Windows without the `\\?\` that `canonicalize` adds,
@@ -288,27 +337,123 @@ fn awkward_windows_part(part: &str) -> bool {
 }
 
 /// Whether a path from the window may be offered to Hangar Drive before the file system is asked:
-/// local and absolute, no control characters, no UNC or device path, no `..`; on Windows also no
-/// reserved device name and no part ending in a dot or a space.
+/// local and absolute, no control characters, no UNC or device path, no `..`, no part starting
+/// with a dot (`.git`, `.ssh`); on Windows also no reserved device name and no part ending in a
+/// dot or a space.
 pub fn plain_folder(path: &str, windows: bool) -> bool {
+    let separators: &[char] = if windows { &['\\', '/'] } else { &['/'] };
     absolute(path, windows)
-        && !(windows && path.split(['\\', '/']).skip(1).any(awkward_windows_part))
+        && !path
+            .split(separators)
+            .skip(1)
+            .any(|part| part.starts_with('.') || (windows && awkward_windows_part(part)))
 }
 
-/// The folder as Hangar Drive gets it: an existing directory on a local fixed drive, resolved.
+/// Whether `path` is the home folder or lies directly in it (`C:\Users\a\Documents`), part by
+/// part, without case on Windows. Hangar Drive refuses a direct child of the home folder; Hangar
+/// refuses the home folder itself too. Deeper folders (`C:\Users\a\Documents\proj`) are fine.
+pub fn home_or_its_child(path: &str, home: &str, windows: bool) -> bool {
+    match (parts(path, windows), parts(home, windows)) {
+        (Some(path), Some(home)) => {
+            (path.len() == home.len() || path.len() == home.len() + 1)
+                && path[..home.len()] == home[..]
+        }
+        _ => false,
+    }
+}
+
+/// The home folder as Hangar Drive compares it: canonical, in its local form; the raw one where it
+/// cannot be canonicalized.
+pub fn home_folder() -> Option<String> {
+    let home = dirs::home_dir()?;
+    let canonical = fs::canonicalize(&home).unwrap_or(home);
+    local_form(canonical.to_str()?, cfg!(windows))
+}
+
+/// `FILE_ATTRIBUTE_HIDDEN` or `FILE_ATTRIBUTE_SYSTEM` is set, or the attributes could not be read
+/// (`INVALID_FILE_ATTRIBUTES`), which counts as marked, as in Hangar Drive.
+#[cfg(windows)]
+pub fn hidden_or_system(attributes: u32) -> bool {
+    use windows_sys::Win32::Storage::FileSystem::{
+        FILE_ATTRIBUTE_HIDDEN, FILE_ATTRIBUTE_SYSTEM, INVALID_FILE_ATTRIBUTES,
+    };
+    attributes == INVALID_FILE_ATTRIBUTES
+        || attributes & (FILE_ATTRIBUTE_HIDDEN | FILE_ATTRIBUTE_SYSTEM) != 0
+}
+
+/// The folders whose attributes Hangar Drive checks for `folder`: the folder itself, and each of
+/// its parents that lies strictly below the home folder (`C:\Users\a\AppData` for
+/// `C:\Users\a\AppData\Local\x`), never the home folder or anything above or outside it.
+#[cfg(windows)]
+pub fn attribute_targets(folder: &Path, home: Option<&str>) -> Vec<PathBuf> {
+    let below_home = |parent: &Path| {
+        home.zip(parent.to_str())
+            .is_some_and(|(home, parent)| covers(home, parent, true) && !covers(parent, home, true))
+    };
+    let mut targets = vec![folder.to_path_buf()];
+    targets.extend(
+        folder
+            .ancestors()
+            .skip(1)
+            .filter(|parent| below_home(parent))
+            .map(Path::to_path_buf),
+    );
+    targets
+}
+
+/// The attributes of `path`; `INVALID_FILE_ATTRIBUTES` when they cannot be read.
+#[cfg(windows)]
+fn file_attributes(path: &Path) -> u32 {
+    use std::os::windows::ffi::OsStrExt;
+    use windows_sys::Win32::Storage::FileSystem::GetFileAttributesW;
+    let wide: Vec<u16> = path.as_os_str().encode_wide().chain(Some(0)).collect();
+    // SAFETY: `wide` is a NUL-terminated UTF-16 string that outlives the call, and
+    // GetFileAttributesW only reads it.
+    unsafe { GetFileAttributesW(wide.as_ptr()) }
+}
+
+/// The folder as Hangar Drive gets it: an existing directory on a local fixed drive, resolved, and
+/// none Hangar Drive refuses (ADR 0024): no part starting with a dot, neither the home folder nor
+/// a direct child of it, and on Windows no hidden or system folder (the folder itself and its
+/// parents below the home folder).
 pub fn checked_folder(path: &str) -> Result<String, DriveError> {
     let windows = cfg!(windows);
     if !plain_folder(path, windows) {
         return Err(DriveError::NotLocalFolder);
     }
+    let folder = resolved_folder(path)?;
+    if plain_folder(&folder, windows) && !guarded(&folder, home_folder().as_deref()) {
+        Ok(folder)
+    } else {
+        Err(DriveError::NotLocalFolder)
+    }
+}
+
+/// `path` canonicalized, in its local form, when it is an existing directory on a local fixed
+/// drive.
+fn resolved_folder(path: &str) -> Result<String, DriveError> {
     let canonical = fs::canonicalize(path).map_err(|_| DriveError::NotLocalFolder)?;
     if !canonical.is_dir() || !crate::gate::local_fixed_drive(&canonical) {
         return Err(DriveError::NotLocalFolder);
     }
     let text = canonical.to_str().ok_or(DriveError::NotLocalFolder)?;
-    local_form(text, windows)
-        .filter(|text| plain_folder(text, windows))
-        .ok_or(DriveError::NotLocalFolder)
+    local_form(text, cfg!(windows)).ok_or(DriveError::NotLocalFolder)
+}
+
+/// Whether Hangar Drive refuses the canonical `folder` for where it lies: the home folder or a
+/// direct child of it, or on Windows a hidden or system folder.
+fn guarded(folder: &str, home: Option<&str>) -> bool {
+    if home.is_some_and(|home| home_or_its_child(folder, home, cfg!(windows))) {
+        return true;
+    }
+    #[cfg(windows)]
+    if attribute_targets(Path::new(folder), home)
+        .iter()
+        .any(|target| hidden_or_system(file_attributes(target)))
+    {
+        return true;
+    }
+    false
 }
 
 /// When each folder was last handed to Hangar Drive, so a second click within
@@ -379,34 +524,36 @@ pub fn installed() -> bool {
     }
 }
 
-/// Whether Hangar Drive is installed and, per path, the state of the folder that holds it. Reads
-/// the list only when it is installed: without it, the window shows nothing of Hangar Drive.
+/// Whether Hangar Drive can take a folder and, per path, the state of the folder that holds it and
+/// whether Hangar Drive would refuse the path. Without a ready Hangar Drive the window shows
+/// nothing of it.
 pub fn status(paths: &[String]) -> Result<DriveStatus, DriveError> {
     if paths.len() > MAX_PATHS {
         return Err(DriveError::TooMany);
     }
-    if !installed() {
-        return Ok(DriveStatus {
-            installed: false,
-            marks: vec![None; paths.len()],
-        });
-    }
-    let folders = folders_file().map_or_else(Vec::new, |file| read_folders(&file));
+    let Some(list) = ready_list() else {
+        return Ok(DriveStatus::not_ready(paths.len()));
+    };
     Ok(DriveStatus {
-        installed: true,
+        ready: true,
+        home: home_folder(),
         marks: paths
             .iter()
-            .map(|path| mark(&folders, path, cfg!(windows)))
+            .map(|path| mark(&list.folders, path, cfg!(windows)))
+            .collect(),
+        refused: paths
+            .iter()
+            .map(|path| checked_folder(path).is_err())
             .collect(),
     })
 }
 
-/// Hands `path` to Hangar Drive, which asks the person whether to back it up. A folder handed
-/// over less than [`PROPOSAL_COOLDOWN`] ago is not sent again: Hangar Drive's question for it is
-/// still open, or Hangar Drive would ignore it.
+/// Hands `path` to Hangar Drive, which asks the person whether to back it up. Called once per
+/// click, never on its own. A folder handed over less than [`PROPOSAL_COOLDOWN`] ago is not sent
+/// again: Hangar Drive's question for it is still open, or Hangar Drive would ignore it.
 pub fn add_folder(path: &str) -> Result<(), DriveError> {
-    if !installed() {
-        return Err(DriveError::NotInstalled);
+    if ready_list().is_none() {
+        return Err(DriveError::NotReady);
     }
     let folder = checked_folder(path)?;
     let link = add_folder_link(&folder)?;
@@ -508,7 +655,6 @@ mod tests {
             r"C:\a\console",
             r"C:\a\com10",
             r"C:\a\lpt",
-            r"C:\a\.git",
             r"C:\a\my proj",
             r"C:\a\v1.2",
             r"C:\",
@@ -585,19 +731,141 @@ mod tests {
         let file = dir.path().join("note.txt");
         fs::write(&file, "x").unwrap();
 
-        let checked = checked_folder(folder.to_str().unwrap()).unwrap();
-        assert!(Path::new(&checked).is_dir());
-        assert!(!checked.starts_with(r"\\"));
+        let resolved = resolved_folder(folder.to_str().unwrap()).unwrap();
+        assert!(Path::new(&resolved).is_dir());
+        assert!(!resolved.starts_with(r"\\"));
+        assert!(!guarded(&resolved, None));
         assert_eq!(
-            checked_folder(file.to_str().unwrap()),
+            resolved_folder(file.to_str().unwrap()),
             Err(DriveError::NotLocalFolder)
         );
         let missing = dir.path().join("missing");
         assert_eq!(
-            checked_folder(missing.to_str().unwrap()),
+            resolved_folder(missing.to_str().unwrap()),
             Err(DriveError::NotLocalFolder)
         );
         assert_eq!(checked_folder("relative"), Err(DriveError::NotLocalFolder));
+        // Test folders live under `tests/.tmp`, a part starting with a dot.
+        assert_eq!(
+            checked_folder(folder.to_str().unwrap()),
+            Err(DriveError::NotLocalFolder)
+        );
+    }
+
+    #[test]
+    fn parts_starting_with_a_dot_are_refused_at_any_level() {
+        for path in [
+            r"C:\a\.git",
+            r"C:\.config\proj",
+            r"C:\a\.hidden\proj",
+            r"C:\a\.\proj",
+            "C:/a/.ssh",
+        ] {
+            assert!(!plain_folder(path, true), "{path:?}");
+        }
+        for path in ["/home/a/.config", "/home/.a/proj", "/a/./b"] {
+            assert!(!plain_folder(path, false), "{path:?}");
+        }
+        assert!(plain_folder(r"C:\a\proj.d\v1.2", true));
+        assert!(plain_folder("/home/a/proj.d", false));
+    }
+
+    #[test]
+    fn the_home_folder_and_its_direct_children_are_refused() {
+        let home = r"C:\Users\Jörg";
+        assert!(home_or_its_child(r"C:\Users\Jörg", home, true));
+        assert!(home_or_its_child(r"c:\users\jÖrg\", home, true));
+        assert!(home_or_its_child(r"C:\Users\Jörg\Documents", home, true));
+        assert!(home_or_its_child("C:/USERS/jörg/Desktop", home, true));
+        assert!(!home_or_its_child(
+            r"C:\Users\Jörg\Documents\proj",
+            home,
+            true
+        ));
+        assert!(!home_or_its_child(r"C:\Users", home, true));
+        assert!(!home_or_its_child(r"C:\Users\Jörg2", home, true));
+        assert!(!home_or_its_child(r"D:\Users\Jörg\proj", home, true));
+
+        assert!(home_or_its_child("/home/a", "/home/a", false));
+        assert!(home_or_its_child("/home/a/proj", "/home/a/", false));
+        assert!(!home_or_its_child("/home/A/proj", "/home/a", false));
+        assert!(!home_or_its_child("/home/a/work/proj", "/home/a", false));
+        assert!(!home_or_its_child("/home", "/home/a", false));
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn hidden_and_system_bits_or_unreadable_attributes_are_refused() {
+        use windows_sys::Win32::Storage::FileSystem::{
+            FILE_ATTRIBUTE_ARCHIVE, FILE_ATTRIBUTE_DIRECTORY, FILE_ATTRIBUTE_HIDDEN,
+            FILE_ATTRIBUTE_READONLY, FILE_ATTRIBUTE_SYSTEM, INVALID_FILE_ATTRIBUTES,
+        };
+        assert!(!hidden_or_system(FILE_ATTRIBUTE_DIRECTORY));
+        assert!(!hidden_or_system(
+            FILE_ATTRIBUTE_DIRECTORY | FILE_ATTRIBUTE_READONLY | FILE_ATTRIBUTE_ARCHIVE
+        ));
+        assert!(hidden_or_system(
+            FILE_ATTRIBUTE_DIRECTORY | FILE_ATTRIBUTE_HIDDEN
+        ));
+        assert!(hidden_or_system(
+            FILE_ATTRIBUTE_DIRECTORY | FILE_ATTRIBUTE_SYSTEM
+        ));
+        assert!(hidden_or_system(INVALID_FILE_ATTRIBUTES));
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn attributes_are_checked_on_the_folder_and_its_parents_below_home() {
+        let home = Some(r"C:\Users\a");
+        assert_eq!(
+            attribute_targets(Path::new(r"C:\Users\a\AppData\Local\x"), home),
+            [
+                PathBuf::from(r"C:\Users\a\AppData\Local\x"),
+                PathBuf::from(r"C:\Users\a\AppData\Local"),
+                PathBuf::from(r"C:\Users\a\AppData"),
+            ]
+        );
+        assert_eq!(
+            attribute_targets(Path::new(r"D:\Data\x"), home),
+            [PathBuf::from(r"D:\Data\x")]
+        );
+        assert_eq!(
+            attribute_targets(Path::new(r"C:\Users\a\work\x"), None),
+            [PathBuf::from(r"C:\Users\a\work\x")]
+        );
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn a_real_hidden_folder_is_refused() {
+        use std::os::windows::ffi::OsStrExt;
+        use windows_sys::Win32::Storage::FileSystem::{SetFileAttributesW, FILE_ATTRIBUTE_HIDDEN};
+
+        let dir = TempDir::new("drive-hidden");
+        let plain = dir.path().join("plain");
+        let hidden = dir.path().join("hidden");
+        fs::create_dir_all(&plain).unwrap();
+        fs::create_dir_all(&hidden).unwrap();
+        let wide: Vec<u16> = hidden.as_os_str().encode_wide().chain(Some(0)).collect();
+        // SAFETY: `wide` is a NUL-terminated UTF-16 path that outlives the call.
+        assert_ne!(
+            unsafe { SetFileAttributesW(wide.as_ptr(), FILE_ATTRIBUTE_HIDDEN) },
+            0
+        );
+
+        let plain = resolved_folder(plain.to_str().unwrap()).unwrap();
+        let hidden = resolved_folder(hidden.to_str().unwrap()).unwrap();
+        assert!(!guarded(&plain, None));
+        assert!(guarded(&hidden, None));
+        assert!(hidden_or_system(file_attributes(
+            &dir.path().join("missing")
+        )));
+    }
+
+    #[test]
+    fn the_home_folder_is_guarded() {
+        let home = home_folder().unwrap();
+        assert!(guarded(&home, Some(&home)));
     }
 
     #[test]
@@ -695,6 +963,58 @@ mod tests {
         assert!(folders
             .iter()
             .all(|folder| folder.path == local_sample_path()));
+    }
+
+    #[test]
+    fn only_a_list_that_is_set_up_counts() {
+        let list = parse_list(sample(local_sample_path()).as_bytes()).unwrap();
+        assert!(list.set_up);
+        assert_eq!(list.folders.len(), 5);
+
+        let before_setup = br#"{"contract":"drive-folders 1","setUp":false,"folders":[]}"#;
+        assert_eq!(
+            parse_list(before_setup),
+            Some(DriveList {
+                set_up: false,
+                folders: Vec::new()
+            })
+        );
+        for text in [
+            r#"{"contract":"drive-folders 1","folders":[]}"#,
+            r#"{"contract":"drive-folders 1","setUp":"true","folders":[]}"#,
+            r#"{"contract":"drive-folders 1","setUp":1,"folders":[]}"#,
+        ] {
+            assert!(!parse_list(text.as_bytes()).unwrap().set_up, "{text}");
+        }
+        assert!(
+            parse_list(br#"{"contract":"drive-folders 1","setUp":true}"#)
+                .unwrap()
+                .folders
+                .is_empty()
+        );
+        assert_eq!(
+            parse_list(br#"{"contract":"drive-folders 2","setUp":true,"folders":[]}"#),
+            None
+        );
+        assert_eq!(parse_list(br#"{"setUp":true,"folders":[]}"#), None);
+        assert_eq!(parse_list(b"{ not json"), None);
+    }
+
+    #[test]
+    fn a_missing_file_gives_no_list() {
+        let dir = TempDir::new("drive-list");
+        let file = dir.path().join("folders.json");
+        assert_eq!(read_list(&file), None);
+        fs::write(&file, br#"{"contract":"drive-folders 1","setUp":false}"#).unwrap();
+        assert!(!read_list(&file).unwrap().set_up);
+    }
+
+    #[test]
+    fn a_status_that_is_not_ready_marks_nothing_and_offers_nothing() {
+        let status = DriveStatus::not_ready(2);
+        assert!(!status.ready);
+        assert_eq!(status.marks, [None, None]);
+        assert_eq!(status.refused, [true, true]);
     }
 
     #[test]

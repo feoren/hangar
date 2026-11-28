@@ -4,7 +4,7 @@ import { api } from "./api";
 import { PersonAvatar } from "./Avatar";
 import { commitAge, commitDate } from "./gitHistory";
 import { useT, type Language } from "./i18n";
-import { canBackUp, driveMarkKey, isLocalFolder, type DriveView } from "./hangarDrive";
+import { canBackUp, driveMarkKey, type DriveView } from "./hangarDrive";
 import { CheckIcon, GlobeIcon, RestartIcon } from "./icons";
 import {
   GIT_CALLS_AT_ONCE,
@@ -221,7 +221,7 @@ type CardProps = Pick<
   project: Project<OverviewSession>;
   /** Grows with "Refresh": the card asks git again. */
   refresh: number;
-  /** Hangar Drive's marks for the cards; nothing shows while it is not installed. */
+  /** Hangar Drive's marks for the cards; nothing shows while it cannot take a folder. */
   drive: DriveView;
   /** The team store's projects; empty without a team. */
   activities: ReadonlyMap<string, TeamActivity>;
@@ -422,8 +422,9 @@ export function ProjectCard({
 }
 
 /**
- * The card's last line while Hangar Drive is installed: the quiet mark of the folder that holds
- * the project, or the way to back it up. Nothing for a folder Hangar Drive does not take.
+ * The card's last line while Hangar Drive can take a folder: the quiet mark of the folder that
+ * holds the project, or the way to back it up (one hand-over per click). Nothing for a folder
+ * Hangar Drive does not take.
  */
 export function DriveLine({
   root,
@@ -435,7 +436,7 @@ export function DriveLine({
   onBackUp: (folder: string) => void;
 }) {
   const t = useT();
-  const state = drive.installed ? drive.marks.get(root) : undefined;
+  const state = drive.ready ? drive.marks.get(root) : undefined;
   if (state !== undefined) {
     return (
       <p className="project-drive">
@@ -444,7 +445,7 @@ export function DriveLine({
       </p>
     );
   }
-  if (!canBackUp(drive, isLocalFolder(root) ? root : null)) return null;
+  if (!canBackUp(drive, root)) return null;
   return (
     <button
       type="button"

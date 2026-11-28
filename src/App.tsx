@@ -6003,10 +6003,14 @@ export function App() {
   const backUpWithDrive = (id: number) => {
     const session = state.sessions.find((s) => s.id === id);
     if (session === undefined) return;
-    void backUpFolder(session, async (folder) => {
-      const place = parseRepoPlaces(await api.gitRepoPlaces([folder])).get(folder);
-      return place?.root ?? null;
-    }).then((folder) => {
+    void backUpFolder(
+      session,
+      async (folder) => {
+        const place = parseRepoPlaces(await api.gitRepoPlaces([folder])).get(folder);
+        return place?.root ?? null;
+      },
+      drive.home,
+    ).then((folder) => {
       if (folder !== null) api.hangarDriveAddFolder(folder).catch(showError);
     });
   };
@@ -6162,7 +6166,7 @@ export function App() {
           commands:
             sessionCommands(menuSession, profiles).length > 0 && !sessionAsks(menuSession.id),
           crewShown: settings.crewColumn,
-          // Only while Hangar Drive is installed and does not hold the folder yet.
+          // Only while Hangar Drive can take the folder and does not hold it yet.
           drive: canBackUp(drive, driveFolder(menuSession)),
         }).map((entry): PopupItem => {
           if (entry.type === "separator") return entry;

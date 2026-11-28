@@ -4,7 +4,7 @@ import { api } from "./api";
 import { MAX_DRIVE_PATHS, NO_DRIVE, parseDriveStatus, type DriveView } from "./hangarDrive";
 
 /**
- * Whether Hangar Drive is installed and which of `folders` it holds. Asked when the folders
+ * Whether Hangar Drive can take a folder and which of `folders` it holds. Asked when the folders
  * change and whenever the window comes back to the front: after "Back up", the person confirms
  * in Hangar Drive's own window and returns, and the mark appears then. No polling and no file
  * watcher: the list only changes through Hangar Drive, which the person has to switch to.
