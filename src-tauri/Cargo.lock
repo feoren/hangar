@@ -1888,7 +1888,7 @@ dependencies = [
 
 [[package]]
 name = "hangar"
-version = "0.17.0+847"
+version = "0.17.0+860"
 dependencies = [
  "arboard",
  "base64 0.23.1",
