@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-hangar-drive-status"
+description = "Enables the hangar_drive_status command without any pre-configured scope."
+commands.allow = ["hangar_drive_status"]
+
+[[permission]]
+identifier = "deny-hangar-drive-status"
+description = "Denies the hangar_drive_status command without any pre-configured scope."
+commands.deny = ["hangar_drive_status"]

@@ -44,6 +44,7 @@ use crate::git_snapshots::{
     TakeOutcome,
 };
 use crate::gpu::GpuMonitor;
+use crate::hangar_drive::{self, DriveError, DriveStatus};
 use crate::icon::{self, IconCache};
 use crate::install_source::{self, SystemProbe};
 use crate::instructions::{self, StartPrompt};
@@ -4865,6 +4866,40 @@ pub async fn telemetry_open_info(window: tauri::Window) -> Result<(), TelemetryE
         .await
         .map_err(|error| TelemetryError::Task(error.to_string()))?
         .map_err(|error| TelemetryError::Open(error.to_string()))
+}
+
+/// Whether Hangar Drive is installed and which of `paths` lie in a folder it syncs (ADR 0022).
+/// Only the main window, at most [`hangar_drive::MAX_PATHS`] paths.
+#[tauri::command]
+pub async fn hangar_drive_status(
+    window: tauri::Window,
+    paths: Vec<String>,
+) -> Result<DriveStatus, DriveError> {
+    if window.label() != panel_window::MAIN_LABEL {
+        return Err(DriveError::WrongWindow);
+    }
+    tauri::async_runtime::spawn_blocking(move || hangar_drive::status(&paths))
+        .await
+        .map_err(|error| DriveError::Task(error.to_string()))?
+}
+
+/// Hands a project folder to Hangar Drive, which asks the person to confirm. The backend checks
+/// the folder again (existing, local, absolute) and builds the link itself; only from the focused
+/// main window, since it follows a click.
+#[tauri::command]
+pub async fn hangar_drive_add_folder(
+    window: tauri::WebviewWindow,
+    path: String,
+) -> Result<(), DriveError> {
+    if window.label() != panel_window::MAIN_LABEL {
+        return Err(DriveError::WrongWindow);
+    }
+    if !window.is_focused().unwrap_or(false) {
+        return Err(DriveError::NotFocused);
+    }
+    tauri::async_runtime::spawn_blocking(move || hangar_drive::add_folder(&path))
+        .await
+        .map_err(|error| DriveError::Task(error.to_string()))?
 }
 
 #[cfg(test)]

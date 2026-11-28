@@ -12813,6 +12813,22 @@ body.session-dragging .session-actions {
   text-decoration: underline;
 }
 
+/* Hangar Drive (ADR 0022): a quiet last line, the mark or the way to back up. */
+.project-drive {
+  display: inline-flex;
+  align-self: flex-start;
+  align-items: center;
+  gap: 5px;
+  margin: 0;
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.project-drive.project-link {
+  font-size: 12px;
+  color: var(--accent);
+}
+
 .project-block {
   display: flex;
   flex-direction: column;

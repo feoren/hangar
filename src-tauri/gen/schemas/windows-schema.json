@@ -639,6 +639,18 @@
           "markdownDescription": "Enables the git_unstage command without any pre-configured scope."
         },
         {
+          "description": "Enables the hangar_drive_add_folder command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-hangar-drive-add-folder",
+          "markdownDescription": "Enables the hangar_drive_add_folder command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the hangar_drive_status command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-hangar-drive-status",
+          "markdownDescription": "Enables the hangar_drive_status command without any pre-configured scope."
+        },
+        {
           "description": "Enables the hangar_worktree_size command without any pre-configured scope.",
           "type": "string",
           "const": "allow-hangar-worktree-size",
@@ -1957,6 +1969,18 @@
           "type": "string",
           "const": "deny-git-unstage",
           "markdownDescription": "Denies the git_unstage command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the hangar_drive_add_folder command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-hangar-drive-add-folder",
+          "markdownDescription": "Denies the hangar_drive_add_folder command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the hangar_drive_status command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-hangar-drive-status",
+          "markdownDescription": "Denies the hangar_drive_status command without any pre-configured scope."
         },
         {
           "description": "Denies the hangar_worktree_size command without any pre-configured scope.",

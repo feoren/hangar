@@ -1793,3 +1793,10 @@ A `shell_environment_policy` in a project's `.codex/config.toml` between the wor
 the repository root (top level or in a profile table), or such a file that cannot be read as TOML,
 now means the Codex session is not offered sending; project layering is not measured. Updated:
 [[codex-shell-environment-measurement]] (and its raw record).
+
+## [2026-11-28] ingest | ADR 0022: back up project folders with Hangar Drive
+Filed the contract agreed with the separate Hangar Drive app: detection through its
+`hangar-drive` scheme, the add-folder link with a checked local folder (Hangar Drive confirms),
+its public `folders.json` read on window focus and matched part by part, the session menu entry
+and the quiet line on each project card, the threat model and what was not verified live
+(Hangar Drive's side not built yet). New: [[0022-hangar-drive-integration]]. Updated: index.

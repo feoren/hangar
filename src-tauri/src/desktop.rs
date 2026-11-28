@@ -5,7 +5,8 @@
 //! checks first (local real paths only, only harmless file types open, the rest is revealed).
 //! Web pages ([`open_url`]) are only http(s) addresses the backend checked: the account's pages,
 //! a local dev server a session printed ([`local_dev_url`]) and an address clicked in the
-//! terminal (`path_links::web_url`).
+//! terminal (`path_links::web_url`). The one other address is Hangar Drive's add-folder link,
+//! which only hangar_drive.rs can build ([`open_drive_link`]).
 
 use std::io;
 use std::path::{Path, PathBuf};
@@ -149,6 +150,23 @@ pub fn open_url(url: &reqwest::Url) -> io::Result<()> {
         let (program, args) = url_command(url)?;
         let mut command = Command::new(program);
         command.args(args);
+        spawn_detached(command)
+    }
+}
+
+/// Opens Hangar Drive's add-folder link with the program registered for its scheme, which asks
+/// the person to confirm. On Windows through `ShellExecuteW` like [`open_url`], elsewhere through
+/// the platform's opener with the link as its one argument.
+pub fn open_drive_link(link: &crate::hangar_drive::DriveLink) -> io::Result<()> {
+    #[cfg(windows)]
+    {
+        shell_open(link.as_str())
+    }
+    #[cfg(not(windows))]
+    {
+        let (program, _) = command_for(Path::new(""), Target::Folder);
+        let mut command = Command::new(program);
+        command.arg(link.as_str());
         spawn_detached(command)
     }
 }

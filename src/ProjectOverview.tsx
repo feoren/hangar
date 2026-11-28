@@ -4,7 +4,8 @@ import { api } from "./api";
 import { Avatar } from "./Avatar";
 import { commitAge, commitDate } from "./gitHistory";
 import { useT, type Language } from "./i18n";
-import { GlobeIcon, RestartIcon } from "./icons";
+import { canBackUp, driveMarkKey, isLocalFolder, type DriveView } from "./hangarDrive";
+import { CheckIcon, GlobeIcon, RestartIcon } from "./icons";
 import {
   GIT_CALLS_AT_ONCE,
   TASKS_SHOWN,
@@ -29,6 +30,7 @@ import { teammateNames, teammateStack } from "./repoPeers";
 import { Revealed } from "./Revealed";
 import { revealInvisible } from "./invisible";
 import { taskTitle, type TaskView, type TeamActivity } from "./team";
+import { useHangarDrive } from "./useHangarDrive";
 import { useTeam } from "./useTeam";
 
 /** A session row as the sidebar would show it: badge, state color and the state in words. */
@@ -53,6 +55,8 @@ interface Props {
   onShowChanges: (id: number) => void;
   /** Starts a session from the empty state; `null` when no program can start. */
   onNewSession: (() => void) | null;
+  /** Hands a project folder to Hangar Drive (ADR 0022), which asks the person to confirm. */
+  onBackUp: (folder: string) => void;
   /** The partner projects (ADR 0012), kept per card. */
   partners: PartnerBook;
   partnerActions: PartnerActions;
@@ -113,6 +117,7 @@ export function ProjectOverview(props: Props) {
     () => (places === null ? [] : groupProjects(sessions, places)),
     [sessions, places],
   );
+  const drive = useHangarDrive(projects.map((project) => project.root));
 
   if (!sessions.some((session) => session.kind !== "update" && session.cwd.trim() !== "")) {
     return <ProjectsEmpty onNewSession={props.onNewSession} />;
@@ -151,6 +156,8 @@ export function ProjectOverview(props: Props) {
             onActivate={props.onActivate}
             onOpenDevServer={props.onOpenDevServer}
             onShowChanges={props.onShowChanges}
+            drive={drive}
+            onBackUp={props.onBackUp}
             partners={props.partners}
             partnerActions={props.partnerActions}
             focusToken={props.focus?.key === project.key ? props.focus.token : null}
@@ -207,12 +214,15 @@ type CardProps = Pick<
   | "onActivate"
   | "onOpenDevServer"
   | "onShowChanges"
+  | "onBackUp"
   | "partners"
   | "partnerActions"
 > & {
   project: Project<OverviewSession>;
   /** Grows with "Refresh": the card asks git again. */
   refresh: number;
+  /** Hangar Drive's marks for the cards; nothing shows while it is not installed. */
+  drive: DriveView;
   /** The team store's projects; empty without a team. */
   activities: ReadonlyMap<string, TeamActivity>;
   /** Grows when quick access asks for this card: it scrolls into view, its name takes the focus. */
@@ -232,6 +242,8 @@ export function ProjectCard({
   onActivate,
   onOpenDevServer,
   onShowChanges,
+  drive,
+  onBackUp,
   partners,
   partnerActions,
   focusToken = null,
@@ -403,7 +415,46 @@ export function ProjectCard({
       )}
 
       <ProjectPartners root={project.root} book={partners} {...partnerActions} />
+
+      <DriveLine root={project.root} drive={drive} onBackUp={onBackUp} />
     </section>
+  );
+}
+
+/**
+ * The card's last line while Hangar Drive is installed: the quiet mark of the folder that holds
+ * the project, or the way to back it up. Nothing for a folder Hangar Drive does not take.
+ */
+export function DriveLine({
+  root,
+  drive,
+  onBackUp,
+}: {
+  root: string;
+  drive: DriveView;
+  onBackUp: (folder: string) => void;
+}) {
+  const t = useT();
+  const state = drive.installed ? drive.marks.get(root) : undefined;
+  if (state !== undefined) {
+    return (
+      <p className="project-drive">
+        <CheckIcon size={12} />
+        <span>{t(driveMarkKey(state))}</span>
+      </p>
+    );
+  }
+  if (!canBackUp(drive, isLocalFolder(root) ? root : null)) return null;
+  return (
+    <button
+      type="button"
+      className="project-drive project-link"
+      onClick={() => {
+        onBackUp(root);
+      }}
+    >
+      {t("drive.backUp")}
+    </button>
   );
 }
 

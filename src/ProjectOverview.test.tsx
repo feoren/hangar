@@ -1,6 +1,7 @@
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
 
+import { NO_DRIVE, type DriveView } from "./hangarDrive";
 import { createTranslator, I18nContext } from "./i18n";
 import { EMPTY_BOOK, parsePartnerBook, type PartnerBook } from "./partners";
 import type { Project, OverviewSession } from "./projectCards";
@@ -51,6 +52,7 @@ function card(
   activities: ReadonlyMap<string, TeamActivity>,
   devServers: ReadonlyMap<number, string>,
   partners: PartnerBook = EMPTY_BOOK,
+  drive: DriveView = NO_DRIVE,
 ): string {
   return renderToStaticMarkup(
     <I18nContext.Provider value={createTranslator("de")}>
@@ -66,6 +68,8 @@ function card(
         onActivate={() => undefined}
         onOpenDevServer={() => undefined}
         onShowChanges={() => undefined}
+        drive={drive}
+        onBackUp={() => undefined}
         partners={partners}
         partnerActions={NO_PARTNER_ACTIONS}
       />
@@ -74,6 +78,31 @@ function card(
 }
 
 describe("ProjectCard", () => {
+  it("shows nothing of Hangar Drive while it is not installed", () => {
+    const html = card(new Map(), new Map());
+    expect(html).not.toContain("Hangar Drive");
+    expect(html).not.toContain("project-drive");
+  });
+
+  it("offers backing up a project Hangar Drive does not hold yet", () => {
+    const html = card(new Map(), new Map(), EMPTY_BOOK, { installed: true, marks: new Map() });
+    expect(html).toContain("Mit Hangar Drive sichern …");
+    expect(html).toContain("<button");
+  });
+
+  it("marks a project Hangar Drive holds, with its state where it does not sync", () => {
+    const marked = (state: "active" | "paused" | "stopped" | "other") =>
+      card(new Map(), new Map(), EMPTY_BOOK, {
+        installed: true,
+        marks: new Map([["E:\\work\\hangar", state]]),
+      });
+    expect(marked("active")).toContain("In Hangar Drive<");
+    expect(marked("active")).not.toContain("Mit Hangar Drive sichern");
+    expect(marked("other")).toContain("In Hangar Drive<");
+    expect(marked("paused")).toContain("In Hangar Drive · pausiert");
+    expect(marked("stopped")).toContain("In Hangar Drive · gestoppt");
+  });
+
   it("shows name, path and the sessions with their state in words", () => {
     const html = card(new Map(), new Map());
     expect(html).toContain("hangar");
