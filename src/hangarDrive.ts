@@ -157,19 +157,22 @@ export function canBackUp(view: DriveView, folder: string | null): folder is str
 }
 
 /**
- * The folder "Back up" hands over: the repository's main folder when git knows one (a session in
- * a subfolder backs up the whole project), else the session's own folder.
+ * The folder "Back up" hands over for `session`, known before the menu offers the entry, so the
+ * entry never shows for a folder that would hand over nothing (ADR 0024): the repository's main
+ * folder from `roots` (asked folder to main folder, `null` outside a repository or when git
+ * failed), so a session in a subfolder backs up the whole project; else the session's own folder;
+ * the main folder of a worktree Hangar made. `null` for update sessions, folders Hangar Drive does
+ * not take and while git has not answered for the folder yet. Whether Hangar Drive takes the main
+ * folder (directly in the home folder, say) is `canBackUp`'s question: a refused project is never
+ * swapped for one of its subfolders, which would back up less than the person asked for.
  */
-export async function backUpFolder(
+export function handOverFolder(
   session: DriveSession,
-  repoRoot: (folder: string) => Promise<string | null>,
-  home: string | null = null,
-): Promise<string | null> {
-  const folder = driveFolder(session, home);
+  roots: ReadonlyMap<string, string | null>,
+): string | null {
+  const folder = driveFolder(session);
   if (folder === null || session.worktree !== undefined) return folder;
-  const root = await repoRoot(folder).catch(() => null);
-  if (root === null) return folder;
-  // A project Hangar Drive refuses (directly in the home folder, say) is not swapped for one of
-  // its subfolders: that would back up less than the person asked for.
-  return isLocalFolder(root, home) ? root : null;
+  const root = roots.get(folder);
+  if (root === undefined) return null;
+  return root ?? folder;
 }

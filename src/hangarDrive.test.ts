@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import {
-  backUpFolder,
+  handOverFolder,
   canBackUp,
   driveMarkKey,
   isLocalFolder,
@@ -176,51 +176,43 @@ describe("canBackUp", () => {
   });
 });
 
-describe("backUpFolder", () => {
-  it("hands over the repository's main folder for a session in a subfolder", async () => {
-    const asked: string[] = [];
-    const folder = await backUpFolder({ cwd: "C:\\a\\proj\\src" }, (path) => {
-      asked.push(path);
-      return Promise.resolve("C:\\a\\proj");
-    });
-    expect(folder).toBe("C:\\a\\proj");
-    expect(asked).toEqual(["C:\\a\\proj\\src"]);
+describe("handOverFolder", () => {
+  it("is the repository's main folder for a session in a subfolder", () => {
+    const roots = new Map([["C:\\a\\proj\\src", "C:\\a\\proj"]]);
+    expect(handOverFolder({ cwd: "C:\\a\\proj\\src" }, roots)).toBe("C:\\a\\proj");
   });
 
-  it("keeps the session's folder outside a repository or when git fails", async () => {
-    expect(await backUpFolder({ cwd: "C:\\a\\plain" }, () => Promise.resolve(null))).toBe(
-      "C:\\a\\plain",
-    );
-    expect(
-      await backUpFolder({ cwd: "C:\\a\\plain" }, () => Promise.reject(new Error("no git"))),
-    ).toBe("C:\\a\\plain");
+  it("keeps the session's folder outside a repository or when git failed", () => {
+    const roots = new Map([["C:\\a\\plain", null]]);
+    expect(handOverFolder({ cwd: "C:\\a\\plain" }, roots)).toBe("C:\\a\\plain");
   });
 
-  it("hands over nothing when the main folder is one Hangar Drive refuses", async () => {
-    expect(
-      await backUpFolder(
-        { cwd: "C:\\Users\\a\\proj\\src" },
-        () => Promise.resolve("C:\\Users\\a\\proj"),
-        "C:\\Users\\a",
-      ),
-    ).toBeNull();
-    expect(
-      await backUpFolder(
-        { cwd: "C:\\Users\\a\\proj" },
-        () => Promise.resolve(null),
-        "C:\\Users\\a",
-      ),
-    ).toBeNull();
+  it("is nothing while git has not answered, so the menu offers nothing yet", () => {
+    expect(handOverFolder({ cwd: "C:\\a\\proj\\src" }, new Map())).toBeNull();
   });
 
-  it("asks git nothing for a worktree or an update session", async () => {
-    const never = () => Promise.reject(new Error("asked"));
-    expect(
-      await backUpFolder(
-        { cwd: "C:\\a\\wt", worktree: { path: "C:\\a\\wt", repoRoot: "C:\\a\\proj" } },
-        never,
-      ),
-    ).toBe("C:\\a\\proj");
-    expect(await backUpFolder({ cwd: "C:\\Users\\a", kind: "update" }, never)).toBeNull();
+  it("needs no git answer for a worktree and is nothing for an update session", () => {
+    const worktree = { path: "C:\\a\\wt", repoRoot: "C:\\a\\proj" };
+    expect(handOverFolder({ cwd: "C:\\a\\wt", worktree }, new Map())).toBe("C:\\a\\proj");
+    const roots = new Map([["C:\\Users\\a", null]]);
+    expect(handOverFolder({ cwd: "C:\\Users\\a", kind: "update" }, roots)).toBeNull();
+  });
+
+  it("offers no entry for a subfolder of a project directly in the home folder", () => {
+    // The gap this closes: the session's own folder is fine, its project is not, and the entry
+    // used to show and then hand over nothing.
+    const view = { ...NO_DRIVE, ready: true, home: "C:\\Users\\a" };
+    const session = { cwd: "C:\\Users\\a\\proj\\src" };
+    expect(canBackUp(view, session.cwd)).toBe(true);
+    const roots = new Map([[session.cwd, "C:\\Users\\a\\proj"]]);
+    const folder = handOverFolder(session, roots);
+    expect(folder).toBe("C:\\Users\\a\\proj");
+    expect(canBackUp(view, folder)).toBe(false);
+    // Nor for a main folder the backend refuses (hidden, say), and never a subfolder instead.
+    const deeper = { cwd: "C:\\Users\\a\\work\\proj\\src" };
+    const hidden = { ...view, refused: new Set(["C:\\Users\\a\\work\\proj"]) };
+    const deeperRoots = new Map([[deeper.cwd, "C:\\Users\\a\\work\\proj"]]);
+    expect(canBackUp(hidden, handOverFolder(deeper, deeperRoots))).toBe(false);
+    expect(canBackUp(view, handOverFolder(deeper, deeperRoots))).toBe(true);
   });
 });

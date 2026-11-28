@@ -75,9 +75,13 @@ Option 3.
   is refused for the hidden `AppData`; `D:\Data\x` is checked on `x` only), where attributes that
   cannot be read count as set. The window mirrors the pure rules in `isLocalFolder` (the status
   call hands it the canonical home folder) and gets the backend's full verdict per asked path
-  (`refused`), so neither the menu entry nor the button appears for such a folder. A session in a
-  subfolder of a project Hangar Drive refuses (one directly in the home folder, say) hands over
-  nothing rather than the subfolder. The link fires once per click on the menu entry or the
+  (`refused`), so neither the menu entry nor the button appears for such a folder. The session
+  menu knows the folder it would hand over before it shows the entry: the repository main folders
+  of the sessions' folders are read when the folders change (`useRepoRoots`, `git_repo_places`,
+  no process), the status call asks about those folders (`handOverFolder`), and the entry stays
+  hidden while git has not answered. A session in a subfolder of a project Hangar Drive refuses
+  (one directly in the home folder, say) therefore gets no entry, never one for the subfolder,
+  which would back up less than the person asked for. The link fires once per click on the menu entry or the
   button, never on its own (not on render, focus or a status answer). Hangar Drive keeps one
   proposal open and ignores new ones for 30 s after an outcome without an add, so the backend
   hands the same folder over at most once per 30 s (`Proposals`, in memory; a link that did not
@@ -149,7 +153,8 @@ Option 3.
   missing list, `setUp` false, missing or not a boolean, size limit, missing file), matching (case
   and separators on Windows, case on Unix, the sibling `proj2`, nested folders) and the registry
   command as a pure function of its text. Frontend: `src/hangarDrive.test.ts` (the mirrored
-  rules, the backend's `refused`), `src/sessionMenu.test.ts`, `src/ProjectOverview.test.tsx` (no
+  rules, the backend's `refused`, the folder the menu entry would hand over, no entry for a
+  subfolder of a project directly in the home folder), `src/sessionMenu.test.ts`, `src/ProjectOverview.test.tsx` (no
   button while not ready or refused), `src/DriveLine.test.tsx` (one hand-over per click, none on
   render).
 - Seen on the owner's Windows 11 machine on 2026-11-28 (read only): the registry value
