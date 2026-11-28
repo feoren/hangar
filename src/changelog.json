@@ -1,7 +1,7 @@
 [
   {
     "version": "0.17.0",
-    "date": "2026-11-28",
+    "date": null,
     "items": [
       {
         "de": "Hangars Statuszeile in Claude Code, Qwen Code und Codex CLI: Modell, Ordner, Branch, Kontext, Kosten und Limits. Andere Programme zeigen eine Hangar-Leiste.",
@@ -30,6 +30,20 @@
         "ru": "Окно команды стало простым: никаких вкладок, только кто здесь, кто над чем работает и что ждёт тебя. Всё остальное в разделе «Управление».",
         "tr": "Ekip penceresi artık sade: sekme yok, yalnızca kimin burada olduğu, herkesin ne üzerinde çalıştığı ve seni neyin beklediği. Geri kalan her şey “Yönet” altında.",
         "zh": "团队窗口变得简单了：不再有标签页，只显示谁在线、每个人在做什么以及等你处理的事项。其余内容都在“管理”中。"
+      },
+      {
+        "de": "Projekte mit Hangar Drive sichern: Das Logo in der Session-Zeile übergibt den Projektordner per Klick, ein Haken zeigt, was schon gesichert ist.",
+        "en": "Back up projects with Hangar Drive: the logo in the session row hands over the project folder in one click, and a check shows what is backed up.",
+        "el": "Αντίγραφα με το Hangar Drive: το λογότυπο στη γραμμή συνεδρίας στέλνει τον φάκελο με ένα κλικ, και ένα τικ δείχνει τι έχει ήδη αποθηκευτεί.",
+        "es": "Copia tus proyectos con Hangar Drive: el logo en la fila de la sesión entrega la carpeta con un clic y una marca muestra lo ya guardado.",
+        "fr": "Sauvegarde tes projets avec Hangar Drive : le logo dans la ligne de session transmet le dossier en un clic, une coche montre ce qui est sauvegardé.",
+        "it": "Salva i progetti con Hangar Drive: il logo nella riga della sessione passa la cartella con un clic e una spunta mostra cosa è già salvato.",
+        "ja": "Hangar Drive でプロジェクトをバックアップ: セッション行のロゴをクリックするとフォルダーを渡し、チェックでバックアップ済みかが分かります。",
+        "pl": "Kopie projektów w Hangar Drive: logo w wierszu sesji przekazuje folder jednym kliknięciem, a znacznik pokazuje, co już jest zapisane.",
+        "pt": "Faça backup dos projetos com o Hangar Drive: o logo na linha da sessão entrega a pasta com um clique e um visto mostra o que já está salvo.",
+        "ru": "Резервные копии в Hangar Drive: логотип в строке сессии передаёт папку проекта одним щелчком, галочка показывает, что уже сохранено.",
+        "tr": "Projeleri Hangar Drive ile yedekle: oturum satırındaki logo klasörü tek tıkla aktarır, bir onay işareti neyin yedeklendiğini gösterir.",
+        "zh": "用 Hangar Drive 备份项目：点击会话行中的标志即可交出项目文件夹，对勾表示已备份的内容。"
       },
       {
         "de": "Claude-Code-Zeilen zeigen Token pro Sekunde, etwa „84 tok/s“: live während der Arbeit, danach bleibt der letzte Wert blasser stehen.",
@@ -86,6 +100,20 @@
         "ru": "Боковая панель: каждая сессия показывает свою модель в маленькой плашке, а программы в «Новой сессии» можно переставлять перетаскиванием.",
         "tr": "Kenar çubuğu: her oturum modelini küçük bir etikette gösterir, “Yeni oturum” altındaki programları sürükleyerek sıralarsın.",
         "zh": "侧边栏：每个会话都会用一个小标签显示它的模型，“新建会话”中的程序可以拖动来调整顺序。"
+      },
+      {
+        "de": "Ruhigere Session-Zeile: Umbenennen und Dev-Server sind aus der Leiste raus, Beenden zeigt ein Ein/Aus-Symbol statt eines Quadrats.",
+        "en": "A calmer session row: rename and dev server left its buttons, and ending a process shows a power symbol instead of a square.",
+        "el": "Πιο ήρεμη γραμμή συνεδρίας: η μετονομασία και ο dev server έφυγαν από τα κουμπιά, και ο τερματισμός δείχνει σύμβολο λειτουργίας.",
+        "es": "Fila de sesión más tranquila: renombrar y el servidor de desarrollo salen de los botones, y terminar muestra un símbolo de encendido.",
+        "fr": "Ligne de session plus calme : renommer et le serveur de dev quittent les boutons, et arrêter affiche un symbole marche/arrêt.",
+        "it": "Riga della sessione più calma: rinomina e server di sviluppo escono dai pulsanti, e terminare mostra un simbolo di accensione.",
+        "ja": "セッション行をすっきり: 名前の変更と開発サーバーのボタンをなくし、終了は四角ではなく電源マークで表示します。",
+        "pl": "Spokojniejszy wiersz sesji: zmiana nazwy i serwer deweloperski zniknęły z przycisków, a zakończenie pokazuje symbol zasilania.",
+        "pt": "Linha da sessão mais calma: renomear e o servidor de desenvolvimento saíram dos botões, e encerrar mostra um símbolo de energia.",
+        "ru": "Спокойнее строка сессии: переименование и dev-сервер убраны из кнопок, а завершение показывает значок питания вместо квадрата.",
+        "tr": "Daha sakin oturum satırı: yeniden adlandırma ve geliştirme sunucusu düğmelerden çıktı, sonlandırma kare yerine güç simgesi gösterir.",
+        "zh": "会话行更清爽：重命名和开发服务器按钮已移除，结束进程改用电源符号而不是方块。"
       },
       {
         "de": "Neu unter den Programmen: Hermes Agent von Nous Research und OpenClaw.",

@@ -218,6 +218,10 @@ your own accounts, on your own machine. The desktop app is open source under the
   where the agents worked.
 - **A file viewer that keeps up.** Files open in their own window with syntax colors, a Markdown
   preview, images, a comparison with the last commit, and a live refresh while an agent edits them.
+- **Back up with Hangar Drive.** With [Hangar Drive](https://github.com/feoren/hangar-drive)
+  installed, the Hangar Drive logo in a session row hands the project folder to it in one click;
+  Hangar Drive asks before it syncs anything, and a check on the logo shows which projects are
+  backed up. _Settings > Appearance_ picks where the logo sits.
 
 ### Parallel work without collisions
 
