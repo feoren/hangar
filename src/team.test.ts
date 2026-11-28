@@ -842,7 +842,7 @@ describe("reservations", () => {
     expect(read?.teams[0]?.activity.notices).toEqual([away]);
     expect(
       taskNoticeText({ ...NOTICE, kind: "endedAway", member: "", name: "" }, t, () => ""),
-    ).toBe("While you were away, your reservation “Docs” ended.");
+    ).toBe("While you were away, your task “Docs” became free again.");
   });
 });
 
@@ -861,7 +861,7 @@ describe("reservation review fixes", () => {
   it("says the agent waits only for an attempt linked to a session", () => {
     expect(attemptText(blocked, t)).toBe("Anna #anna-012… was first. Your agent waits.");
     expect(attemptText({ ...blocked, sessionId: null }, t)).toBe("Anna #anna-012… was first.");
-    expect(attemptText({ ...blocked, state: "reserving", member: null }, t)).toBe("Reserving …");
+    expect(attemptText({ ...blocked, state: "reserving", member: null }, t)).toBe("Taking it …");
   });
 
   it("offers only the sessions the project shares", () => {

@@ -115,3 +115,57 @@ describe("MainBar support link", () => {
     expect(host.querySelector(".main-bar-toggle")).not.toBeNull();
   });
 });
+
+describe("MainBar local servers", () => {
+  const state = {
+    ollama: {
+      running: true,
+      models: [
+        { id: "qwen3:8b", label: "qwen3:8b", loaded: true },
+        { id: "llama3.2", label: "llama3.2", loaded: false },
+      ],
+    },
+    lmstudio: { running: false, models: [] },
+  };
+
+  function renderWith(localLlm: typeof state | null) {
+    act(() => {
+      root.render(
+        <I18nContext.Provider value={t}>
+          <MainBar title={null} sideOpen={false} onToggleSide={vi.fn()} localLlm={localLlm} />
+        </I18nContext.Provider>,
+      );
+    });
+  }
+
+  const badges = () => [...host.querySelectorAll<HTMLElement>(".local-llm-badge")];
+
+  it("shows one badge per server before the support link, in words as well as color", () => {
+    renderWith(state);
+    expect(badges().map((badge) => badge.getAttribute("aria-label"))).toEqual([
+      "Ollama is running · 2 models",
+      "LM Studio is off",
+    ]);
+    expect(badges().map((badge) => badge.title)).toEqual([
+      "Ollama is running · 2 models",
+      "LM Studio is off",
+    ]);
+    expect(badges().map((badge) => badge.classList.contains("running"))).toEqual([true, false]);
+    expect(badges()[0]?.getAttribute("role")).toBe("img");
+    expect(host.querySelector(".local-llm")?.nextElementSibling).toBe(
+      host.querySelector(".main-bar-coffee"),
+    );
+    // The marks are the bundled paths, drawn in the text color.
+    expect(badges()[0]?.querySelector("path")?.getAttribute("d")?.length).toBeGreaterThan(100);
+    expect(badges()[0]?.querySelector("svg")?.getAttribute("fill")).toBe("currentColor");
+    // Dot, mark and the number of models in one pill; a server that is off shows no number.
+    expect(badges()[0]?.firstElementChild?.className).toBe("local-llm-dot");
+    expect(badges()[0]?.querySelector(".local-llm-count")?.textContent).toBe("2");
+    expect(badges()[1]?.querySelector(".local-llm-count")).toBeNull();
+  });
+
+  it("shows no badge while the state is unknown", () => {
+    renderWith(null);
+    expect(badges()).toHaveLength(0);
+  });
+});

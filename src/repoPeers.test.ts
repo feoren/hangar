@@ -31,8 +31,8 @@ describe("teammates in the session's repository", () => {
       peer("bob", [session("b1", "Codex")], { name: "" }),
     ];
     expect(repoTeammates(peers)).toEqual([
-      { member: "ann", name: "ANN", agents: ["Claude Code", "Aider"] },
-      { member: "bob", name: "bob", agents: ["Codex"] },
+      { member: "ann", name: "ANN", agents: ["Claude Code", "Aider"], presence: "online" },
+      { member: "bob", name: "bob", agents: ["Codex"], presence: "online" },
     ]);
   });
 
@@ -41,7 +41,19 @@ describe("teammates in the session's repository", () => {
       peer("ann", [session("a1", "Codex")], { name: " " }),
       peer("ann", [session("a2", "Codex")], { device: "laptop", name: "Anna" }),
     ];
-    expect(repoTeammates(peers)).toEqual([{ member: "ann", name: "Anna", agents: ["Codex"] }]);
+    expect(repoTeammates(peers)).toEqual([
+      { member: "ann", name: "Anna", agents: ["Codex"], presence: "online" },
+    ]);
+  });
+
+  it("shows a person away only while every device of theirs there is away", () => {
+    const away = { presence: "away" as const };
+    expect(repoTeammates([peer("ann", [session("a1", "Codex")], away)])[0]?.presence).toBe("away");
+    const both = [
+      peer("ann", [session("a1", "Codex")], away),
+      peer("ann", [session("a2", "Codex")], { device: "laptop" }),
+    ];
+    expect(repoTeammates(both)[0]?.presence).toBe("online");
   });
 
   it("matches only the session's own repository", () => {
@@ -62,6 +74,7 @@ describe("teammates in the session's repository", () => {
       member,
       name: member,
       agents: [],
+      presence: "online" as const,
     }));
     expect(teammateStack(people, 2)).toEqual({ shown: people.slice(0, 2), more: 2 });
     expect(teammateStack(people.slice(0, 1), 2)).toEqual({ shown: people.slice(0, 1), more: 0 });
@@ -70,9 +83,9 @@ describe("teammates in the session's repository", () => {
   it("names each person with their programs", () => {
     expect(
       teammateNames([
-        { member: "a", name: "Anna", agents: ["Claude Code"] },
-        { member: "b", name: "Ben", agents: ["Codex", "Aider"] },
-        { member: "c", name: "Cid", agents: [] },
+        { member: "a", name: "Anna", agents: ["Claude Code"], presence: "online" },
+        { member: "b", name: "Ben", agents: ["Codex", "Aider"], presence: "away" },
+        { member: "c", name: "Cid", agents: [], presence: "online" },
       ]),
     ).toBe("Anna (Claude Code), Ben (Codex, Aider), Cid");
   });

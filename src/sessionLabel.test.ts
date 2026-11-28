@@ -103,12 +103,12 @@ describe("sessionLabels", () => {
     expect(labels.get(2)?.secondary).toBe("Codex CLI");
   });
 
-  it("keeps a name the person gave, with the folder below it", () => {
+  it("leads with the folder for a name the person gave too, the name in the second place", () => {
     const labels = sessionLabels([session(1, { title: "Release prep" })], nameOf);
     expect(labels.get(1)).toEqual({
-      primary: "Release prep",
-      secondary: "hangar",
-      byFolder: false,
+      primary: "hangar",
+      secondary: "Release prep",
+      byFolder: true,
     });
   });
 

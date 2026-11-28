@@ -68,17 +68,23 @@ catalog's letters, set in the system UI font) on a tile. No logo artwork is copi
 is taken from the product's website where one stood out, otherwise from Hangar's badge palette.
 These files are part of Hangar and under its MIT license.
 
-| File              | Product                  | Letters | Tile color                                       |
-| ----------------- | ------------------------ | ------- | ------------------------------------------------ |
-| `codex.svg`       | Codex CLI (OpenAI)       | Cx      | near black, as on developers.openai.com/codex    |
-| `antigravity.svg` | Antigravity CLI (Google) | Ag      | Google blue, as on antigravity.google            |
-| `kiro.svg`        | Kiro CLI (AWS)           | Ki      | dark tile with violet letters, as on kiro.dev    |
-| `aider.svg`       | Aider                    | A       | Hangar palette (teal)                            |
-| `goose.svg`       | Goose                    | Gs      | Hangar palette (green)                           |
-| `crush.svg`       | Crush (Charm)            | Cr      | pink, as on charm.land                           |
-| `omp.svg`         | Oh My Pi                 | OP      | Hangar palette (violet)                          |
-| `forge.svg`       | ForgeCode                | F       | orange, as on forgecode.dev                      |
-| `kode.svg`        | Kode CLI                 | Ko      | Hangar palette (blue)                            |
-| `codebuff.svg`    | Codebuff                 | Cb      | Hangar palette (rose)                            |
-| `droid.svg`       | Droid (Factory)          | D       | orange, as on factory.ai                         |
-| `amp.svg`         | Amp                      | Am      | dark tile with orange letters, as on ampcode.com |
+| File              | Product                      | Letters | Tile color                                       |
+| ----------------- | ---------------------------- | ------- | ------------------------------------------------ |
+| `codex.svg`       | Codex CLI (OpenAI)           | Cx      | near black, as on developers.openai.com/codex    |
+| `antigravity.svg` | Antigravity CLI (Google)     | Ag      | Google blue, as on antigravity.google            |
+| `kiro.svg`        | Kiro CLI (AWS)               | Ki      | dark tile with violet letters, as on kiro.dev    |
+| `aider.svg`       | Aider                        | A       | Hangar palette (teal)                            |
+| `goose.svg`       | Goose                        | Gs      | Hangar palette (green)                           |
+| `crush.svg`       | Crush (Charm)                | Cr      | pink, as on charm.land                           |
+| `omp.svg`         | Oh My Pi                     | OP      | Hangar palette (violet)                          |
+| `forge.svg`       | ForgeCode                    | F       | orange, as on forgecode.dev                      |
+| `kode.svg`        | Kode CLI                     | Ko      | Hangar palette (blue)                            |
+| `codebuff.svg`    | Codebuff                     | Cb      | Hangar palette (rose)                            |
+| `droid.svg`       | Droid (Factory)              | D       | orange, as on factory.ai                         |
+| `amp.svg`         | Amp                          | Am      | dark tile with orange letters, as on ampcode.com |
+| `hermes.svg`      | Hermes Agent (Nous Research) | He      | Hangar palette (slate)                           |
+| `openclaw.svg`    | OpenClaw                     | OC      | Hangar palette (red)                             |
+
+No logo under a clear license was found for Hermes Agent and OpenClaw (an MIT license on their code
+does not cover the marks), and the Simple Icons slug `hermes` is an unrelated parcel service, so both
+get a monogram.

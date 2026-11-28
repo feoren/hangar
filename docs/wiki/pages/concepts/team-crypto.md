@@ -271,7 +271,7 @@ A.2.1 test.
   admitted shares nothing (no presence, claims, reservations, confirmations, removals) until the
   person compares two numbers with the admitting device and confirms: that device's safety
   number and the log safety number at the head (`TeamStatus::ConfirmAdmission`; the admitting
-  device shows both under People, Your devices). The confirmation is stored with the head in the
+  device shows both under Manage, Your devices). The confirmation is stored with the head in the
   keychain (`StoredKeys::admitted`, format `v2`; a `v1` entry counts as confirmed only with a
   head and an epoch secret, since `v1` stored the head after every log fetch, also on a device
   the log never listed; round 2, N4). The device that created the team admits itself. The

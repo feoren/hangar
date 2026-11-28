@@ -628,6 +628,11 @@ impl Usage {
         .flatten()
         .fold(0, u64::saturating_add)
     }
+
+    /// The tokens the model wrote, thinking included.
+    pub fn output(&self) -> u64 {
+        self.output_tokens.unwrap_or(0)
+    }
 }
 
 #[derive(Deserialize)]

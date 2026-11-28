@@ -16,6 +16,7 @@ use crate::instructions::StartPrompts;
 use crate::profile::Profile;
 use crate::resolve::resolve_all;
 use crate::resolve::resolve_program;
+use crate::start_model::{LocalServer, LocalSpecs, ModelOption};
 use crate::updates::{builtin_for_command, Latest, NpmVariant, PlatformHint};
 
 pub const BUILTIN: &str = include_str!("agent_catalog.toml");
@@ -85,9 +86,26 @@ pub struct CatalogAgent {
     /// (see [`Prompting::agent_program`]).
     #[serde(default)]
     pub agent_program: Option<crate::agent_models::DefProgram>,
+    /// The program starts a background process outside its session's Job Object on purpose
+    /// (`CREATE_BREAKAWAY_FROM_JOB`, Hermes Agent's gateway). Only then does the job allow it
+    /// (`proctree.rs`); for every other program each child ends with the session.
+    #[serde(default)]
+    pub job_breakaway: bool,
     /// Verified commands of the program for the session menu (see [`crate::agent_commands`]).
     #[serde(default)]
     pub agent_commands: Vec<crate::agent_commands::AgentCommand>,
+    /// The vendor's models the start menu offers (see [`Profile::models`]).
+    #[serde(default)]
+    pub models: Option<Vec<ModelOption>>,
+    /// How a vendor model goes into the start (see [`Profile::model_args`]).
+    #[serde(default)]
+    pub model_args: Option<Vec<String>>,
+    /// How a model's reasoning effort goes into the start (see [`Profile::effort_args`]).
+    #[serde(default)]
+    pub effort_args: Option<Vec<String>>,
+    /// How the program runs against a local LLM server (see [`Profile::local`]).
+    #[serde(default)]
+    pub local: Option<LocalSpecs>,
 }
 
 /// How Hangar hands a program its global instructions and a first prompt
@@ -376,7 +394,7 @@ impl HookFormat {
 }
 
 /// The values of Codex's `-c <key=value>`, `--config <key=value>` and `--config=<key=value>`.
-fn codex_overrides(args: &[String]) -> impl Iterator<Item = &str> {
+pub(crate) fn codex_overrides(args: &[String]) -> impl Iterator<Item = &str> {
     args.iter().enumerate().filter_map(|(index, arg)| {
         if arg == "-c" || arg == "--config" {
             args.get(index + 1).map(String::as_str)
@@ -387,7 +405,7 @@ fn codex_overrides(args: &[String]) -> impl Iterator<Item = &str> {
 }
 
 /// The dotted key of a `key=value` override, without surrounding blanks.
-fn config_key(value: &str) -> Option<&str> {
+pub(crate) fn config_key(value: &str) -> Option<&str> {
     value.split_once('=').map(|(key, _)| key.trim())
 }
 
@@ -482,6 +500,17 @@ pub fn parse(source: &str) -> Result<Vec<CatalogAgent>, CatalogError> {
         if let Err(problem) = crate::instructions::check_agent_args(agent.agent_args.as_deref()) {
             return Err(invalid(problem));
         }
+        if let Err(problem) = crate::start_model::check(
+            crate::start_model::ModelFields {
+                models: agent.models.as_deref(),
+                model_args: agent.model_args.as_deref(),
+                effort_args: agent.effort_args.as_deref(),
+                local: agent.local.as_ref(),
+            },
+            true,
+        ) {
+            return Err(invalid(problem));
+        }
     }
     Ok(file.agents)
 }
@@ -541,6 +570,8 @@ pub struct Agent {
     pub cwd_flag: Option<&'static str>,
     /// From the catalog; a user profile inherits them only when it starts the same program.
     pub capabilities: Capabilities,
+    /// From the catalog ([`CatalogAgent::job_breakaway`]), inherited like `capabilities`.
+    pub job_breakaway: bool,
     /// From the catalog, inherited like `capabilities`.
     pub prompting: Prompting,
     /// From the catalog; a user profile inherits them along with `latest` (see [`merge`]).
@@ -566,6 +597,7 @@ impl Agent {
             install_hint: None,
             cwd_flag: None,
             capabilities: Capabilities::default(),
+            job_breakaway: false,
             prompting: Prompting::default(),
             npm_variants: Vec::new(),
         }
@@ -599,6 +631,10 @@ impl Agent {
                 packages: agent.packages,
                 self_update: agent.self_update,
                 agent_commands: agent.agent_commands,
+                models: agent.models,
+                model_args: agent.model_args,
+                effort_args: agent.effort_args,
+                local: agent.local,
             },
             source: Source::Catalog,
             candidates: agent.commands,
@@ -606,6 +642,7 @@ impl Agent {
             install_hint,
             cwd_flag: None,
             capabilities: agent.capabilities,
+            job_breakaway: agent.job_breakaway,
             prompting: Prompting {
                 instruction_args: agent.instruction_args,
                 prompt_args: agent.prompt_args,
@@ -673,6 +710,13 @@ impl Agent {
             agent_commands: self.profile.agent_commands.clone(),
             takes_agent: self.prompting.agent_args.is_some(),
             agent_program: self.prompting.agent_program,
+            models: self.profile.model_spec().menu(),
+            local_sources: self
+                .profile
+                .local
+                .as_ref()
+                .map(LocalSpecs::servers)
+                .unwrap_or_default(),
         }
     }
 }
@@ -726,6 +770,10 @@ pub struct ProfileView {
     pub takes_agent: bool,
     /// Whose sub-agent definitions the program reads ([`Prompting::agent_program`]).
     pub agent_program: Option<crate::agent_models::DefProgram>,
+    /// The vendor's models a start can pick (ADR 0022), in menu order; empty when none.
+    pub models: Vec<ModelOption>,
+    /// The local LLM servers the program can run against, in menu order.
+    pub local_sources: Vec<LocalServer>,
 }
 
 /// User profiles in file order, followed by the catalog agents and then the detected WSL
@@ -773,12 +821,14 @@ pub fn merge_all(user: Vec<Profile>, catalog: Vec<CatalogAgent>, found: Vec<Agen
                     inherit_session_options(&mut agent.profile, &from_catalog.profile);
                     // The hooks belong to the program, like its session options.
                     agent.capabilities = from_catalog.capabilities;
+                    agent.job_breakaway = from_catalog.job_breakaway;
                     // So do its commands; the profile's own come after them.
                     agent.profile.agent_commands = crate::agent_commands::merge(
                         &from_catalog.profile.agent_commands,
                         &agent.profile.agent_commands,
                     );
                     agent.prompting.clone_from(&from_catalog.prompting);
+                    inherit_model_options(&mut agent.profile, &from_catalog.profile);
                 }
                 // Same program, same packages and self-updater.
                 if same_program {
@@ -855,6 +905,23 @@ fn inherit_session_options(profile: &mut Profile, catalog: &Profile) {
     }
 }
 
+/// The model fields belong to the program too: a profile that starts the catalog's program takes
+/// each one it does not set itself, and its own value replaces the catalog's (ADR 0022).
+fn inherit_model_options(profile: &mut Profile, catalog: &Profile) {
+    if profile.models.is_none() {
+        profile.models.clone_from(&catalog.models);
+    }
+    if profile.model_args.is_none() {
+        profile.model_args.clone_from(&catalog.model_args);
+    }
+    if profile.effort_args.is_none() {
+        profile.effort_args.clone_from(&catalog.effort_args);
+    }
+    if profile.local.is_none() {
+        profile.local.clone_from(&catalog.local);
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use std::ffi::OsString;
@@ -881,6 +948,10 @@ mod tests {
             packages: None,
             self_update: None,
             agent_commands: Vec::new(),
+            models: None,
+            model_args: None,
+            effort_args: None,
+            local: None,
         }
     }
 
@@ -909,7 +980,12 @@ mod tests {
             prompt_args: None,
             agent_args: None,
             agent_program: None,
+            job_breakaway: false,
             agent_commands: Vec::new(),
+            models: None,
+            model_args: None,
+            effort_args: None,
+            local: None,
         }
     }
 
@@ -2011,6 +2087,332 @@ commands=['x']
         assert_eq!(json["homepage"], "https://example.org/c");
         assert!(json["installHint"].is_string());
         assert_eq!(json["teamCapable"], false);
+    }
+
+    fn model_ids(agent: &CatalogAgent) -> Vec<&str> {
+        agent
+            .models
+            .iter()
+            .flatten()
+            .map(|m| m.id.as_str())
+            .collect()
+    }
+
+    #[test]
+    fn only_hermes_may_leave_its_sessions_job() {
+        let marked: Vec<String> = builtin()
+            .unwrap()
+            .into_iter()
+            .filter(|agent| agent.job_breakaway)
+            .map(|agent| agent.id)
+            .collect();
+        assert_eq!(marked, ["hermes"]);
+        let hermes = builtin().unwrap().into_iter().find(|a| a.id == "hermes");
+        assert!(Agent::from_catalog(hermes.unwrap()).job_breakaway);
+        let bad = "[[agent]]\nid='x'\nname='X'\ncommands=['x']\njob_breakaway = 'yes'\n";
+        assert!(parse(bad).is_err());
+    }
+
+    #[test]
+    fn models_and_local_servers_in_builtin_catalog() {
+        let agents = builtin().unwrap();
+        let get = |id: &str| agents.iter().find(|a| a.id == id).unwrap();
+        let servers = |id: &str| {
+            get(id)
+                .local
+                .as_ref()
+                .map(LocalSpecs::servers)
+                .unwrap_or_default()
+        };
+        let both = vec![LocalServer::Ollama, LocalServer::Lmstudio];
+        assert_eq!(
+            model_ids(get("claude")),
+            ["fable", "opus", "sonnet", "haiku"]
+        );
+        assert_eq!(
+            model_ids(get("codex")),
+            [
+                "gpt-6.2-sol",
+                "gpt-6.2-astra",
+                "gpt-6.1-terra",
+                "gpt-6-luna"
+            ]
+        );
+        assert_eq!(
+            model_ids(get("gemini")),
+            ["auto", "pro", "flash", "flash-lite"]
+        );
+        assert!(model_ids(get("aider")).is_empty());
+        assert_eq!(servers("claude"), both);
+        assert_eq!(servers("codex"), both);
+        assert_eq!(servers("aider"), both);
+        assert!(servers("gemini").is_empty());
+        assert_eq!(servers("hermes"), both);
+        assert_eq!(servers("qwen"), both);
+        assert_eq!(servers("omp"), both);
+        // Goose takes the model only from GOOSE_MODEL; Kimi from KIMI_MODEL_*.
+        assert_eq!(servers("goose"), both);
+        assert_eq!(servers("copilot"), both);
+        assert_eq!(servers("kimi"), both);
+        // Evidenced as not startable against a local server from argv and env alone
+        // (docs/wiki/pages/syntheses/local-models-per-agent.md).
+        for id in [
+            "antigravity",
+            "cursor",
+            "kiro",
+            "opencode",
+            "crush",
+            "pi",
+            "forge",
+            "kode",
+            "codebuff",
+            "cline",
+            "vibe",
+            "droid",
+            "amp",
+            "openclaw",
+        ] {
+            assert!(servers(id).is_empty(), "{id}");
+        }
+        // OpenClaw has no start flag for a model: nothing is offered.
+        let openclaw = get("openclaw");
+        assert!(openclaw.models.is_none() && openclaw.local.is_none());
+        assert_eq!(openclaw.args, ["tui", "--local"]);
+        // Every program with vendor models says how they go into the start.
+        for agent in &agents {
+            if !model_ids(agent).is_empty() {
+                assert!(agent.model_args.is_some(), "{}", agent.id);
+            }
+        }
+
+        // Efforts: Claude Code's `--effort` levels for every model but Haiku (not documented
+        // there); Codex CLI's fallback list names none, its own model list does.
+        let efforts = |id: &str| -> Vec<(String, Vec<String>)> {
+            get(id)
+                .models
+                .iter()
+                .flatten()
+                .map(|model| (model.id.clone(), model.efforts.clone()))
+                .collect()
+        };
+        let all = strings(&["low", "medium", "high", "xhigh", "max"]);
+        assert_eq!(
+            efforts("claude"),
+            [
+                ("fable".to_owned(), all.clone()),
+                ("opus".to_owned(), all.clone()),
+                ("sonnet".to_owned(), all),
+                ("haiku".to_owned(), Vec::new()),
+            ]
+        );
+        assert!(get("claude")
+            .models
+            .iter()
+            .flatten()
+            .all(|model| model.default_effort.is_none()));
+        assert!(efforts("codex").iter().all(|(_, list)| list.is_empty()));
+        assert_eq!(
+            get("codex").effort_args.as_deref(),
+            Some(&strings(&["-c", "model_reasoning_effort={effort}"])[..])
+        );
+        let claude = Agent::from_catalog(get("claude").clone());
+        let launch = crate::start_model::launch(
+            claude.profile.model_spec(),
+            &crate::start_model::StartModel {
+                source: crate::start_model::ModelSource::Provider,
+                id: "opus".into(),
+                effort: Some("xhigh".into()),
+            },
+        )
+        .unwrap();
+        assert_eq!(
+            launch.args,
+            strings(&["--model", "opus", "--effort", "xhigh"])
+        );
+
+        // Claude Code against LM Studio: the documented variables, the base filled in.
+        let claude = Agent::from_catalog(get("claude").clone());
+        let launch = crate::start_model::launch(
+            claude.profile.model_spec(),
+            &crate::start_model::StartModel {
+                source: crate::start_model::ModelSource::Lmstudio,
+                id: "qwen/qwen3-8b".into(),
+                effort: None,
+            },
+        )
+        .unwrap();
+        assert_eq!(launch.args, strings(&["--model", "qwen/qwen3-8b"]));
+        assert_eq!(
+            launch.env,
+            vec![
+                // Empty on purpose: a real key must never go to the local port.
+                ("ANTHROPIC_API_KEY".to_owned(), String::new()),
+                ("ANTHROPIC_AUTH_TOKEN".to_owned(), "lmstudio".to_owned()),
+                (
+                    "ANTHROPIC_BASE_URL".to_owned(),
+                    "http://127.0.0.1:1234".to_owned()
+                ),
+                ("CLAUDE_CODE_ATTRIBUTION_HEADER".to_owned(), "0".to_owned()),
+            ]
+        );
+        // Aider's LM Studio base carries /v1.
+        let aider = Agent::from_catalog(get("aider").clone());
+        let launch = crate::start_model::launch(
+            aider.profile.model_spec(),
+            &crate::start_model::StartModel {
+                source: crate::start_model::ModelSource::Lmstudio,
+                id: "m".into(),
+                effort: None,
+            },
+        )
+        .unwrap();
+        assert_eq!(launch.args, strings(&["--model", "lm_studio/m"]));
+        assert!(launch.env.contains(&(
+            "LM_STUDIO_API_BASE".into(),
+            "http://127.0.0.1:1234/v1".into()
+        )));
+        let ollama = |id: &str, model: &str| {
+            let agent = Agent::from_catalog(get(id).clone());
+            crate::start_model::launch(
+                agent.profile.model_spec(),
+                &crate::start_model::StartModel {
+                    source: crate::start_model::ModelSource::Ollama,
+                    id: model.into(),
+                    effort: None,
+                },
+            )
+            .unwrap()
+        };
+        // Hermes reaches Ollama through its `ollama` alias, the endpoint from CUSTOM_BASE_URL.
+        let hermes = ollama("hermes", "qwen3:8b");
+        assert_eq!(
+            hermes.args,
+            strings(&["chat", "--cli", "--provider", "ollama", "-m", "qwen3:8b"])
+        );
+        assert_eq!(
+            hermes.env,
+            vec![(
+                "CUSTOM_BASE_URL".to_owned(),
+                "http://127.0.0.1:11434/v1".to_owned()
+            )]
+        );
+        // Goose: no model argument, the model and the host go into the environment.
+        let goose = ollama("goose", "qwen3:8b");
+        assert!(goose.args.is_empty());
+        assert!(goose
+            .env
+            .contains(&("GOOSE_MODEL".into(), "qwen3:8b".into())));
+        assert!(goose
+            .env
+            .contains(&("OLLAMA_HOST".into(), "http://127.0.0.1:11434".into())));
+        // Copilot CLI: the empty key is set, not left out.
+        let copilot = ollama("copilot", "qwen3:8b");
+        assert_eq!(copilot.args, strings(&["--model", "qwen3:8b"]));
+        assert!(copilot
+            .env
+            .contains(&("COPILOT_PROVIDER_API_KEY".into(), String::new())));
+        assert!(copilot.env.contains(&(
+            "COPILOT_PROVIDER_BASE_URL".into(),
+            "http://127.0.0.1:11434/v1".into()
+        )));
+    }
+
+    #[test]
+    fn invalid_model_fields_in_the_catalog_are_refused() {
+        let base = "[[agent]]\nid='a'\nname='A'\ncommands=['a']\n";
+        assert!(parse(&format!(
+            "{base}models=[{{id='m',label='M'}}]\nmodel_args=['-m','{{model}}']\n"
+        ))
+        .is_ok());
+        assert!(parse(&format!(
+            "{base}models=[{{id='m',label='M',efforts=['low','max'],default_effort='low'}}]\nmodel_args=['-m','{{model}}']\neffort_args=['--effort={{effort}}']\n"
+        ))
+        .is_ok());
+        // {model} only in an env value is enough.
+        assert!(parse(&format!(
+            "{base}local={{ollama={{env={{MODEL='{{model}}',HOST='{{base}}'}}}}}}\n"
+        ))
+        .is_ok());
+        for bad in [
+            // models without model_args.
+            "models=[{id='m',label='M'}]\n",
+            "models=[{id='m',label='M'}]\nmodel_args=['-m']\n",
+            "models=[{id='m m',label='M'}]\nmodel_args=['-m','{model}']\n",
+            "local={ollama={args=['-m']}}\n",
+            // {model} in neither args nor env.
+            "local={ollama={args=['-m'],env={HOST='{base}'}}}\n",
+            "local={ollama={args=['{model}'],env={'1X'='a'}}}\n",
+            "local={ollama={args=['{model}','{other}']}}\n",
+            // Efforts without effort_args, bad efforts, a default outside the list.
+            "models=[{id='m',label='M',efforts=['low']}]\nmodel_args=['-m','{model}']\n",
+            "models=[{id='m',label='M',efforts=['Low']}]\nmodel_args=['-m','{model}']\neffort_args=['{effort}']\n",
+            "models=[{id='m',label='M',efforts=['low'],default_effort='max'}]\nmodel_args=['-m','{model}']\neffort_args=['{effort}']\n",
+            "models=[{id='m',label='M',efforts=['low']}]\nmodel_args=['-m','{model}']\neffort_args=['--effort']\n",
+        ] {
+            assert!(
+                matches!(
+                    parse(&format!("{base}{bad}")),
+                    Err(CatalogError::Invalid { .. })
+                ),
+                "{bad:?} should have been rejected"
+            );
+        }
+        assert!(matches!(
+            parse(&format!("{base}models=[{{id='m'}}]\n")),
+            Err(CatalogError::Parse(_))
+        ));
+    }
+
+    #[test]
+    fn model_fields_follow_the_program_and_a_profile_replaces_them() {
+        let mut entry = catalog("claude", &["claude"]);
+        entry.models = Some(vec![ModelOption {
+            id: "opus".into(),
+            label: "Opus".into(),
+            efforts: strings(&["low", "high"]),
+            default_effort: None,
+        }]);
+        entry.model_args = Some(strings(&["--model", "{model}"]));
+        entry.effort_args = Some(strings(&["--effort", "{effort}"]));
+        entry.local = Some(LocalSpecs {
+            ollama: Some(crate::start_model::LocalLaunch {
+                args: strings(&["--model", "{model}"]),
+                env: Default::default(),
+            }),
+            lmstudio: None,
+        });
+        // Same program, nothing of its own: the catalog's fields.
+        let merged = merge(vec![user("claude", "claude")], vec![entry.clone()]);
+        let view = merged[0].view(None, None);
+        assert_eq!(view.models.len(), 1);
+        assert_eq!(view.local_sources, [LocalServer::Ollama]);
+        let json = serde_json::to_value(&view).unwrap();
+        assert_eq!(
+            json["models"],
+            serde_json::json!([{ "id": "opus", "label": "Opus", "efforts": ["low", "high"] }])
+        );
+        assert_eq!(json["localSources"], serde_json::json!(["ollama"]));
+        // The profile's own list replaces the catalog's; effort_args still come from the catalog.
+        let mut own = user("claude", "claude");
+        own.models = Some(vec![ModelOption {
+            id: "sonnet".into(),
+            label: "Sonnet".into(),
+            efforts: strings(&["max"]),
+            default_effort: None,
+        }]);
+        let merged = merge(vec![own], vec![entry.clone()]);
+        let view = merged[0].view(None, None);
+        assert_eq!(view.models[0].id, "sonnet");
+        assert_eq!(view.models[0].efforts, ["max"]);
+        // A profile that turns effort_args off offers no efforts.
+        let mut off = user("claude", "claude");
+        off.effort_args = Some(Vec::new());
+        let merged = merge(vec![off], vec![entry.clone()]);
+        assert!(merged[0].view(None, None).models[0].efforts.is_empty());
+        // Another program inherits nothing.
+        let merged = merge(vec![user("claude", "my-wrapper")], vec![entry]);
+        let view = merged[0].view(None, None);
+        assert!(view.models.is_empty() && view.local_sources.is_empty());
     }
 
     #[test]

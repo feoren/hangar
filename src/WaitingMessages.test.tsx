@@ -29,7 +29,6 @@ function render(
         generation={1}
         language={language}
         session={session}
-        badgeFor={(profileId) => ({ kind: "letters", text: profileId.slice(0, 1), color: "#123" })}
         onSend={() => undefined}
         onCancel={() => undefined}
         onDiscard={() => undefined}
@@ -177,25 +176,22 @@ describe("WaitingMessages", () => {
     expect(render(waiting(true, 9), "de")).toContain(">Ziel: ich habe so viele Agenten nun<");
   });
 
-  it("shows Hangar's introduction as whom the session works with, the agent's text on request", () => {
+  it("shows Hangar's introduction as one quiet line of members, never the agent's text", () => {
     const html = render(new Map(), "en", intro);
+    expect(html).toContain('data-intro="true"');
     expect(html).toContain('<span class="waiting-message-from">Joined a link group</span>');
-    expect(html).toContain("This session now works with:");
-    expect(html).toContain('<span class="link-intro-name">website</span>');
-    expect(html).toContain('<span class="link-intro-lead">Lead</span>');
-    expect(html).toContain('title="website · Codex CLI · Lead"');
+    expect(html).toContain('<span class="link-intro-lede">With</span>');
+    expect(html).toContain('<span class="link-intro-name">website (Lead)</span>');
     expect(html).toContain('<span class="link-intro-name">Fix the relay</span>');
-    expect(html).toContain('class="badge"');
-    // The agent's English text stays hidden behind a toggle; Send and Paste only stay.
+    expect(html).toContain('title="website · Codex CLI · Lead\nFix the relay"');
+    // No program chips, no toggle for the agent's English text; Send stays.
+    expect(html).not.toContain('class="badge"');
     expect(html).not.toContain("You are linked");
-    expect(html).toContain(">Show the agent&#x27;s message<");
-    expect(html).toContain('aria-expanded="false"');
+    expect(html).not.toContain("waiting-message-more");
     expect(html).toContain(">Send<");
-    expect(html).toContain(">Paste only<");
     const leads = render(new Map(), "de", { ...intro, intro: { ...summary, leads: true } });
-    expect(leads).toContain("Diese Session leitet den Verbund mit:");
-    expect(leads).toContain(">Text für den Agenten anzeigen<");
-    expect(leads).toContain(">Leitung<");
+    expect(leads).toContain('<span class="link-intro-lede">Leitet</span>');
+    expect(leads).toContain(">website (Leitung)<");
   });
 
   it("takes no click while the message is new", () => {

@@ -1,6 +1,6 @@
-// Context meter of a session row: how full the agent's context window is (backend:
-// src-tauri/src/context_usage.rs). Checks the backend's snapshot and formats it. Pure, so it is
-// tested without React; numbers only, nothing here is persisted.
+// Context meter of a session row: how full the agent's context window is, and how fast the agent
+// writes (backend: src-tauri/src/context_usage.rs). Checks the backend's snapshot and formats it.
+// Pure, so it is tested without React; numbers only, nothing here is persisted.
 
 import type { Translate } from "./i18n";
 import { formatTokens } from "./subAgents";
@@ -11,6 +11,16 @@ export interface SessionContext {
   used: number;
   /** Size of the model's context window. */
   window: number;
+}
+
+/** Output tokens per second of a session (Rust: `Rate`). */
+export interface OutputRate {
+  value: number;
+  /**
+   * A response ended in the last 30 s; otherwise `value` is the rate of the last such window,
+   * kept so the row never loses its number between turns.
+   */
+  live: boolean;
 }
 
 /** From this share on the meter warns: the agent will soon compact or run out of room. */
@@ -71,4 +81,39 @@ export function contextHint(context: SessionContext, language: string, t: Transl
       window: exact.format(context.window),
     }),
   ].join("\n");
+}
+
+/**
+ * The output rates of a `context-usage-changed` payload or the answer of `context_usage`:
+ * session id to its rate (Rust: `SessionContext.output_rate`). A session without a rate (no
+ * response measured yet, or no Claude Code transcript) and a broken rate are missing; anything
+ * else yields `null`.
+ */
+export function parseOutputRates(value: unknown): Map<number, OutputRate> | null {
+  if (typeof value !== "object" || value === null || Array.isArray(value)) return null;
+  const list: unknown = Reflect.get(value, "sessions");
+  if (!Array.isArray(list)) return null;
+  const rates = new Map<number, OutputRate>();
+  for (const item of list) {
+    if (typeof item !== "object" || item === null) continue;
+    const id = count(Reflect.get(item, "sessionId"));
+    const rate: unknown = Reflect.get(item, "outputRate");
+    if (id === null || typeof rate !== "object" || rate === null) continue;
+    const value = count(Reflect.get(rate, "value"));
+    const live: unknown = Reflect.get(rate, "live");
+    if (value === null || value === 0 || typeof live !== "boolean") continue;
+    rates.set(id, { value, live });
+  }
+  return rates;
+}
+
+/** "84", "1,250", "1.250": output tokens per second as a whole number in the UI language. */
+export function formatOutputRate(rate: number, language: string): string {
+  return new Intl.NumberFormat(language, { maximumFractionDigits: 0 }).format(rate);
+}
+
+/** The rate in words: "is writing 84 tokens per second" live, else "Last response: 84 …". */
+export function outputRateHint(rate: OutputRate, language: string, t: Translate): string {
+  const value = formatOutputRate(rate.value, language);
+  return rate.live ? t("speed.hint", { value }) : t("speed.last", { value });
 }

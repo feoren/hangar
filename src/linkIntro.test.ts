@@ -61,7 +61,7 @@ describe("introSummary", () => {
       members: [
         {
           session: 2,
-          // A program title says less than the folder it works in.
+          // The project says which session it is, as on its row.
           label: "hangar.feoren.com",
           detail: "hangar.feoren.com · Codex CLI",
           profileId: "codex",
@@ -69,8 +69,9 @@ describe("introSummary", () => {
         },
         {
           session: 3,
-          label: "Fix the relay",
-          detail: "Fix the relay · Claude Code · hangar-server",
+          // A name the person gave does not hide the project.
+          label: "hangar-server",
+          detail: "hangar-server · Claude Code",
           profileId: "claude",
           lead: false,
         },
@@ -84,7 +85,7 @@ describe("introSummary", () => {
     expect(summary?.members.map((member) => member.session)).toEqual([1, 3]);
   });
 
-  it("keeps program titles where two members would otherwise show the same folder", () => {
+  it("keeps titles where two members would otherwise show the same folder", () => {
     const twins: IntroSession[] = [
       ...sessions,
       { id: 4, title: "Codex CLI", cwd: "E:\\hangar.feoren.com", profileId: "codex" },
@@ -99,7 +100,7 @@ describe("introSummary", () => {
     const summary = introSummary(grown, { group: 7, to: 1, text: INTRO }, twins, programName);
     expect(summary?.members.map((member) => member.label)).toEqual([
       "Codex CLI (2)",
-      "Fix the relay",
+      "hangar-server",
       "Codex CLI",
     ]);
     expect(summary?.members[0]?.detail).toBe("Codex CLI (2) · Codex CLI · hangar.feoren.com");

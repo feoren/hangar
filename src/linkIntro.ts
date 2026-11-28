@@ -1,10 +1,10 @@
 // Hangar's introduction of a link group (ADR 0014) as the person sees it. The text that goes to
 // the agent is English and written for an agent (links.rs `introduction`); its card shows people
 // a short summary instead: that the session now works in a group, and with whom. The agent's text
-// stays exactly as it is and can still be shown. Pure.
+// stays exactly as it is; people never need to read it. Pure.
 
 import type { LinkRole, LinkState } from "./links";
-import { isProgramTitle, projectFolder } from "./sessionLabel";
+import { projectFolder } from "./sessionLabel";
 
 /** Opening of the introduction sent after the group's lead changed (links.rs). */
 const ROLES_CHANGED = "The roles in your link group";
@@ -100,10 +100,8 @@ function introMember(
     profileId: session.profileId,
     lead,
   });
-  // "Claude Code (2)" says less than the folder it works in.
-  const byFolder =
-    folder !== "" && title !== "" && isProgramTitle(title, [program, session.profileId]);
-  return byFolder
-    ? { member: chip(folder), titled: chip(title) }
-    : { member: chip(title || program), titled: null };
+  // The project says which session it is, as on its row (sessionLabel.ts); its own title only
+  // where two members share a folder name.
+  if (folder === "") return { member: chip(title || program), titled: null };
+  return { member: chip(folder), titled: title === "" ? null : chip(title) };
 }

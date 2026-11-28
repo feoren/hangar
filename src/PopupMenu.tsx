@@ -33,6 +33,20 @@ export interface PopupReorder {
   onDrop: (targetKey: string, after: boolean) => void;
 }
 
+/** A submenu of one row: its name for screen readers and its entries. */
+export interface PopupSubmenu {
+  label: string;
+  items: readonly PopupItem[];
+}
+
+/** How long the pointer rests on a row before its submenu opens: passing over it does nothing. */
+export const SUBMENU_OPEN_DELAY_MS = 150;
+/**
+ * How long an open submenu stays after the pointer moved onto another row: time to cross a
+ * neighbor on the way into the submenu.
+ */
+export const SUBMENU_GRACE_MS = 250;
+
 export type PopupItem =
   | {
       type: "action";
@@ -64,6 +78,12 @@ export type PopupItem =
        */
       remove?: { label: string; run: () => void };
       reorder?: PopupReorder;
+      /**
+       * More choices beside the row (a model's reasoning efforts): they open once the pointer
+       * rests on the row, or with Right arrow; Left arrow and Escape go back. A click or Enter on
+       * the row itself still runs `run`. Not combined with `secondary`.
+       */
+      submenu?: PopupSubmenu;
       run: () => void;
     }
   | { type: "separator"; key: string }
@@ -89,6 +109,17 @@ interface Props {
   className?: string;
   /** Button that opens the menu: clicking it toggles instead of closing and reopening. */
   anchor?: React.RefObject<HTMLElement | null>;
+  /**
+   * Focus the first entry on open (default). False for a menu the pointer opened by resting on
+   * something (a flyout): it must not take the focus from the terminal; an entry takes it once
+   * the pointer reaches it.
+   */
+  autoFocus?: boolean;
+  /**
+   * The menu is a submenu of something outside it (a flyout beside a row): Left arrow and Escape
+   * call this instead of closing as a dismissal. The caller closes it and returns the focus.
+   */
+  onBack?: () => void;
   /**
    * Closed after an action (`action`) or via Escape, Tab, a click outside, a window switch
    * (`dismiss`). The caller returns focus.
@@ -125,6 +156,8 @@ export function PopupMenu({
   flipAbove,
   className,
   anchor,
+  autoFocus = true,
+  onBack,
   onClose,
 }: Props) {
   const entries: NavEntry[] = items.map((item) =>
@@ -151,6 +184,15 @@ export function PopupMenu({
   const rowDrag = useRef<RowDrag | null>(null);
   /** After a drag, the click that ends it must not choose the row. */
   const swallowClick = useRef(false);
+  /** The row whose submenu is open; `focus`: opened with the keyboard, its first entry focused. */
+  const [submenu, setSubmenu] = useState<{
+    key: string;
+    focus: boolean;
+    place: { x: number; y: number; flipAbove: number };
+  } | null>(null);
+  /** A submenu waiting to open, switch or close while the pointer moves. */
+  const submenuTimer = useRef<number | null>(null);
+  const submenuKey = useRef<string | null>(null);
   const noteId = useId();
   /** Note ids per described entry key. */
   const notesFor = new Map<string, string[]>();
@@ -182,9 +224,11 @@ export function PopupMenu({
         ),
       );
     }
-    const first = buttons.current.get(current);
-    if (first) first.focus();
-    else element?.focus();
+    if (autoFocus) {
+      const first = buttons.current.get(current);
+      if (first) first.focus();
+      else element?.focus();
+    }
     // Only on open.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -210,6 +254,61 @@ export function PopupMenu({
     };
   }, [anchor]);
 
+  useEffect(
+    () => () => {
+      if (submenuTimer.current !== null) window.clearTimeout(submenuTimer.current);
+    },
+    [],
+  );
+
+  const cancelSubmenuTimer = () => {
+    if (submenuTimer.current !== null) window.clearTimeout(submenuTimer.current);
+    submenuTimer.current = null;
+  };
+
+  /** Opens the submenu of the row at `index` beside it, or closes the open one (`null`). */
+  const showSubmenu = (index: number | null, focus: boolean) => {
+    cancelSubmenuTimer();
+    const item = index === null ? undefined : items[index];
+    const row = index === null ? undefined : buttons.current.get(index);
+    if (item?.type !== "action" || item.submenu === undefined || row === undefined) {
+      submenuKey.current = null;
+      setSubmenu(null);
+      return;
+    }
+    const rect = row.getBoundingClientRect();
+    const own = panel.current?.getBoundingClientRect();
+    // Beside the whole menu, level with the row: the panel's padding and border line up.
+    submenuKey.current = item.key;
+    setSubmenu({
+      key: item.key,
+      focus,
+      place: { x: (own?.right ?? rect.right) + 2, y: rect.top - 5, flipAbove: rect.bottom + 5 },
+    });
+  };
+
+  /** The pointer reached the row at `index`: its submenu opens after a rest, another one goes. */
+  const hoverSubmenu = (index: number) => {
+    const item = items[index];
+    const wants = item?.type === "action" && item.submenu !== undefined;
+    const open = submenuKey.current;
+    if (open !== null && open === item?.key) {
+      cancelSubmenuTimer();
+      return;
+    }
+    if (open === null && !wants) {
+      cancelSubmenuTimer();
+      return;
+    }
+    // With a submenu open the pointer may only be crossing this row on its way into it.
+    const delay = open === null ? SUBMENU_OPEN_DELAY_MS : SUBMENU_GRACE_MS;
+    cancelSubmenuTimer();
+    submenuTimer.current = window.setTimeout(() => {
+      submenuTimer.current = null;
+      showSubmenu(wants ? index : null, false);
+    }, delay);
+  };
+
   /** Puts the focus on an entry: the row or one of its buttons (`at`). */
   const focusAt = (index: number, at: number) => {
     setCurrent(index);
@@ -227,6 +326,10 @@ export function PopupMenu({
     const index = items.findIndex((item) => item.key === focusKey.current);
     if (index < 0) return;
     const active = document.activeElement;
+    // A menu that has not taken the focus yet leaves it where it is.
+    if (!autoFocus && !(active instanceof Node && panel.current?.contains(active) === true)) {
+      return;
+    }
     const lost = active === null || active === document.body || active === panel.current;
     if (index !== current || lost) focusAt(index, secondaryAt);
     // Only when the items change.
@@ -350,6 +453,11 @@ export function PopupMenu({
       runRemove(current);
       return;
     }
+    if (event.key === "ArrowRight" && item?.type === "action" && item.submenu !== undefined) {
+      event.preventDefault();
+      if (item.disabled !== true) showSubmenu(current, true);
+      return;
+    }
     const second = secondaryCommand(event, secondariesOf(item).length, secondaryAt);
     if (second !== null) {
       event.preventDefault();
@@ -357,19 +465,23 @@ export function PopupMenu({
       else runSecondary(current, second.at);
       return;
     }
-    const command = menuCommand(event, entries, current, false);
+    const command = menuCommand(event, entries, current, onBack !== undefined);
     switch (command.kind) {
       case "none":
         return;
       case "focus":
+        // The keyboard moved on: an open submenu belongs to the row it left.
+        if (submenuKey.current !== null) showSubmenu(null, false);
         focusAt(command.index, -1);
         break;
       case "activate":
         activate(current);
         break;
       case "openSubmenu":
-      case "closeSubmenu":
         return;
+      case "closeSubmenu":
+        onBack?.();
+        break;
       case "closeAll":
         onClose("dismiss");
         break;
@@ -423,6 +535,8 @@ export function PopupMenu({
         }
         const buttonsAtEnd = secondariesOf(item);
         const remove = item.remove;
+        const sub = item.submenu;
+        const subOpen = sub !== undefined && submenu?.key === item.key ? submenu : null;
         return (
           <li
             key={item.key}
@@ -434,6 +548,14 @@ export function PopupMenu({
               dragClass(item.key)
             }
             role="none"
+            onPointerMove={
+              subOpen === null
+                ? undefined
+                : () => {
+                    // Back on the row or inside its submenu: it stays.
+                    cancelSubmenuTimer();
+                  }
+            }
           >
             <button
               type="button"
@@ -451,12 +573,18 @@ export function PopupMenu({
                 else buttons.current.delete(index);
               }}
               tabIndex={index === current && secondaryAt < 0 ? 0 : -1}
-              className={item.current === true ? "menu-item current" : "menu-item"}
+              className={
+                (item.current === true ? "menu-item current" : "menu-item") +
+                (subOpen === null ? "" : " open")
+              }
               title={item.title}
               disabled={item.disabled}
+              aria-haspopup={sub === undefined ? undefined : "menu"}
+              aria-expanded={sub === undefined ? undefined : subOpen !== null}
               onPointerEnter={() => {
                 if (item.disabled === true || rowDrag.current?.started === true) return;
                 focusAt(index, -1);
+                hoverSubmenu(index);
               }}
               onPointerDown={
                 item.reorder === undefined
@@ -484,8 +612,28 @@ export function PopupMenu({
                   </span>
                 )}
               </span>
-              <span className="menu-hint">{item.shortcut ?? ""}</span>
+              <span className="menu-hint" aria-hidden={sub === undefined ? undefined : true}>
+                {sub === undefined ? (item.shortcut ?? "") : "›"}
+              </span>
             </button>
+            {subOpen !== null && sub !== undefined && (
+              <PopupMenu
+                // A submenu the pointer opened turns into one with focus on Right arrow.
+                key={subOpen.focus ? "focus" : "hover"}
+                items={sub.items}
+                label={sub.label}
+                position={subOpen.place}
+                flipAbove={subOpen.place.flipAbove}
+                className="popup-submenu"
+                anchor={panel}
+                autoFocus={subOpen.focus}
+                onBack={() => {
+                  showSubmenu(null, false);
+                  focusAt(index, -1);
+                }}
+                onClose={onClose}
+              />
+            )}
             {buttonsAtEnd.map((button, at) => (
               <button
                 key={button.label}

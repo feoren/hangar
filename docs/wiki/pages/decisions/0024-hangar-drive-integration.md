@@ -1,5 +1,5 @@
 ---
-title: "ADR 0022: Back up project folders with Hangar Drive"
+title: "ADR 0024: Back up project folders with Hangar Drive"
 type: decision
 status: accepted
 superseded_by:
@@ -9,7 +9,7 @@ created: 2026-11-28
 updated: 2026-11-28
 ---
 
-# ADR 0022: Back up project folders with Hangar Drive
+# ADR 0024: Back up project folders with Hangar Drive
 
 ## Context
 Hangar Drive is a separate sync and backup app by the same project, installed on its own. The

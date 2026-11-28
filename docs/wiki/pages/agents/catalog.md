@@ -2,9 +2,9 @@
 title: Agent catalog
 type: agent
 tags: [agents, catalog, installation]
-sources: ["[[agent-clis-research]]", "[[agent-icons]]", "[[agent-commands-measurement]]", "[[agent-vendors-licenses]]"]
+sources: ["[[agent-clis-research]]", "[[agent-icons]]", "[[agent-commands-measurement]]", "[[agent-vendors-licenses]]", "[[0022-models-and-local-llm-servers]]", "[[local-models-per-agent]]"]
 created: 2026-11-07
-updated: 2026-11-22
+updated: 2026-11-27
 ---
 
 # Agent catalog
@@ -42,6 +42,39 @@ its docs ([[agent-commands-measurement]]):
 
 All other catalog agents have none until a measurement; a test requires that.
 
+## Models and local servers
+Three optional fields per entry choose the model a session starts with; the decision, the values
+and their sources are in [[0022-models-and-local-llm-servers]]. A user profile with the same `id`
+and program inherits each of them it does not set itself; its own value replaces the catalog's.
+
+- `models`: the vendor's models the "›" menu of a program row in "New session" offers, in order,
+  as `{ id, label }`. Claude Code (Fable, Opus, Sonnet, Haiku), Codex CLI (GPT-6.2 Sol, GPT-6.2
+  Astra, GPT-6.1 Terra, GPT-6 Luna) and Gemini CLI (Auto, Pro, Flash, Flash Lite) have them.
+- `model_args`: how a vendor model goes into the start, with the placeholder `{model}`; required
+  with `models`. Placed after the start arguments (on a resume after `resume_args`; the CLIs
+  accept the model flag there, evidence in the decision).
+- `local`: how the program runs against Ollama or LM Studio on this machine, `args` and `env`
+  with `{model}` and `{base}`; `{model}` in the args or in at least one env value. Claude Code,
+  Codex CLI, Aider, Hermes Agent, Qwen Code and Oh My Pi run against both, GitHub Copilot CLI and
+  Goose against Ollama only. Every other
+  catalog agent, why it is not offered, the exact argv and env and the sources:
+  [[local-models-per-agent]].
+
+The id of a model is checked before anything starts; a new start with a model the program does
+not offer is refused, a restored session whose stored model is gone starts with the program's
+default.
+
+## Hermes Agent and OpenClaw
+- `hermes` (Nous Research): starts with `hermes`; with an LM Studio model as
+  `hermes chat --provider lmstudio -m <model>`, with an Ollama model as
+  `hermes chat --cli --provider custom --base-url http://127.0.0.1:11434/v1 -m <model>`
+  ([[local-models-per-agent]]).
+- `openclaw`: starts as `openclaw tui --local`, which needs no gateway. It has no model flag at the
+  start (models change with `/model` inside the session), so it offers no models.
+
+Both have a monogram icon (no logo under a clear license, `src/assets/agent-icons/NOTICE.md`) and a
+description in all 12 languages. No agent commands until a measurement.
+
 ## Descriptions
 Every catalog entry has a one-line description in all 12 languages (`agent.<id>.description` in
 `src/i18n.ts`, shown under "Available" in Settings > Programs). One pattern for all: what it is, the
@@ -51,7 +84,7 @@ the pattern with its tests: [[agent-vendors-licenses]].
 ## Icons
 Every catalog entry has a bundled icon, `src/assets/agent-icons/<id>.svg`: a rounded 24 × 24 tile
 in the product's color with its mark in white (10 marks from Simple Icons) or a monogram drawn for
-Hangar (12 products without a permissively licensed mark). Sources, licenses and trademark notes
+Hangar (14 products without a permissively licensed mark). Sources, licenses and trademark notes
 are in `src/assets/agent-icons/NOTICE.md`, evidence in [[agent-icons]]. The tile carries the color,
 so the icon reads the same in the light and dark theme.
 

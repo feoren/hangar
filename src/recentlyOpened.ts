@@ -6,7 +6,9 @@
 // an entry starts a program in a folder, and a viewer that planted one could start an agent in a
 // folder of its choice. Invalid content yields an empty list.
 
+import type { SessionModel } from "./api";
 import { folderName, samePath } from "./folders";
+import { parseSessionModel } from "./localLlm";
 import { normalizeMarkerColor, parseEmoji, type Marker } from "./marker";
 import { normalizeCliSessionId } from "./workspace";
 
@@ -36,6 +38,11 @@ export interface RecentSession {
    * listed. UNKNOWN_TIME for entries taken over from the recent folders (`seedRecent`).
    */
   closedAt: number;
+  /**
+   * The model the session started with (ADR 0022), started with it again on reopen. Left out
+   * without one, as the backend writes it.
+   */
+  model?: SessionModel;
 }
 
 /** What a started or closed session tells about itself (`SessionView`). */
@@ -49,6 +56,7 @@ export interface SessionSource {
   worktree?: unknown;
   cliSessionId?: string | null | undefined;
   marker?: Marker | undefined;
+  model?: SessionModel | null | undefined;
 }
 
 /**
@@ -106,6 +114,7 @@ export function recentEntry(session: SessionSource, at: number): RecentSession |
     emoji: session.marker?.emoji ?? null,
     cliSessionId: normalizeCliSessionId(session.cliSessionId),
     closedAt: at,
+    ...modelField(session.model),
   };
   return validEntry(entry) ? entry : null;
 }
@@ -254,6 +263,12 @@ export function markSeeded(storage: Pick<Storage, "setItem"> | null): void {
   }
 }
 
+/** The `model` field of an entry: present only with a valid choice. */
+function modelField(value: unknown): { model?: SessionModel } {
+  const model = parseSessionModel(value);
+  return model === null ? {} : { model };
+}
+
 function parseEntry(value: unknown): RecentSession | null {
   if (typeof value !== "object" || value === null || Array.isArray(value)) return null;
   const text = (key: string): string | null => {
@@ -275,7 +290,17 @@ function parseEntry(value: unknown): RecentSession | null {
     return null;
   }
   if (color === undefined || emoji === undefined || cliSessionId === undefined) return null;
-  const entry: RecentSession = { profileId, cwd, title, color, emoji, cliSessionId, closedAt };
+  const entry: RecentSession = {
+    profileId,
+    cwd,
+    title,
+    color,
+    emoji,
+    cliSessionId,
+    closedAt,
+    // An invalid choice only costs the model, not the entry.
+    ...modelField(Reflect.get(value, "model")),
+  };
   return validEntry(entry) ? entry : null;
 }
 

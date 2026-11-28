@@ -1,7 +1,7 @@
 import { useEffect, useId, useMemo, useRef, useState, type ReactNode } from "react";
 
 import { api } from "./api";
-import { Avatar } from "./Avatar";
+import { PersonAvatar } from "./Avatar";
 import { commitAge, commitDate } from "./gitHistory";
 import { useT, type Language } from "./i18n";
 import { canBackUp, driveMarkKey, isLocalFolder, type DriveView } from "./hangarDrive";
@@ -55,7 +55,7 @@ interface Props {
   onShowChanges: (id: number) => void;
   /** Starts a session from the empty state; `null` when no program can start. */
   onNewSession: (() => void) | null;
-  /** Hands a project folder to Hangar Drive (ADR 0022), which asks the person to confirm. */
+  /** Hands a project folder to Hangar Drive (ADR 0024), which asks the person to confirm. */
   onBackUp: (folder: string) => void;
   /** The partner projects (ADR 0012), kept per card. */
   partners: PartnerBook;
@@ -481,7 +481,12 @@ function Teammates({ people }: { people: Parameters<typeof teammateNames>[0] }) 
     <p className="project-teammates" title={names}>
       <span className="project-avatars" aria-hidden="true">
         {shown.map((person) => (
-          <Avatar key={person.member} name={person.name} size="mini" />
+          <PersonAvatar
+            key={person.member}
+            name={person.name}
+            presence={person.presence}
+            size="mini"
+          />
         ))}
         {more > 0 && <span className="session-teammates-more">+{more}</span>}
       </span>

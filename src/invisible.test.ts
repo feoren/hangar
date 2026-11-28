@@ -34,6 +34,16 @@ describe("revealInvisible", () => {
     expect(placeholder("\u0007")).toBe("<U+0007>");
   });
 
+  it("covers the soft hyphen, fillers and deprecated format characters", () => {
+    for (const char of ["\u00ad", "\u115f", "\u1160", "\u180e", "\u3164", "\uffa0"]) {
+      expect(hasInvisible(`a${char}b`)).toBe(true);
+    }
+    expect(revealInvisible("a\u206ab\u206fc\ufff9d\ufffbe")).toBe(
+      "a<U+206A>b<U+206F>c<U+FFF9>d<U+FFFB>e",
+    );
+    expect(hasInvisible("plain text, ä ö ü")).toBe(false);
+  });
+
   // Tag characters show nothing, but a language model reads them: "ASCII smuggling".
   it("finds tag characters as one code point each", () => {
     const hidden = "ok\u{e0069}\u{e0067}\u{e006e}";

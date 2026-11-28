@@ -601,6 +601,9 @@ pub fn list_sessions(manager: Manager<'_>) -> Vec<SessionInfo> {
 /// gets the agent gate and never reaches the team. `instructions`: hand the agent `HANGAR.md`
 /// (Settings); `start_prompt`: a first prompt by name, whose text comes from the catalog, never
 /// from the window. Both apply only where the program takes them ([`crate::instructions`]).
+/// `model`: `{ source: "provider" | "ollama" | "lmstudio", id }`, one of the program's vendor
+/// models or a model of a local server it can run against (ADR 0022); checked before anything
+/// starts, an error rather than the program's default when it does not fit.
 ///
 /// Async on a blocking thread: the start searches the PATH, may wait for the WSL detection and
 /// the version query of the gate, and spawns a process; on the main thread that would freeze
@@ -619,6 +622,7 @@ pub async fn create_session(
     instructions: Option<bool>,
     start_prompt: Option<StartPrompt>,
     sub_agent: Option<String>,
+    model: Option<crate::start_model::StartModel>,
 ) -> Result<SessionInfo, ManagerError> {
     tauri::async_runtime::spawn_blocking(move || {
         let manager = app.state::<SessionManager>();
@@ -641,6 +645,7 @@ pub async fn create_session(
                 instructions: instructions.unwrap_or(false),
                 prompt: start_prompt,
                 sub_agent,
+                model,
             },
             sink,
         )?;
@@ -2185,6 +2190,35 @@ pub async fn power_state(app: tauri::AppHandle) -> crate::power::PowerState {
     tauri::async_runtime::spawn_blocking(move || {
         app.state::<crate::power::PowerMonitor>()
             .refresh(crate::power::read())
+    })
+    .await
+    .unwrap_or_default()
+}
+
+/// The local LLM servers as last probed (local_llm.rs); later changes arrive as
+/// `local-llm-changed` events with the same shape.
+#[tauri::command]
+pub fn local_llm_status(
+    monitor: State<'_, crate::local_llm::LocalLlmMonitor>,
+) -> crate::local_llm::LocalLlmState {
+    monitor.current()
+}
+
+/// Probes both local LLM servers at once (the window calls it when it gains focus) and returns
+/// the new state; a change also goes out as `local-llm-changed`. Up to four loopback requests of
+/// at most 800 ms each, hence on a blocking thread.
+#[tauri::command]
+pub async fn local_llm_refresh(app: tauri::AppHandle) -> crate::local_llm::LocalLlmState {
+    tauri::async_runtime::spawn_blocking(move || {
+        let (state, changed) = app.state::<crate::local_llm::LocalLlmMonitor>().refresh();
+        if changed {
+            let _ = app.emit_to(
+                crate::panel_window::MAIN_LABEL,
+                crate::local_llm::EVENT,
+                &state,
+            );
+        }
+        state
     })
     .await
     .unwrap_or_default()
@@ -3971,13 +4005,18 @@ pub async fn protected_settings(
 pub async fn save_protected_settings(
     window: tauri::Window,
     store: State<'_, MainStore>,
+    gate: State<'_, GateService>,
     settings: ProtectedSettings,
 ) -> Result<(), MainStoreError> {
     main_store::check_main(window.label())?;
     let store = store.inner().clone();
+    let status_line = settings.status_line;
     tauri::async_runtime::spawn_blocking(move || store.save_settings(settings))
         .await
-        .map_err(|error| MainStoreError::Task(error.to_string()))?
+        .map_err(|error| MainStoreError::Task(error.to_string()))??;
+    // Only what is stored applies: the next agent start takes it (ADR 0023).
+    gate.set_status_line(status_line);
+    Ok(())
 }
 
 /// Where and how the next session starts and whether a waiting session shows itself (start
@@ -4868,7 +4907,7 @@ pub async fn telemetry_open_info(window: tauri::Window) -> Result<(), TelemetryE
         .map_err(|error| TelemetryError::Open(error.to_string()))
 }
 
-/// Whether Hangar Drive is installed and which of `paths` lie in a folder it syncs (ADR 0022).
+/// Whether Hangar Drive is installed and which of `paths` lie in a folder it syncs (ADR 0024).
 /// Only the main window, at most [`hangar_drive::MAX_PATHS`] paths.
 #[tauri::command]
 pub async fn hangar_drive_status(

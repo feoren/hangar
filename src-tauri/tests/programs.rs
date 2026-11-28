@@ -199,6 +199,10 @@ fn profile(id: &str, command: &str, version_args: Option<&[&str]>) -> Profile {
         packages: None,
         self_update: None,
         agent_commands: Vec::new(),
+        models: None,
+        model_args: None,
+        effort_args: None,
+        local: None,
     }
 }
 

@@ -6,8 +6,10 @@ import { useLayoutEffect, useRef } from "react";
 import { Badge } from "./Badge";
 import { folderName } from "./folders";
 import { shortAge } from "./format";
+import type { Profile } from "./api";
 import { useT } from "./i18n";
 import { CloseIcon } from "./icons";
+import { modelBadge, modelNote } from "./localLlm";
 import type { BadgeLook } from "./programPrefs";
 import { UNKNOWN_TIME, type RecentSession } from "./recentlyOpened";
 
@@ -26,6 +28,7 @@ export function RecentSessionList({
   entries,
   badgeFor,
   programName,
+  profileFor,
   language,
   now,
   onReopen,
@@ -34,6 +37,8 @@ export function RecentSessionList({
   entries: readonly RecentSession[];
   badgeFor: (profileId: string) => BadgeLook;
   programName: (profileId: string) => string;
+  /** The program, for the label of a vendor model; missing for a program no longer listed. */
+  profileFor?: (profileId: string) => Pick<Profile, "models"> | undefined;
   /** UI language, for the relative time. */
   language: string;
   /** Milliseconds since the Unix epoch, ticking (`useClock`). */
@@ -60,6 +65,9 @@ export function RecentSessionList({
         const folder = folderName(entry.cwd);
         const name = programName(entry.profileId);
         const detail = recentDetail(entry, name);
+        const profile = profileFor?.(entry.profileId);
+        const model = modelBadge(entry.model, profile, t);
+        const modelTitle = modelNote(entry.model, profile, t);
         const age =
           entry.closedAt === UNKNOWN_TIME ? null : shortAge(entry.closedAt, now, language);
         return (
@@ -70,15 +78,28 @@ export function RecentSessionList({
             <button
               type="button"
               className="profile recent-open"
-              title={`${detail === name ? name : `${detail}\n${name}`}\n${entry.cwd}`}
-              aria-label={t("recentlyOpened.open", { name: detail, folder })}
+              title={[detail === name ? name : `${detail}\n${name}`, modelTitle, entry.cwd]
+                .filter((line) => line !== null)
+                .join("\n")}
+              aria-label={
+                modelTitle === null
+                  ? t("recentlyOpened.open", { name: detail, folder })
+                  : `${t("recentlyOpened.open", { name: detail, folder })}, ${modelTitle}`
+              }
               onClick={() => {
                 onReopen(entry);
               }}
             >
               <Badge look={badgeFor(entry.profileId)} />
               <span className="recent-text">
-                <span className="recent-folder">{folder}</span>
+                <span className="recent-head">
+                  <span className="recent-folder">{folder}</span>
+                  {model !== null && (
+                    <span className="recent-model" aria-hidden="true">
+                      {model}
+                    </span>
+                  )}
+                </span>
                 <span className="recent-detail">
                   <span className="recent-name">{detail}</span>
                   {age !== null && (

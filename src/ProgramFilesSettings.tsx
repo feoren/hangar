@@ -1,5 +1,6 @@
-// Settings section "Terminals & Agents", lower part: HANGAR.md for every agent, and under
-// "Advanced" the upstream check of a fresh worktree session and the user's own profiles.toml.
+// Settings section "Terminals & Agents", lower part: HANGAR.md for every agent, Hangar's status
+// line and bar, and under "Advanced" the upstream check of a fresh worktree session and the
+// user's own profiles.toml.
 
 import { useState } from "react";
 
@@ -72,6 +73,34 @@ export function AgentInstructionsGroup({
           onAction={open}
         />
       </SwitchRow>
+    </SettingsGroup>
+  );
+}
+
+/**
+ * Hangar's status line inside the programs that can draw it (Claude Code, Qwen Code, Codex CLI),
+ * and Hangar's bar above the terminal for every other agent (HangarBar.tsx).
+ */
+export function StatusLineGroup({ settings, onChange }: { settings: Settings; onChange: Patch }) {
+  const t = useT();
+  return (
+    <SettingsGroup title={t("settings.statusLineGroup")}>
+      <SwitchRow
+        label={t("settings.statusLine")}
+        help={t("settings.statusLineHelp")}
+        checked={settings.statusLine}
+        onChange={(statusLine) => {
+          onChange({ statusLine });
+        }}
+      />
+      <SwitchRow
+        label={t("settings.hangarBar")}
+        help={t("settings.hangarBarHelp")}
+        checked={settings.hangarBar}
+        onChange={(hangarBar) => {
+          onChange({ hangarBar });
+        }}
+      />
     </SettingsGroup>
   );
 }

@@ -8,7 +8,7 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 
-import type { SessionContext } from "./contextUsage";
+import type { OutputRate, SessionContext } from "./contextUsage";
 import { formatUsd } from "./costs";
 import { badgeColor } from "./format";
 import { useT, type MessageKey } from "./i18n";
@@ -83,6 +83,8 @@ export const ROW_ELEMENT_NAMES: Record<RowElement, MessageKey> = {
   context: "rowElement.context",
   tokens: "rowElement.tokens",
   cost: "rowElement.cost",
+  speed: "rowElement.speed",
+  model: "rowElement.model",
 };
 
 type FormName = RowForms[keyof RowForms];
@@ -700,6 +702,10 @@ interface PreviewRow {
   context: SessionContext;
   /** Estimated dollars so far. */
   cost: number;
+  /** Output tokens per second, live or the last response's. */
+  speed: OutputRate | null;
+  /** The model badge, or `null` for the program's default. */
+  model: { text: string; title: string } | null;
 }
 
 const PREVIEW_ROWS: readonly PreviewRow[] = [
@@ -715,6 +721,8 @@ const PREVIEW_ROWS: readonly PreviewRow[] = [
     minutes: 64,
     context: { used: 215_500, window: 1_000_000 },
     cost: 3.42,
+    speed: { value: 84, live: true },
+    model: { text: "Opus 5.5", title: "Model: Opus 5.5" },
   },
   {
     id: 2,
@@ -728,6 +736,8 @@ const PREVIEW_ROWS: readonly PreviewRow[] = [
     minutes: 14,
     context: { used: 168_000, window: 200_000 },
     cost: 0.38,
+    speed: null,
+    model: null,
   },
 ];
 
@@ -798,6 +808,8 @@ export function RowLayoutPreview({ plan, language }: { plan: RowPlan; language: 
                     runtime={formatDuration(row.minutes * 60_000, language)}
                     context={row.context}
                     cost={`~${formatUsd(row.cost, language)}`}
+                    speed={row.speed}
+                    model={row.model}
                     language={language}
                   />
                 </span>

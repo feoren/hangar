@@ -1,0 +1,217 @@
+---
+title: "ADR 0022: Model choice per start, local LLM servers (Ollama, LM Studio), Hermes and OpenClaw"
+type: decision
+status: accepted
+superseded_by:
+tags: [agents, catalog, models, ollama, lm-studio, local-llm, sidebar, top-bar]
+sources: []
+created: 2026-11-27
+updated: 2026-11-27
+---
+
+# ADR 0022: Model choice per start, local LLM servers (Ollama, LM Studio), Hermes and OpenClaw
+
+## Context
+A session always started with the model the agent CLI picks on its own. Choosing another one
+meant a `--model` in `profiles.toml` or `/model` in the running session. Local models (Ollama,
+LM Studio) could not be used from Hangar at all, and nobody could see whether such a server ran.
+Two agent CLIs people ask for were missing: Nous Research's Hermes Agent and OpenClaw.
+
+Facts this decision rests on (checked 2026-11-27 against the official docs; the URLs are in
+[[agent-clis-research]] once ingested):
+- Ollama listens on port 11434: `GET /api/tags` lists installed models (`models[].name`),
+  `GET /api/ps` the loaded ones. It speaks the Anthropic Messages API at `/v1/messages`.
+- LM Studio listens on port 1234: `GET /api/v1/models` lists models (`models[].key`,
+  `display_name`, `type`, `loaded_instances`, empty when not loaded). It also speaks
+  `/v1/messages`. Older servers: `GET /v1/models` (`data[].id`).
+- Claude Code: `--model <alias|id>`, aliases `fable`, `opus`, `sonnet`, `haiku`. Against
+  Ollama: `ANTHROPIC_BASE_URL=http://127.0.0.1:11434`, `ANTHROPIC_AUTH_TOKEN=ollama`,
+  `ANTHROPIC_API_KEY=` (empty). Against LM Studio: `ANTHROPIC_BASE_URL=http://127.0.0.1:1234`,
+  `ANTHROPIC_AUTH_TOKEN=lmstudio`, `CLAUDE_CODE_ATTRIBUTION_HEADER=0`.
+- Codex CLI: `-m <model>`; current models `gpt-6.2-sol`, `gpt-6.2-astra`, `gpt-6.1-terra`
+  (CLI 0.159.0+), `gpt-6-luna`. Local: `--oss --local-provider ollama|lmstudio -m <model>`.
+- Gemini CLI: `-m <model>`, aliases `auto`, `pro`, `flash`, `flash-lite`. No local models.
+- Aider: `--model ollama_chat/<m>` with `OLLAMA_API_BASE=http://127.0.0.1:11434`;
+  `--model lm_studio/<m>` with `LM_STUDIO_API_BASE=http://127.0.0.1:1234/v1` and
+  `LM_STUDIO_API_KEY=dummy-api-key` (required, any value).
+- Hermes Agent: executable `hermes`, interactive with `hermes`; `hermes chat --provider <id>
+  -m <model>`. Ollama needs a custom endpoint in `~/.hermes/config.yaml` (no flag).
+- OpenClaw: executable `openclaw`; `openclaw tui --local` runs without a gateway. No model flag:
+  models change with `/model` inside the session.
+
+## Decision
+
+### Catalog (`agent_catalog.toml`, `profiles.toml`)
+Three new optional fields per agent, also accepted in a user's `[[profile]]` (a profile's value
+replaces the catalog's):
+- `models = [{ id = "opus", label = "Opus 5.5" }, ...]`: the vendor's models offered in the
+  menu, in this order. `id` is what goes into `{model}`.
+- `model_args = ["--model", "{model}"]`: how a vendor model goes into the start. Required when
+  `models` is set.
+- `local = { ollama = { args = [...], env = { ... } }, lmstudio = { args = [...], env = { ... } } }`:
+  how the agent runs against a local server. `{model}` and `{base}` (the server's base URL,
+  `http://127.0.0.1:11434` or `http://127.0.0.1:1234`) are the only placeholders, in args and
+  env values. An env value may be empty (sets the variable empty). `{model}` must appear in the
+  args or in at least one env value (amended 2026-11-27: some programs take the model only from a
+  variable, such as Goose's `GOOSE_MODEL`); an entry with it in neither is refused.
+
+Values for the built-in agents follow the facts above. Claude Code: `fable` "Fable", `opus`
+"Opus", `sonnet` "Sonnet", `haiku` "Haiku" (amended 2026-11-27: an alias always starts the
+newest model of its family, so the labels carry no version number that would go stale). Codex
+CLI: `gpt-6.2-sol` "GPT-6.2 Sol", `gpt-6.2-astra` "GPT-6.2 Astra", `gpt-6.1-terra` "GPT-6.1
+Terra", `gpt-6-luna` "GPT-6 Luna" as the fallback; Hangar offers the models Codex itself lists
+in `<CODEX_HOME>/models_cache.json` (fetched by Codex from OpenAI; `visibility: "list"`, in
+Codex's `priority` order, `display_name` as the label) whenever that file is readable, for the
+menu and for checking a chosen id at the start (`src-tauri/src/codex_models.rs`, amended
+2026-11-27). The file's shape was read from Codex CLI 0.171.0's own cache on this machine.
+Gemini CLI: `auto` "Auto", `pro` "Pro", `flash` "Flash", `flash-lite` "Flash Lite". Aider gets
+`local` only (its vendor list is open ended). Hermes gets `local.lmstudio` only if the provider
+id for LM Studio is verified in its docs, otherwise nothing. OpenClaw gets neither: Hangar does
+not offer what it cannot start ([[only-offer-what-works]] in spirit).
+
+New catalog entries:
+- `hermes`, name "Hermes Agent", `commands = ["hermes"]`, homepage
+  `https://github.com/NousResearch/hermes-agent`, install lines from its README.
+- `openclaw`, name "OpenClaw", `commands = ["openclaw"]`, `args = ["tui", "--local"]`, homepage
+  `https://github.com/openclaw/openclaw`, install lines from its README.
+Both with icon SVG, NOTICE row and `agent.<id>.description` in 12 languages, like every entry.
+
+### The start (`create_session`)
+- New optional argument `model: { source: "provider" | "ollama" | "lmstudio", id: string }`.
+- Validation in the backend, before anything starts (a new start: error, no fallback):
+  - `id`: 1 to 160 characters from `A-Z a-z 0-9 . _ : / @ + - [ ]`, no leading `-`.
+  - `provider`: the agent has `model_args` and `id` is one of its `models`.
+  - `ollama` / `lmstudio`: the agent has that `local` entry. The server need not run; the agent
+    reports its own error then.
+  - Expanded arguments pass `batch::argument_ok` like every other argument for `.cmd` launchers.
+- Args: `model_args` (provider) or `local.<server>.args` go after the profile's args and before
+  the instruction, agent and prompt args. Env: `local.<server>.env` is applied after the
+  profile's env and after its secrets: a real provider key stored under a name the entry sets
+  (`ANTHROPIC_API_KEY`, `OPENAI_API_KEY`) must never go in plain text to a local port, where any
+  process could listen while the real server is down. Entries therefore set such names
+  themselves, empty or with a dummy.
+- The choice is stored with the session (`persist.rs`, like `sub_agent`) and used again on
+  restore and resume. Recent sessions keep it too.
+- A stored choice never costs the session: a value this Hangar cannot read in `workspace.json`
+  or the recent sessions (bad id, unknown source, extra field) is dropped on reading with a line
+  in the log, and the session or entry stays (`start_model::lenient_stored`).
+- A restore, a restart of a placeholder or a reopened recent session (`create_session` with
+  `resume`) whose stored model no longer fits (the catalog or the profile dropped it, the
+  program lost its `local` entry) starts with the program's default and logs why; the session
+  then carries no model. Only a new start from the menu is refused.
+- On a resume the model's arguments follow `resume_args`. Codex CLI accepts them there:
+  `codex resume` flattens the full interactive option set (`SessionTuiCli(TuiCli)`), which holds
+  `-m`, `--oss` and `--local-provider`.
+- `ProfileView` gains `models: [{ id, label }]` (empty when none) and
+  `localSources: ("ollama" | "lmstudio")[]`.
+
+### Reasoning effort per start (amended 2026-11-27)
+The owner asked for the effort choice Claude Desktop shows under its model list: a vendor model
+opens a submenu of its levels, and the chosen one goes into the start.
+- Catalog and profile: a model may carry `efforts = ["low", ...]` (menu order, at most 12, each
+  1 to 32 characters from `a-z 0-9 -`, no leading `-`) and `default_effort` (one of them). A new
+  per-program field `effort_args` with exactly the placeholder `{effort}` says how a chosen level
+  goes into the start; it is required in the catalog when a model has efforts, a profile inherits
+  it like `model_args`. Without `effort_args` the menu shows no efforts.
+- Only levels that are documented for exactly that model are offered ([[only-offer-what-works]]).
+  Claude Code (`claude --help` 2.1.332: `--effort <level>  Effort level for the current session
+  (low, medium, high, xhigh, max)`): `fable`, `opus` and `sonnet` with all five levels,
+  `effort_args = ["--effort", "{effort}"]`. Haiku offers none: whether it takes an effort is not
+  documented. No Claude model names a default level, since none is documented. Codex CLI: the
+  levels come from Codex's own model list (`supported_reasoning_levels[].effort` and
+  `default_reasoning_level` in `models_cache.json`, read by `src-tauri/src/codex_models.rs`; for
+  example `low` to `ultra` for gpt-6.2-sol, without `ultra` for gpt-6-luna). The catalog's
+  fallback list names none. `effort_args = ["-c", "model_reasoning_effort={effort}"]`: the main
+  session's effort, measured with 0.171.0 (`codex exec ... -c model_reasoning_effort=low` ran
+  with `reasoning effort: low`, [[codex-subagent-model-measurement]]); `codex resume --help`
+  0.172.0 lists `-c` as well, so the arguments also work after `resume_args`.
+- The start: `model` gains an optional `effort`. It must be valid, the source must be `provider`
+  (local models take none) and the model must list it; then the expanded `effort_args` go right
+  after `model_args`. A new start with an effort that does not fit is refused. Without an effort
+  nothing is passed and the program keeps its own default: a click on the model itself starts so.
+- The effort is stored with the model (workspace, recent sessions). On a restore or a reopened
+  recent session an effort that no longer fits costs only the effort: the session starts with
+  the model and keeps the model without the effort. A stored effort of a bad shape is dropped on
+  reading, the model stays.
+- Interface: a model with efforts has a small "›" in the flyout; resting on it (150 ms) or Right
+  arrow opens its levels beside the flyout, Left arrow and Escape go back, another row closes it
+  after a short grace (250 ms) so the pointer can cross a neighbor. The levels carry the window's
+  own names in 12 languages (German: Niedrig, Mittel, Hoch, Extra hoch, Maximal, Ultra; an unknown
+  level shows its id), the program's default level says "Default" quietly. The session row's
+  model badge and the recent sessions name the level after the model ("Opus · Hoch").
+- `ProfileView.models[]` gains `efforts` (left out when empty) and `defaultEffort`.
+
+### Local servers (`local_llm.rs`)
+- One background thread, as in `power.rs`: probes both servers every 10 s (30 s while power
+  saving), emits `local-llm-changed` only on change, command `local_llm_status` returns the
+  current state, command `local_llm_refresh` probes at once (the frontend calls it when the
+  window gains focus).
+- Loopback only (`127.0.0.1`), no proxy, no redirects, 800 ms timeout, body at most 1 MiB, at
+  most 200 models per server, names cut to 160 characters and dropped when they fail the `id`
+  rule above.
+- Ollama: running when `/api/tags` answers with valid JSON; models from `models[].name`,
+  `loaded` from `/api/ps`. LM Studio: `/api/v1/models`, only `type == "llm"`, id `key`, label
+  `display_name`, `loaded` when `loaded_instances` is not empty; falling back to `/v1/models`
+  (`data[].id`, `loaded` unknown = false) when the new endpoint is missing.
+- State shape (camelCase): `{ ollama: Server, lmstudio: Server }`,
+  `Server = { running: bool, models: [{ id, label, loaded }] }`.
+- The CSP stays as it is: the frontend never talks to the servers itself.
+
+### Interface
+- **Top bar**, before the coffee button: one small badge per server with its icon and a dot,
+  green (`--ok`) while it runs, grey while not; the tooltip and the accessible name say it in
+  words ("Ollama runs, 4 models" / "Ollama is off"). Never color alone.
+- **Sidebar, "New session"**: each program row is one start button (its click starts the
+  session with the CLI's default). A row whose agent has `models` or a `local` entry for a
+  running server opens a flyout directly to its right once the pointer rests on it (about
+  150 ms), or with Right arrow (Left arrow and Escape go back to the row). The pointer may cross
+  the gap and other rows on its way into the flyout (a short grace period and a safe triangle);
+  leaving both closes it, and over another row it hands over at once. No pill or plus: a small
+  quiet arrow at the end of the row marks that it has models, and the row keeps its hover look
+  while its flyout is open (amended 2026-11-27, three times: the owner found a plus and an
+  arrow button unclear, then the "Model" pill too, asked for a flyout on hover, and then for an
+  arrow as the hint that a row has more than one model). Touch screens have no hover: there a tap starts with the default. The flyout is
+  fixed to the window: the vendor's models first (heading: the program's name), then "Ollama"
+  and "LM Studio" with their models (loaded ones marked), each section only when it has
+  entries. A click starts the session with that model.
+- A session row's tooltip names the chosen model.
+
+## Consequences
+- Models become one click; local LLMs work with Claude Code, Codex CLI and Aider without any
+  setup beyond a running server.
+- Vendor model names age: the lists live in the catalog (data, not code) and a user's
+  `profiles.toml` can replace them.
+- Two small HTTP probes every 10 s on loopback; nothing leaves the machine.
+- Open: OpenClaw models (no start flag), the collapsed rail and the app menu do not offer models
+  yet.
+- Update 2026-11-27: Hermes against Ollama is offered after all (`--provider custom --base-url`
+  for one launch); Qwen Code, Oh My Pi, Copilot CLI (Ollama) and Goose (Ollama, model in env only)
+  joined. The check of every other
+  catalog agent is in [[local-models-per-agent]].
+
+## Evidence
+Read on 2026-11-27:
+- Ollama API: https://docs.ollama.com/api/tags, https://docs.ollama.com/api/ps,
+  https://docs.ollama.com/api/anthropic-compatibility, Claude Code setup
+  https://docs.ollama.com/integrations/claude-code, Codex setup
+  https://docs.ollama.com/integrations/codex.
+- LM Studio API: https://lmstudio.ai/docs/developer/rest, https://lmstudio.ai/docs/developer/rest/list,
+  Claude Code setup https://lmstudio.ai/docs/integrations/claude-code, Codex setup
+  https://lmstudio.ai/docs/integrations/codex.
+- Claude Code models: https://code.claude.com/docs/en/model-config.
+- Codex CLI flags: `codex-rs/utils/cli/src/shared_options.rs` in https://github.com/openai/codex
+  (`--model`/`-m`, `--oss`, `--local-provider`); models: https://learn.chatgpt.com/docs/models.
+  `codex resume` takes them too: `codex-rs/cli/src/main.rs`, `struct ResumeCommand` with
+  `#[clap(flatten)] config_overrides: SessionTuiCli` (a wrapper of `TuiCli`), merged by
+  `finalize_resume_interactive` (read on main at commit `afe555b9`).
+- Gemini CLI: https://geminicli.com/docs/cli/cli-reference/.
+- Aider: https://aider.chat/docs/llms/ollama.html, https://aider.chat/docs/llms/lm-studio.html.
+- Hermes Agent: https://github.com/NousResearch/hermes-agent,
+  https://hermes-agent.nousresearch.com/docs/reference/cli-commands,
+  https://hermes-agent.nousresearch.com/docs/integrations/providers.
+- OpenClaw: https://github.com/openclaw/openclaw, https://docs.openclaw.ai/web/tui,
+  https://docs.openclaw.ai/cli/models.
+
+> [!question] Unverified
+> The lowest Ollama and LM Studio versions with `/v1/messages`; Hermes' default interface when
+> started without `--tui`/`--cli`.

@@ -1,4 +1,4 @@
-// Hangar Drive, the separate sync and backup app (ADR 0022): whether it is installed, which
+// Hangar Drive, the separate sync and backup app (ADR 0024): whether it is installed, which
 // project folders it holds, and which folder a session's "Back up" hands to it. Pure; the backend
 // detects the app, reads its public folder list and checks every folder again.
 

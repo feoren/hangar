@@ -10,6 +10,10 @@
 // past the eye ("ASCII smuggling"). The `u` flag makes the tags one code point each.
 const CLASS =
   "[\\u202a-\\u202e\\u2066-\\u2069\\u200b-\\u200f\\u061c\\u2060-\\u2064\\u2028\\u2029\\ufeff" +
+  // The soft hyphen, the Hangul fillers, the Mongolian vowel separator, the deprecated format
+  // characters and the interlinear annotation marks: the same set as `is_hidden` in
+  // src-tauri/src/partners.rs.
+  "\\u00ad\\u115f\\u1160\\u180e\\u3164\\uffa0\\u206a-\\u206f\\ufff9-\\ufffb" +
   "\\u0000-\\u0008\\u000a-\\u001f\\u007f-\\u009f\\u{e0000}-\\u{e007f}]";
 const INVISIBLE = new RegExp(CLASS, "u");
 const INVISIBLE_ALL = new RegExp(CLASS, "gu");

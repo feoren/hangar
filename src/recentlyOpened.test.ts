@@ -79,6 +79,20 @@ describe("recentEntry", () => {
     });
   });
 
+  it("keeps the model choice, and writes no field without one", () => {
+    const model = { source: "ollama", id: "qwen3:8b" } as const;
+    expect(recentEntry(session({ model }), 42)?.model).toEqual(model);
+    expect(recentEntry(session({ model: null }), 42)).not.toHaveProperty("model");
+    expect(recentEntry(session({ model: { source: "ollama", id: "-x" } }), 42)).not.toHaveProperty(
+      "model",
+    );
+    expect(parseRecentSessions([{ ...entry(), model }])[0]?.model).toEqual(model);
+    // A broken choice only costs the model.
+    const broken = parseRecentSessions([{ ...entry(), model: { source: "cloud", id: "x" } }]);
+    expect(broken).toHaveLength(1);
+    expect(broken[0]).not.toHaveProperty("model");
+  });
+
   it("works without marker and conversation, as a fresh start tells it", () => {
     const shell = recentEntry(
       { profileId: "pwsh", cwd: "C:\\work", title: "PowerShell 7", cliSessionId: undefined },

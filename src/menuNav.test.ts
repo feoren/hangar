@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import {
   firstIndex,
   fitInViewport,
+  headingFor,
   INITIAL_SUBMENU,
   lastIndex,
   menuCommand,
@@ -197,5 +198,25 @@ describe("submenus open only on purpose", () => {
   it("counts real movement as hover", () => {
     expect(pointerMoved({ x: 10, y: 20 }, { x: 11, y: 20 })).toBe(true);
     expect(pointerMoved({ x: 10, y: 20 }, { x: 10, y: 18 })).toBe(true);
+  });
+});
+
+describe("headingFor", () => {
+  // A flyout whose left edge runs at x = 200 from y = 100 to y = 300.
+  const edge = { x: 200, top: 100, bottom: 300 };
+
+  it("sees a move into the triangle towards the flyout", () => {
+    expect(headingFor({ x: 100, y: 110 }, { x: 110, y: 120 }, edge)).toBe(true);
+    expect(headingFor({ x: 100, y: 110 }, { x: 130, y: 150 }, edge)).toBe(true);
+  });
+
+  it("does not see a move straight down or away", () => {
+    expect(headingFor({ x: 100, y: 110 }, { x: 100, y: 140 }, edge)).toBe(false);
+    expect(headingFor({ x: 100, y: 110 }, { x: 90, y: 130 }, edge)).toBe(false);
+  });
+
+  it("does not see a move that misses the flyout", () => {
+    expect(headingFor({ x: 100, y: 110 }, { x: 105, y: 160 }, edge)).toBe(false);
+    expect(headingFor({ x: 100, y: 110 }, { x: 110, y: 50 }, edge)).toBe(false);
   });
 });

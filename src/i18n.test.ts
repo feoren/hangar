@@ -40,9 +40,8 @@ const SHORT_KEYS = [
   "common.close",
   "sidebar.signedIn",
   "teamPill.off",
-  "teamWindow.tab.now",
-  "teamWindow.tab.people",
-  "teamWindow.tab.requests",
+  "teamWindow.manage",
+  "teamWindow.back",
   "teamWindow.connect",
   "changes.viewOpen",
   "changes.viewCommits",
@@ -273,6 +272,8 @@ describe("catalog agent descriptions", () => {
       vibe: "Apache-2.0",
       droid: null,
       amp: null,
+      hermes: null,
+      openclaw: null,
     };
     const license = (text: string): string | null =>
       /[(（]([A-Za-z0-9.-]+)[)）][.。]$/.exec(text)?.[1] ?? null;

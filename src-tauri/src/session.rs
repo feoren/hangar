@@ -101,6 +101,13 @@ pub struct SessionInfo {
     /// The sub-agent definition the session runs as (`--agent`), kept across restarts; the
     /// window stores it in the workspace to start it as that one again.
     pub sub_agent: Option<String>,
+    /// The model the session started with (ADR 0022), kept across restarts; the window stores it
+    /// in the workspace and the recent sessions to start with it again. `null`: the program's
+    /// own default.
+    pub model: Option<crate::start_model::StartModel>,
+    /// Hangar's status line runs inside the current process's program (ADR 0023); the window
+    /// then shows no Hangar bar of its own above the terminal.
+    pub status_line: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
@@ -133,6 +140,8 @@ impl SessionInfo {
             sub_agents: false,
             gate: GateStatus::None,
             sub_agent: None,
+            model: None,
+            status_line: false,
         }
     }
 

@@ -1,4 +1,4 @@
-//! Hangar Drive, the separate sync and backup app (ADR 0022). Hangar only finds out whether it is
+//! Hangar Drive, the separate sync and backup app (ADR 0024). Hangar only finds out whether it is
 //! installed, hands it a project folder through its `hangar-drive://add-folder` link and reads the
 //! public list of the folders it syncs, to mark the project cards. Hangar Drive asks the person to
 //! confirm every folder itself; nothing here adds a folder or writes a file of Hangar Drive.
