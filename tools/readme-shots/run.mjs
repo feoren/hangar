@@ -1,6 +1,6 @@
 // Renders the README screenshots into docs/images from the real frontend with a mocked backend
 // (mock.ts) in a headless Chromium based browser: one image per scene and color scheme, e.g.
-// hangar-dark.png (the overview) and hangar-team-notes-light.png.
+// hangar-dark.png (the overview) and hangar-team-light.png.
 //
 // Usage: pnpm readme:shots [--scene <name>]...   (default: every scene)
 //
@@ -25,17 +25,13 @@ const OUT_DIR = path.join(REPO, "docs/images");
 
 const WIDTH = 1296;
 const HEIGHT = 839;
-// Wide enough for the version and its beta badge in the sidebar header, and for a session row's
-// second line with its branch and context meter.
-const SIDEBAR_WIDTH = 352;
+// Wide enough for the version and its beta badge in the sidebar header, for a session row's title
+// beside its model pill, output rate and state, and for its second line with its branch and
+// context meter.
+const SIDEBAR_WIDTH = 460;
 const KB = 1024;
 const SCHEMES = ["dark", "light"];
 const TITLE = "README-SHOTS-HARNESS";
-/** Pause before a scene's pointer path, and between two of its points. */
-const POINTER_FADE_MS = 2800;
-const POINTER_STEP_MS = 60;
-/** How long a scene's pointer path repeats at most while it waits for its `freezeWhen`. */
-const POINTER_TIMEOUT_MS = 30_000;
 
 /** Clicks the first element matching `selector` whose text contains `text` (if given). */
 const click = (selector, text = null) => `(() => {
@@ -65,22 +61,6 @@ const working = (count) => `(() => {
  */
 const SETTLED = `(${working(2)} && ${shows(".session", "done")})`;
 
-/**
- * True while a pulse of the home view's glyph field stands out in the open band between the bar
- * above the work area and the activity calendar, where it covers no text: enough clearly lit
- * pixels on the canvas there. The pointer's patch lies far below it.
- */
-const GLYPH_PULSE = `(() => {
-  const canvas = document.querySelector(".glyph-background");
-  const context = canvas?.getContext("2d");
-  if (!context) return false;
-  const host = canvas.getBoundingClientRect();
-  const band = context.getImageData(0, 0, canvas.width, Math.max(1, 120 - Math.round(host.top)));
-  let lit = 0;
-  for (let i = 3; i < band.data.length; i += 4) if (band.data[i] >= 40) lit += 1;
-  return lit > 450;
-})()`;
-
 /** The tree flow in its default style, without the rates at the rows' ends. */
 const FLOW = { treeFlow: { enabled: true, style: "stream", showRate: false } };
 
@@ -90,33 +70,35 @@ const BLUR = `(() => {
   return true;
 })()`;
 
-/** Types `value` into the text field matching `selector`, as a person would. */
-const typeInto = (selector, value) => `(() => {
-  const field = document.querySelector(${JSON.stringify(selector)});
-  if (!field) throw new Error("No field " + ${JSON.stringify(selector)});
-  const proto = field instanceof HTMLTextAreaElement ? HTMLTextAreaElement : HTMLInputElement;
-  Object.getOwnPropertyDescriptor(proto.prototype, "value").set.call(field, ${JSON.stringify(value)});
-  field.dispatchEvent(new Event("input", { bubbles: true }));
+/** Presses `key` on whatever has the focus, as the keyboard would. */
+const press = (key) => `(() => {
+  const target = document.activeElement ?? document.body;
+  target.dispatchEvent(new KeyboardEvent("keydown", { key: ${JSON.stringify(key)}, bubbles: true, cancelable: true }));
   return true;
 })()`;
 
-/** Right-clicks the first element matching `selector` whose text contains `text`. */
-const contextMenu = (selector, text) => `(() => {
+/** Focuses the first element matching `selector` whose text contains `text`. */
+const focus = (selector, text) => `(() => {
   const all = [...document.querySelectorAll(${JSON.stringify(selector)})];
   const target = all.find((el) => el.textContent.includes(${JSON.stringify(text)}));
-  if (!target) throw new Error("Nothing to right-click: " + ${JSON.stringify(`${selector} ${text}`)});
-  const box = target.getBoundingClientRect();
-  target.dispatchEvent(
-    new MouseEvent("contextmenu", {
-      bubbles: true,
-      cancelable: true,
-      button: 2,
-      clientX: box.left + 24,
-      clientY: box.top + box.height / 2,
-    }),
-  );
+  if (!target) throw new Error("Nothing to focus: " + ${JSON.stringify(`${selector} ${text}`)});
+  target.focus();
   return true;
 })()`;
+
+/** Ctrl+clicks the sidebar row whose title contains `title`, as a person selecting it. */
+const ctrlClick = (title) => `(() => {
+  const row = [...document.querySelectorAll(".session-main")].find((el) =>
+    el.textContent.includes(${JSON.stringify(title)}),
+  );
+  if (!row) throw new Error("No row " + ${JSON.stringify(title)});
+  row.dispatchEvent(new MouseEvent("click", { bubbles: true, cancelable: true, ctrlKey: true }));
+  return true;
+})()`;
+
+/** True once the focused element's text contains `text`. */
+const focused = (text) =>
+  `(document.activeElement?.textContent ?? "").includes(${JSON.stringify(text)})`;
 
 /**
  * What the app shows once it is up, unless a scene says otherwise: `count` sessions, an agent
@@ -139,33 +121,35 @@ const BOOT = (version, count = 5) => `(() => {
  * every session row stands whole.
  */
 const FOLDED = ["recentlyOpened", "newSession"];
+/** The Team window as large as a person would pull it, so every card shows its rows whole. */
+const TEAM_WINDOW = { width: 1100, height: 795 };
 const SINGLE = { snapLayout: "single", closedGroups: FOLDED };
 
 /**
  * The scenes, in README order. `file`: the image name without scheme; `maxBytes`: the size limit
- * of one image; `layout` and `settings`: changes to the stored layout and settings; `settled`: what
+ * of one image; `layout` and `settings`: changes to the stored layout and settings; `storage`: more
+ * entries for the window's storage (a dialog's remembered size); `settled`: what
  * the sidebar must show before the steps start (default: SETTLED); `boot`: what must show for the
  * app to count as started, given the version shown (default: BOOT); `steps`: what to run once the
  * app is up, each followed by what must show before the next; `hover`: the element the pointer
- * rests on for the screenshot (default: none, the pointer leaves the window); `pointer`: a path of
- * [x, y] points the pointer moves along right before the screenshot, for what follows the pointer
- * (the home view's glyph field), repeated until `freezeWhen` holds (default: once). The mock reads the scene's name too (mock.ts `SCENE`).
+ * rests on for the screenshot (default: none, the pointer leaves the window). The mock reads the
+ * scene's name too (mock.ts `SCENE`).
  */
 const SCENES = [
   {
-    // The hero: the bar above the work area with the session's name, the support badge and the
-    // panel switch; "Recently opened" above New session; the link group's bracket and light flowing
-    // to the working sessions; the asking session that has waited for 12 minutes; the lead with
-    // its crew of three of Hangar's own sub-agents; the notes beside it in the right panel.
+    // The hero: the lead in acme-shop with its crew of three of Hangar's own sub-agents and its
+    // status line under the prompt, beside it Gemini CLI done with the refund docs under the slim
+    // Hangar bar (model, folder, branch, run time). In the sidebar every row wears its model as a
+    // pill, the lead writes 84 tok/s, the red dot counts its running sub-agents, the link group's
+    // bracket and light flow to the working sessions, and the asking session has waited for 12
+    // minutes. The top bar shows Ollama and LM Studio running.
     name: "overview",
     file: "hangar",
     maxBytes: 300 * KB,
     layout: {
-      ...SINGLE,
+      snapLayout: "pair",
+      paneRatios: { pair: [0.56] },
       closedGroups: ["newSession"],
-      sideOpen: true,
-      sideTab: "notes",
-      notesWidth: 330,
     },
     settings: FLOW,
     boot: (version) => BOOT(version, 4),
@@ -174,27 +158,97 @@ const SCENES = [
       {
         ready: `(document.querySelectorAll(".crew-item").length === 3 &&
           document.querySelectorAll(".recent-row").length === 2 &&
-          document.querySelectorAll(".note-row").length === 3)`,
+          document.querySelectorAll(".local-llm-badge.running").length === 2 &&
+          ${shows(".hangar-bar", "Pro")} &&
+          ${shows(".session", "tok/s")})`,
       },
     ],
   },
   {
-    // Shared notes for the whole team: the notes panel on its "Shared" side lists the four shared
-    // notes of acme-shop, and an admin of the team has clicked "Share with acme-shop" under them.
-    // The dialog says everyone in the team can read them, also people who join later, no code
-    // needed, with Cancel and Share.
-    name: "team-notes",
-    file: "hangar-team-notes",
+    // "New session" with the models of Claude Code open beside its row: the vendor's models, then
+    // the local ones of Ollama (one loaded) and LM Studio, and Opus's reasoning efforts in a
+    // submenu with High picked. The top bar's pills say both local servers run.
+    name: "model-menu",
+    file: "hangar-model-menu",
     maxBytes: 300 * KB,
-    layout: { ...SINGLE, sideOpen: true, sideTab: "notes", notesWidth: 420 },
+    layout: { ...SINGLE, closedGroups: ["recentlyOpened"] },
+    boot: (version) => BOOT(version, 3),
+    settled: working(2),
     steps: [
-      { ready: shows(".notes-side-count") },
       {
-        run: click(".notes-sides input[value=shared]"),
-        ready: `(document.querySelectorAll(".notes-group .note-row").length === 4 &&
-          ${shows(".notes-team-action", "Share with acme-shop")})`,
+        ready: `(${shows(".profile-name", "Claude Code")} &&
+          document.querySelectorAll(".local-llm-badge.running").length === 2)`,
       },
-      { run: click(".notes-team-action"), ready: shows(".shared-notes-dialog", "No code needed") },
+      { run: focus(".profile", "Claude Code"), ready: focused("Claude Code") },
+      { run: press("ArrowRight"), ready: shows(".model-menu", "qwen3-coder:30b") },
+      { run: press("ArrowDown"), ready: focused("Opus") },
+      { run: press("ArrowRight"), ready: shows(".popup-submenu", "High") },
+      { run: press("ArrowDown"), ready: focused("Medium") },
+      { run: press("ArrowDown"), ready: focused("High") },
+    ],
+  },
+  {
+    // The lead at work alone, the sidebar folded into its rail so the terminal has the window's
+    // width, with Hangar's status line in two lines under its prompt: model and effort, account
+    // and plan, folder, branch and pull request; context, cache, changed lines, cost, run time and
+    // the 5 hour and 7 day limits.
+    name: "status-line",
+    file: "hangar-status-line",
+    maxBytes: 300 * KB,
+    layout: { ...SINGLE, collapsed: true },
+    // The rail shows no version and no row text: five sessions, the others' screens out.
+    boot: () => `document.querySelectorAll(".rail-session").length === 5`,
+    settled: "window.__readmeShots.geminiAnswered === true",
+    steps: [],
+  },
+  {
+    // The Team window as it opens: on top, waiting for Sam's answer, Mika's request to hand over
+    // the webhook retries; then who is here with what each person works on, Priya away, the team's
+    // tasks and decisions, and "Manage" in the header.
+    name: "team",
+    file: "hangar-team",
+    maxBytes: 300 * KB,
+    layout: SINGLE,
+    storage: { "hangar.teamWindowSize": TEAM_WINDOW },
+    steps: [
+      {
+        run: click("[data-team-toggle]"),
+        ready: `(${shows(".team-attention")} && ${shows(".team-peer-name", "Priya")})`,
+      },
+      { run: BLUR, ready: "true" },
+    ],
+  },
+  {
+    // The team's decisions in the Team window, each with its reason, who wrote it and when, "Send
+    // to session" for the active session and Withdraw on Sam's own.
+    name: "team-decisions",
+    file: "hangar-team-decisions",
+    maxBytes: 300 * KB,
+    layout: SINGLE,
+    storage: { "hangar.teamWindowSize": TEAM_WINDOW },
+    steps: [
+      {
+        run: click("[data-team-toggle]"),
+        ready: `document.querySelectorAll(".team-decision").length === 4`,
+      },
+      { run: BLUR, ready: "true" },
+    ],
+  },
+  {
+    // Two link groups in the sidebar, each with its bracket and lead; one member of each picked
+    // with Ctrl+click, and the bar below the list offers to link them: the groups merge into one.
+    name: "link-groups",
+    file: "hangar-link-groups",
+    maxBytes: 300 * KB,
+    layout: SINGLE,
+    boot: (version) => BOOT(version, 4),
+    steps: [
+      { run: ctrlClick("hangar-security"), ready: shows(".link-selection-count", "1 selected") },
+      {
+        run: ctrlClick("Webhook retries"),
+        ready: `(${shows(".link-selection-count", "2 selected")} &&
+          document.querySelector(".link-selection-link:not([disabled])") !== null)`,
+      },
       { run: BLUR, ready: "true" },
     ],
   },
@@ -202,101 +256,21 @@ const SCENES = [
     // The crew beside the lead: Hangar's security agent searching, and two visitors that are not
     // Hangar's own, the person's code-reviewer and load-tester, drawn as guests in their colors
     // with their initial on a badge, the newest typing dots. The sidebar's tree lists the same
-    // four under the lead, the manager done, each guest with its figure.
+    // four under the lead, the manager done, each guest with its figure; the red dot on the lead's
+    // row counts the three that still run.
     name: "sub-agents",
     file: "hangar-sub-agents",
     maxBytes: 300 * KB,
-    layout: { snapLayout: "pair", paneRatios: { pair: [0.61] }, closedGroups: FOLDED },
+    layout: SINGLE,
     boot: (version) => BOOT(version, 4),
     steps: [
       {
         ready: `(document.querySelectorAll(".crew-item").length === 3 &&
           document.querySelectorAll(".crew-item .agent-figure.guest").length === 2 &&
           document.querySelectorAll(".subagent-tree-item .agent-figure.guest").length === 2 &&
-          document.querySelector(".crew-typing") !== null)`,
+          document.querySelector(".crew-typing") !== null &&
+          document.querySelector(".session .subagent-count") !== null)`,
       },
-    ],
-  },
-  {
-    // The home view with its hidden glyph field: the pointer has just wiped a patch free like fog
-    // on a window, and a blot pulses up on its own in an open spot. The mock stops the field's
-    // clock for the screenshot (mock.ts `HOME_GLYPHS`).
-    name: "home-glyphs",
-    file: "hangar-home-glyphs",
-    maxBytes: 300 * KB,
-    layout: SINGLE,
-    steps: [{ run: click(".sidebar-home"), ready: shows(".empty.home") }],
-    // A blot is up well away from the pointer's patch.
-    freezeWhen: GLYPH_PULSE,
-    // Through the open field below the project cards, where nothing covers what it uncovers.
-    pointer: [
-      [880, 800],
-      [930, 770],
-      [990, 750],
-      [1050, 745],
-      [1110, 752],
-      [1160, 770],
-    ],
-  },
-  {
-    // "Edit group": the members' names, the lead and the group's cost today, and the session that
-    // could still join; beside it in the sidebar the colored bracket with "Group · 3" and the crown
-    // on the lead.
-    name: "link-groups",
-    file: "hangar-link-groups",
-    maxBytes: 300 * KB,
-    layout: SINGLE,
-    steps: [
-      {
-        run: contextMenu(".session-main", "Webhook retries"),
-        ready: shows("[role=menuitem]", "Edit group"),
-      },
-      { run: click("[role=menuitem]", "Edit group"), ready: shows(".link-names input") },
-      { run: BLUR, ready: "true" },
-    ],
-  },
-  {
-    // Below the lead's row wait Hangar's introduction of the group, which names the members the
-    // lead now works with and is set to send once the busy lead pauses (it can still be
-    // cancelled), and a member's report with "Send", "Paste only" and the close mark.
-    name: "waiting-message",
-    file: "hangar-waiting-message",
-    maxBytes: 300 * KB,
-    layout: SINGLE,
-    steps: [
-      {
-        // The cards take no click for a moment after they appear (useArmDelay.ts).
-        ready: `(document.querySelectorAll(".waiting-message-send:not([aria-disabled])").length === 2 &&
-          document.querySelectorAll(".link-intro-name").length === 2)`,
-      },
-      {
-        run: `(() => {
-          const card = [...document.querySelectorAll(".waiting-message")].find((el) =>
-            el.querySelector(".link-intro") !== null,
-          );
-          if (!card) throw new Error("No introduction of the group");
-          card.querySelector(".waiting-message-send").click();
-          return true;
-        })()`,
-        ready: shows(".waiting-message-status", "Sends when the session is ready"),
-      },
-      { run: BLUR, ready: "true" },
-    ],
-  },
-  {
-    // The secret guard holds a commit whose staged files seem to hold a key.
-    name: "secret-guard",
-    file: "hangar-secret-guard",
-    maxBytes: 300 * KB,
-    layout: { ...SINGLE, sideOpen: true, sideTab: "changes", notesWidth: 460 },
-    steps: [
-      { ready: shows(".commit-message") },
-      {
-        run: typeInto(".commit-message", "feat: retry failed webhook deliveries"),
-        ready: `document.querySelector(".commit-message").value.length > 10`,
-      },
-      { run: click(".commit-box .primary-button"), ready: shows(".commit-secrets") },
-      { run: BLUR, ready: "true" },
     ],
   },
 ];
@@ -414,6 +388,7 @@ async function render(page, url, scene, scheme, version) {
       ...scene.layout,
     },
     "readmeShots.scene": scene.name,
+    ...scene.storage,
     "hangar.settings": {
       language: "en",
       theme: "system",
@@ -445,7 +420,7 @@ async function render(page, url, scene, scheme, version) {
   // fails, raise SIDEBAR_WIDTH.
   const missing = await page.evaluate(`(() => {
     const element = document.querySelector(".brand-version");
-    return element.scrollWidth - element.clientWidth;
+    return element === null ? 0 : element.scrollWidth - element.clientWidth;
   })()`);
   if (missing > 0) {
     throw new Error(`The version ${shown} is cut off in the sidebar header by ${missing} px.`);
@@ -474,24 +449,6 @@ async function render(page, url, scene, scheme, version) {
     })()`);
     if (point === null) throw new Error(`Nothing to point at: ${selector} #${index}`);
     await page.send("Input.dispatchMouseEvent", { type: "mouseMoved", x: point.x, y: point.y });
-  }
-  if (scene.pointer) {
-    // Whatever the move into the corner uncovered fades first (glyphField.ts `REVEAL_LIFE`).
-    await sleep(POINTER_FADE_MS);
-    // The path again and again, so what it uncovers stays fresh, until the page shows what the
-    // scene waits for (`freezeWhen`), or for a while at most.
-    const deadline = Date.now() + POINTER_TIMEOUT_MS;
-    for (;;) {
-      for (const [x, y] of scene.pointer) {
-        await page.send("Input.dispatchMouseEvent", { type: "mouseMoved", x, y });
-        await sleep(POINTER_STEP_MS);
-      }
-      if (!scene.freezeWhen || (await page.evaluate(scene.freezeWhen))) break;
-      if (Date.now() > deadline) {
-        console.warn(`${scene.name}: what the scene waits for did not show; taken as it is.`);
-        break;
-      }
-    }
   }
   await page.evaluate("window.__readmeShots.freeze = true");
   // The app's clocks tick once a second; let them pick up the frozen time.

@@ -4,7 +4,7 @@ type: synthesis
 tags: [release, updater, nsis, windows, linux, appimage, deb, macos, dmg]
 sources: ["[[tauri-updater-and-nsis]]", "[[code-signing-research]]", "[[linux-bundling-reading]]", "[[macos-release-reading]]"]
 created: 2026-11-07
-updated: 2026-11-25
+updated: 2026-11-28
 ---
 
 # Rolling out a release
@@ -110,11 +110,11 @@ collects its items under that same version without a date. `src/versionSync.test
    backend and a fictional scene (`tools/readme-shots/`) in headless Edge, Chrome or Chromium
    (`README_SHOTS_BROWSER` picks a specific executable) and writes one image per scene and color
    scheme into `docs/images/` (1296 x 839): the overview `hangar-dark.png` and `hangar-light.png`
-   (at most 400 KB each) and `hangar-<scene>-dark.png` / `-light.png` for each further scene (at
-   most 300 KB each): one per most visible feature of the release. Since 0.16.0 these are six:
-   `team-notes`, `sub-agents`, `home-glyphs`, `waiting-message`, `link-groups` and
-   `secret-guard`. A release keeps the overview plus six to nine scenes and
-   replaces the ones whose feature is no longer among the best. The README and the website use
+   and `hangar-<scene>-dark.png` / `-light.png` for each further scene (at most 300 KB each,
+   the overview too): one per most visible feature of the release. Since 0.17.0 these are six:
+   `model-menu`, `status-line`, `team`, `team-decisions`, `link-groups` and `sub-agents`. A
+   release keeps the overview plus six to nine scenes and replaces the ones whose feature is no
+   longer among the best. The README and the website use
    these stable names. `--scene <name>` renders only some scenes. Times are deterministic: the mock runs
    a fixed clock and the browser renders in UTC; animations stop on a fixed frame. It cleans up
    after itself (temporary files only under `tests/.tmp/readme-shots`), runs its own Vite server

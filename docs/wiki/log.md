@@ -1858,6 +1858,12 @@ ADR 0023 amended: the renderer now matches the owner's Claude Code status line (
 `[model]`, ` | `, e-mail, cold cache word in the interface language, cache miss causes).
 Pages changed: [[0023-hangar-status-line]].
 
+## [2026-11-28] query | README scenes for 0.17.0
+The 0.17.0 screenshots replace `team-notes`, `home-glyphs`, `waiting-message` and `secret-guard`
+with `model-menu`, `status-line`, `team` and `team-decisions`; `link-groups` now shows two
+groups picked with Ctrl+click to merge, `sub-agents` the red count on the row, and the overview
+model pills, the output rate, the status line and the Hangar bar. Updated: [[release-rollout]].
+
 ## [2026-11-28] ingest | ADR 0024: back up project folders with Hangar Drive
 Filed the contract agreed with the separate Hangar Drive app: detection through its
 `hangar-drive` scheme, the add-folder link with a checked local folder (Hangar Drive confirms),

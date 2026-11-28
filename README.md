@@ -35,14 +35,14 @@ your own accounts, on your own machine. The desktop app is open source under the
 
 <picture>
   <source media="(prefers-color-scheme: light)" srcset="docs/images/hangar-light.png">
-  <img alt="Hangar with a Claude Code session whose sub-agents hangar-backend, hangar-frontend and hangar-tester stand on round stages in the crew column, each with a speech bubble saying what it edits or runs, and the notes panel open on the right with three private notes and four shared ones; the sidebar groups the sessions by project with a teal bracket labeled Group · 3 around the linked ones, the hangar-security session has waited for 12 minutes, the Recently opened group lists acme-billing and acme-web with their program and age, and the bar above the terminal shows the session's name, a blue Buy me a coffee badge and the switch for the right panel" src="docs/images/hangar-dark.png">
+  <img alt="Hangar with two sessions side by side: on the left Claude Code leads with three sub-agents, hangar-backend, hangar-frontend and hangar-tester, shown as chips above its terminal, and Hangar's two-line status line under its prompt with model, folder, branch, context, cost and the 5 hour limit; on the right Gemini CLI has finished the refund docs under a slim Hangar bar with its model Pro and the folder acme-docs. The sidebar groups the sessions by project, each row wears its model as a small pill (Opus · High, GPT-6.2 Sol, Sonnet, Pro), the Claude Code row writes 84 tok/s and carries a red dot with 3 running sub-agents listed below it, a teal bracket labeled Link group · 3 holds the linked sessions, hangar-security has waited for 12 minutes, and the top bar shows Ollama and LM Studio running" src="docs/images/hangar-dark.png">
 </picture>
 
 ## Features
 
 ### Sessions and agents
 
-- **Every agent in one window.** Claude Code, Codex CLI, Gemini CLI, Aider and 18 more command-line
+- **Every agent in one window.** Claude Code, Codex CLI, Gemini CLI, Aider and 20 more command-line
   tools are detected automatically and start with one click, each with its own icon in one
   consistent style. PowerShell, Command Prompt, WSL and any other command work the same way.
 - **Recently opened.** The sidebar keeps the sessions you started last, with program, folder, title
@@ -54,10 +54,17 @@ your own accounts, on your own machine. The desktop app is open source under the
   them aside and shows a calm home view: one card per repository with its sessions, open changes,
   newest commits and dev servers, and a calendar of your commits over the last year with weekday
   names and a legend.
-- **Sessions you recognize.** The sidebar groups sessions by program or by project folder, and an
-  agent session takes its name from your first prompt, so several sessions in one project stay
-  apart. Each row shows its state, folder and branch, and its CPU, memory and GPU use in aligned
-  columns. Hovering a row shows that session's last lines in their colors without switching to it.
+- **Pick a model when you start.** The "›" next to Claude Code, Codex CLI, Gemini CLI and others
+  under New session opens their models, and local models from Ollama and LM Studio as well. For a
+  model that reasons, pick the effort too, such as low, medium or high; Codex CLI offers its
+  current models straight from its own list. Small pills in the top bar show whether Ollama and
+  LM Studio run and how many models they hold. Drag the programs under New session into the order
+  you like.
+- **Sessions you recognize.** The sidebar groups sessions by program or by project folder. A session
+  leads with its project folder instead of your first prompt, names you give stay, and a small
+  pill shows the model it runs. Each row shows its state, folder and branch, and its CPU, memory and GPU
+  use in aligned columns. Hovering a row shows that session's last lines in their colors without
+  switching to it.
 - **A terminal that feels like an editor.** A click in the prompt line moves the cursor there without
   taking the agent's grey suggestion, Backspace or Delete removes marked text, also across the rows
   of a long, wrapped prompt, and Shift+Enter starts a new line in an agent's prompt instead of
@@ -85,13 +92,15 @@ your own accounts, on your own machine. The desktop app is open source under the
 <text>`. Nothing is pasted on its own: the message waits under the partner's session row until you
   choose Send, Paste only or × to discard it. While the partner still works, the card says so and
   you can cancel.
-- **Link sessions.** Pick two or more running agents and link them; a colored bracket holds the
-  group together in the sidebar, labeled with its size and a crown on the lead, and a click on the
-  label edits the group. They message each other with `hangar-send` until you unlink them,
-  and you can add more sessions to a group later. A lead
-  hands out tasks and collects the results, the group history shows every message, and a template
-  can link its sessions as soon as they start. Messages are only sent with Enter when the target
-  agent is idle, never into a question or a permission dialog.
+- **Link sessions.** Ctrl+click running agents in the sidebar (Cmd+click on macOS) and link them; a
+  colored bracket holds the group together, labeled with its size and a crown on the lead, and its
+  menu sets the lead or pauses the group. They message each other with `hangar-send` until you
+  unlink them. Linked sessions link further: select a group's member with other sessions to add
+  them, or members of two groups to merge both into one. A lead hands out tasks and collects the
+  results, waiting messages sit in one line with "Send all", the group history shows every message,
+  a template can link its sessions as soon as they start, and groups come back after a restart once
+  you agree. Messages are only sent with Enter when the target agent is idle, never into a question
+  or a permission dialog.
 - **One line per session.** From the View menu or a right-click on a group, every session sits on
   one close line, so fifteen sessions fit at a glance. Turning it off brings back your layout.
 - **Side by side.** Show two, three or four sessions at once, arrange them by dragging and resize
@@ -119,9 +128,15 @@ your own accounts, on your own machine. The desktop app is open source under the
   the GPU, GPU load and memory (per session on Windows and on Linux with AMD or Intel graphics,
   the machine's GPU only on macOS); a mark flags a session that keeps a whole core busy or holds
   a lot of memory.
-- **Context at a glance.** Claude Code sessions show how full their context window is right in
-  their row, for example `12 % · 123k / 1M`. From 80 % a compact button on the row sends the
-  agent's compact command.
+- **Hangar's status line.** Claude Code, Qwen Code and Codex CLI show Hangar's status line under their
+  prompt: model and effort, folder, branch and pull request on the first line; context, cache,
+  changed lines, cost, run time and the 5 hour and 7 day limits on the second. It drops the least
+  important parts when the terminal is narrow. Other agents get a slim Hangar bar above the
+  terminal with their model, folder, branch, context, cost and run time.
+- **Context and speed at a glance.** Claude Code sessions show how full their context window is right
+  in their row, for example `12 % · 123k / 1M`, and how fast Claude Code writes, such as `84 tok/s`:
+  live while it works, then the last value stays, slightly dimmed. From 80 % a compact button on
+  the row sends the agent's compact command.
 - **Data flow on the tree lines.** If you like, light flows along the sidebar's lines to every
   working session, at the pace of its output, with its rate beside it. Choose the style and how
   much it shows under _Settings > Appearance_.
@@ -144,7 +159,8 @@ your own accounts, on your own machine. The desktop app is open source under the
 - **Approvals Hangar can see.** Claude Code's hooks tell Hangar when a session waits for your
   approval, also in private sessions, so the row shows it and nothing presses Enter for you.
 - **Watch sub-agents work.** The sub-agents of a Claude Code session appear as a tree below it, each
-  with what it does right now, its run time and its tokens. One click shows a sub-agent beside the
+  with what it does right now, its run time and its tokens, and a red dot on the session's row
+  counts the ones still running, also while the tree is collapsed. One click shows a sub-agent beside the
   terminal the way Claude Code itself does, with recognizable keys and passwords masked; drag the
   line between them to give either side more room, and close finished ones with one click.
 - **Your crew beside the terminal.** Running sub-agents stand as figures in a column next to the
@@ -240,10 +256,14 @@ your own accounts, on your own machine. The desktop app is open source under the
 Team features need the Team plan; the free plan is for one person. See
 [pricing](https://hangar.feoren.com/pricing).
 
-- **The Team window.** See which teammates are online, which agents they run and which files they
-  change, and reserve tasks so nobody works on the same thing twice. Devices join only after
-  confirmation, and everything shared is end-to-end encrypted. Your profile picture from your
-  Hangar account shows in the sidebar.
+- **The Team window.** It opens on what you need, without tabs: who is here, what each person works
+  on with which agents and files, the tasks you reserve so nobody works on the same thing twice,
+  and on top whatever waits for your answer, such as a request to hand a task over. Sharing,
+  invitations, repositories and devices sit behind "Manage". Devices join only after confirmation,
+  and everything shared is end-to-end encrypted. Your profile picture from your Hangar account
+  shows in the sidebar.
+- **Team decisions.** Record what the team decided and why, in two short fields. Claude Code reads
+  the decisions on its own, and "Send to session" pastes one into any other agent.
 - **Teammates beside your work.** The file tree shows which files their agents are changing, with
   their avatar and since when.
 
@@ -280,49 +300,49 @@ Team features need the Team plan; the free plan is for one person. See
   <tr>
     <td width="50%" valign="top">
       <picture>
-        <source media="(prefers-color-scheme: light)" srcset="docs/images/hangar-team-notes-light.png">
-        <img alt="The dialog Share with acme-shop over the notes panel: everyone in acme-shop can then read these notes, including people who join later, no code needed, with Cancel and Share; behind it the Shared tab of the project acme-shop lists four notes stored in the repository, On-call handover, Release 2.4 checklist with two of four items done, Review rules and Payment sandbox, with the link Share with acme-shop below them" src="docs/images/hangar-team-notes-dark.png">
+        <source media="(prefers-color-scheme: light)" srcset="docs/images/hangar-model-menu-light.png">
+        <img alt="New session with the models of Claude Code open beside its row: under Claude Code the models Fable, Opus, Sonnet and Haiku, under Ollama qwen3-coder:30b marked loaded, gpt-oss:20b and devstral:24b, under LM Studio gpt-oss-120b; beside Opus a submenu with the efforts Low, Medium, High, Extra high and Max, High selected. The top bar shows Ollama with 3 models and LM Studio with 1 running, and the session rows wear their model pills" src="docs/images/hangar-model-menu-dark.png">
       </picture>
-      <br><sub>Shared notes for the whole team: the key arrives through the team, no code needed.</sub>
+      <br><sub>Pick a model when you start, local ones from Ollama and LM Studio too, and its reasoning effort.</sub>
     </td>
     <td width="50%" valign="top">
       <picture>
-        <source media="(prefers-color-scheme: light)" srcset="docs/images/hangar-sub-agents-light.png">
-        <img alt="The crew column of a Claude Code session reviewing a change: hangar-security searching for apiKey|secret above two drawn visitors with name badges, code-reviewer reading webhook.ts and load-tester with typing dots; the sidebar lists hangar-manager as done, hangar-security and both visitors under the session" src="docs/images/hangar-sub-agents-dark.png">
+        <source media="(prefers-color-scheme: light)" srcset="docs/images/hangar-status-line-light.png">
+        <img alt="A Claude Code terminal across the whole window, with the sidebar folded into its rail, that adds retries to a payment webhook and runs its tests; under its prompt Hangar's status line in two lines: Opus at high effort, version, Sam Carter on Max, the folder acme-shop, the branch main with one commit ahead and staged, changed and new files, pull request 128 pending; then the context bar at 12 % with 123k of 1M, cache 94 %, 142 lines added and 37 removed, $9.06 at $10.45 an hour, 52 minutes run time, the 5 hour limit at 34 % and the 7 day limit at 61 %, each with the time until it resets" src="docs/images/hangar-status-line-dark.png">
       </picture>
-      <br><sub>Sub-agents that are not Hangar's stand on the stage as drawn visitors with a name badge.</sub>
+      <br><sub>Hangar's status line in Claude Code: model, folder, branch, context, cost and limits at a glance.</sub>
     </td>
   </tr>
   <tr>
     <td width="50%" valign="top">
       <picture>
-        <source media="(prefers-color-scheme: light)" srcset="docs/images/hangar-home-glyphs-light.png">
-        <img alt="The home view with the activity calendar of 564 commits and the project cards for acme-shop and acme-docs; a faint field of drifting glyphs shows only where the pointer passed at the bottom right and where a soft pulse glows near the top" src="docs/images/hangar-home-glyphs-dark.png">
+        <source media="(prefers-color-scheme: light)" srcset="docs/images/hangar-team-light.png">
+        <img alt="The Team window of acme-shop: on top, under Waiting for you, Mika Rossi asks to release the task Webhook retries, with Release and Keep; below it Who's here lists Mika Rossi working on Checkout emails with Claude Code, Jonas Berg on Search ranking with Codex CLI waiting, and Priya Nair away; beside them the team's four tasks and its three decisions, and the Manage button in the header" src="docs/images/hangar-team-dark.png">
       </picture>
-      <br><sub>The home view hides a field of drifting glyphs that the pointer uncovers like fog.</sub>
+      <br><sub>The Team window opens on who is here, what each person works on and what waits for you.</sub>
     </td>
     <td width="50%" valign="top">
       <picture>
-        <source media="(prefers-color-scheme: light)" srcset="docs/images/hangar-waiting-message-light.png">
-        <img alt="Under the Webhook retries session, the card Linked into a group says the session leads the group with Cart rounding and Refund docs and sends once the session is ready, with Cancel; below it a message from cart reports its fix, with Send and Paste only" src="docs/images/hangar-waiting-message-dark.png">
+        <source media="(prefers-color-scheme: light)" srcset="docs/images/hangar-team-decisions-light.png">
+        <img alt="The Team window of acme-shop with the card Decisions listing four decisions, each with its reason, who recorded it and when: Three webhook retries, then stop; Round cart totals once, at the end; Refunds over 500 EUR need two approvals; No test card numbers in the repository. Each has Send to session, the newest, recorded by you, also Withdraw, and Record decision sits in the card's header" src="docs/images/hangar-team-decisions-dark.png">
       </picture>
-      <br><sub>A new group introduces itself to its lead; messages from other agents wait for your click.</sub>
+      <br><sub>Team decisions keep what was decided and why; Claude Code reads them on its own.</sub>
     </td>
   </tr>
   <tr>
     <td width="50%" valign="top">
       <picture>
         <source media="(prefers-color-scheme: light)" srcset="docs/images/hangar-link-groups-light.png">
-        <img alt="The Edit group dialog of a link group with three members, shop, cart and docs, the session hangar-security under Add session, the lead set to the Webhook retries session and the group's cost today of 2.2M tokens, about $15.18, while a teal bracket labeled Group · 3 holds the linked sessions together in the sidebar" src="docs/images/hangar-link-groups-dark.png">
+        <img alt="The sidebar with two link groups, a teal one led by Webhook retries with Cart rounding and an orange one led by hangar-security with Refund docs, each with a crown on its lead; Webhook retries and hangar-security are selected with Ctrl+click, and the bar below the sessions says 2 selected with the Link button that merges both groups into one" src="docs/images/hangar-link-groups-dark.png">
       </picture>
-      <br><sub>Link agents into a group with a lead that hands out tasks and collects the results.</sub>
+      <br><sub>Ctrl+click sessions to link them, add them to a link group or merge two groups into one.</sub>
     </td>
     <td width="50%" valign="top">
       <picture>
-        <source media="(prefers-color-scheme: light)" srcset="docs/images/hangar-secret-guard-light.png">
-        <img alt="The changes panel stopping a commit: it names src/payments/client.ts with a Stripe secret key and .env.production as a file that usually holds secrets, never the value, with Cancel and Commit anyway above the three staged files" src="docs/images/hangar-secret-guard-dark.png">
+        <source media="(prefers-color-scheme: light)" srcset="docs/images/hangar-sub-agents-light.png">
+        <img alt="The crew column of a Claude Code session reviewing a change: hangar-security searching for apiKey|secret above two drawn visitors, code-reviewer reading webhook.ts and load-tester with typing dots; in the sidebar the session's row carries a red dot with 3 running sub-agents, and its tree lists hangar-manager as done, hangar-security and both visitors" src="docs/images/hangar-sub-agents-dark.png">
       </picture>
-      <br><sub>The secret guard stops commits and messages that seem to hold a key, and asks first.</sub>
+      <br><sub>A red dot counts each session's running sub-agents; visitors stand on the stage as drawn figures.</sub>
     </td>
   </tr>
 </table>
